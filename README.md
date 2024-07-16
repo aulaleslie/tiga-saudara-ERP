@@ -39,7 +39,7 @@
 - **Purchase & Sale Return Management**
 - **Expense Management**
 - **Customer & Supplier Management**
-- **User Management (Roles & Permissions)**
+- **Pengaturan Pengguna (Peran & Izin)**
 - **Product Multiple Images**
 - **Multiple Currency Settings**
 - **Unit Settings**

@@ -13,10 +13,10 @@ Route::group(['middleware' => 'auth'], function () {
     Route::patch('/user/profile', 'ProfileController@update')->name('profile.update');
     Route::patch('/user/password', 'ProfileController@updatePassword')->name('profile.update.password');
 
-    //Users
+    //Akun
     Route::resource('users', 'UsersController')->except('show');
 
-    //Roles
+    //Peran
     Route::resource('roles', 'RolesController')->except('show');
 
 });
