@@ -16,11 +16,11 @@
     @include('layouts.sidebar')
 
     <div class="c-wrapper">
-        <header class="c-header c-header-light c-header-fixed">
+        <header class="c-header c-header-fixed">
             @include('layouts.header')
-            <div class="c-subheader justify-content-between px-3">
-                @yield('breadcrumb')
-            </div>
+{{--            <div class="c-subheader justify-content-between px-3">--}}
+{{--                @yield('breadcrumb')--}}
+{{--            </div>--}}
         </header>
 
         <div class="c-body">

@@ -1,10 +1,10 @@
-<button class="c-header-toggler c-class-toggler d-lg-none mfe-auto" type="button" data-target="#sidebar" data-class="c-sidebar-show">
+<button class="c-header-toggler c-class-toggler d-block d-sm-none mfe-auto" type="button" data-target="#sidebar" data-class="c-sidebar-show">
     <i class="bi bi-list" style="font-size: 2rem;"></i>
 </button>
 
-<button class="c-header-toggler c-class-toggler mfs-3 d-md-down-none" type="button" data-target="#sidebar" data-class="c-sidebar-lg-show" responsive="true">
-    <i class="bi bi-list" style="font-size: 2rem;"></i>
-</button>
+{{--<button class="c-header-toggler c-class-toggler mfs-3 d-block d-sm-none" type="button" data-target="#sidebar" data-class="c-sidebar-lg-show" responsive="true">--}}
+{{--    <i class="bi bi-list" style="font-size: 2rem;"></i>--}}
+{{--</button>--}}
 
 <ul class="c-header-nav ml-auto">
 

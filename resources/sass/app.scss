@@ -2,21 +2,41 @@
 @import '@coreui/coreui/scss/coreui';
 
 //Extra Overrides
-//.c-sidebar {
-//    background: #0f766e;
-//    color: #fff;
-//}
-//
-.c-sidebar .c-sidebar-nav-link.c-active, .c-sidebar .c-active.c-sidebar-nav-dropdown-toggle {
+.c-sidebar {
+    background: #0d2a36;
     color: #fff;
-    background: $primary;
+}
+
+.c-header {
+    background: #009bde;
+}
+
+.c-header .c-header-toggler {
+    color: #fff;
+}
+
+.c-header .c-header-nav .c-header-nav-link {
+    color: #fff;
+}
+
+//
+.c-sidebar .c-sidebar-nav-link.c-active, .c-sidebar .c-active .c-sidebar-nav-dropdown-toggle {
+    color: #fff;
+    background: #009bde;
+
+}
+
+.c-sidebar .c-sidebar-nav-link {
+    padding: .45rem;
+    border-radius: 2px;
+    margin-bottom: 1px;
 }
 //
 //
-//.c-sidebar .c-sidebar-nav-link:hover {
-//    color: #fff;
-//    background: #0d9488;
-//}
+.c-sidebar .c-sidebar-nav-link:hover {
+    color: #fff;
+    background: #009bde;
+}
 
 .btn:not([class*=ghost]):not([class*=link]):not([class*=outline]):not([class*=transparent]) {
     border: 0;
