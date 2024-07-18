@@ -1,6 +1,6 @@
 <li class="c-sidebar-nav-item {{ request()->routeIs('home') ? 'c-active' : '' }}">
     <a class="c-sidebar-nav-link" href="{{ route('home') }}">
-        <i class="c-sidebar-nav-icon bi bi-home" style="line-height: 1;"></i> Beranda
+        <i class="c-sidebar-nav-icon bi bi-house" style="line-height: 1;"></i> Beranda
     </a>
 </li>
 
@@ -279,11 +279,11 @@
             <i class="c-sidebar-nav-icon bi bi-people" style="line-height: 1;"></i> Pengaturan Pengguna
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
-            <li class="c-sidebar-nav-item">
+           <!--nav <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('users.create') ? 'c-active' : '' }}" href="{{ route('users.create') }}">
                     <i class="c-sidebar-nav-icon bi bi-person-plus" style="line-height: 1;"></i> Buat Akun
                 </a>
-            </li>
+            </li> -->
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('users*') ? 'c-active' : '' }}" href="{{ route('users.index') }}">
                     <i class="c-sidebar-nav-icon bi bi-person-lines-fill" style="line-height: 1;"></i> Semua Akun

@@ -61,7 +61,7 @@ class ProfileController extends Controller
             'password' => Hash::make($request->password)
         ]);
 
-        toast('Password Updated!', 'success');
+        toast('Password di Perbaharui!', 'success');
 
         return back();
     }
