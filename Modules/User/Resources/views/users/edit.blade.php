@@ -25,7 +25,7 @@
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Update User <i class="bi bi-check"></i></button>
+                        <button class="btn btn-primary">Perbaharui Pengguna <i class="bi bi-check"></i></button>
                     </div>
                 </div>
                 <div class="col-md-8">
@@ -69,8 +69,8 @@
                     <div class="card">
                         <div class="card-body">
                             <div class="form-group">
-                                <label for="image">Profile Image <span class="text-danger">*</span></label>
-                                <img style="width: 100px;height: 100px;" class="d-block mx-auto img-thumbnail img-fluid rounded-circle mb-2" src="{{ $user->getFirstMediaUrl('avatars') }}" alt="Profile Image">
+                                <label for="image">Foto Profil <span class="text-danger">*</span></label>
+                                <img style="width: 100px;height: 100px;" class="d-block mx-auto img-thumbnail img-fluid rounded-circle mb-2" src="{{ auth()->user()->getFirstMediaUrl('avatars') }}" alt="Profile Image">
                                 <input id="image" type="file" name="image" data-max-file-size="500KB">
                             </div>
                         </div>

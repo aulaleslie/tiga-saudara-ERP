@@ -9,7 +9,7 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item active">Akun</li>
+        <li class="breadcrumb-item active">Pengguna</li>
     </ol>
 @endsection
 
@@ -21,7 +21,7 @@
                     <div class="card-body">
                         <!-- Button trigger modal -->
                         <a href="{{ route('users.create') }}" class="btn btn-primary">
-                            Tambah Akun <i class="bi bi-plus"></i>
+                            Tambah Pengguna <i class="bi bi-plus"></i>
                         </a>
 
                         <hr>

@@ -46,7 +46,7 @@ class ProfileController extends Controller
             }
         }
 
-        toast('Profile Updated!', 'success');
+        toast('Profil Diperbaharui!', 'success');
 
         return back();
     }
