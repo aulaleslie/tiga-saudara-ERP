@@ -27,13 +27,13 @@
                     @csrf
                     @method('patch')
                     <div class="form-group">
-                        <button type="submit" class="btn btn-primary">Update Role <i class="bi bi-check"></i>
+                        <button type="submit" class="btn btn-primary">Perbaharui Peran <i class="bi bi-check"></i>
                         </button>
                     </div>
                     <div class="card">
                         <div class="card-body">
                             <div class="form-group">
-                                <label for="name">Role Name <span class="text-danger">*</span></label>
+                                <label for="name">Nama Pengguna <span class="text-danger">*</span></label>
                                 <input class="form-control" type="text" name="name" required value="{{ $role->name }}">
                             </div>
 
@@ -41,14 +41,14 @@
 
                             <div class="form-group">
                                 <label for="permissions">
-                                    Permissions <span class="text-danger">*</span>
+                                    Hak Akses <span class="text-danger">*</span>
                                 </label>
                             </div>
 
                             <div class="form-group">
                                 <div class="custom-control custom-checkbox">
                                     <input type="checkbox" class="custom-control-input" id="select-all">
-                                    <label class="custom-control-label" for="select-all">Give All Permissions</label>
+                                    <label class="custom-control-label" for="select-all">Beri Semua Hak Akses</label>
                                 </div>
                             </div>
 
@@ -110,7 +110,7 @@
                                 <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
-                                            User Mangement
+                                            Manajemen Pengguna
                                         </div>
                                         <div class="card-body">
                                             <div class="row">
@@ -136,7 +136,7 @@
                                 </div>
 
                                 <!-- Products Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Products
@@ -202,10 +202,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Adjustments Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Adjustments
@@ -255,10 +255,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Quotations Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Quotaions
@@ -324,10 +324,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Expenses Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Expenses
@@ -377,10 +377,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Customers Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Customers
@@ -430,10 +430,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Suppliers Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Suppliers
@@ -483,10 +483,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Sales Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Sales
@@ -552,10 +552,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Sale Returns Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Sale Returns
@@ -613,10 +613,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Purchases Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Purchases
@@ -674,10 +674,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Purchases Returns Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Purchase Returns
@@ -735,10 +735,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Currencies Permission -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Currencies
@@ -780,10 +780,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Reports -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Reports
@@ -801,10 +801,10 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <!-- Settings -->
-                                <div class="col-lg-4 col-md-6 mb-3">
+                                <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Settings
@@ -822,7 +822,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </div> -->
                             </div>
                         </div>
                     </div>

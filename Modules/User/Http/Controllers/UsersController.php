@@ -51,14 +51,13 @@ class UsersController extends Controller
 
             if ($tempFile) {
                 $user->addMedia(Storage::path('temp/' . $request->image . '/' . $tempFile->filename))->toMediaCollection('avatars');
-    // auth()->user()->addMedia(Storage::path('temp/' . $request->image . '/' . $tempFile->filename))->toMediaCollection('avatars');
 
                 Storage::deleteDirectory('temp/' . $request->image);
                 $tempFile->delete();
             }
         }
 
-        toast("User Created & Assigned '$request->role' Role!", 'success');
+        toast("Pengguna Berhasil Ditambahkan '$request->role' Role!", 'success');
 
         return redirect()->route('users.index');
     }
@@ -102,7 +101,7 @@ class UsersController extends Controller
             }
         }
 
-        toast("User Updated & Assigned '$request->role' Role!", 'info');
+        toast("Perubahan Pengguna Berhasil '$request->role' Role!", 'info');
 
         return redirect()->route('users.index');
     }
