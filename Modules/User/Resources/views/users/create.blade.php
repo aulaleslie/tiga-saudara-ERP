@@ -16,6 +16,10 @@
     </ol>
 @endsection
 
+@section('sub-sidebar')
+    @include('layouts.sub-sidebar')
+@endsection
+
 @section('content')
     <div class="container-fluid mb-4">
         <form action="{{ route('users.store') }}" method="POST" enctype="multipart/form-data">

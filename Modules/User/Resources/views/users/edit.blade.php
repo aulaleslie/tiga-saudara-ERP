@@ -8,6 +8,10 @@
           rel="stylesheet">
 @endsection
 
+@section('sub-sidebar')
+    @include('layouts.sub-sidebar')
+@endsection
+
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
