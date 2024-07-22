@@ -24,16 +24,8 @@
         </header>
 
         <div class="c-body">
-{{--            @include('layouts.sub-sidebar')--}}
             <main class="c-main">
-                <div class="container-fluid">
-                    <div class="row">
-                        @include('layouts.sub-sidebar')
-                        <div class="col-md-9">
-                            @yield('content')
-                        </div>
-                    </div>
-                </div>
+                @yield('content')
             </main>
         </div>
 
