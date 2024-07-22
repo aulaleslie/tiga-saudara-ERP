@@ -18,10 +18,6 @@
     </style>
 @endpush
 
-@section('sub-sidebar')
-    @include('layouts.sub-sidebar')
-@endsection
-
 @section('content')
     <div class="container-fluid">
         <div class="row">

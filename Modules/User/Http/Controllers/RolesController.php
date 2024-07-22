@@ -77,7 +77,7 @@ class RolesController extends Controller
 
         $role->delete();
 
-        toast('Role Deleted!', 'success');
+        toast('Peran Dihapus!', 'success');
 
         return redirect()->route('roles.index');
     }

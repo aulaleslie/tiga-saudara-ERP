@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Pengguna')
+@section('title', 'Akun')
 
 @section('third_party_stylesheets')
     <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css">
@@ -11,10 +11,6 @@
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
         <li class="breadcrumb-item active">Pengguna</li>
     </ol>
-@endsection
-
-@section('sub-sidebar')
-    @include('layouts.sub-sidebar')
 @endsection
 
 @section('content')
