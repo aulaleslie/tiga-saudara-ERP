@@ -33,7 +33,7 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="name">Name <span class="text-danger">*</span></label>
+                                        <label for="name">Nama <span class="text-danger">*</span></label>
                                         <input class="form-control" type="text" name="name" required>
                                     </div>
                                 </div>

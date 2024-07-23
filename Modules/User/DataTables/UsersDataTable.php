@@ -72,27 +72,34 @@ class UsersDataTable extends DataTable
     protected function getColumns() {
         return [
             Column::computed('image')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Gambar'), // Mengubah nama kolom
 
             Column::make('name')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Nama'), // Mengubah nama kolom
 
             Column::make('email')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Email'), // Mengubah nama kolom
 
             Column::computed('role')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Peran'), // Mengubah nama kolom
 
             Column::computed('status')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Status'), // Mengubah nama kolom
 
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Aksi'), // Mengubah nama kolom
 
             Column::make('created_at')
                 ->visible(false)
+                ->title('Tanggal Dibuat') // Mengubah nama kolom
         ];
     }
 
