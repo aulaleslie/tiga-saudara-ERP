@@ -1,0 +1,5 @@
+-- Permissions
+    show_total_income
+    show_total_sales
+    show_total_purchase
+    show_total_profit
