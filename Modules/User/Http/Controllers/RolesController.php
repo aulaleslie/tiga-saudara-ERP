@@ -66,7 +66,7 @@ class RolesController extends Controller
 
         $role->syncPermissions($request->permissions);
 
-        toast('Role Updated With Selected Permissions!', 'success');
+        toast('Hak Akses Peran telah diperbaharui!', 'success');
 
         return redirect()->route('roles.index');
     }
