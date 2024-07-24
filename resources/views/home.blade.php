@@ -10,8 +10,8 @@
 
 @section('content')
     <div class="container-fluid">
-        @can('show_total_stats')
         <div class="row">
+            @can('show_total_income')
             <div class="col-md-6 col-lg-3">
                 <div class="card border-0">
                     <div class="card-body p-0 d-flex align-items-center shadow-sm">
@@ -25,6 +25,7 @@
                     </div>
                 </div>
             </div>
+            @endcan
 
             <div class="col-md-6 col-lg-3">
                 <div class="card border-0">
@@ -68,7 +69,6 @@
                 </div>
             </div>
         </div>
-        @endcan
 
         @can('show_weekly_sales_purchases|show_month_overview')
         <div class="row mb-4">

@@ -22,6 +22,7 @@ class PermissionsTableSeeder extends Seeder
             'access_user_management',
             //Dashboard
             'show_total_stats',
+            'show_total_income',
             'show_month_overview',
             'show_weekly_sales_purchases',
             'show_monthly_cashflow',
