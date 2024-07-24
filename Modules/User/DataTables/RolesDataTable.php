@@ -57,25 +57,30 @@ class RolesDataTable extends DataTable
         return [
             Column::make('id')
                 ->addClass('text-center')
-                ->addClass('align-middle'),
+                ->addClass('align-middle')
+                ->title('No'), // Mengubah nama kolom
 
             Column::make('name')
                 ->addClass('text-center')
-                ->addClass('align-middle'),
+                ->addClass('align-middle')
+                ->title('Nama'), // Mengubah nama kolom
 
             Column::computed('permissions')
                 ->addClass('text-center')
                 ->addClass('align-middle')
-                ->width('700px'),
+                ->width('700px')
+                ->title('Hak Akses'), // Mengubah nama kolom
 
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
                 ->addClass('text-center')
-                ->addClass('align-middle'),
+                ->addClass('align-middle')
+                ->title('Aksi'), // Mengubah nama kolom
 
             Column::make('created_at')
                 ->visible(false)
+                ->title('Tanggal Dibuat') // Mengubah nama kolom
         ];
     }
 
