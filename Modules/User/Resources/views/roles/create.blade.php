@@ -74,12 +74,20 @@
                                                         <label class="custom-control-label" for="show_notifications">Notifications</label>
                                                     </div>
                                                 </div>
-                                                <div class="col-12">
+                                                <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="show_month_overview" name="permissions[]"
                                                                value="show_month_overview" {{ old('show_month_overview') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="show_month_overview">Month Overview</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="show_total_income" name="permissions[]"
+                                                               value="show_total_income" {{ old('show_total_income') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="show_total_income">Total Pendapatan</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-12">
