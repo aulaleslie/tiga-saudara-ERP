@@ -69,6 +69,30 @@
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
+                                                               id="show_total_income" name="permissions[]"
+                                                               value="show_total_income" {{ old('show_total_income') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="show_total_income">Total Pendapatan</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="show_total_sales" name="permissions[]"
+                                                               value="show_total_sales" {{ old('show_total_sales') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="show_total_sales">Total Penjualan</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="show_total_purchase" name="permissions[]"
+                                                               value="show_total_purchase" {{ old('show_total_purchase') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="show_total_purchase">Total Pembelian</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
                                                                id="show_notifications" name="permissions[]"
                                                                value="show_notifications" {{ old('show_notifications') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="show_notifications">Notifications</label>
@@ -80,14 +104,6 @@
                                                                id="show_month_overview" name="permissions[]"
                                                                value="show_month_overview" {{ old('show_month_overview') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="show_month_overview">Month Overview</label>
-                                                    </div>
-                                                </div>
-                                                <div class="col-6">
-                                                    <div class="custom-control custom-switch">
-                                                        <input type="checkbox" class="custom-control-input"
-                                                               id="show_total_income" name="permissions[]"
-                                                               value="show_total_income" {{ old('show_total_income') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="show_total_income">Total Pendapatan</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-12">

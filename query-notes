@@ -3,3 +3,21 @@
     show_total_sales
     show_total_purchase
     show_total_profit
+
+
+
+INSERT INTO tiga_saudara.permissions (name, guard_name, created_at, updated_at)
+SELECT 'show_total_income', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'show_total_income'
+)
+UNION ALL
+SELECT 'show_total_purchase', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'show_total_purchase'
+)
+UNION ALL
+SELECT 'show_total_sales', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'show_total_sales'
+)
