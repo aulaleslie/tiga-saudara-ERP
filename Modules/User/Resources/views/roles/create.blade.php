@@ -26,7 +26,7 @@
                 <form action="{{ route('roles.store') }}" method="POST">
                     @csrf
                     <div class="form-group">
-                        <button type="submit" class="btn btn-primary">Create Role <i class="bi bi-check"></i>
+                        <button type="submit" class="btn btn-primary">Buat Peran <i class="bi bi-check"></i>
                         </button>
                     </div>
                     <div class="card">
@@ -45,7 +45,7 @@
                             <div class="form-group">
                                 <div class="custom-control custom-checkbox">
                                     <input type="checkbox" class="custom-control-input" id="select-all">
-                                    <label class="custom-control-label" for="select-all">Give All Permissions</label>
+                                    <label class="custom-control-label" for="select-all">Beri Semua Hak Akses</label>
                                 </div>
                             </div>
 
@@ -55,8 +55,12 @@
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Dashboard
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-dashboard">
+                                                <label class="custom-control-label" for="select-all-dashboard">Pilih Semua</label>
+                                            </div>
                                         </div>
-                                        <div class="card-body">
+                                        <div id="dashboard" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -132,8 +136,12 @@
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Pengaturan Pengguna
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-user-settings">
+                                                <label class="custom-control-label" for="select-all-user-settings">Pilih Semua</label>
+                                            </div>
                                         </div>
-                                        <div class="card-body">
+                                        <div id="user-settings" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -862,7 +870,21 @@
                 $('input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
-            })
+            });
+
+            $('#select-all-dashboard').click(function() {
+                var checked = this.checked;
+                $('#dashboard input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+
+            $('#select-all-user-settings').click(function() {
+                var checked = this.checked;
+                $('#user-settings input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
         });
     </script>
 @endpush
