@@ -49,7 +49,7 @@
                                 @enderror
                             </div>
                             <div class="form-group">
-                                <button type="submit" class="btn btn-primary">Perbaharui Profile <i class="bi bi-check"></i></button>
+                                <button type="submit" class="btn btn-primary">Perbarui Profile <i class="bi bi-check"></i></button>
                             </div>
                         </form>
                     </div>
@@ -83,7 +83,7 @@
                                 @enderror
                             </div>
                             <div class="form-group">
-                                <button type="submit" class="btn btn-primary">Perbaharui Password <i class="bi bi-check"></i></button>
+                                <button type="submit" class="btn btn-primary">Perbarui Password <i class="bi bi-check"></i></button>
                             </div>
                         </form>
                     </div>
