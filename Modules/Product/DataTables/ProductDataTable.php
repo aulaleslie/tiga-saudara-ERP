@@ -66,40 +66,42 @@ class ProductDataTable extends DataTable
     {
         return [
             Column::computed('product_image')
-                ->title('Image')
+                ->title('Gambar')
                 ->className('text-center align-middle'),
 
             Column::make('category.category_name')
-                ->title('Category')
+                ->title('Kategori')
                 ->className('text-center align-middle'),
 
             Column::make('product_code')
-                ->title('Code')
+                ->title('Kode Produk')
                 ->className('text-center align-middle'),
 
             Column::make('product_name')
-                ->title('Name')
+                ->title('Nama Produk')
                 ->className('text-center align-middle'),
 
             Column::computed('product_cost')
-                ->title('Cost')
+                ->title('Harga')
                 ->className('text-center align-middle'),
 
             Column::computed('product_price')
-                ->title('Price')
+                ->title('Harga Jual')
                 ->className('text-center align-middle'),
 
             Column::computed('product_quantity')
-                ->title('Quantity')
+                ->title('Jumlah')
                 ->className('text-center align-middle'),
 
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Aksi'),
 
             Column::make('created_at')
                 ->visible(false)
+                ->title('Tanggal Dibuat')
         ];
     }
 
