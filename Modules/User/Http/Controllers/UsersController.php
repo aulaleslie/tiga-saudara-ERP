@@ -76,13 +76,20 @@ class UsersController extends Controller
         $request->validate([
             'name'     => 'required|string|max:255',
             'email'    => 'required|email|max:255|unique:users,email,'.$user->id,
+            'password' => 'nullable|string|min:8|max:255|confirmed'
         ]);
 
-        $user->update([
+        $updateData = [
             'name'     => $request->name,
             'email'    => $request->email,
-            'is_active' => $request->is_active
-        ]);
+            'is_active' => $request->is_active,
+        ];
+
+        if ($request->filled('password')) {
+            $updateData['password'] = Hash::make($request->password);
+        }
+
+        $user->update($updateData);
 
         $user->syncRoles($request->role);
 
