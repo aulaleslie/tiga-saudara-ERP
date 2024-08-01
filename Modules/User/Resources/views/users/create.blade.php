@@ -47,13 +47,13 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="password">Password <span class="text-danger">*</span></label>
+                                        <label for="password">Kata Sandi <span class="text-danger">*</span></label>
                                         <input class="form-control" type="password" name="password" required>
                                     </div>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="password_confirmation">Konfirmasi Password <span
+                                        <label for="password_confirmation">Konfirmasi Kata Sandi <span
                                                 class="text-danger">*</span></label>
                                         <input class="form-control" type="password" name="password_confirmation"
                                                required>
