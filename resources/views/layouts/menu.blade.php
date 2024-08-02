@@ -272,27 +272,35 @@
 {{--        </ul>--}}
 {{--    </li>--}}
 {{--@endcan--}}
+<li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('users*') || request()->routeIs('roles*') ? 'c-show' : '' }}">
+    <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+        <i class="c-sidebar-nav-icon bi bi-gear" style="line-height: 1;"></i> Pengelolaan Pengguna
+    </a>
+    <ul class="c-sidebar-nav-dropdown-items">
+        @can('access_user_management')
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('users*') ? 'c-active' : '' }}"
+                   href="{{ route('users.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-person-lines-fill" style="line-height: 1;"></i> Semua Pengguna
+                </a>
+            </li>
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('roles*') ? 'c-active' : '' }}"
+                   href="{{ route('roles.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-key" style="line-height: 1;"></i> Peran & Izin
+                </a>
+            </li>
+        @endcan
+    </ul>
+</li>
 
 @can('access_settings')
-    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('roles*') ? 'c-show' : '' }}">
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-gear" style="line-height: 1;"></i> Pengaturan
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
-            @can('access_user_management')
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('users*') ? 'c-active' : '' }}"
-                       href="{{ route('users.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-person-lines-fill" style="line-height: 1;"></i> Semua Akun
-                    </a>
-                </li>
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('roles*') ? 'c-active' : '' }}"
-                       href="{{ route('roles.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-key" style="line-height: 1;"></i> Peran & Izin
-                    </a>
-                </li>
-            @endcan
+
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('settings*') ? 'c-active' : '' }}"
                    href="{{ route('settings.index') }}">
