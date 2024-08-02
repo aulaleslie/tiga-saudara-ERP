@@ -148,7 +148,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="access_user_management" name="permissions[]"
                                                                value="access_user_management" {{ old('access_user_management') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="access_user_management">Access</label>
+                                                        <label class="custom-control-label" for="access_user_management">Hak Akses</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -156,7 +156,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="edit_own_profile" name="permissions[]"
                                                                value="edit_own_profile" {{ old('edit_own_profile') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="edit_own_profile">Own Profile</label>
+                                                        <label class="custom-control-label" for="edit_own_profile">Profil</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -836,16 +836,28 @@
                                 <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
-                                            Settings
+                                            Pengaturan
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-pengaturan">
+                                                <label class="custom-control-label" for="select-all-pengaturan">Pilih Semua</label>
+                                            </div>
                                         </div>
-                                        <div class="card-body">
+                                        <div id="pengaturan" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="access_settings" name="permissions[]"
                                                                value="access_settings" {{ old('access_settings') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="access_settings">Access</label>
+                                                        <label class="custom-control-label" for="access_settings">Hak Akses</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="bussines_setting" name="permissions[]"
+                                                               value="bussines_setting" {{ old('bussines_setting') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="bussines_setting">Pengaturan Bisnis</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -882,6 +894,12 @@
             $('#select-all-user-settings').click(function() {
                 var checked = this.checked;
                 $('#user-settings input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-pengaturan').click(function() {
+                var checked = this.checked;
+                $('#pengaturan input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });

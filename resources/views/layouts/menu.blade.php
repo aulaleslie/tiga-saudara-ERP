@@ -1,6 +1,6 @@
 <li class="c-sidebar-nav-item {{ request()->routeIs('home') ? 'c-active' : '' }}">
     <a class="c-sidebar-nav-link" href="{{ route('home') }}">
-        <i class="c-sidebar-nav-icon bi bi-house" style="line-height: 1;"></i> Beranda
+        <i class="c-sidebar-nav-icon bbi bi-houses-fill" style="line-height: 1;"></i> Beranda
     </a>
 </li>
 
@@ -274,20 +274,20 @@
 {{--@endcan--}}
 <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('users*') || request()->routeIs('roles*') ? 'c-show' : '' }}">
     <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
-        <i class="c-sidebar-nav-icon bi bi-gear" style="line-height: 1;"></i> Pengelolaan Pengguna
+        <i class="c-sidebar-nav-icon bi bi-person-fill-gear" style="line-height: 1;"></i> Pengelolaan Pengguna
     </a>
     <ul class="c-sidebar-nav-dropdown-items">
         @can('access_user_management')
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('users*') ? 'c-active' : '' }}"
                    href="{{ route('users.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-person-lines-fill" style="line-height: 1;"></i> Semua Pengguna
+                    <i class="c-sidebar-nav-icon bi bi-people-fill" style="line-height: 1;"></i> Semua Pengguna
                 </a>
             </li>
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('roles*') ? 'c-active' : '' }}"
                    href="{{ route('roles.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-key" style="line-height: 1;"></i> Peran & Izin
+                    <i class="c-sidebar-nav-icon bi bi-person-workspace" style="line-height: 1;"></i> Peran & Izin
                 </a>
             </li>
         @endcan
@@ -297,16 +297,17 @@
 @can('access_settings')
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
-            <i class="c-sidebar-nav-icon bi bi-gear" style="line-height: 1;"></i> Pengaturan
+            <i class="c-sidebar-nav-icon bi bi-gear-fill" style="line-height: 1;"></i> Pengaturan
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
-
+            @can('bussines_setting')
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('settings*') ? 'c-active' : '' }}"
                    href="{{ route('settings.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-sliders" style="line-height: 1;"></i> System Settings
+                    <i class="c-sidebar-nav-icon bi bi-building-fill-gear" style="line-height: 1;"></i> Pengaturan Bisnis
                 </a>
             </li>
+            @endcan
 
             {{--access_currencies|acces_setting--}}
             {{--            <li class="c-sidebar-nav-item">--}}

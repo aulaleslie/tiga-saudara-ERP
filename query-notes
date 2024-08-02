@@ -3,6 +3,7 @@
     show_total_sales
     show_total_purchase
     show_total_profit
+    businnes_setting
 
 
 
@@ -20,4 +21,9 @@ UNION ALL
 SELECT 'show_total_sales', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
 WHERE NOT EXISTS (
     SELECT 1 FROM tiga_saudara.permissions WHERE name = 'show_total_sales'
+)
+UNION ALL
+SELECT 'bussines_setting', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'bussines_setting'
 )

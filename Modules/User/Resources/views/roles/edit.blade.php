@@ -27,7 +27,7 @@
                     @csrf
                     @method('patch')
                     <div class="form-group">
-                        <button type="submit" class="btn btn-primary">Perbarui Peran <i class="bi bi-check"></i>
+                        <button type="submit" class="btn btn-primary">Perbaharui Peran <i class="bi bi-check"></i>
                         </button>
                     </div>
                     <div class="card">
@@ -853,9 +853,15 @@
                                 <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
-                                            Settings
+                                            Pengaturan
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input"
+                                                       id="select-all-pengaturan">
+                                                <label class="custom-control-label" for="select-all-pengaturan">Pilih
+                                                    Semua</label>
+                                            </div>
                                         </div>
-                                        <div class="card-body">
+                                        <div id="pengaturan" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -863,7 +869,16 @@
                                                                id="access_settings" name="permissions[]"
                                                                value="access_settings" {{ $role->hasPermissionTo('access_settings') ? 'checked' : '' }}>
                                                         <label class="custom-control-label"
-                                                               for="access_settings">Access</label>
+                                                               for="access_settings">Hak Akses</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="bussines_setting" name="permissions[]"
+                                                               value="bussines_setting" {{ $role->hasPermissionTo('bussines_setting') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="bussines_setting">Pengaturan Bisnis</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -899,6 +914,13 @@
             $('#select-all-user-settings').click(function () {
                 var checked = this.checked;
                 $('#user-settings input[type="checkbox"]').each(function () {
+                    this.checked = checked;
+                });
+            });
+
+            $('#select-all-pengaturan').click(function () {
+                var checked = this.checked;
+                $('#pengaturan input[type="checkbox"]').each(function () {
                     this.checked = checked;
                 });
             });
