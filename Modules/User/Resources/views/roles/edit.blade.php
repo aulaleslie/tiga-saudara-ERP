@@ -59,8 +59,10 @@
                                         <div class="card-header">
                                             Dashboard
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-dashboard">
-                                                <label class="custom-control-label" for="select-all-dashboard">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input"
+                                                       id="select-all-dashboard">
+                                                <label class="custom-control-label" for="select-all-dashboard">Pilih
+                                                    Semua</label>
                                             </div>
                                         </div>
                                         <div id="dashboard" class="card-body">
@@ -70,7 +72,8 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="show_total_stats" name="permissions[]"
                                                                value="show_total_stats" {{ $role->hasPermissionTo('show_total_stats') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="show_total_stats">Total Stats</label>
+                                                        <label class="custom-control-label" for="show_total_stats">Total
+                                                            Stats</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -78,7 +81,8 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="show_total_income" name="permissions[]"
                                                                value="show_total_income" {{ $role->hasPermissionTo('show_total_income') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="show_total_income">Total Pendapatan</label>
+                                                        <label class="custom-control-label" for="show_total_income">Total
+                                                            Pendapatan</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -86,7 +90,8 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="show_total_sales" name="permissions[]"
                                                                value="show_total_sales" {{ $role->hasPermissionTo('show_total_sales') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="show_total_sales">Total Penjualan</label>
+                                                        <label class="custom-control-label" for="show_total_sales">Total
+                                                            Penjualan</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -94,7 +99,8 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="show_total_purchase" name="permissions[]"
                                                                value="show_total_purchase" {{ $role->hasPermissionTo('show_total_purchase') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="show_total_purchase">Total Pembelian</label>
+                                                        <label class="custom-control-label" for="show_total_purchase">Total
+                                                            Pembelian</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -110,7 +116,8 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="show_month_overview" name="permissions[]"
                                                                value="show_month_overview" {{ $role->hasPermissionTo('show_month_overview') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="show_month_overview">Month Overview</label>
+                                                        <label class="custom-control-label" for="show_month_overview">Month
+                                                            Overview</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-12">
@@ -118,7 +125,9 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="show_weekly_sales_purchases" name="permissions[]"
                                                                value="show_weekly_sales_purchases" {{ $role->hasPermissionTo('show_weekly_sales_purchases') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="show_weekly_sales_purchases">Weekly Sales & Purchases</label>
+                                                        <label class="custom-control-label"
+                                                               for="show_weekly_sales_purchases">Weekly Sales &
+                                                            Purchases</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-12">
@@ -126,7 +135,8 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="show_monthly_cashflow" name="permissions[]"
                                                                value="show_monthly_cashflow" {{ $role->hasPermissionTo('show_monthly_cashflow') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="show_monthly_cashflow">Monthly Cashflow</label>
+                                                        <label class="custom-control-label" for="show_monthly_cashflow">Monthly
+                                                            Cashflow</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -140,8 +150,10 @@
                                         <div class="card-header">
                                             Manajemen Pengguna
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-user-settings">
-                                                <label class="custom-control-label" for="select-all-user-settings">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input"
+                                                       id="select-all-user-settings">
+                                                <label class="custom-control-label" for="select-all-user-settings">Pilih
+                                                    Semua</label>
                                             </div>
                                         </div>
                                         <div id="user-settings" class="card-body">
@@ -151,7 +163,8 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="access_user_management" name="permissions[]"
                                                                value="access_user_management" {{ $role->hasPermissionTo('access_user_management') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="access_user_management">Access</label>
+                                                        <label class="custom-control-label"
+                                                               for="access_user_management">Access</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -159,7 +172,8 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="edit_own_profile" name="permissions[]"
                                                                value="edit_own_profile" {{ $role->hasPermissionTo('edit_own_profile') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="edit_own_profile">Own Profile</label>
+                                                        <label class="custom-control-label" for="edit_own_profile">Own
+                                                            Profile</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -836,7 +850,7 @@
                                 </div> -->
 
                                 <!-- Settings -->
-                                <!-- <div class="col-lg-4 col-md-6 mb-3">
+                                <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Settings
@@ -848,13 +862,14 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="access_settings" name="permissions[]"
                                                                value="access_settings" {{ $role->hasPermissionTo('access_settings') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="access_settings">Access</label>
+                                                        <label class="custom-control-label"
+                                                               for="access_settings">Access</label>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div> -->
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -866,24 +881,24 @@
 
 @push('page_scripts')
     <script>
-        $(document).ready(function() {
-            $('#select-all').click(function() {
+        $(document).ready(function () {
+            $('#select-all').click(function () {
                 var checked = this.checked;
-                $('input[type="checkbox"]').each(function() {
+                $('input[type="checkbox"]').each(function () {
                     this.checked = checked;
                 });
             })
 
-            $('#select-all-dashboard').click(function() {
+            $('#select-all-dashboard').click(function () {
                 var checked = this.checked;
-                $('#dashboard input[type="checkbox"]').each(function() {
+                $('#dashboard input[type="checkbox"]').each(function () {
                     this.checked = checked;
                 });
             });
 
-            $('#select-all-user-settings').click(function() {
+            $('#select-all-user-settings').click(function () {
                 var checked = this.checked;
-                $('#user-settings input[type="checkbox"]').each(function() {
+                $('#user-settings input[type="checkbox"]').each(function () {
                     this.checked = checked;
                 });
             });
