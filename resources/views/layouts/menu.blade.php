@@ -308,7 +308,12 @@
                 </a>
             </li>
             @endcan
-
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('businesses*') ? 'c-active' : '' }}"
+                       href="{{ route('businesses.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Bisnis
+                    </a>
+                </li>
             {{--access_currencies|acces_setting--}}
             {{--            <li class="c-sidebar-nav-item">--}}
             {{--                <a class="c-sidebar-nav-link {{ request()->routeIs('units*') ? 'c-active' : '' }}" href="{{ route('units.index') }}">--}}
