@@ -16,7 +16,7 @@
                 @include('utils.alerts')
                 <div class="card">
                     <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0">General Settings</h5>
+                        <h5 class="mb-0">Pengaturan Bisnis</h5>
                     </div>
                     <div class="card-body">
                         <form action="{{ route('settings.update') }}" method="POST">

@@ -18,7 +18,8 @@ class SettingController extends Controller
     public function index() {
         abort_if(Gate::denies('access_settings'), 403);
 
-        $settings = Setting::firstOrFail();
+        $currentSettingId = session('setting_id');
+        $settings = Setting::findOrFail($currentSettingId);
 
         return view('setting::index', compact('settings'));
     }
