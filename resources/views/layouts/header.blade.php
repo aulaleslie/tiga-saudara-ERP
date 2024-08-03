@@ -27,6 +27,7 @@
                     </div>
                 </a>
                 <div class="dropdown-menu dropdown-menu-right pt-0">
+                    <div class="dropdown-header bg-light py-2"><strong>Bisnis</strong></div>
                     @foreach($userSettings as $setting)
                         <a class="dropdown-item" href="#"
                            onclick="event.preventDefault(); document.getElementById('select-business-form-{{$setting->id}}').submit();">
@@ -42,7 +43,7 @@
             </li>
         @else
             <li class="c-header-nav-item d-md-down-none mr-2">
-                <a class="c-header-nav-link" href="#">
+                <a class="c-header-nav-link font-weight-bold">
                     {{ $userSettings->first()->company_name }}
                 </a>
             </li>
@@ -91,7 +92,7 @@
             </div>
         </a>
         <div class="dropdown-menu dropdown-menu-right pt-0">
-            <div class="dropdown-header bg-light py-2"><strong>Account</strong></div>
+            <div class="dropdown-header bg-light py-2"><strong>Akun</strong></div>
             <a class="dropdown-item" href="{{ route('profile.edit') }}">
                 <i class="mfe-2 bi bi-person" style="font-size: 1.2rem;"></i> Profil
             </a>

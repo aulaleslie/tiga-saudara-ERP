@@ -49,6 +49,14 @@ class BusinessController extends Controller
             'footer_text' => $footer_text,
         ]);
 
+        if (auth()->user()->hasRole('Super Admin')) {
+            $userSettings = Setting::orderBy('id')->get();
+        } else {
+            $userSettings = auth()->user()->settings()->orderBy('id')->get();
+        }
+
+        session(['user_settings' => $userSettings]);
+
         toast('Bisnis Telah Dibuat!', 'success');
 
         return redirect()->route('businesses.index');
@@ -87,6 +95,14 @@ class BusinessController extends Controller
             'default_currency_position' => $request->default_currency_position,
         ]);
 
+        if (auth()->user()->hasRole('Super Admin')) {
+            $userSettings = Setting::orderBy('id')->get();
+        } else {
+            $userSettings = auth()->user()->settings()->orderBy('id')->get();
+        }
+
+        session(['user_settings' => $userSettings]);
+
         toast('Informasi Bisnis Telah Berhasil Diubah!', 'info');
 
         return redirect()->route('businesses.index');
@@ -107,6 +123,13 @@ class BusinessController extends Controller
             return redirect()->back();
         }
 
+        if (auth()->user()->hasRole('Super Admin')) {
+            $userSettings = Setting::orderBy('id')->get();
+        } else {
+            $userSettings = auth()->user()->settings()->orderBy('id')->get();
+        }
+
+        session(['user_settings' => $userSettings]);
 
         // Delete the setting
         $business->delete();
