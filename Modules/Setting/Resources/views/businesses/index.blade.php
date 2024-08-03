@@ -34,8 +34,23 @@
             </div>
         </div>
     </div>
+    @include('setting::businesses.partials.delete_modal')
 @endsection
 
 @push('page_scripts')
     {!! $dataTable->scripts() !!}
+
+    <script>
+        let deleteFormId;
+
+        function showDeleteModal(id) {
+            deleteFormId = id;
+            const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+            deleteModal.show();
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function () {
+            document.getElementById('destroy' + deleteFormId).submit();
+        });
+    </script>
 @endpush

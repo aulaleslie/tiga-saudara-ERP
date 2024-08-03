@@ -20,7 +20,7 @@ class BusinessDataTable extends DataTable
     }
 
     public function query(Setting $model) {
-        return $model->newQuery()->with('currency')->select('id', 'company_name', 'created_at', 'default_currency_id');
+        return $model->newQuery()->with('currency');
     }
 
     public function html() {
@@ -31,7 +31,7 @@ class BusinessDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(1)
+            ->orderBy(0)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
