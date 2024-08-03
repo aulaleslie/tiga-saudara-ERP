@@ -117,4 +117,28 @@ class BusinessController extends Controller
         // Redirect to the settings index page
         return redirect()->route('businesses.index');
     }
+
+    public function updateActiveBusiness(Request $request)
+    {
+        $settingId = $request->input('setting_id');
+
+        // Validate the setting ID if necessary
+        // $request->validate([
+        //     'setting_id' => 'required|exists:settings,id',
+        // ]);
+
+        // Update the session with the new setting ID
+        $request->session()->put('setting_id', $settingId);
+
+        // Refresh the settings cache
+        cache()->forget('settings_' . $settingId);
+        $settings = Setting::findOrFail($settingId);
+        cache()->put('settings_' . $settingId, $settings, 24 * 60);
+
+        // Optionally, add a success message to the session
+        // $request->session()->flash('status', 'Active business updated successfully!');
+
+        // Redirect back to the previous page
+        return redirect()->back();
+    }
 }

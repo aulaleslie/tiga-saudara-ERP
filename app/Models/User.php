@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Modules\Setting\Entities\Setting;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\MediaLibrary\MediaCollections\File;
@@ -57,5 +58,10 @@ class User extends Authenticatable implements HasMedia
 
     public function scopeIsActive(Builder $builder) {
         return $builder->where('is_active', 1);
+    }
+
+    public function settings()
+    {
+        return $this->belongsToMany(Setting::class, 'user_setting');
     }
 }

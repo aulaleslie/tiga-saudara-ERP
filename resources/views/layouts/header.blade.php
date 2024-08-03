@@ -14,6 +14,41 @@
         </li>
     @endcan
 
+    @if(session('user_settings'))
+        @php
+            $userSettings = session('user_settings');
+            $currentSetting = $userSettings->firstWhere('id', session('setting_id'));
+        @endphp
+        @if(count($userSettings) > 1)
+            <li class="c-header-nav-item dropdown">
+                <a class="c-header-nav-link" href="#" role="button" aria-haspopup="true" aria-expanded="false">
+                    <div class="d-flex flex-column">
+                        <span class="font-weight-bold">{{ $currentSetting->company_name }}</span>
+                    </div>
+                </a>
+                <div class="dropdown-menu dropdown-menu-right pt-0">
+                    @foreach($userSettings as $setting)
+                        <a class="dropdown-item" href="#"
+                           onclick="event.preventDefault(); document.getElementById('select-business-form-{{$setting->id}}').submit();">
+                           {{$setting->company_name}}
+                        </a>
+                        <form id="select-business-form-{{$setting->id}}" action="{{ route('update.active.business') }}"
+                              method="POST" class="d-none">
+                            @csrf
+                            <input type="hidden" name="setting_id" value="{{ $setting->id }}">
+                        </form>
+                    @endforeach
+                </div>
+            </li>
+        @else
+            <li class="c-header-nav-item d-md-down-none mr-2">
+                <a class="c-header-nav-link" href="#">
+                    {{ $userSettings->first()->company_name }}
+                </a>
+            </li>
+        @endif
+    @endif
+
     @can('show_notifications')
         <li class="c-header-nav-item dropdown d-md-down-none mr-2">
             <a class="c-header-nav-link" data-toggle="dropdown" href="#" role="button" aria-haspopup="true"

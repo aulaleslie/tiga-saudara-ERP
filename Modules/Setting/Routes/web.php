@@ -11,6 +11,8 @@
 |
 */
 
+use Modules\Setting\Http\Controllers\BusinessController;
+
 Route::group(['middleware' => 'auth'], function () {
 
     //Mail Settings
@@ -21,4 +23,5 @@ Route::group(['middleware' => 'auth'], function () {
     // Units
     Route::resource('units', 'UnitsController')->except('show');
     Route::resource('businesses', 'BusinessController');
+    Route::post('/update-active-business', [BusinessController::class, 'updateActiveBusiness'])->name('update.active.business');
 });
