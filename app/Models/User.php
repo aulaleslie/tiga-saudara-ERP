@@ -2,15 +2,15 @@
 
 namespace App\Models;
 
-use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Modules\Setting\Entities\Setting;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
-use Spatie\MediaLibrary\MediaCollections\File;
+use Spatie\Permission\Models\Role;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements HasMedia
@@ -56,12 +56,26 @@ class User extends Authenticatable implements HasMedia
             ->useFallbackUrl('https://www.gravatar.com/avatar/' . md5("test@mail.com"));
     }
 
-    public function scopeIsActive(Builder $builder) {
+    public function scopeIsActive(Builder $builder): Builder
+    {
         return $builder->where('is_active', 1);
     }
 
-    public function settings()
+    public function settings(): BelongsToMany
     {
-        return $this->belongsToMany(Setting::class, 'user_setting');
+        return $this->belongsToMany(Setting::class, 'user_setting', 'user_id', 'setting_id')
+            ->withPivot('role_id');
+    }
+
+    public function getCurrentSettingRole()
+    {
+        $currentSettingId = session('setting_id');
+        $setting = $this->settings()->where('setting_id', $currentSettingId)->first();
+
+        if ($setting) {
+            return Role::find($setting->pivot->role_id);
+        }
+
+        return null;
     }
 }

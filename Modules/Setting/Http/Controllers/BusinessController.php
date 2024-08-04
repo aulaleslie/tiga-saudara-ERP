@@ -5,6 +5,7 @@ namespace Modules\Setting\Http\Controllers;
 use Hamcrest\Core\Set;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Modules\Setting\DataTables\BusinessDataTable;
 use Modules\Setting\Entities\Setting;
@@ -145,11 +146,6 @@ class BusinessController extends Controller
     {
         $settingId = $request->input('setting_id');
 
-        // Validate the setting ID if necessary
-        // $request->validate([
-        //     'setting_id' => 'required|exists:settings,id',
-        // ]);
-
         // Update the session with the new setting ID
         $request->session()->put('setting_id', $settingId);
 
@@ -158,8 +154,13 @@ class BusinessController extends Controller
         $settings = Setting::findOrFail($settingId);
         cache()->put('settings_' . $settingId, $settings, 24 * 60);
 
-        // Optionally, add a success message to the session
-        // $request->session()->flash('status', 'Active business updated successfully!');
+        $user = Auth::user();
+
+        // Assign the role for the new setting
+        $role = $user->getCurrentSettingRole();
+        if ($role) {
+            $user->syncRoles([$role->name]);
+        }
 
         // Redirect back to the previous page
         return redirect()->back();

@@ -11,7 +11,7 @@
 |
 */
 
-Route::group(['middleware' => 'auth'], function () {
+Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Generate PDF
     Route::get('/quotations/pdf/{id}', function ($id) {
         $quotation = \Modules\Quotation\Entities\Quotation::findOrFail($id);
