@@ -1,4 +1,3 @@
-<!-- Delete Confirmation Modal -->
 <div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -18,3 +17,17 @@
         </div>
     </div>
 </div>
+
+<script>
+    let deleteFormId;
+
+    function showDeleteModal(id) {
+        deleteFormId = id;
+        const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+        deleteModal.show();
+    }
+
+    document.getElementById('confirmDeleteBtn').addEventListener('click', function () {
+        document.getElementById('destroy' + deleteFormId).submit();
+    });
+</script>
