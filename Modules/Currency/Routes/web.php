@@ -11,7 +11,7 @@
 |
 */
 
-Route::group(['middleware' => 'auth'], function () {
+Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     Route::resource('currencies', 'CurrencyController')->except('show');
 
