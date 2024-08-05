@@ -3,52 +3,75 @@
 namespace Modules\User\DataTables;
 
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Log;
+use Yajra\DataTables\EloquentDataTable;
+use Yajra\DataTables\Exceptions\Exception;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class UsersDataTable extends DataTable
 {
-
-    public function dataTable($query) {
+    /**
+     * @throws Exception
+     */
+    public function dataTable($query): EloquentDataTable
+    {
         return datatables()
             ->eloquent($query)
-            ->addColumn('role', function ($data) {
-                return view('user::users.partials.roles', [
-                    'roles' => $data->getRoleNames()
+            ->addColumn('role_setting', function ($data) {
+                return view('user::users.partials.role_setting', [
+                    'settings' => explode(', ', $data->settings),
+                    'roles' => explode(', ', $data->roles)
                 ]);
             })
             ->addColumn('action', function ($data) {
                 return view('user::users.partials.actions', compact('data'));
             })
             ->addColumn('status', function ($data) {
-                if ($data->is_active == 1) {
-                    $html = '<span class="badge badge-success">Active</span>';
-                } else {
-                    $html = '<span class="badge badge-warning">Deactivated</span>';
-                }
-
-                return $html;
+                return $data->is_active == 1 ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-warning">Deactivated</span>';
             })
             ->addColumn('image', function ($data) {
-                $url = $data->getFirstMediaUrl('avatars');
-
+                $user = User::find($data->user_id);
+                $url = $user->getFirstMediaUrl('avatars');
                 return '<img src="' . $url . '" style="width:50px;height:50px;" class="img-thumbnail rounded-circle"/>';
             })
             ->rawColumns(['image', 'status']);
     }
 
-    public function query(User $model) {
-        return $model->newQuery()
-            ->with(['roles' => function ($query) {
-                $query->select('name')->get();
+    public function query(User $model): Builder
+    {
+        $query = $model->newQuery()
+            ->with(['roles', 'settings' => function ($query) {
+                $query->select('settings.id', 'company_name')->withPivot('role_id');
             }])
-            ->where('id', '!=', auth()->id());
+            ->leftJoin('user_setting', 'users.id', '=', 'user_setting.user_id')
+            ->leftJoin('roles', 'user_setting.role_id', '=', 'roles.id')
+            ->leftJoin('settings', 'user_setting.setting_id', '=', 'settings.id')
+            ->select(
+                'users.id as user_id',
+                'users.name',
+                'users.email',
+                'users.is_active',
+                'users.created_at',
+                \DB::raw('GROUP_CONCAT(DISTINCT settings.company_name ORDER BY settings.id SEPARATOR ", ") as settings'),
+                \DB::raw('GROUP_CONCAT(DISTINCT roles.name ORDER BY settings.id SEPARATOR ", ") as roles')
+            )
+            ->groupBy('users.id', 'users.name', 'users.email', 'users.is_active', 'users.created_at')
+            ->where('users.id', '!=', auth()->id());
+
+        if (!auth()->user()->hasRole('Super Admin')) {
+            // Non-Super Admin can see only users with settings they have access to
+            $accessibleSettings = auth()->user()->settings()->pluck('settings.id');
+            $query->whereIn('user_setting.setting_id', $accessibleSettings);
+        }
+
+        return $query;
     }
 
-    public function html() {
+    public function html(): \Yajra\DataTables\Html\Builder
+    {
         return $this->builder()
             ->setTableId('users-table')
             ->columns($this->getColumns())
@@ -69,7 +92,8 @@ class UsersDataTable extends DataTable
             );
     }
 
-    protected function getColumns() {
+    protected function getColumns(): array
+    {
         return [
             Column::computed('image')
                 ->className('text-center align-middle')
@@ -83,9 +107,9 @@ class UsersDataTable extends DataTable
                 ->className('text-center align-middle')
                 ->title('Email'), // Mengubah nama kolom
 
-            Column::computed('role')
+            Column::computed('role_setting')
                 ->className('text-center align-middle')
-                ->title('Peran'), // Mengubah nama kolom
+                ->title('Peran dan Setting'), // Mengubah nama kolom
 
             Column::computed('status')
                 ->className('text-center align-middle')
@@ -103,7 +127,8 @@ class UsersDataTable extends DataTable
         ];
     }
 
-    protected function filename(): string {
+    protected function filename(): string
+    {
         return 'Users_' . date('YmdHis');
     }
 }

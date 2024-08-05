@@ -11,7 +11,7 @@
 |
 */
 
-Route::group(['middleware' => 'auth'], function () {
+Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Profit Loss Report
     Route::get('/profit-loss-report', 'ReportsController@profitLossReport')
         ->name('profit-loss-report.index');

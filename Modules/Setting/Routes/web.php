@@ -13,7 +13,7 @@
 
 use Modules\Setting\Http\Controllers\BusinessController;
 
-Route::group(['middleware' => 'auth'], function () {
+Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     //Mail Settings
     Route::patch('/settings/smtp', 'SettingController@updateSmtp')->name('settings.smtp.update');

@@ -1,0 +1,515 @@
+.
+├── LICENSE
+├── Modules
+│   ├── Adjustment
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── DataTables
+│   │   │   └── AdjustmentsDataTable.php
+│   │   ├── Entities
+│   │   │   ├── AdjustedProduct.php
+│   │   │   └── Adjustment.php
+│   │   ├── Providers
+│   │   │   ├── AdjustmentServiceProvider.php
+│   │   │   └── RouteServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── Currency
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── DataTables
+│   │   │   └── CurrencyDataTable.php
+│   │   ├── Entities
+│   │   │   └── Currency.php
+│   │   ├── Providers
+│   │   │   ├── CurrencyServiceProvider.php
+│   │   │   └── RouteServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── Expense
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── DataTables
+│   │   │   ├── ExpenseCategoriesDataTable.php
+│   │   │   └── ExpensesDataTable.php
+│   │   ├── Entities
+│   │   │   ├── Expense.php
+│   │   │   └── ExpenseCategory.php
+│   │   ├── Providers
+│   │   │   ├── ExpenseServiceProvider.php
+│   │   │   └── RouteServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── People
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── DataTables
+│   │   │   ├── CustomersDataTable.php
+│   │   │   └── SuppliersDataTable.php
+│   │   ├── Entities
+│   │   │   ├── Customer.php
+│   │   │   └── Supplier.php
+│   │   ├── Providers
+│   │   │   ├── PeopleServiceProvider.php
+│   │   │   └── RouteServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── Product
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── DataTables
+│   │   │   ├── ProductCategoriesDataTable.php
+│   │   │   └── ProductDataTable.php
+│   │   ├── Entities
+│   │   │   ├── Category.php
+│   │   │   └── Product.php
+│   │   ├── Providers
+│   │   │   ├── ProductServiceProvider.php
+│   │   │   └── RouteServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── Purchase
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── DataTables
+│   │   │   ├── PurchaseDataTable.php
+│   │   │   └── PurchasePaymentsDataTable.php
+│   │   ├── Entities
+│   │   │   ├── Purchase.php
+│   │   │   ├── PurchaseDetail.php
+│   │   │   └── PurchasePayment.php
+│   │   ├── Providers
+│   │   │   ├── PurchaseServiceProvider.php
+│   │   │   └── RouteServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── PurchasesReturn
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── DataTables
+│   │   │   ├── PurchaseReturnPaymentsDataTable.php
+│   │   │   └── PurchaseReturnsDataTable.php
+│   │   ├── Entities
+│   │   │   ├── PurchaseReturn.php
+│   │   │   ├── PurchaseReturnDetail.php
+│   │   │   └── PurchaseReturnPayment.php
+│   │   ├── Providers
+│   │   │   ├── PurchasesReturnServiceProvider.php
+│   │   │   └── RouteServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── Quotation
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── DataTables
+│   │   │   └── QuotationsDataTable.php
+│   │   ├── Emails
+│   │   │   └── QuotationMail.php
+│   │   ├── Entities
+│   │   │   ├── Quotation.php
+│   │   │   └── QuotationDetails.php
+│   │   ├── Providers
+│   │   │   ├── QuotationServiceProvider.php
+│   │   │   └── RouteServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── Reports
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── Providers
+│   │   │   ├── ReportsServiceProvider.php
+│   │   │   └── RouteServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── Sale
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── DataTables
+│   │   │   ├── SalePaymentsDataTable.php
+│   │   │   └── SalesDataTable.php
+│   │   ├── Entities
+│   │   │   ├── Sale.php
+│   │   │   ├── SaleDetails.php
+│   │   │   └── SalePayment.php
+│   │   ├── Providers
+│   │   │   ├── RouteServiceProvider.php
+│   │   │   └── SaleServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── SalesReturn
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── DataTables
+│   │   │   ├── SaleReturnPaymentsDataTable.php
+│   │   │   └── SaleReturnsDataTable.php
+│   │   ├── Entities
+│   │   │   ├── SaleReturn.php
+│   │   │   ├── SaleReturnDetail.php
+│   │   │   └── SaleReturnPayment.php
+│   │   ├── Providers
+│   │   │   ├── RouteServiceProvider.php
+│   │   │   └── SalesReturnServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── Setting
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── Entities
+│   │   │   ├── Setting.php
+│   │   │   └── Unit.php
+│   │   ├── Providers
+│   │   │   ├── RouteServiceProvider.php
+│   │   │   └── SettingServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   ├── Upload
+│   │   ├── Config
+│   │   │   └── config.php
+│   │   ├── Entities
+│   │   │   └── Upload.php
+│   │   ├── Providers
+│   │   │   ├── RouteServiceProvider.php
+│   │   │   └── UploadServiceProvider.php
+│   │   ├── Routes
+│   │   │   ├── api.php
+│   │   │   └── web.php
+│   │   ├── composer.json
+│   │   ├── module.json
+│   │   ├── package.json
+│   │   └── webpack.mix.js
+│   └── User
+│       ├── Config
+│       │   └── config.php
+│       ├── DataTables
+│       │   ├── RolesDataTable.php
+│       │   └── UsersDataTable.php
+│       ├── Providers
+│       │   ├── RouteServiceProvider.php
+│       │   └── UserServiceProvider.php
+│       ├── Routes
+│       │   ├── api.php
+│       │   └── web.php
+│       ├── Rules
+│       │   └── MatchCurrentPassword.php
+│       ├── composer.json
+│       ├── module.json
+│       ├── package.json
+│       └── webpack.mix.js
+├── Procfile
+├── README.md
+├── app
+│   ├── Console
+│   │   └── Kernel.php
+│   ├── Exceptions
+│   │   └── Handler.php
+│   ├── Helpers
+│   │   └── helpers.php
+│   ├── Http
+│   │   ├── Controllers
+│   │   │   ├── Controller.php
+│   │   │   └── HomeController.php
+│   │   ├── Kernel.php
+│   │   └── Middleware
+│   │       ├── Authenticate.php
+│   │       ├── EncryptCookies.php
+│   │       ├── PreventRequestsDuringMaintenance.php
+│   │       ├── RedirectIfAuthenticated.php
+│   │       ├── SingleSessionMiddleware.php
+│   │       ├── TrimStrings.php
+│   │       ├── TrustHosts.php
+│   │       ├── TrustProxies.php
+│   │       └── VerifyCsrfToken.php
+│   ├── Livewire
+│   │   ├── Adjustment
+│   │   │   └── ProductTable.php
+│   │   ├── Barcode
+│   │   │   └── ProductTable.php
+│   │   ├── Pos
+│   │   │   ├── Checkout.php
+│   │   │   ├── Filter.php
+│   │   │   └── ProductList.php
+│   │   ├── ProductCart.php
+│   │   ├── Reports
+│   │   │   ├── PaymentsReport.php
+│   │   │   ├── ProfitLossReport.php
+│   │   │   ├── PurchasesReport.php
+│   │   │   ├── PurchasesReturnReport.php
+│   │   │   ├── SalesReport.php
+│   │   │   └── SalesReturnReport.php
+│   │   └── SearchProduct.php
+│   ├── Models
+│   │   └── User.php
+│   └── Providers
+│       ├── AppServiceProvider.php
+│       ├── AuthServiceProvider.php
+│       ├── BroadcastServiceProvider.php
+│       ├── EventServiceProvider.php
+│       └── RouteServiceProvider.php
+├── artisan
+├── bootstrap
+│   ├── app.php
+│   └── cache
+│       ├── adjustment_module.php
+│       ├── currency_module.php
+│       ├── expense_module.php
+│       ├── packages.php
+│       ├── people_module.php
+│       ├── product_module.php
+│       ├── purchase_module.php
+│       ├── purchases_return_module.php
+│       ├── quotation_module.php
+│       ├── reports_module.php
+│       ├── sale_module.php
+│       ├── sales_return_module.php
+│       ├── services.php
+│       ├── setting_module.php
+│       ├── upload_module.php
+│       └── user_module.php
+├── composer.json
+├── composer.lock
+├── config
+│   ├── app.php
+│   ├── auth.php
+│   ├── broadcasting.php
+│   ├── cache.php
+│   ├── cart.php
+│   ├── cors.php
+│   ├── database.php
+│   ├── datatables-buttons.php
+│   ├── datatables-html.php
+│   ├── datatables.php
+│   ├── debugbar.php
+│   ├── filesystems.php
+│   ├── hashing.php
+│   ├── livewire.php
+│   ├── logging.php
+│   ├── mail.php
+│   ├── modules.php
+│   ├── permission.php
+│   ├── queue.php
+│   ├── services.php
+│   ├── session.php
+│   ├── snappy.php
+│   ├── sweetalert.php
+│   └── view.php
+├── database
+│   ├── factories
+│   │   └── UserFactory.php
+│   ├── migrations
+│   │   ├── 2014_10_12_000000_create_users_table.php
+│   │   ├── 2014_10_12_100000_create_password_resets_table.php
+│   │   ├── 2019_08_19_000000_create_failed_jobs_table.php
+│   │   ├── 2021_07_15_211319_create_media_table.php
+│   │   └── 2021_07_16_220524_create_permission_tables.php
+│   └── seeders
+│       ├── DatabaseSeeder.php
+│       └── SuperUserSeeder.php
+├── modules_statuses.json
+├── package-lock.json
+├── package.json
+├── phpunit.xml
+├── project-structure
+├── public
+│   ├── b3
+│   │   └── bootstrap.min.css
+│   ├── build
+│   │   ├── assets
+│   │   │   ├── app-296d3b42.css
+│   │   │   ├── app-4bd38d4a.js
+│   │   │   └── chart-config-5c99e0a8.js
+│   │   └── manifest.json
+│   ├── css
+│   │   ├── app.css
+│   │   ├── dropzone.css
+│   │   ├── select2-coreui.min.css
+│   │   └── select2.min.css
+│   ├── favicon.ico
+│   ├── hot
+│   ├── images
+│   │   ├── fallback_product_image.png
+│   │   ├── fallback_profile_image.png
+│   │   ├── favicon.png
+│   │   ├── logo-dark.png
+│   │   ├── logo.png
+│   │   └── screenshot.jpg
+│   ├── index.php
+│   ├── js
+│   │   ├── app.js
+│   │   ├── app.js.LICENSE.txt
+│   │   ├── chart-config.js
+│   │   ├── dropzone.js
+│   │   ├── jquery-mask-money.js
+│   │   └── select2.min.js
+│   ├── mix-manifest.json
+│   ├── robots.txt
+│   └── web.config
+├── query-notes
+├── resources
+│   ├── js
+│   │   ├── app.js
+│   │   ├── bootstrap.js
+│   │   └── chart-config.js
+│   ├── lang
+│   │   └── en
+│   │       ├── auth.php
+│   │       ├── installer_messages.php
+│   │       ├── pagination.php
+│   │       ├── passwords.php
+│   │       └── validation.php
+│   ├── sass
+│   │   └── app.scss
+│   └── views
+│       ├── auth
+│       │   ├── login.blade.php
+│       │   ├── register.blade.php
+│       │   └── verify.blade.php
+│       ├── errors
+│       │   ├── 403.blade.php
+│       │   ├── 404.blade.php
+│       │   ├── 419.blade.php
+│       │   ├── 500.blade.php
+│       │   └── illustrated-layout.blade.php
+│       ├── home.blade.php
+│       ├── includes
+│       │   ├── filepond-css.blade.php
+│       │   ├── filepond-js.blade.php
+│       │   ├── main-css.blade.php
+│       │   └── main-js.blade.php
+│       ├── layouts
+│       │   ├── app.blade.php
+│       │   ├── footer.blade.php
+│       │   ├── header.blade.php
+│       │   ├── menu.blade.php
+│       │   └── sidebar.blade.php
+│       ├── livewire
+│       │   ├── product-cart.blade.php
+│       │   └── search-product.blade.php
+│       └── utils
+│           └── alerts.blade.php
+├── routes
+│   ├── api.php
+│   ├── channels.php
+│   ├── console.php
+│   └── web.php
+├── server.php
+├── storage
+│   ├── framework
+│   │   ├── sessions
+│   │   │   └── ncZGBgRzHptXhH3oZEtOawMjN7XqBaHTy9zUGoMs
+│   │   └── views
+│   │       ├── 02391ac6d1983ff7ddbb42b00fec4e60.php
+│   │       ├── 053336e5794f36ea92f4919aefec8f53.php
+│   │       ├── 09efac95a3af9e3cf2cbc54c851a2dd6.php
+│   │       ├── 0c8d72a1c0f09bb11173101dd96c750c.php
+│   │       ├── 0e59bb1a479ab62a35ec19bc8828543a.php
+│   │       ├── 0fd89fe02b788c4aa04179e3435d28da.php
+│   │       ├── 142028ed582737d18600d84fcc358d5d.php
+│   │       ├── 1794f13e6a68f13f94cd4b3e4b2f6f17.php
+│   │       ├── 1e771655bace186eb498e8d6bd99fd25.php
+│   │       ├── 256df7a6f67b90b2ca21eb3edf0bef75.php
+│   │       ├── 2f87ff69054ff4a99523c009625d7a55.php
+│   │       ├── 303b4af7c00360160f48c540d9a5b87f.php
+│   │       ├── 3049a096dd1d1420868a4f3e32da6f28.php
+│   │       ├── 345f245ae46a8ce29457b7686f1551a7.php
+│   │       ├── 45f86ad94da58854a3c5349dedae8bd5.php
+│   │       ├── 525277a922f15e7b2aa1a61cf9b6e6f5.php
+│   │       ├── 54fe041c1af51c7ef8622e8e162e6723.php
+│   │       ├── 55ead437b3b398d874723dbae526a6af.php
+│   │       ├── 58f7a61d0be6aa8823c5da9ef490c9ad.php
+│   │       ├── 61d10ae369a46217cf66286b1cd11541.php
+│   │       ├── 6cd7f38f732ef432deaf86ce802a66d6.php
+│   │       ├── 75b1b5bbad60f2862f8a232415f96aeb.php
+│   │       ├── 77b818c72bd173d7545df710c0be5b94.php
+│   │       ├── 78d970860bd6f2f9093e64a63cf6b8ee.php
+│   │       ├── 82716ef88b7ea8251dff154845b2ff7b.php
+│   │       ├── 84564680d698cd14bf34ab978b7561ca.php
+│   │       ├── 86868ef7ba1e8332546901ff12e73eb1.php
+│   │       ├── 868e1b688f0a52acc9351fffbda1036f.php
+│   │       ├── 875f425a8f5da9164b3b77b8c0faa274.php
+│   │       ├── 88f6250a085b2aa1d20f7c448b6dee6d.php
+│   │       ├── 97231b9b70b417f7e070155e799e65f1.php
+│   │       ├── 9ba1788144007b6eb42daa3f9df65e9c.php
+│   │       ├── a277f8df3b2b655d3ce1ceceabc063e2.php
+│   │       ├── a379acb25d3d826f0dce802179e7d788.php
+│   │       ├── ab1d1ebd9637367eae51a27c2be18b72.php
+│   │       ├── b400fe4b2625103edd9c71ac7ef97d9b.php
+│   │       ├── c6f7934e8d1836d70184fc15421921f8.php
+│   │       ├── c91bd96ea776f5e885694946780fb402.php
+│   │       ├── d09426294cc4c062a8d0c0c8e5e3c26b.php
+│   │       ├── d2613612360a658c707d562962bd741c.php
+│   │       ├── dae9994bce9698b24e76b0fc0d58583b.php
+│   │       ├── e890cd971d9d733f74e6432610c24812.php
+│   │       ├── f302f806315fa40facc6152d80145eb1.php
+│   │       └── f98fa20b1d95de62947d9aa403356f6b.php
+│   └── logs
+│       └── laravel.log
+├── tests
+│   ├── CreatesApplication.php
+│   ├── Feature
+│   │   └── ExampleTest.php
+│   ├── TestCase.php
+│   └── Unit
+│       └── ExampleTest.php
+└── vite.config.js
+
+131 directories, 381 files
