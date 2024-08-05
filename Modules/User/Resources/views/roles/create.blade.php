@@ -159,6 +159,14 @@
                                                         <label class="custom-control-label" for="edit_own_profile">Profil</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="access_user_permissions" name="permissions[]"
+                                                               value="access_user_permissions" {{ old('access_user_permissions') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="access_user_permissions">Peran dan Ijin</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>

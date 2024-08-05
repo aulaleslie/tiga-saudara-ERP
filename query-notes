@@ -37,3 +37,8 @@ SELECT 'crud_bussiness', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
 WHERE NOT EXISTS (
     SELECT 1 FROM tiga_saudara.permissions WHERE name = 'crud_bussiness'
 )
+UNION ALL
+SELECT 'access_user_permissions', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'access_user_permissions'
+)

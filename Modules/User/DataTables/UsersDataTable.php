@@ -59,7 +59,7 @@ class UsersDataTable extends DataTable
                 \DB::raw('GROUP_CONCAT(DISTINCT roles.name ORDER BY settings.id SEPARATOR ", ") as roles')
             )
             ->groupBy('users.id', 'users.name', 'users.email', 'users.is_active', 'users.created_at')
-            ->where('users.id', '!=', auth()->id());
+            ->where('roles.name', '!=', 'Super Admin');
 
         if (!auth()->user()->hasRole('Super Admin')) {
             // Non-Super Admin can see only users with settings they have access to
