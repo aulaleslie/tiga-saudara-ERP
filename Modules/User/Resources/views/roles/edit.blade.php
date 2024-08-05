@@ -881,6 +881,24 @@
                                                                for="bussines_setting">Pengaturan Bisnis</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="crud_bussiness" name="permissions[]"
+                                                               value="crud_bussiness" {{ $role->hasPermissionTo('crud_bussiness') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="crud_bussiness">Hak Akses Bisnis</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="view_bussiness" name="permissions[]"
+                                                               value="view_bussiness" {{ $role->hasPermissionTo('view_bussiness') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="view_bussiness">Daftar Bisnis</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>

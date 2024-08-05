@@ -34,6 +34,7 @@
             </div>
         </div>
     </div>
+    @include('components.delete-modal')
 @endsection
 
 @push('page_scripts')

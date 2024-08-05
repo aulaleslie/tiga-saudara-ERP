@@ -118,6 +118,8 @@ class PermissionsTableSeeder extends Seeder
             //Settings
             'access_settings',
             'bussines_setting',
+            'crud_bussiness',
+            'view_bussiness',
             //Units
             'access_units'
         ];

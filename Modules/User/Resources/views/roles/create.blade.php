@@ -860,6 +860,23 @@
                                                         <label class="custom-control-label" for="bussines_setting">Pengaturan Bisnis</label>
                                                     </div>
                                                 </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="crud_bussines" name="permissions[]"
+                                                               value="crud_bussines" {{ old('crud_bussiness') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="crud_bussines">Hak Akses Bisnis</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="view_bussines" name="permissions[]"
+                                                               value="view_bussines" {{ old('view_bussiness') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="view_bussines">Daftar Bisnis</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -903,6 +920,7 @@
                     this.checked = checked;
                 });
             });
+
         });
     </script>
 @endpush
