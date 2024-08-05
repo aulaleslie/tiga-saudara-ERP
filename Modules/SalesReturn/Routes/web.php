@@ -11,7 +11,7 @@
 |
 */
 
-Route::group(['middleware' => 'auth'], function () {
+Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Generate PDF
     Route::get('/sale-returns/pdf/{id}', function ($id) {
         $saleReturn = \Modules\SalesReturn\Entities\SaleReturn::findOrFail($id);

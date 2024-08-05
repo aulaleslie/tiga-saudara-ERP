@@ -6,7 +6,7 @@
 |--------------------------------------------------------------------------
 */
 
-Route::group(['middleware' => 'auth'], function () {
+Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     //User Profile
     Route::get('/user/profile', 'ProfileController@edit')->name('profile.edit');

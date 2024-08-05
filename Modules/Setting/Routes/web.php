@@ -11,7 +11,9 @@
 |
 */
 
-Route::group(['middleware' => 'auth'], function () {
+use Modules\Setting\Http\Controllers\BusinessController;
+
+Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     //Mail Settings
     Route::patch('/settings/smtp', 'SettingController@updateSmtp')->name('settings.smtp.update');
@@ -20,4 +22,6 @@ Route::group(['middleware' => 'auth'], function () {
     Route::patch('/settings', 'SettingController@update')->name('settings.update');
     // Units
     Route::resource('units', 'UnitsController')->except('show');
+    Route::resource('businesses', 'BusinessController');
+    Route::post('/update-active-business', [BusinessController::class, 'updateActiveBusiness'])->name('update.active.business');
 });

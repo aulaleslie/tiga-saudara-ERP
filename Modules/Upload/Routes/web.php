@@ -11,7 +11,7 @@
 |
 */
 
-Route::group(['middleware' => 'auth'], function () {
+Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     //Dropzone
     Route::post('/dropzone/upload', 'UploadController@dropzoneUpload')->name('dropzone.upload');

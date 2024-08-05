@@ -20,6 +20,7 @@ class PermissionsTableSeeder extends Seeder
             //User Mangement
             'edit_own_profile',
             'access_user_management',
+            'access_user_permissions',
             //Dashboard
             'show_total_stats',
             'show_total_income',
@@ -117,6 +118,9 @@ class PermissionsTableSeeder extends Seeder
             'delete_currencies',
             //Settings
             'access_settings',
+            'bussines_setting',
+            'crud_bussiness',
+            'view_bussiness',
             //Units
             'access_units'
         ];

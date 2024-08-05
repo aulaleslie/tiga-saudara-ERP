@@ -11,7 +11,7 @@
 |
 */
 
-Route::group(['middleware' => 'auth'], function () {
+Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     //POS
     Route::get('/app/pos', 'PosController@index')->name('app.pos.index');

@@ -1,3 +1,8 @@
+@php
+    use Modules\Setting\Entities\Setting;
+    use Spatie\Permission\Models\Role;
+@endphp
+
 @extends('layouts.app')
 
 @section('title', 'Buat Akun')
@@ -18,13 +23,13 @@
 
 @section('content')
     <div class="container-fluid mb-4">
-        <form action="{{ route('users.store') }}" method="POST" enctype="multipart/form-data">
+        <form action="{{ route('users.store') }}" method="POST" enctype="multipart/form-data" id="user-form">
             @csrf
             <div class="row">
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Buat Akun <i class="bi bi-check"></i></button>
+                        <button class="btn btn-primary" type="submit">Buat Akun <i class="bi bi-check"></i></button>
                     </div>
                 </div>
                 <div class="col-md-8">
@@ -47,27 +52,61 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="password">Password <span class="text-danger">*</span></label>
+                                        <label for="password">Kata Sandi <span class="text-danger">*</span></label>
                                         <input class="form-control" type="password" name="password" required>
                                     </div>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="password_confirmation">Konfirmasi Password <span
+                                        <label for="password_confirmation">Konfirmasi Kata Sandi <span
                                                 class="text-danger">*</span></label>
                                         <input class="form-control" type="password" name="password_confirmation"
                                                required>
                                     </div>
                                 </div>
                             </div>
+
                             <div class="form-group">
-                                <label for="role">Peran <span class="text-danger">*</span></label>
-                                <select class="form-control" name="role" id="role" required>
-                                    <option value="" selected disabled>Pilih Peran</option>
-                                    @foreach(\Spatie\Permission\Models\Role::where('name', '!=', 'Super Admin')->get() as $role)
-                                        <option value="{{ $role->name }}">{{ $role->name }}</option>
-                                    @endforeach
-                                </select>
+                                <label>Settings dan Peran <span class="text-danger">*</span></label>
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        @if(auth()->user()->hasRole('Super Admin'))
+                                            @foreach(Setting::all() as $setting)
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" name="settings[]"
+                                                           value="{{ $setting->id }}" id="setting{{ $setting->id }}">
+                                                    <label class="form-check-label" for="setting{{ $setting->id }}">
+                                                        {{ $setting->company_name }}
+                                                    </label>
+                                                    <select class="form-control mt-2" name="roles[{{ $setting->id }}]"
+                                                            id="role{{ $setting->id }}" disabled>
+                                                        <option value="" selected disabled>Pilih Peran</option>
+                                                        @foreach(Role::where('name', '!=', 'Super Admin')->get() as $role)
+                                                            <option value="{{ $role->name }}">{{ $role->name }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                </div>
+                                            @endforeach
+                                        @else
+                                            @foreach(auth()->user()->settings as $setting)
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" name="settings[]"
+                                                           value="{{ $setting->id }}" id="setting{{ $setting->id }}">
+                                                    <label class="form-check-label" for="setting{{ $setting->id }}">
+                                                        {{ $setting->company_name }}
+                                                    </label>
+                                                    <select class="form-control mt-2" name="roles[{{ $setting->id }}]"
+                                                            id="role{{ $setting->id }}" disabled>
+                                                        <option value="" selected disabled>Pilih Peran</option>
+                                                        @foreach(Role::where('name', '!=', 'Super Admin')->get() as $role)
+                                                            <option value="{{ $role->name }}">{{ $role->name }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                </div>
+                                            @endforeach
+                                        @endif
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-group">
@@ -75,7 +114,7 @@
                                 <select class="form-control" name="is_active" id="is_active" required>
                                     <option value="" selected disabled>Pilih Status</option>
                                     <option value="1">Aktif</option>
-                                    <option value="2">Tidak Aktif</option>
+                                    <option value="0">Tidak Aktif</option>
                                 </select>
                             </div>
                         </div>
@@ -107,6 +146,18 @@
 
 @push('page_scripts')
     <script>
+        // Enable/disable role selection based on checkbox state
+        document.querySelectorAll('.form-check-input').forEach(function (checkbox) {
+            checkbox.addEventListener('change', function () {
+                const roleSelect = document.getElementById('role' + this.value);
+                roleSelect.disabled = !this.checked;
+                if (!this.checked) {
+                    roleSelect.selectedIndex = 0;
+                }
+            });
+        });
+
+        // FilePond initialization
         FilePond.registerPlugin(
             FilePondPluginImagePreview,
             FilePondPluginFileValidateSize,
@@ -126,5 +177,3 @@
         });
     </script>
 @endpush
-
-

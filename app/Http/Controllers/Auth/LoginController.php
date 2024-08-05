@@ -7,6 +7,7 @@ use App\Providers\RouteServiceProvider;
 use Illuminate\Foundation\Auth\AuthenticatesUsers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Modules\Setting\Entities\Setting;
 
 class LoginController extends Controller
 {
@@ -40,13 +41,32 @@ class LoginController extends Controller
         $this->middleware('guest')->except('logout');
     }
 
-    protected function authenticated(Request $request, $user) {
+    protected function authenticated(Request $request, $user)
+    {
         if ($user->is_active != 1) {
             Auth::logout();
 
             return back()->with([
-                'account_deactivated' => 'Your account is deactivated! Please contact with Super Admin.'
+                'account_deactivated' => 'Your account is deactivated! Please contact the Super Admin.'
             ]);
+        }
+
+        if ($user->hasRole('Super Admin')) {
+            // Get the first setting ordered by ID
+            $defaultSetting = Setting::orderBy('id')->firstOrFail();
+            $request->session()->put('setting_id', $defaultSetting->id);
+
+            // Get all settings ordered by ID
+            $userSettings = Setting::orderBy('id')->get();
+            $request->session()->put('user_settings', $userSettings);
+        } else {
+            // Get the first setting ordered by ID for the user
+            $defaultSetting = $user->settings()->orderBy('id')->firstOrFail();
+            $request->session()->put('setting_id', $defaultSetting->id);
+
+            // Get all user settings ordered by ID
+            $userSettings = $user->settings()->orderBy('id')->get();
+            $request->session()->put('user_settings', $userSettings);
         }
 
         return redirect()->intended(RouteServiceProvider::HOME);

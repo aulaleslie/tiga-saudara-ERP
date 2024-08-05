@@ -1,6 +1,11 @@
+@php
+    use Modules\Setting\Entities\Setting;
+    use Spatie\Permission\Models\Role;
+@endphp
+
 @extends('layouts.app')
 
-@section('title', 'Edit User')
+@section('title', 'Ubah Akun')
 
 @section('third_party_stylesheets')
     <link href="https://unpkg.com/filepond/dist/filepond.css" rel="stylesheet"/>
@@ -18,14 +23,14 @@
 
 @section('content')
     <div class="container-fluid mb-4">
-        <form action="{{ route('users.update', $user->id) }}" method="POST" enctype="multipart/form-data">
+        <form action="{{ route('users.update', $user->id) }}" method="POST" enctype="multipart/form-data" id="user-form">
             @csrf
             @method('patch')
             <div class="row">
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Perbarui Pengguna <i class="bi bi-check"></i></button>
+                        <button class="btn btn-primary" type="submit">Perbarui Akun <i class="bi bi-check"></i></button>
                     </div>
                 </div>
                 <div class="col-md-8">
@@ -34,7 +39,7 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="name">Name <span class="text-danger">*</span></label>
+                                        <label for="name">Nama <span class="text-danger">*</span></label>
                                         <input class="form-control" type="text" name="name" required value="{{ $user->name }}">
                                     </div>
                                 </div>
@@ -45,21 +50,71 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="password">Kata Sandi</label>
+                                        <input class="form-control" type="password" name="password">
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="password_confirmation">Konfirmasi Kata Sandi</label>
+                                        <input class="form-control" type="password" name="password_confirmation">
+                                    </div>
+                                </div>
+                            </div>
 
                             <div class="form-group">
-                                <label for="role">Role <span class="text-danger">*</span></label>
-                                <select class="form-control" name="role" id="role" required>
-                                    @foreach(\Spatie\Permission\Models\Role::where('name', '!=', 'Super Admin')->get() as $role)
-                                        <option {{ $user->hasRole($role->name) ? 'selected' : '' }} value="{{ $role->name }}">{{ $role->name }}</option>
-                                    @endforeach
-                                </select>
+                                <label>Settings dan Peran <span class="text-danger">*</span></label>
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        @if(auth()->user()->hasRole('Super Admin'))
+                                            @foreach(Setting::all() as $setting)
+                                                @php
+                                                    $userSetting = $user->settings->where('id', $setting->id)->first();
+                                                @endphp
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" name="settings[]" value="{{ $setting->id }}" id="setting{{ $setting->id }}" {{ $userSetting ? 'checked' : '' }}>
+                                                    <label class="form-check-label" for="setting{{ $setting->id }}">
+                                                        {{ $setting->company_name }}
+                                                    </label>
+                                                    <select class="form-control mt-2" name="roles[{{ $setting->id }}]" id="role{{ $setting->id }}" {{ $userSetting ? '' : 'disabled' }}>
+                                                        <option value="" selected disabled>Pilih Peran</option>
+                                                        @foreach(Role::where('name', '!=', 'Super Admin')->get() as $role)
+                                                            <option value="{{ $role->name }}" {{ $userSetting && $userSetting->pivot->role_id == $role->id ? 'selected' : '' }}>{{ $role->name }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                </div>
+                                            @endforeach
+                                        @else
+                                            @foreach(auth()->user()->settings as $setting)
+                                                @php
+                                                    $userSetting = $user->settings->where('id', $setting->id)->first();
+                                                @endphp
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="checkbox" name="settings[]" value="{{ $setting->id }}" id="setting{{ $setting->id }}" {{ $userSetting ? 'checked' : '' }}>
+                                                    <label class="form-check-label" for="setting{{ $setting->id }}">
+                                                        {{ $setting->company_name }}
+                                                    </label>
+                                                    <select class="form-control mt-2" name="roles[{{ $setting->id }}]" id="role{{ $setting->id }}" {{ $userSetting ? '' : 'disabled' }}>
+                                                        <option value="" selected disabled>Pilih Peran</option>
+                                                        @foreach(Role::where('name', '!=', 'Super Admin')->get() as $role)
+                                                            <option value="{{ $role->name }}" {{ $userSetting && $userSetting->pivot->role_id == $role->id ? 'selected' : '' }}>{{ $role->name }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                </div>
+                                            @endforeach
+                                        @endif
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-group">
                                 <label for="is_active">Status <span class="text-danger">*</span></label>
                                 <select class="form-control" name="is_active" id="is_active" required>
                                     <option value="1" {{ $user->is_active == 1 ? 'selected' : ''}}>Aktif</option>
-                                    <option value="2" {{ $user->is_active == 2 ? 'selected' : ''}}>Tidak Aktif</option>
+                                    <option value="0" {{ $user->is_active == 0 ? 'selected' : ''}}>Tidak Aktif</option>
                                 </select>
                             </div>
                         </div>
@@ -83,15 +138,25 @@
 
 @section('third_party_scripts')
     <script src="https://unpkg.com/filepond-plugin-image-preview/dist/filepond-plugin-image-preview.js"></script>
-    <script
-        src="https://unpkg.com/filepond-plugin-file-validate-size/dist/filepond-plugin-file-validate-size.js"></script>
-    <script
-        src="https://unpkg.com/filepond-plugin-file-validate-type/dist/filepond-plugin-file-validate-type.js"></script>
+    <script src="https://unpkg.com/filepond-plugin-file-validate-size/dist/filepond-plugin-file-validate-size.js"></script>
+    <script src="https://unpkg.com/filepond-plugin-file-validate-type/dist/filepond-plugin-file-validate-type.js"></script>
     <script src="https://unpkg.com/filepond/dist/filepond.js"></script>
 @endsection
 
 @push('page_scripts')
     <script>
+        // Enable/disable role selection based on checkbox state
+        document.querySelectorAll('.form-check-input').forEach(function (checkbox) {
+            checkbox.addEventListener('change', function () {
+                const roleSelect = document.getElementById('role' + this.value);
+                roleSelect.disabled = !this.checked;
+                if (!this.checked) {
+                    roleSelect.selectedIndex = 0;
+                }
+            });
+        });
+
+        // FilePond initialization
         FilePond.registerPlugin(
             FilePondPluginImagePreview,
             FilePondPluginFileValidateSize,
@@ -111,5 +176,3 @@
         });
     </script>
 @endpush
-
-

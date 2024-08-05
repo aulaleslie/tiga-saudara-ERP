@@ -1,7 +1,7 @@
 // CoreUI
 @import '@coreui/coreui/scss/coreui';
 
-//Extra Overrides
+// Extra Overrides
 .c-sidebar {
     background: #0d2a36;
     color: #fff;
@@ -19,30 +19,39 @@
     color: #fff;
 }
 
-//
+// Sidebar logo margin
+.c-sidebar-brand img {
+    margin: 10px; // Adjust the margin value as needed
+}
+
+// Sidebar active and hover states
 .c-sidebar .c-sidebar-nav-link.c-active, .c-sidebar .c-active .c-sidebar-nav-dropdown-toggle {
     color: #fff;
     background: #009bde;
-
+    margin: 5px; // Add margin on all sides when active
+    transition: margin 0.3s ease; // Smooth transition
 }
 
 .c-sidebar .c-sidebar-nav-link {
     padding: .45rem;
     border-radius: 2px;
     margin-bottom: 1px;
+    transition: margin 0.3s ease; // Smooth transition
 }
-//
-//
+
 .c-sidebar .c-sidebar-nav-link:hover {
     color: #fff;
     background: #009bde;
+    margin: 5px; // Add margin on all sides on hover
 }
 
+// Button styles
 .btn:not([class*=ghost]):not([class*=link]):not([class*=outline]):not([class*=transparent]) {
     border: 0;
     box-shadow: 0 1px 1px 0 rgb(60 75 100 / 14%), 0 2px 1px -1px rgb(60 75 100 / 12%), 0 1px 3px 0 rgb(60 75 100 / 20%);
 }
 
+// Dropzone styles
 .dropzone {
     border: 2px dashed #3B82F6;
     border-radius: 5px;
@@ -69,6 +78,7 @@
     width: 100%;
 }
 
+// Table styles
 table {
     width: 990px !important;
 }
@@ -78,4 +88,9 @@ table {
     table {
         width: 100% !important;
     }
+}
+
+/* Dropdown on hover */
+.c-header-nav-item.dropdown:hover .dropdown-menu {
+    display: block;
 }

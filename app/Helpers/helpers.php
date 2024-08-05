@@ -1,9 +1,23 @@
 <?php
 
+use Modules\Setting\Entities\Setting;
+
 if (!function_exists('settings')) {
     function settings() {
-        $settings = cache()->remember('settings', 24*60, function () {
-            return \Modules\Setting\Entities\Setting::firstOrFail();
+        // Get the default setting ID from the session
+        $currentSettingId = session('setting_id');
+
+        // Ensure the setting ID exists in the session
+        if (!$currentSettingId) {
+            return null; // or handle the case where no setting ID is available
+        }
+
+        // Use the default setting ID as part of the cache key
+        $cacheKey = 'settings_' . $currentSettingId;
+
+        // Retrieve settings from the cache or fetch and cache them
+        $settings = cache()->remember($cacheKey, 24 * 60, function () use ($currentSettingId) {
+            return Setting::findOrFail($currentSettingId);
         });
 
         return $settings;
