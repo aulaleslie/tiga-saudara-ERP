@@ -190,12 +190,18 @@
                                 </div>
 
                                 <!-- Products Permission -->
-                                <!-- <div class="col-lg-4 col-md-6 mb-3">
+                              <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Products
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input"
+                                                       id="select-all-product">
+                                                <label class="custom-control-label" for="select-all-product">Pilih
+                                                    Semua</label>
+                                            </div>
                                         </div>
-                                        <div class="card-body">
+                                        <div id="product" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -947,6 +953,12 @@
             $('#select-all-pengaturan').click(function () {
                 var checked = this.checked;
                 $('#pengaturan input[type="checkbox"]').each(function () {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-product').click(function () {
+                var checked = this.checked;
+                $('#product input[type="checkbox"]').each(function () {
                     this.checked = checked;
                 });
             });

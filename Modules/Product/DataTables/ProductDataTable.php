@@ -69,10 +69,6 @@ class ProductDataTable extends DataTable
                 ->title('Gambar')
                 ->className('text-center align-middle'),
 
-            Column::make('category.category_name')
-                ->title('Kategori')
-                ->className('text-center align-middle'),
-
             Column::make('product_code')
                 ->title('Kode Produk')
                 ->className('text-center align-middle'),
@@ -90,8 +86,27 @@ class ProductDataTable extends DataTable
                 ->className('text-center align-middle'),
 
             Column::computed('product_quantity')
-                ->title('Jumlah')
+                ->title('Stok Tersedia')
                 ->className('text-center align-middle'),
+
+            Column::computed('dummy_column')
+                ->title('Tipe Produk')
+                ->className('text-center align-middle')
+                ->data(''),
+
+            Column::make('category.category_name')
+                ->title('Kategori')
+                ->className('text-center align-middle'),
+
+            Column::computed('dummy_column')
+                ->title('Brand')
+                ->className('text-center align-middle')
+                ->data(''),
+
+            Column::computed('dummy_column')
+                ->title('Tax')
+                ->className('text-center align-middle')
+                ->data(''),
 
             Column::computed('action')
                 ->exportable(false)
