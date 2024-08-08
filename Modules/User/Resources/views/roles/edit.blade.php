@@ -29,6 +29,7 @@
                     <div class="form-group">
                         <button type="submit" class="btn btn-primary">Perbaharui Peran <i class="bi bi-check"></i>
                         </button>
+                        <a href="{{ route('roles.index') }}" class="btn btn-secondary">Kembali</a>
                     </div>
                     <div class="card">
                         <div class="card-body">
@@ -257,6 +258,14 @@
                                                                id="print_barcodes" name="permissions[]"
                                                                value="print_barcodes" {{ $role->hasPermissionTo('print_barcodes') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="print_barcodes">Print Barcodes</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-12">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="view_aceestable_product" name="permissions[]"
+                                                               value="view_aceestable_product" {{ $role->hasPermissionTo('view_aceestable_product') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="view_aceestable_product">Akses Tabel</label>
                                                     </div>
                                                 </div>
                                             </div>

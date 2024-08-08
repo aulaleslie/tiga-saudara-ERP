@@ -26,8 +26,8 @@
                 <form action="{{ route('roles.store') }}" method="POST">
                     @csrf
                     <div class="form-group">
-                        <button type="submit" class="btn btn-primary">Buat Peran <i class="bi bi-check"></i>
-                        </button>
+                        <button type="submit" class="btn btn-primary">Buat Peran <i class="bi bi-check"></i></button>
+                        <a href="{{ route('roles.index') }}" class="btn btn-secondary">Kembali</a>
                     </div>
                     <div class="card">
                         <div class="card-body">
@@ -238,6 +238,14 @@
                                                                id="print_barcodes" name="permissions[]"
                                                                value="print_barcodes" {{ old('print_barcodes') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="print_barcodes">Print Barcodes</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-12">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="view_aceestable_product" name="permissions[]"
+                                                               value="view_aceestable_product" {{ old('view_aceestable_product') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="view_aceestable_product">Akses Tabel</label>
                                                     </div>
                                                 </div>
                                             </div>
