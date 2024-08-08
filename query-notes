@@ -42,3 +42,8 @@ SELECT 'access_user_permissions', 'web', '2024-07-16 21:58:17', '2024-07-16 21:5
 WHERE NOT EXISTS (
     SELECT 1 FROM tiga_saudara.permissions WHERE name = 'access_user_permissions'
 )
+UNION ALL
+SELECT 'view_aceestable_product', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'view_aceestable_product'
+)

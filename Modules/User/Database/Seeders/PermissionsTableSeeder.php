@@ -36,6 +36,7 @@ class PermissionsTableSeeder extends Seeder
             'show_products',
             'edit_products',
             'delete_products',
+            'view_aceestable_product',
             //Product Categories
             'access_product_categories',
             //Barcode Printing
