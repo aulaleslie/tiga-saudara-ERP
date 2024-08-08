@@ -8,7 +8,7 @@
                             <i class="bi bi-search text-primary"></i>
                         </div>
                     </div>
-                    <input wire:keydown.escape="resetQuery" wire:model.live.debounce.500ms="query" type="text" class="form-control" placeholder="Type product name or code....">
+                    <input wire:keydown.escape="resetQuery" wire:model.live.debounce.500ms="query" type="text" class="form-control" placeholder="Tipe nama produk atau kode produk....">
                 </div>
             </div>
         </div>
@@ -51,7 +51,7 @@
             <div class="card position-absolute mt-1 border-0" style="z-index: 1;left: 0;right: 0;">
                 <div class="card-body shadow">
                     <div class="alert alert-warning mb-0">
-                        No Product Found....
+                        Produk tidak ditemukan....
                     </div>
                 </div>
             </div>

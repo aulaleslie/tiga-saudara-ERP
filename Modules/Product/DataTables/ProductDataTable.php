@@ -2,6 +2,7 @@
 
 namespace Modules\Product\DataTables;
 
+use Illuminate\Support\Facades\Gate;
 use Modules\Product\Entities\Product;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
@@ -64,7 +65,7 @@ class ProductDataTable extends DataTable
 
     protected function getColumns()
     {
-        return [
+        $columns= [
             Column::computed('product_image')
                 ->title('Gambar')
                 ->className('text-center align-middle'),
@@ -73,40 +74,50 @@ class ProductDataTable extends DataTable
                 ->title('Kode Produk')
                 ->className('text-center align-middle'),
 
-            Column::make('product_name')
+           Column::make('product_name')
                 ->title('Nama Produk')
                 ->className('text-center align-middle'),
 
-            Column::computed('product_cost')
+            Gate::allows('view_aceestable_product') ? Column::computed('product_cost')
                 ->title('Harga')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle'):null,
 
-            Column::computed('product_price')
-                ->title('Harga Jual')
-                ->className('text-center align-middle'),
+            Gate::allows('view_aceestable_product') ? Column::computed('product_price')
+                ->title('Harga Produk A')
+                ->className('text-center align-middle'):null,
+
+             Gate::allows('view_aceestable_product') ? Column::computed('dummy_column')
+                ->title('Harga Produk B')
+                ->className('text-center align-middle')
+                ->data(''):null,
+
+            Column::computed('dummy_column')
+                ->title('Harga Produk C')
+                ->className('text-center align-middle')
+                ->data(''),
 
             Column::computed('product_quantity')
                 ->title('Stok Tersedia')
                 ->className('text-center align-middle'),
 
-            Column::computed('dummy_column')
+            Gate::allows('view_aceestable_product') ? Column::computed('dummy_column')
                 ->title('Tipe Produk')
                 ->className('text-center align-middle')
-                ->data(''),
+                ->data(''):null,
 
             Column::make('category.category_name')
                 ->title('Kategori')
                 ->className('text-center align-middle'),
 
-            Column::computed('dummy_column')
+            Gate::allows('view_aceestable_product') ? Column::computed('dummy_column')
                 ->title('Brand')
                 ->className('text-center align-middle')
-                ->data(''),
+                ->data(''):null,
 
-            Column::computed('dummy_column')
+            Gate::allows('view_aceestable_product') ? Column::computed('dummy_column')
                 ->title('Tax')
                 ->className('text-center align-middle')
-                ->data(''),
+                ->data(''):null,
 
             Column::computed('action')
                 ->exportable(false)
@@ -118,6 +129,11 @@ class ProductDataTable extends DataTable
                 ->visible(false)
                 ->title('Tanggal Dibuat')
         ];
+
+        // Filter kolom null yang mungkin telah ditambahkan
+        $columns = array_filter($columns);
+
+        return $columns;
     }
 
     /**
