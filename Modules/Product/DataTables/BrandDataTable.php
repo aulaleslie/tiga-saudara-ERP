@@ -2,17 +2,16 @@
 
 namespace Modules\Product\DataTables;
 
-use Modules\Product\Entities\Category;
+use Illuminate\Database\Eloquent\Builder;
+use Modules\Product\Entities\Brand;
 use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Exceptions\Exception;
-use Yajra\DataTables\Html\Builder;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
 use Yajra\DataTables\Services\DataTable;
 
-class ProductCategoriesDataTable extends DataTable
+class BrandDataTable extends DataTable
 {
-
     /**
      * @throws Exception
      */
@@ -21,25 +20,35 @@ class ProductCategoriesDataTable extends DataTable
         return datatables()
             ->eloquent($query)
             ->addColumn('action', function ($data) {
-                return view('product::categories.partials.actions', compact('data'));
+                return view('product::brands.partials.actions', compact('data'));
+            })
+            ->addColumn('name', function ($data) {
+                return $data->name;
+            })
+            ->addColumn('description', function ($data) {
+                return $data->description;
             });
     }
 
-    public function query(Category $model): \Illuminate\Database\Eloquent\Builder
+    public function query(Brand $model): Builder
     {
-        return $model->newQuery()->withCount('products');
+        // Get the current setting ID from the session
+        $currentSettingId = session('setting_id');
+
+        // Filter the query by the current setting ID
+        return $model->newQuery()->where('setting_id', $currentSettingId);
     }
 
-    public function html(): Builder
+    public function html(): \Yajra\DataTables\Html\Builder
     {
         return $this->builder()
-            ->setTableId('product_categories-table')
+            ->setTableId('brand-table')
             ->columns($this->getColumns())
             ->minifiedAjax()
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(4)
+            ->orderBy(1)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -55,30 +64,29 @@ class ProductCategoriesDataTable extends DataTable
     protected function getColumns(): array
     {
         return [
-            Column::make('category_code')
-                ->addClass('text-center')
-                ->title('Kode Kategori'),
+            Column::make('id')
+                ->title('ID')
+                ->className('text-center align-middle'),
 
-            Column::make('category_name')
-                ->addClass('text-center')
-                ->title('Nama Kategori'),
+            Column::make('name')
+                ->title('Brand Name')
+                ->className('text-center align-middle'),
 
-            Column::make('products_count')
-                ->addClass('text-center')
-                ->title('Total Produk'),
+            Column::make('description')
+                ->title('Description')
+                ->className('text-center align-middle'),
 
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
-                ->addClass('text-center')
-                ->title('Aksi'),
-
-            Column::make('created_at')
-                ->visible(false)
+                ->className('text-center align-middle')
+                ->title('Action')
         ];
     }
 
-    protected function filename(): string {
-        return 'ProductCategories_' . date('YmdHis');
+    protected function filename(): string
+    {
+        return 'Brand_' . date('YmdHis');
     }
 }
+

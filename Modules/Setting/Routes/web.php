@@ -11,6 +11,7 @@
 |
 */
 
+use Illuminate\Support\Facades\Route;
 use Modules\Setting\Http\Controllers\BusinessController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
