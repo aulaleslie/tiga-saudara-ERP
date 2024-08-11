@@ -2,6 +2,10 @@
 
 namespace Modules\Setting\Http\Controllers;
 
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Setting\Entities\Unit;
@@ -39,13 +43,15 @@ class   UnitsController extends Controller
         return redirect()->route('units.index');
     }
 
-    public function edit(Unit $unit) {
+    public function edit(Unit $unit): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
         return view('setting::units.edit', [
             'unit' => $unit
         ]);
     }
 
-    public function update(Request $request, Unit $unit) {
+    public function update(Request $request, Unit $unit): RedirectResponse
+    {
         $request->validate([
             'name'       => 'required|string|max:255',
             'short_name' => 'required|string|max:255'
@@ -63,7 +69,8 @@ class   UnitsController extends Controller
         return redirect()->route('units.index');
     }
 
-    public function destroy(Unit $unit) {
+    public function destroy(Unit $unit): RedirectResponse
+    {
         $unit->delete();
 
         toast('Unit Deleted!', 'warning');
