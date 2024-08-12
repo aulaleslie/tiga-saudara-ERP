@@ -8,6 +8,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Modules\Product\DataTables\BrandDataTable;
 use Modules\Product\Entities\Brand;
 
@@ -18,6 +19,7 @@ class BrandController extends Controller
      */
     public function index(BrandDataTable $dataTable)
     {
+        abort_if(Gate::denies('brand.access'), 403);
         return $dataTable->render('product::brands.index');
     }
 
@@ -26,6 +28,7 @@ class BrandController extends Controller
      */
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('brand.create'), 403);
         return view('product::brands.create');
     }
 
@@ -48,7 +51,7 @@ class BrandController extends Controller
             'created_by' => auth()->id(),
         ]);
 
-        toast('Brand Created!', 'success');
+        toast('Merek Ditambahkan!', 'success');
 
         return redirect()->route('brands.index');
     }
@@ -58,6 +61,7 @@ class BrandController extends Controller
      */
     public function show($id): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('brand.view'), 403);
         $brand = Brand::findOrFail($id);
         return view('product::brands.show', compact('brand'));
     }
@@ -67,6 +71,7 @@ class BrandController extends Controller
      */
     public function edit($id): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('brand.edit'), 403);
         $brand = Brand::findOrFail($id);
         return view('product::brands.edit', compact('brand'));
     }

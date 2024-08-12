@@ -22,21 +22,21 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="name">Brand Name <span class="text-danger">*</span></label>
+                                        <label for="name">Nama Merek <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="name" required
                                                value="{{ $brand->name }}">
                                     </div>
                                 </div>
                                 <div class="col-lg-12">
                                     <div class="form-group">
-                                        <label for="description">Description</label>
+                                        <label for="description">Keterangan</label>
                                         <textarea class="form-control" name="description" id="description"
                                                   rows="4">{{ $brand->description }}</textarea>
                                     </div>
                                 </div>
                                 <div class="col-lg-12 d-flex justify-content-end">
                                     <div class="form-group">
-                                        <button class="btn btn-primary">Update Brand <i class="bi bi-check"></i>
+                                        <button class="btn btn-primary">Pembaharuan Merek <i class="bi bi-check"></i>
                                         </button>
                                     </div>
                                 </div>
