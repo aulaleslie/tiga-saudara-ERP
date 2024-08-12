@@ -901,6 +901,58 @@
                                         </div>
                                     </div>
                                 </div>
+
+
+                                <!-- Merek -->
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Products
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-merek">
+                                                <label class="custom-control-label" for="select-all-merek">Pilih Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="merek" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="brand.access" name="permissions[]"
+                                                               value="brand.access" {{ old('brand.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="brand.access">Hak Akses</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="brand.create" name="permissions[]"
+                                                               value="brand.create" {{ old('brand.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="brand.create">Create</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="brand.edit" name="permissions[]"
+                                                               value="brand.edit" {{ old('brand.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="brand.edit">Edit</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="brand.delete" name="permissions[]"
+                                                               value="delete_products" {{ old('brand.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="brand.delete">Delete</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                         </div>
@@ -945,6 +997,13 @@
             $('#select-all-pengaturan').click(function() {
                 var checked = this.checked;
                 $('#pengaturan input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+
+            $('#select-all-merek').click(function() {
+                var checked = this.checked;
+                $('#merek input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });

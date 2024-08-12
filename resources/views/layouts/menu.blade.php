@@ -7,7 +7,7 @@
 @can('access_products')
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('products.*') || request()->routeIs('product-categories.*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
-            <i class="c-sidebar-nav-icon bi bi-journal-bookmark" style="line-height: 1;"></i> Produk
+            <i class="c-sidebar-nav-icon bbi bi-box2" style="line-height: 1;"></i> Produk
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
             @can('access_product_categories')
@@ -22,21 +22,21 @@
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('products.create') ? 'c-active' : '' }}"
                        href="{{ route('products.create') }}">
-                        <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Tambah Produk
+                        <i class="c-sidebar-nav-icon bi bi-inboxes" style="line-height: 1;"></i> Tambah Produk
                     </a>
                 </li>
             @endcan
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('products.index') ? 'c-active' : '' }}"
                    href="{{ route('products.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> Semua Produk
+                    <i class="c-sidebar-nav-icon bi bi-box-seam" style="line-height: 1;"></i> Semua Produk
                 </a>
             </li>
             @can('print_barcodes')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('barcode.print') ? 'c-active' : '' }}"
                        href="{{ route('barcode.print') }}">
-                        <i class="c-sidebar-nav-icon bi bi-printer" style="line-height: 1;"></i> Print Barcode
+                        <i class="c-sidebar-nav-icon bi bi-upc-scan" style="line-height: 1;"></i> Print Barcode
                     </a>
                 </li>
             @endcan
@@ -44,16 +44,18 @@
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('units*') ? 'c-active' : '' }}"
                    href="{{ route('units.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-calculator" style="line-height: 1;"></i> Units
+                    <i class="c-sidebar-nav-icon bi bi-file-binary" style="line-height: 1;"></i> Units
                 </a>
             </li>
 
+            @can('brand.access')
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('brands*') ? 'c-active' : '' }}"
                    href="{{ route('brands.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-calculator" style="line-height: 1;"></i> Merek
+                    <i class="c-sidebar-nav-icon bi bi-nvidia" style="line-height: 1;"></i> Merek
                 </a>
             </li>
+            @endcan
 
         </ul>
     </li>

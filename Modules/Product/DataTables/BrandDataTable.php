@@ -69,18 +69,18 @@ class BrandDataTable extends DataTable
                 ->className('text-center align-middle'),
 
             Column::make('name')
-                ->title('Brand Name')
+                ->title('Nama Merek')
                 ->className('text-center align-middle'),
 
             Column::make('description')
-                ->title('Description')
+                ->title('Keterangan')
                 ->className('text-center align-middle'),
 
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
                 ->className('text-center align-middle')
-                ->title('Action')
+                ->title('Aksi')
         ];
     }
 

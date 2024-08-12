@@ -37,6 +37,12 @@ class PermissionsTableSeeder extends Seeder
             'edit_products',
             'delete_products',
             'view_aceestable_product',
+            //Band
+            'brand.access',
+            'brand.create',
+            'brand.view',
+            'brand.edit',
+            'brand.delete',
             //Product Categories
             'access_product_categories',
             //Barcode Printing
