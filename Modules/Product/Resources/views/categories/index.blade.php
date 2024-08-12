@@ -39,6 +39,7 @@
 
     <!-- Create Modal -->
     @include('product::includes.category-modal')
+    @include('components.delete-modal')
 @endsection
 
 @push('page_scripts')

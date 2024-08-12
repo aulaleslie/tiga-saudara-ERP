@@ -20,6 +20,13 @@ class ProductCategoriesDataTable extends DataTable
     {
         return datatables()
             ->eloquent($query)
+            ->addColumn('nama_kategori', function (Category $category) {
+                if ($category->parent) {
+                    return $category->parent->category_name . '::' . $category->category_name;
+                } else {
+                    return $category->category_name;
+                }
+            })
             ->addColumn('action', function ($data) {
                 return view('product::categories.partials.actions', compact('data'));
             });
@@ -27,7 +34,7 @@ class ProductCategoriesDataTable extends DataTable
 
     public function query(Category $model): \Illuminate\Database\Eloquent\Builder
     {
-        return $model->newQuery()->withCount('products');
+        return $model->newQuery()->with('parent')->withCount('products'); // Eager load the parent category
     }
 
     public function html(): Builder
@@ -59,7 +66,7 @@ class ProductCategoriesDataTable extends DataTable
                 ->addClass('text-center')
                 ->title('Kode Kategori'),
 
-            Column::make('category_name')
+            Column::make('nama_kategori')
                 ->addClass('text-center')
                 ->title('Nama Kategori'),
 
