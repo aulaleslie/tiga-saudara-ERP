@@ -8,4 +8,3 @@
     @csrf
     @method('delete')
 </form>
-
