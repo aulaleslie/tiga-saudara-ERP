@@ -263,9 +263,9 @@
                                                 <div class="col-12">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="view_aceestable_product" name="permissions[]"
-                                                               value="view_aceestable_product" {{ $role->hasPermissionTo('view_aceestable_product') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="view_aceestable_product">Akses Tabel</label>
+                                                               id="view_access_table_product" name="permissions[]"
+                                                               value="view_access_table_product" {{ $role->hasPermissionTo('view_access_table_product') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="view_access_table_product">Akses Tabel</label>
                                                     </div>
                                                 </div>
                                             </div>

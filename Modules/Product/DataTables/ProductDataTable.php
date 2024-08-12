@@ -78,15 +78,15 @@ class ProductDataTable extends DataTable
                 ->title('Nama Produk')
                 ->className('text-center align-middle'),
 
-            Gate::allows('view_aceestable_product') ? Column::computed('product_cost')
+            Gate::allows('view_access_table_product') ? Column::computed('product_cost')
                 ->title('Harga')
                 ->className('text-center align-middle'):null,
 
-            Gate::allows('view_aceestable_product') ? Column::computed('product_price')
+            Gate::allows('view_access_table_product') ? Column::computed('product_price')
                 ->title('Harga Produk A')
                 ->className('text-center align-middle'):null,
 
-             Gate::allows('view_aceestable_product') ? Column::computed('dummy_column')
+             Gate::allows('view_access_table_product') ? Column::computed('dummy_column')
                 ->title('Harga Produk B')
                 ->className('text-center align-middle')
                 ->data(''):null,
@@ -100,7 +100,7 @@ class ProductDataTable extends DataTable
                 ->title('Stok Tersedia')
                 ->className('text-center align-middle'),
 
-            Gate::allows('view_aceestable_product') ? Column::computed('dummy_column')
+            Gate::allows('view_access_table_product') ? Column::computed('dummy_column')
                 ->title('Tipe Produk')
                 ->className('text-center align-middle')
                 ->data(''):null,
@@ -109,12 +109,12 @@ class ProductDataTable extends DataTable
                 ->title('Kategori')
                 ->className('text-center align-middle'),
 
-            Gate::allows('view_aceestable_product') ? Column::computed('dummy_column')
+            Gate::allows('view_access_table_product') ? Column::computed('dummy_column')
                 ->title('Brand')
                 ->className('text-center align-middle')
                 ->data(''):null,
 
-            Gate::allows('view_aceestable_product') ? Column::computed('dummy_column')
+            Gate::allows('view_access_table_product') ? Column::computed('dummy_column')
                 ->title('Tax')
                 ->className('text-center align-middle')
                 ->data(''):null,
