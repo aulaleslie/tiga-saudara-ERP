@@ -18,6 +18,9 @@
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
+                        <a href="{{ route('products.index') }}" class="btn btn-secondary mr-2">
+                            Kembali
+                        </a>
                         <button class="btn btn-primary">Tambah Produk <i class="bi bi-check"></i></button>
                     </div>
                 </div>

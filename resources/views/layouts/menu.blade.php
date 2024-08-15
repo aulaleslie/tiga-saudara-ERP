@@ -7,7 +7,7 @@
 @can('access_products')
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('products.*') || request()->routeIs('product-categories.*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
-            <i class="c-sidebar-nav-icon bbi bi-box2" style="line-height: 1;"></i> Produk
+            <i class="c-sidebar-nav-icon bbi bi-box2-fill" style="line-height: 1;"></i> Produk
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
             @can('access_product_categories')
@@ -304,7 +304,7 @@
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('users*') ? 'c-active' : '' }}"
                    href="{{ route('users.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-people-fill" style="line-height: 1;"></i> Semua Pengguna
+                    <i class="c-sidebar-nav-icon bi bi-people" style="line-height: 1;"></i> Semua Pengguna
                 </a>
             </li>
             @can('access_user_permissions')
@@ -322,7 +322,7 @@
 @can('access_settings')
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
-            <i class="c-sidebar-nav-icon bi bi-gear-fill" style="line-height: 1;"></i> Pengaturan
+            <i class="c-sidebar-nav-icon bi bi-wrench-adjustable" style="line-height: 1;"></i> Pengaturan
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
             @can('bussines_setting')

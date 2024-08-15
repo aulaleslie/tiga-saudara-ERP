@@ -19,7 +19,10 @@
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Update Product <i class="bi bi-check"></i></button>
+                        <a href="{{ route('products.index') }}" class="btn btn-secondary mr-2">
+                            Kembali
+                        </a>
+                        <button class="btn btn-primary">Perbaharui Product <i class="bi bi-check"></i></button>
                     </div>
                 </div>
                 <div class="col-lg-12">
@@ -28,13 +31,13 @@
                             <div class="form-row">
                                 <div class="col-md-7">
                                     <div class="form-group">
-                                        <label for="product_name">Product Name <span class="text-danger">*</span></label>
+                                        <label for="product_name">Nama Produk <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="product_name" required value="{{ $product->product_name }}">
                                     </div>
                                 </div>
                                 <div class="col-md-5">
                                     <div class="form-group">
-                                        <label for="product_code">Code <span class="text-danger">*</span></label>
+                                        <label for="product_code">Kode Produk <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="product_code" required value="{{ $product->product_code }}">
                                     </div>
                                 </div>
@@ -43,7 +46,7 @@
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <label for="category_id">Category <span class="text-danger">*</span></label>
+                                        <label for="category_id">Kategori <span class="text-danger">*</span></label>
                                         <select class="form-control" name="category_id" id="category_id" required>
                                             @foreach(\Modules\Product\Entities\Category::all() as $category)
                                                 <option {{ $category->id == $product->category->id ? 'selected' : '' }} value="{{ $category->id }}">{{ $category->category_name }}</option>
@@ -69,13 +72,13 @@
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <label for="product_cost">Cost <span class="text-danger">*</span></label>
+                                        <label for="product_cost">Biaya <span class="text-danger">*</span></label>
                                         <input id="product_cost" type="text" class="form-control" min="0" name="product_cost" required value="{{ $product->product_cost }}">
                                     </div>
                                 </div>
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <label for="product_price">Price <span class="text-danger">*</span></label>
+                                        <label for="product_price">Harga Jual <span class="text-danger">*</span></label>
                                         <input id="product_price" type="text" class="form-control" min="0" name="product_price" required value="{{ $product->product_price }}">
                                     </div>
                                 </div>
@@ -84,13 +87,13 @@
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <label for="product_quantity">Quantity <span class="text-danger">*</span></label>
+                                        <label for="product_quantity">Jumlah <span class="text-danger">*</span></label>
                                         <input type="number" class="form-control" name="product_quantity" required value="{{ $product->product_quantity }}" min="1">
                                     </div>
                                 </div>
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <label for="product_stock_alert">Alert Quantity <span class="text-danger">*</span></label>
+                                        <label for="product_stock_alert">Peringatan jumlah <span class="text-danger">*</span></label>
                                         <input type="number" class="form-control" name="product_stock_alert" required value="{{ $product->product_stock_alert }}" min="0">
                                     </div>
                                 </div>
@@ -99,13 +102,13 @@
                             <div class="form-row">
                                 <div class="col-md-4">
                                     <div class="form-group">
-                                        <label for="product_order_tax">Tax (%)</label>
+                                        <label for="product_order_tax">Pajak (%)</label>
                                         <input type="number" class="form-control" name="product_order_tax" value="{{ $product->product_order_tax }}" min="0" max="100">
                                     </div>
                                 </div>
                                 <div class="col-md-4">
                                     <div class="form-group">
-                                        <label for="product_tax_type">Tax type</label>
+                                        <label for="product_tax_type">Jenis Pajak</label>
                                         <select class="form-control" name="product_tax_type" id="product_tax_type">
                                             <option value="" selected>None</option>
                                             <option {{ $product->product_tax_type == 1 ? 'selected' : '' }}  value="1">Exclusive</option>
@@ -126,7 +129,7 @@
                                 </div>
                             </div>
                             <div class="form-group">
-                                <label for="product_note">Note</label>
+                                <label for="product_note">Catatan</label>
                                 <textarea name="product_note" id="product_note" rows="4 " class="form-control">{{ $product->product_note }}</textarea>
                             </div>
                         </div>
@@ -137,7 +140,7 @@
                     <div class="card">
                         <div class="card-body">
                             <div class="form-group">
-                                <label for="image">Product Images <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip" data-placement="top" title="Max Files: 3, Max File Size: 1MB, Image Size: 400x400"></i></label>
+                                <label for="image">Gambar Produk <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip" data-placement="top" title="Max Files: 3, Max File Size: 1MB, Image Size: 400x400"></i></label>
                                 <div class="dropzone d-flex flex-wrap align-items-center justify-content-center" id="document-dropzone">
                                     <div class="dz-message" data-dz-message>
                                         <i class="bi bi-cloud-arrow-up"></i>

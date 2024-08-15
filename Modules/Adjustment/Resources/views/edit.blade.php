@@ -54,6 +54,9 @@
                                 </textarea>
                             </div>
                             <div class="mt-3">
+                                <a href="{{ route('adjustments.index') }}" class="btn btn-secondary mr-2">
+                                    Kembali
+                                </a>
                                 <button type="submit" class="btn btn-primary">
                                     Update Adjustment <i class="bi bi-check"></i>
                                 </button>

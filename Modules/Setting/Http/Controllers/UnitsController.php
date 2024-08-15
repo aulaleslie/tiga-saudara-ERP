@@ -44,7 +44,7 @@ class UnitsController extends Controller
             'setting_id' => $currentSettingId, // Assign setting ID from session
         ]);
 
-        toast('Unit Created!', 'success');
+        toast('Unit Ditambahkan!', 'success');
 
         return redirect()->route('units.index');
     }
@@ -71,7 +71,7 @@ class UnitsController extends Controller
             'setting_id' => $currentSettingId, // Update setting ID from session
         ]);
 
-        toast('Unit Updated!', 'info');
+        toast('Unit diperbaharui!', 'info');
 
         return redirect()->route('units.index');
     }
@@ -85,7 +85,7 @@ class UnitsController extends Controller
 
         $unit->delete();
 
-        toast('Unit Deleted!', 'warning');
+        toast('Unit dihapus!', 'warning');
 
         return redirect()->route('units.index');
     }

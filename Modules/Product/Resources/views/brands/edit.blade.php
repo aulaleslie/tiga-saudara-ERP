@@ -36,6 +36,9 @@
                                 </div>
                                 <div class="col-lg-12 d-flex justify-content-end">
                                     <div class="form-group">
+                                        <a href="{{ route('brands.index') }}" class="btn btn-secondary mr-2">
+                                            Kembali
+                                        </a>
                                         <button class="btn btn-primary">Pembaharuan Merek <i class="bi bi-check"></i>
                                         </button>
                                     </div>
