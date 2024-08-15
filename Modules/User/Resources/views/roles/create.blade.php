@@ -135,7 +135,7 @@
                                 <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
-                                            Pengaturan Pengguna
+                                            Manajemen Pengguna
                                             <div class="custom-control custom-checkbox float-right">
                                                 <input type="checkbox" class="custom-control-input" id="select-all-user-settings">
                                                 <label class="custom-control-label" for="select-all-user-settings">Pilih Semua</label>
@@ -146,25 +146,86 @@
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="access_user_management" name="permissions[]"
-                                                               value="access_user_management" {{ old('access_user_management') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="access_user_management">Hak Akses</label>
+                                                               id="users.access" name="permissions[]"
+                                                               value="users.access" {{ old('users.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="users.access">Hak Akses</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="users.create" name="permissions[]"
+                                                               value="users.create" {{ old('users.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="users.create">Create</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="users.edit" name="permissions[]"
+                                                               value="users.edit" {{ old('users.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="users.edit">Edit</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="edit_own_profile" name="permissions[]"
-                                                               value="edit_own_profile" {{ old('edit_own_profile') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="edit_own_profile">Profil</label>
+                                                               id="users.delete" name="permissions[]"
+                                                               value="users.delete" {{ old('users.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="users.delete">Delete</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Roles Pengguna -->
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Peran dan Ijin
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-ijin">
+                                                <label class="custom-control-label" for="select-all-ijin">Pilih Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="ijin" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="role.access" name="permissions[]"
+                                                               value="role.access" {{ old('role.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="role.accces">Hak Akses</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="role.create" name="permissions[]"
+                                                               value="role.create" {{ old('role.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="role.create">Create</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="role.edit" name="permissions[]"
+                                                               value="role.edit" {{ old('role.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="role.edit">Edit</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="access_user_permissions" name="permissions[]"
-                                                               value="access_user_permissions" {{ old('access_user_permissions') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="access_user_permissions">Peran dan Ijin</label>
+                                                               id="role.delete" name="permissions[]"
+                                                               value="role.delete" {{ old('role.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="role.delete">Delete</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -907,7 +968,7 @@
                                 <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
-                                            Products
+                                            Merek
                                             <div class="custom-control custom-checkbox float-right">
                                                 <input type="checkbox" class="custom-control-input" id="select-all-merek">
                                                 <label class="custom-control-label" for="select-all-merek">Pilih Semua</label>
@@ -953,6 +1014,57 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Lokasi -->
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Lokasi
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-lokasi">
+                                                <label class="custom-control-label" for="select-all-lokasi">Pilih Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="lokasi" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="location.access" name="permissions[]"
+                                                               value="location.access" {{ old('location.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="location.access">Hak Akses</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="location.create" name="permissions[]"
+                                                               value="location.create" {{ old('location.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="location.create">Create</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="location.edit" name="permissions[]"
+                                                               value="location.edit" {{ old('location.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="location.edit">Edit</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="location.delete" name="permissions[]"
+                                                               value="location.delete" {{ old('location.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="location.delete">Delete</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                         </div>
@@ -972,44 +1084,42 @@
                     this.checked = checked;
                 });
             });
-
             $('#select-all-dashboard').click(function() {
                 var checked = this.checked;
                 $('#dashboard input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });
-
             $('#select-all-user-settings').click(function() {
                 var checked = this.checked;
                 $('#user-settings input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });
-
             $('#select-all-product').click(function() {
                 var checked = this.checked;
                 $('#product input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });
-
             $('#select-all-pengaturan').click(function() {
                 var checked = this.checked;
                 $('#pengaturan input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });
-
             $('#select-all-merek').click(function() {
                 var checked = this.checked;
                 $('#merek input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });
-
-
-
+            $('#select-all-lokasi').click(function() {
+                var checked = this.checked;
+                $('#lokasi input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
         });
     </script>
 @endpush

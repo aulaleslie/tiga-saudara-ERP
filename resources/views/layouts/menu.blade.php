@@ -295,19 +295,21 @@
 {{--        </ul>--}}
 {{--    </li>--}}
 {{--@endcan--}}
-@can('access_user_management')
+@canany(['access_user_management','users.access','role.access'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('users*') || request()->routeIs('roles*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-person-fill-gear" style="line-height: 1;"></i> Pengelolaan Pengguna
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
+            @can("users.access")
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('users*') ? 'c-active' : '' }}"
                    href="{{ route('users.index') }}">
                     <i class="c-sidebar-nav-icon bi bi-people" style="line-height: 1;"></i> Semua Pengguna
                 </a>
             </li>
-            @can('access_user_permissions')
+            @endcan
+            @can('role.access')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('roles*') ? 'c-active' : '' }}"
                        href="{{ route('roles.index') }}">
@@ -340,12 +342,14 @@
                     <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Bisnis
                 </a>
             </li>
+            @can("location.accces")
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('locations*') ? 'c-active' : '' }}"
                    href="{{ route('locations.index') }}">
                     <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Lokasi
                 </a>
             </li>
+            @endcan
             {{--access_currencies|acces_setting--}}
             {{--            <li class="c-sidebar-nav-item">--}}
             {{--                <a class="c-sidebar-nav-link {{ request()->routeIs('units*') ? 'c-active' : '' }}" href="{{ route('units.index') }}">--}}

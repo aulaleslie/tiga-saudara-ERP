@@ -21,19 +21,19 @@ use Spatie\Permission\Models\Role;
 class UsersController extends Controller
 {
     public function index(UsersDataTable $dataTable) {
-        abort_if(Gate::denies('access_user_management'), 403);
+        abort_if(Gate::denies('users.access'), 403);
 
         return $dataTable->render('user::users.index');
     }
 
     public function create() {
-        abort_if(Gate::denies('access_user_management'), 403);
+        abort_if(Gate::denies('users.create'), 403);
 
         return view('user::users.create');
     }
 
     public function store(Request $request) {
-        abort_if(Gate::denies('access_user_management'), 403);
+        abort_if(Gate::denies('users.create'), 403);
 
         // Validation rules
         $validatedData = $request->validate([
@@ -89,14 +89,14 @@ class UsersController extends Controller
 
     public function edit(User $user): View|Application|Factory|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('access_user_management'), 403);
+        abort_if(Gate::denies('users.edit'), 403);
 
         return view('user::users.edit', compact('user'));
     }
 
     public function update(Request $request, User $user): RedirectResponse
     {
-        abort_if(Gate::denies('access_user_management'), 403);
+        abort_if(Gate::denies('users.edit'), 403);
 
         $request->validate([
             'name'     => 'required|string|max:255',
@@ -155,7 +155,7 @@ class UsersController extends Controller
     }
 
     public function destroy(User $user) {
-        abort_if(Gate::denies('access_user_management'), 403);
+        abort_if(Gate::denies('users.delete'), 403);
 
         $user->delete();
 

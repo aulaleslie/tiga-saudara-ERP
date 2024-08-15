@@ -77,4 +77,78 @@ SELECT 'brand.view', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
 WHERE NOT EXISTS (
     SELECT 1 FROM tiga_saudara.permissions WHERE name = 'brand.view'
 )
-
+UNION ALL
+SELECT 'location.accces', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'location.accces'
+)
+UNION ALL
+SELECT 'location.create', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'location.create'
+)
+UNION ALL
+SELECT 'location.view', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'location.view'
+)
+UNION ALL
+SELECT 'location.edit', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'location.edit'
+)
+UNION ALL
+SELECT 'location.delete', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'location.delete'
+)
+UNION ALL
+SELECT 'users.accces', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'users.accces'
+)
+UNION ALL
+SELECT 'users.create', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'user.create'
+)
+UNION ALL
+SELECT 'users.view', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'users.view'
+)
+UNION ALL
+SELECT 'users.edit', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'users.edit'
+)
+UNION ALL
+SELECT 'users.delete', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'users.delete'
+)
+UNION ALL
+SELECT 'role.accces', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'role.accces'
+)
+UNION ALL
+SELECT 'role.create', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'role.create'
+)
+UNION ALL
+SELECT 'role.view', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'role.view'
+)
+UNION ALL
+SELECT 'role.edit', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'role.edit'
+)
+UNION ALL
+SELECT 'role.delete', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'role.delete'
+)
