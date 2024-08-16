@@ -3,7 +3,7 @@
     show_total_sales
     show_total_purchase
     show_total_profit
-    businnes_setting
+    business_setting
 
 
 
@@ -78,9 +78,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM tiga_saudara.permissions WHERE name = 'brand.view'
 )
 UNION ALL
-SELECT 'location.accces', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+SELECT 'location.access', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
 WHERE NOT EXISTS (
-    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'location.accces'
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'location.access'
 )
 UNION ALL
 SELECT 'location.create', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
@@ -103,14 +103,14 @@ WHERE NOT EXISTS (
     SELECT 1 FROM tiga_saudara.permissions WHERE name = 'location.delete'
 )
 UNION ALL
-SELECT 'users.accces', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+SELECT 'users.access', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
 WHERE NOT EXISTS (
-    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'users.accces'
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'users.access'
 )
 UNION ALL
 SELECT 'users.create', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
 WHERE NOT EXISTS (
-    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'user.create'
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'users.create'
 )
 UNION ALL
 SELECT 'users.view', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
@@ -128,9 +128,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM tiga_saudara.permissions WHERE name = 'users.delete'
 )
 UNION ALL
-SELECT 'role.accces', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+SELECT 'role.access', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
 WHERE NOT EXISTS (
-    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'role.accces'
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'role.access'
 )
 UNION ALL
 SELECT 'role.create', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
