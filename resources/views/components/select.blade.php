@@ -17,13 +17,6 @@
                 </option>
             @endforeach
         </select>
-        @if($addCategoryButton)
-            <div class="input-group-append">
-                <button class="btn btn-outline-primary" type="button" data-toggle="modal"
-                        data-target="#{{ $name }}CreateModal">Tambahkan
-                </button>
-            </div>
-        @endif
     </div>
 
     <!-- Error Message -->

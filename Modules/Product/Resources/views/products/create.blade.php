@@ -8,7 +8,12 @@
             @csrf
             <div class="row">
                 <div class="col-lg-12">
-                    <x-button label="Tambah Produk" icon="bi-check"/>
+                    <div class="form-group">
+                        <a href="{{ route('products.index') }}" class="btn btn-secondary mr-2">
+                            Kembali
+                        </a>
+                        <x-button label="Tambah Produk" icon="bi-check"/>
+                    </div>
                 </div>
                 <div class="col-lg-12">
                     <div class="card">
@@ -154,13 +159,18 @@
                 @foreach(old('conversions') as $index => $conversion)
                     <tr>
                         <td>
-                            <x-select label="To Unit" name="conversions[{{ $index }}][unit_id]" :options="$units->pluck('name', 'id')" selected="{{ old('conversions.' . $index . '.unit_id') }}" />
+                            <x-select label="To Unit" name="conversions[{{ $index }}][unit_id]"
+                                      :options="$units->pluck('name', 'id')"
+                                      selected="{{ old('conversions.' . $index . '.unit_id') }}"/>
                         </td>
                         <td>
-                            <x-input label="Conversion Factor" name="conversions[{{ $index }}][conversion_factor]" type="number" step="0.0001" value="{{ old('conversions.' . $index . '.conversion_factor') }}" />
+                            <x-input label="Conversion Factor" name="conversions[{{ $index }}][conversion_factor]"
+                                     type="number" step="0.0001"
+                                     value="{{ old('conversions.' . $index . '.conversion_factor') }}"/>
                         </td>
                         <td>
-                            <x-input label="Barcode" name="conversions[{{ $index }}][barcode]" value="{{ old('conversions.' . $index . '.barcode') }}" placeholder="Barcode" />
+                            <x-input label="Barcode" name="conversions[{{ $index }}][barcode]"
+                                     value="{{ old('conversions.' . $index . '.barcode') }}" placeholder="Barcode"/>
                         </td>
                         <td>
                             <button type="button" class="btn btn-danger remove_conversion">Remove</button>
