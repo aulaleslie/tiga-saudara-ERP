@@ -52,7 +52,6 @@ class ProductController extends Controller
 
     public function store(StoreProductRequest $request): RedirectResponse
     {
-        dd($request);
         // The validated data is automatically available via $request->validated()
         $validatedData = $request->validated();
 
@@ -116,7 +115,6 @@ class ProductController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            dd($e);
             // Log the error for debugging purposes
             Log::error('Product creation failed: ' . $e->getMessage());
 
