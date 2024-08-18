@@ -78,30 +78,17 @@ class ProductDataTable extends DataTable
                 ->title('Nama Produk')
                 ->className('text-center align-middle'),
 
-            Gate::allows('view_access_table_product') ? Column::computed('product_cost')
-                ->title('Harga')
-                ->className('text-center align-middle'):null,
-
-            Gate::allows('view_access_table_product') ? Column::computed('product_price')
-                ->title('Harga Produk A')
-                ->className('text-center align-middle'):null,
-
-             Gate::allows('view_access_table_product') ? Column::computed('dummy_column')
-                ->title('Harga Produk B')
-                ->className('text-center align-middle')
-                ->data(''):null,
-
-            Column::computed('dummy_column')
-                ->title('Harga Produk C')
-                ->className('text-center align-middle')
-                ->data(''),
-
             Column::computed('product_quantity')
                 ->title('Stok Tersedia')
                 ->className('text-center align-middle'),
 
+            Column::computed('dummy_column')
+                ->title('Stok Rusak')
+                ->className('text-center align-middle')
+                ->data(''),
+
             Gate::allows('view_access_table_product') ? Column::computed('dummy_column')
-                ->title('Tipe Produk')
+                ->title('Jumlah Stok')
                 ->className('text-center align-middle')
                 ->data(''):null,
 
@@ -115,11 +102,29 @@ class ProductDataTable extends DataTable
                 ->data(''):null,
 
             Gate::allows('view_access_table_product') ? Column::computed('dummy_column')
-                ->title('Tax')
+                ->title('Pajak %')
                 ->className('text-center align-middle')
                 ->data(''):null,
 
-            Column::computed('action')
+            Gate::allows('view_access_table_product') ? Column::computed('dummy_column')
+                ->title('Jenis Pajak')
+                ->className('text-center align-middle')
+                ->data(''):null,
+
+            Gate::allows('view_access_table_product') ? Column::computed('product_cost')
+                ->title('Harga Beli')
+                ->className('text-center align-middle'):null,
+
+            Gate::allows('view_access_table_product') ? Column::computed('product_price')
+                ->title('Profit %')
+                ->className('text-center align-middle'):null,
+
+            Gate::allows('view_access_table_product') ? Column::computed('dummy_column')
+                ->title('Harga Jual')
+                ->className('text-center align-middle')
+                ->data(''):null,
+
+            Column::computed('Aksi')
                 ->exportable(false)
                 ->printable(false)
                 ->className('text-center align-middle')
