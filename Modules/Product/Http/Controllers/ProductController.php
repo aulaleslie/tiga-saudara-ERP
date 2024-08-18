@@ -2,6 +2,7 @@
 
 namespace Modules\Product\Http\Controllers;
 
+use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
@@ -18,6 +19,7 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Http\Requests\StoreProductRequest;
 use Modules\Product\Http\Requests\UpdateProductRequest;
 use Modules\Setting\Entities\Unit;
+use Modules\Upload\Entities\Upload;
 
 class ProductController extends Controller
 {
@@ -52,10 +54,13 @@ class ProductController extends Controller
 
     public function store(StoreProductRequest $request): RedirectResponse
     {
-        // The validated data is automatically available via $request->validated()
+        Log::info('Starting product creation.');
+
         $validatedData = $request->validated();
 
-        // Define fields that should default to 0 if null or empty
+        Log::info('Validated data.', $validatedData);
+
+        // Set default values for nullable fields
         $fieldsWithDefaults = [
             'product_quantity' => 0,
             'product_cost' => 0,
@@ -65,58 +70,63 @@ class ProductController extends Controller
             'profit_percentage' => 0,
         ];
 
-        $fieldsConvertedToNulls = [
-            'brand_id' => null,
-            'category_id' => null,
-            'base_unit_id' => null,
-        ];
-
-        // Loop through and assign default values if necessary
         foreach ($fieldsWithDefaults as $field => $defaultValue) {
             if (empty($validatedData[$field])) {
                 $validatedData[$field] = $defaultValue;
             }
         }
 
-        foreach ($fieldsConvertedToNulls as $field => $defaultValue) {
+        $fieldsConvertedToNulls = ['brand_id', 'category_id', 'base_unit_id'];
+        foreach ($fieldsConvertedToNulls as $field) {
             if (empty($validatedData[$field])) {
-                $validatedData[$field] = $defaultValue;
+                $validatedData[$field] = null;
             }
         }
 
         $validatedData['setting_id'] = session('setting_id');
 
+        // Handle documents separately
+        $documents = $validatedData['document'] ?? [];
+        unset($validatedData['document']);
+
+        // Handle conversions separately
+        $conversions = $validatedData['conversions'] ?? [];
+        unset($validatedData['conversions']);
 
         DB::beginTransaction();
 
         try {
-            // Logic for calculating product price, handling file uploads, and creating the product...
             $product = Product::create($validatedData);
+            Log::info('Product created successfully', ['product_id' => $product->id]);
 
-            // Handle document uploads if any
-            if ($request->has('document')) {
-                foreach ($request->input('document', []) as $file) {
-                    $product->addMedia(Storage::path('temp/dropzone/' . $file))->toMediaCollection('images');
+            // Handle document uploads
+            if (!empty($documents)) {
+                foreach ($documents as $file) {
+                    $tempFile = Upload::where('folder', $file)->first();
+                    if ($tempFile) {
+                        $product->addMedia(Storage::path('temp/dropzone/' . $file))->toMediaCollection('images');
+                        Storage::deleteDirectory('temp/dropzone/' . $file);
+                        $tempFile->delete();
+                    }
                 }
             }
 
-            // Handle unit conversions if provided
-            if ($request->has('conversions')) {
-                foreach ($request->input('conversions') as $conversion) {
+            // Handle unit conversions
+            if (!empty($conversions)) {
+                foreach ($conversions as $conversion) {
                     $conversion['base_unit_id'] = $validatedData['base_unit_id'];
                     $product->conversions()->create($conversion);
                 }
             }
 
             DB::commit();
+            Log::info('Product creation successful, transaction committed.');
 
             toast('Product Created!', 'success');
             return redirect()->route('products.index');
         } catch (\Exception $e) {
             DB::rollBack();
-
-            // Log the error for debugging purposes
-            Log::error('Product creation failed: ' . $e->getMessage());
+            Log::error('Product creation failed', ['error' => $e->getMessage()]);
 
             toast('Failed to create product. Please try again.', 'error');
             return redirect()->back()->withInput();
