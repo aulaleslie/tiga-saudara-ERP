@@ -38,7 +38,9 @@ class ProductDataTable extends DataTable
 
     public function query(Product $model)
     {
-        return $model->newQuery()->with('category');
+        $currentSettingId = session('setting_id');
+
+        return $model->newQuery()->where('setting_id', $currentSettingId)->with('category');
     }
 
     public function html()
