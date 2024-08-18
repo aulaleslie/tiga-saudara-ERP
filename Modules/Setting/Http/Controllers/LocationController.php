@@ -47,7 +47,7 @@ class LocationController extends Controller
             'setting_id' => session('setting_id'),  // Get setting_id from session
         ]);
 
-        toast('Location Created!', 'success');
+        toast('Lokasi Berhasil ditambahkan!', 'success');
 
         return redirect()->route('locations.index');
     }
@@ -75,7 +75,7 @@ class LocationController extends Controller
             'name' => $request->name,
         ]);
 
-        toast('Location Updated!', 'info');
+        toast('Lokasi diperbaharui!', 'info');
 
         return redirect()->route('locations.index');
     }
@@ -88,7 +88,7 @@ class LocationController extends Controller
         // TODO hapus lokasi hanya dapat dilakukan jika tidak ada produk tersisa di dalam lokasi ini
         $location->delete();
 
-        toast('Location Deleted!', 'warning');
+        toast('Lokasi Berhasil dihapus!', 'warning');
 
         return redirect()->route('locations.index');
     }
