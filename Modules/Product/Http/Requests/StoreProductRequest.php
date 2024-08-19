@@ -43,16 +43,20 @@ class StoreProductRequest extends FormRequest
             'brand_id' => ['nullable', 'integer'], // Added brand_id and made it nullable
             'stock_managed' => ['nullable', 'boolean'], // Added for managing stock
 
-            // Ensure base_unit_id is required and not 0 if stock_managed is true
-            'base_unit_id' => ['required_if:stock_managed,1', 'integer', 'not_in:0'],
+            // Ensure base_unit_id is required and not 0 if stock_managed is true, otherwise allow 0 or nullable
+            'base_unit_id' => ['required_if:stock_managed,1', 'integer', function ($attribute, $value, $fail) {
+                if ($this->input('stock_managed') && $value == 0) {
+                    $fail('The base unit cannot be 0 when stock management is enabled.');
+                }
+            }],
 
-            // Only validate conversions if the array is not empty and stock_managed is true
+            // Validate conversions if provided
             'conversions' => ['nullable', 'array'],
-            'conversions.*.unit_id' => ['required_if:stock_managed,1', 'integer', 'not_in:0'],
-            'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
+            'conversions.*.unit_id' => ['required_with:conversions.*.conversion_factor', 'integer', 'not_in:0'],
+            'conversions.*.conversion_factor' => ['required_with:conversions.*.unit_id', 'numeric', 'min:0.0001'],
 
             'document' => ['nullable', 'array'],
-            'document.*' => ['file', 'mimes:jpg,jpeg,png', 'max:1024'], // Example validation for images
+            'document.*' => ['nullable', 'string'], // Example validation for images
         ];
     }
 
