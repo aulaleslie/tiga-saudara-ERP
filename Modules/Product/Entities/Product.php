@@ -38,6 +38,14 @@ class Product extends Model implements HasMedia
     }
 
     /**
+     * Relationship with the Brand model as the primary unit.
+     */
+    public function brand(): BelongsTo
+    {
+        return $this->belongsTo(Brand::class, 'brand_id');
+    }
+
+    /**
      * Relationship with the Unit model as the base unit for conversions.
      */
     public function baseUnit(): BelongsTo
