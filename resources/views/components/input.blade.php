@@ -1,4 +1,4 @@
-@props(['label', 'name', 'type' => 'text', 'value' => '', 'required' => false])
+@props(['label', 'name', 'type' => 'text', 'value' => '', 'required' => false, 'wireModel' => null])
 
 <div class="form-group">
     <label for="{{ $name }}">{{ $label }}
@@ -11,7 +11,7 @@
            class="form-control @error($name) is-invalid @enderror"
            name="{{ $name }}"
            id="{{ $name }}"
-           value="{{ old($name, $value) }}"
+           @if($wireModel) wire:model="{{ $wireModel }}" @else value="{{ old($name, $value) }}" @endif
            @if($required) required @endif>
 
     @error($name)
