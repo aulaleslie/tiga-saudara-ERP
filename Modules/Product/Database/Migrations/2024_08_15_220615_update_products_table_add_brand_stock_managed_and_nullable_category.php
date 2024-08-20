@@ -19,7 +19,7 @@ return new class extends Migration {
             $table->foreign('brand_id')->references('id')->on('brands')->onDelete('set null');
 
             // Add stock_managed column
-            $table->boolean('stock_managed')->default(true)->after('product_tax_type');
+            $table->boolean('stock_managed')->default(false)->after('product_tax_type');
         });
     }
 
