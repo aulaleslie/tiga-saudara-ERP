@@ -105,7 +105,8 @@
                             </div>
 
                             <!-- Livewire component for Unit Conversion Table -->
-                            <livewire:product.unit-conversion-table :conversions="old('conversions', [])" :errors="$errors" />
+                            <livewire:product.unit-conversion-table :conversions="old('conversions', [])"
+                                                                    :errors="$errors"/>
 
                             <div class="form-group">
                                 <label for="product_note">Catatan</label>
@@ -123,8 +124,9 @@
                                 <label for="image">Gambar Produk <i class="bi bi-question-circle-fill text-info"
                                                                     data-toggle="tooltip" data-placement="top"
                                                                     title="Max Files: 3, Max File Size: 1MB, Image Size: 400x400"></i></label>
-                                <div class="dropzone d-flex flex-wrap align-items-center justify-content-center"
-                                     id="document-dropzone">
+                                <div
+                                    class="dropzone d-flex flex-wrap flex-wrap align-items-center justify-content-center"
+                                    id="document-dropzone">
                                     <div class="dz-message" data-dz-message>
                                         <i class="bi bi-cloud-arrow-up"></i>
                                     </div>
@@ -142,8 +144,77 @@
 @endsection
 
 @section('third_party_scripts')
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.mask/1.14.16/jquery.mask.min.js"></script>
+    <script>
+        $(document).ready(function () {
+            const currencySymbol = '{{ settings()->currency->symbol }}';
+            const thousandSeparator = '{{ settings()->currency->thousand_separator }}';
+            const decimalSeparator = '{{ settings()->currency->decimal_separator }}';
+            const precision = 2;
+
+            $('#product_price').mask('#' + thousandSeparator + '##0' + decimalSeparator + '00', {
+                reverse: true,
+                translation: {
+                    '#': {
+                        pattern: /-?\d/,
+                        recursive: true
+                    }
+                },
+                onKeyPress: function (value, event) {
+                    // Remove mask to get raw numeric value before submission
+                    let numericValue = value.replace(new RegExp('\\' + thousandSeparator, 'g'), '').replace(decimalSeparator, '.');
+                    $('#product_price').data('numeric-value', numericValue);
+                }
+            });
+
+            // Calculate Harga Jual based on Harga, Pajak, Jenis Pajak, and Profit
+            function parseCurrency(value) {
+                return parseFloat(value.replace(/[^\d.-]/g, ''));
+            }
+
+            function calculateHargaJual() {
+                let raw_product_cost = $('#product_cost').val();
+                let product_cost = parseCurrency(raw_product_cost);
+
+                let product_order_tax = parseFloat($('#product_order_tax').val()) || 0;
+                let product_tax_type = $('#product_tax_type').val();
+                let profit_percentage = parseFloat($('#profit_percentage').val()) || 0;
+
+                // Check if product_cost or other fields are empty or NaN
+                if (isNaN(product_cost) || product_cost === 0) {
+                    $('#product_price').val('');  // Clear the Harga Jual field
+                    return;
+                }
+
+                let product_price = 0;
+
+                if (product_tax_type === '2') { // Inclusive
+                    product_cost = product_cost / (1 + product_order_tax / 100);
+                }
+
+                product_price = product_cost + (product_cost * profit_percentage / 100);
+
+                if (product_tax_type === '1') { // Exclusive
+                    product_price += product_price * product_order_tax / 100;
+                }
+
+                $('#product_price').val(product_price.toFixed(precision));
+                $('#product_price').trigger('input'); // Trigger mask update
+            }
+
+            $('#product_order_tax, #product_tax_type, #product_cost, #profit_percentage').on('input change', function () {
+                calculateHargaJual();
+            });
+
+            // Submit the form with numeric values
+            $('#product-form').on('submit', function () {
+                $('#product_price').val($('#product_price').data('numeric-value'));
+            });
+        });
+    </script>
+
     <script src="{{ asset('js/dropzone.js') }}"></script>
-    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
+    <!-- Keep your existing Dropzone initialization -->
     <script>
         var uploadedDocumentMap = {}
         Dropzone.options.documentDropzone = {
@@ -160,7 +231,7 @@
                 $('form').append('<input type="hidden" name="document[]" value="' + response.name + '">');
                 uploadedDocumentMap[file.name] = response.name;
             },
-            removedfile: function (file) {
+            removedFile: function (file) {
                 file.previewElement.remove();
                 var name = '';
                 if (typeof file.file_name !== 'undefined') {
@@ -191,96 +262,5 @@
                 @endif
             }
         }
-    </script>
-    <script>
-        $(document).ready(function() {
-            const currencySymbol = '{{ settings()->currency->symbol }}';
-            const thousandSeparator = '{{ settings()->currency->thousand_separator }}';
-            const decimalSeparator = '{{ settings()->currency->decimal_separator }}';
-            const precision = 2;
-
-            // Preserve the initial Harga Jual value
-            let initialHargaJual = $('#product_price').val();
-
-            // Flag to check if Harga Jual was modified manually
-            let hargaJualManuallySet = false;
-
-            function parseCurrency(value) {
-                return parseFloat(value.replace(/[^\d.-]/g, ''));
-            }
-
-            function formatNumber(value) {
-                if (!value) return '';
-                // Remove non-numeric characters (except for the decimal point)
-                value = value.replace(/[^\d.]/g, '');
-
-                // Split the number into integer and decimal parts
-                const parts = value.split('.');
-                // Format the integer part with the thousand separator
-                parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, thousandSeparator);
-                // Limit decimal places to the specified precision
-                if (parts[1]) {
-                    parts[1] = parts[1].substring(0, precision);
-                }
-                // Join the parts back together with the decimal separator
-                return currencySymbol + parts.join(decimalSeparator);
-            }
-
-            function formatCurrency(input) {
-                let value = input.value.replace(currencySymbol, '').trim();
-                input.value = formatNumber(value);
-            }
-
-            // Calculate Harga Jual based on Harga, Pajak, Jenis Pajak, and Profit
-            function calculateHargaJual() {
-                if (hargaJualManuallySet) {
-                    return; // Skip calculation if Harga Jual was set manually
-                }
-
-                let raw_product_cost = $('#product_cost').val();
-                let product_cost = parseCurrency(raw_product_cost);
-
-                let product_order_tax = parseFloat($('#product_order_tax').val()) || 0;
-                let product_tax_type = $('#product_tax_type').val();
-                let profit_percentage = parseFloat($('#profit_percentage').val()) || 0;
-
-                // Check if product_cost or other fields are empty or NaN
-                if (isNaN(product_cost) || product_cost === 0) {
-                    $('#product_price').val('');  // Clear the Harga Jual field
-                    return;
-                }
-
-                let product_price = 0;
-
-                if (product_tax_type === '2') { // Inclusive
-                    product_cost = product_cost / (1 + product_order_tax / 100);
-                }
-
-                product_price = product_cost + (product_cost * profit_percentage / 100);
-
-                if (product_tax_type === '1') { // Exclusive
-                    product_price += product_price * product_order_tax / 100;
-                }
-
-                $('#product_price').val(formatNumber(product_price.toFixed(precision)));
-            }
-
-            $('#product_order_tax, #product_tax_type, #product_cost, #profit_percentage').on('input change', function () {
-                calculateHargaJual();
-            });
-
-            $('#product_price').on('input', function () {
-                // Set the flag to true if Harga Jual is modified manually
-                hargaJualManuallySet = true;
-                formatCurrency(this);
-            });
-
-            // Initialize Harga Jual with initial value or calculated value
-            if (initialHargaJual) {
-                $('#product_price').val(initialHargaJual);
-            } else {
-                calculateHargaJual();
-            }
-        });
     </script>
 @endsection

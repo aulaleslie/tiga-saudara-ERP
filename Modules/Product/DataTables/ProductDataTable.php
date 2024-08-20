@@ -34,7 +34,7 @@ class ProductDataTable extends DataTable
                 return format_currency($data->product_cost);
             })
             ->addColumn('product_quantity', function ($data) {
-                return $data->product_quantity . ' ' . $data->product_unit;
+                return $this->formatQuantity($data);
             })
             ->addColumn('category', function ($data) {
                 return optional($data->category)->category_name  ?? 'N/A';
@@ -45,12 +45,31 @@ class ProductDataTable extends DataTable
             ->rawColumns(['product_image']);
     }
 
+    /**
+     * Format the product quantity based on the existence of conversions and units.
+     */
+    protected function formatQuantity($data): string
+    {
+        $baseUnit = $data->baseUnit;
+        $conversions = $data->conversions;
+
+        if ($baseUnit && $conversions->isNotEmpty()) {
+            $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
+            $convertedQuantity = floor($data->product_quantity / $biggestConversion->conversion_factor);
+            $remainder = $data->product_quantity % $biggestConversion->conversion_factor;
+
+            return "{$convertedQuantity} {$biggestConversion->unit->short_name} {$remainder} {$baseUnit->short_name}";
+        }
+
+        return $baseUnit ? "{$data->product_quantity} {$baseUnit->short_name}" : (string) $data->product_quantity;
+    }
+
     public function query(Product $model): Builder
     {
         $currentSettingId = session('setting_id');
 
         return $model->newQuery()->where('setting_id', $currentSettingId)
-            ->with(['category', 'brand']);
+            ->with(['category', 'brand', 'baseUnit', 'conversions.unit']);
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
