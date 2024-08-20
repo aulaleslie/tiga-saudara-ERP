@@ -2,8 +2,10 @@
 
 namespace Modules\Adjustment\Http\Controllers;
 
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
 use Modules\Adjustment\DataTables\AdjustmentsDataTable;
-use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +24,8 @@ class AdjustmentController extends Controller
     }
 
 
-    public function create() {
+    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
         abort_if(Gate::denies('create_adjustments'), 403);
 
         return view('adjustment::create');

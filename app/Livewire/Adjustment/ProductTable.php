@@ -3,6 +3,7 @@
 namespace App\Livewire\Adjustment;
 
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 
@@ -30,6 +31,8 @@ class ProductTable extends Component
     }
 
     public function productSelected($product) {
+        Log::info('product', $product);
+
         switch ($this->hasAdjustments) {
             case true:
                 if (in_array($product, array_map(function ($adjustment) {
