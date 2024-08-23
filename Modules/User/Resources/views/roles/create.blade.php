@@ -314,6 +314,57 @@
                                     </div>
                                 </div>
 
+                                <!-- Stock Adjustments -->
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Penyesuaian Stok
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-adjustment">
+                                                <label class="custom-control-label" for="select-all-adjustment">Pilih Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="adjustment" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="adjustment.access" name="permissions[]"
+                                                               value="adjustment.access" {{ old('adjustment.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="adjustment.access">Akses</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="adjustment.create" name="permissions[]"
+                                                               value="adjustment.create" {{ old('adjustment.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="adjustment.create">Buat</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="adjustment.edit" name="permissions[]"
+                                                               value="adjustment.edit" {{ old('adjustment.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="adjustment.edit">Edit</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="adjustment.delete" name="permissions[]"
+                                                               value="adjustment.delete" {{ old('adjustment.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="adjustment.delete">Hapus</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- Adjustments Permission -->
 {{--                                <div class="col-lg-4 col-md-6 mb-3">--}}
 {{--                                    <div class="card h-100 border-0 shadow">--}}
@@ -1032,7 +1083,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="location.access" name="permissions[]"
                                                                value="location.access" {{ old('location.access') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="location.access">Hak Akses</label>
+                                                        <label class="custom-control-label" for="location.access">Akses</label>
                                                     </div>
                                                 </div>
 
@@ -1041,7 +1092,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="location.create" name="permissions[]"
                                                                value="location.create" {{ old('location.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="location.create">Create</label>
+                                                        <label class="custom-control-label" for="location.create">Buat</label>
                                                     </div>
                                                 </div>
 
@@ -1058,7 +1109,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="location.delete" name="permissions[]"
                                                                value="location.delete" {{ old('location.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="location.delete">Delete</label>
+                                                        <label class="custom-control-label" for="location.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1099,6 +1150,12 @@
             $('#select-all-product').click(function() {
                 var checked = this.checked;
                 $('#product input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-adjustment').click(function() {
+                var checked = this.checked;
+                $('#adjustment input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });

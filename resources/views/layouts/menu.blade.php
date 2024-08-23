@@ -18,14 +18,7 @@
                     </a>
                 </li>
             @endcan
-            @can('create_products')
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('products.create') ? 'c-active' : '' }}"
-                       href="{{ route('products.create') }}">
-                        <i class="c-sidebar-nav-icon bi bi-inboxes" style="line-height: 1;"></i> Tambah Produk
-                    </a>
-                </li>
-            @endcan
+
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('products.index') ? 'c-active' : '' }}"
                    href="{{ route('products.index') }}">

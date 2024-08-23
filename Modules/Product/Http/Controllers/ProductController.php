@@ -122,7 +122,7 @@ class ProductController extends Controller
             DB::commit();
             Log::info('Product creation successful, transaction committed.');
 
-            toast('Product Created!', 'success');
+            toast('Produk Ditambahkan!', 'success');
             return redirect()->route('products.index');
         } catch (\Exception $e) {
             DB::rollBack();
@@ -172,7 +172,7 @@ class ProductController extends Controller
             }
         }
 
-        toast('Product Updated!', 'info');
+        toast('Produk Diperbaharui!', 'info');
 
         return redirect()->route('products.index');
     }
@@ -184,7 +184,7 @@ class ProductController extends Controller
 
         $product->delete();
 
-        toast('Product Deleted!', 'warning');
+        toast('Produk Dihapus!', 'warning');
 
         return redirect()->route('products.index');
     }
