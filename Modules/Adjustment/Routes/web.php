@@ -18,4 +18,5 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/adjustments/create-breakage', 'AdjustmentController@createBreakage')->name('adjustments.createBreakage');
     Route::post('/adjustments/store-breakage', 'AdjustmentController@storeBreakage')->name('adjustments.storeBreakage');
     Route::resource('adjustments', 'AdjustmentController');
+    Route::resource('transfers', 'TransferStockController');
 });

@@ -38,12 +38,15 @@
                             </div>
 
                             <div class="form-row">
-                                <div class="col-md-6">
+                                <div class="col-md-4">
                                     <x-input label="Stock" name="product_quantity" type="number" step="1"/>
                                 </div>
-                                <div class="col-md-6">
+                                <div class="col-md-4">
                                     <x-input label="Stock Alert Quantity" name="product_stock_alert" type="number"
                                              step="1"/>
+                                </div>
+                                <div class="col-md-4">
+                                    <x-select label="Lokasi" name="location_id" :options="$locations->pluck('name', 'id')"/>
                                 </div>
                             </div>
 
@@ -105,8 +108,7 @@
                             </div>
 
                             <!-- Livewire component for Unit Conversion Table -->
-                            <livewire:product.unit-conversion-table :conversions="old('conversions', [])"
-                                                                    :errors="$errors"/>
+                            <livewire:product.unit-conversion-table :conversions="old('conversions', [])" :errors="$errors->toArray()"/>
 
                             <div class="form-group">
                                 <label for="product_note">Catatan</label>
@@ -144,77 +146,53 @@
 @endsection
 
 @section('third_party_scripts')
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.mask/1.14.16/jquery.mask.min.js"></script>
+    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
     <script>
         $(document).ready(function () {
-            const currencySymbol = '{{ settings()->currency->symbol }}';
-            const thousandSeparator = '{{ settings()->currency->thousand_separator }}';
-            const decimalSeparator = '{{ settings()->currency->decimal_separator }}';
-            const precision = 2;
-
-            $('#product_price').mask('#' + thousandSeparator + '##0' + decimalSeparator + '00', {
-                reverse: true,
-                translation: {
-                    '#': {
-                        pattern: /-?\d/,
-                        recursive: true
-                    }
-                },
-                onKeyPress: function (value, event) {
-                    // Remove mask to get raw numeric value before submission
-                    let numericValue = value.replace(new RegExp('\\' + thousandSeparator, 'g'), '').replace(decimalSeparator, '.');
-                    $('#product_price').data('numeric-value', numericValue);
-                }
-            });
-
-            // Calculate Harga Jual based on Harga, Pajak, Jenis Pajak, and Profit
-            function parseCurrency(value) {
-                return parseFloat(value.replace(/[^\d.-]/g, ''));
+            function applyMask() {
+                $('#product_cost, #product_price').maskMoney({
+                    prefix: '{{ settings()->currency->symbol }}',
+                    thousands: '{{ settings()->currency->thousand_separator }}',
+                    decimal: '{{ settings()->currency->decimal_separator }}',
+                    precision: 2,
+                    allowZero: true,
+                    allowNegative: false
+                });
             }
 
-            function calculateHargaJual() {
-                let raw_product_cost = $('#product_cost').val();
-                let product_cost = parseCurrency(raw_product_cost);
+            applyMask();
 
-                let product_order_tax = parseFloat($('#product_order_tax').val()) || 0;
-                let product_tax_type = $('#product_tax_type').val();
-                let profit_percentage = parseFloat($('#profit_percentage').val()) || 0;
-
-                // Check if product_cost or other fields are empty or NaN
-                if (isNaN(product_cost) || product_cost === 0) {
-                    $('#product_price').val('');  // Clear the Harga Jual field
-                    return;
-                }
-
-                let product_price = 0;
-
-                if (product_tax_type === '2') { // Inclusive
-                    product_cost = product_cost / (1 + product_order_tax / 100);
-                }
-
-                product_price = product_cost + (product_cost * profit_percentage / 100);
-
-                if (product_tax_type === '1') { // Exclusive
-                    product_price += product_price * product_order_tax / 100;
-                }
-
-                $('#product_price').val(product_price.toFixed(precision));
-                $('#product_price').trigger('input'); // Trigger mask update
-            }
-
-            $('#product_order_tax, #product_tax_type, #product_cost, #profit_percentage').on('input change', function () {
-                calculateHargaJual();
+            // On focus, unmask to show raw value for editing and select all text
+            $('#product_cost, #product_price').on('focus', function () {
+                $(this).maskMoney('destroy'); // Remove mask during focus/typing
+                $(this).val($(this).val().replace(/[^0-9.-]/g, '')); // Show raw value without formatting
+                setTimeout(() => {
+                    $(this).select(); // Select all text in the input
+                }, 0);
             });
 
-            // Submit the form with numeric values
-            $('#product-form').on('submit', function () {
-                $('#product_price').val($('#product_price').data('numeric-value'));
+            // On blur, reapply the mask to format as currency
+            $('#product_cost, #product_price').on('blur', function () {
+                var value = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
+                if (isNaN(value)) {
+                    value = 0;
+                }
+                $(this).val(value.toFixed(2)); // Ensure two decimal places
+                applyMask(); // Reapply the mask
+                $(this).maskMoney('mask'); // Mask the value again
+            });
+
+            // Submit the form with unmasked values
+            $('#product-form').submit(function () {
+                var productCost = $('#product_cost').maskMoney('unmasked')[0];
+                var productPrice = $('#product_price').maskMoney('unmasked')[0];
+                $('#product_cost').val(productCost);
+                $('#product_price').val(productPrice);
             });
         });
     </script>
 
     <script src="{{ asset('js/dropzone.js') }}"></script>
-    <!-- Keep your existing Dropzone initialization -->
     <script>
         var uploadedDocumentMap = {}
         Dropzone.options.documentDropzone = {
@@ -250,7 +228,7 @@
                 $('form').find('input[name="document[]"][value="' + name + '"]').remove();
             },
             init: function () {
-                @if(isset($product) && $product->getMedia('images'))
+                @if(isset($product) && $product.getMedia('images'))
                 var files = {!! json_encode($product->getMedia('images')) !!};
                 for (var i in files) {
                     var file = files[i];
