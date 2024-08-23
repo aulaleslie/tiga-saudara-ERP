@@ -9,6 +9,7 @@ use Modules\Setting\Entities\Setting;
 class TransferLocations extends Component
 {
     public $currentSettingId;
+    public $currentSetting;
     public $destinationSettingId = null;
     public $locationOriginId;
     public $locationDestinationId;
@@ -19,6 +20,7 @@ class TransferLocations extends Component
     public function mount($currentSettingId)
     {
         $this->currentSettingId = $currentSettingId;
+        $this->currentSetting = Setting::find($this->currentSettingId);
         $this->locations = Location::where('setting_id', $currentSettingId)->get();
         $this->destinationLocations = $this->locations; // Default to current setting locations
     }

@@ -3,7 +3,7 @@
         <div class="col-lg-6">
             <div class="form-group">
                 <label for="current_business">Current Business</label>
-                <input type="text" class="form-control" value="Hardcoded Business Name" readonly>
+                <input type="text" class="form-control" value="{{ $currentSetting->name }}" readonly>
             </div>
         </div>
         <div class="col-lg-6">

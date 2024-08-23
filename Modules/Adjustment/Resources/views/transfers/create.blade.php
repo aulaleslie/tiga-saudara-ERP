@@ -17,24 +17,22 @@
                 <div class="card">
                     <div class="card-body">
                         @include('utils.alerts')
-                        <livewire:adjustment.transfer-locations :currentSettingId="$currentSetting->id" />
+                        <livewire:adjustment.transfer-locations :currentSettingId="$currentSettingId"/>
                     </div>
                 </div>
             </div>
         </div>
 
-        @if ($formDisabled)
-            <div class="row mt-4">
-                <div class="col-12">
-                    <livewire:search-product/>
-                </div>
+        <div class="row mt-4">
+            <div class="col-12">
+                <livewire:search-product/>
             </div>
+        </div>
 
-            <div class="row mt-4">
-                <div class="col-md-12">
-                    <livewire:adjustment.product-table />
-                </div>
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <livewire:adjustment.product-table/>
             </div>
-        @endif
+        </div>
     </div>
 @endsection

@@ -29,7 +29,7 @@ class TransferStockController extends Controller
         $settings = Setting::where('id', '!=', $currentSettingId)->get();
         $locations = Location::where('setting_id', $currentSettingId)->get();
 
-        return view('adjustment::transfers.create', compact('currentSetting', 'settings', 'locations'));
+        return view('adjustment::transfers.create', compact('currentSetting', 'settings', 'locations', 'currentSettingId'));
     }
 
     /**
