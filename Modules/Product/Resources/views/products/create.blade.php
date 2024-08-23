@@ -33,16 +33,16 @@
                                               addCategoryButton="true"/>
                                 </div>
                                 <div class="col-md-6">
-                                    <x-select label="Brand" name="brand_id" :options="$brands->pluck('name', 'id')"/>
+                                    <x-select label="Merek" name="brand_id" :options="$brands->pluck('name', 'id')"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <x-input label="Stock" name="product_quantity" type="number" step="1"/>
+                                    <x-input label="Stok" name="product_quantity" type="number" step="1"/>
                                 </div>
                                 <div class="col-md-6">
-                                    <x-input label="Stock Alert Quantity" name="product_stock_alert" type="number"
+                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
                                              step="1"/>
                                 </div>
                             </div>
@@ -81,25 +81,24 @@
                                         <label>
                                             <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
                                                    class="input-icheck" {{ old('stock_managed') ? 'checked' : '' }}>
-                                            <strong>Manage Stock</strong>
+                                            <strong>Manajemen Stok</strong>
                                         </label>
                                         <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
                                            data-placement="top"
                                            title="Stock Management should be disabled mostly for services. Example: Jasa Instalasi, Jasa Perbaikan, dll."></i>
-                                        <p class="help-block"><i>Enable this option if you want to manage the stock for
-                                                this product.</i></p>
+                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <x-select label="Primary Unit" name="base_unit_id"
+                                    <x-select label="Unit Utama" name="base_unit_id"
                                               :options="$units->pluck('name', 'id')"/>
                                 </div>
 
                                 <div class="col-md-6">
-                                    <x-input label="Primary Unit Barcode" name="primary_unit_barcode"
+                                    <x-input label="Barcode Unit Utama" name="primary_unit_barcode"
                                              value="{{ old('primary_unit_barcode') }}"/>
                                 </div>
                             </div>

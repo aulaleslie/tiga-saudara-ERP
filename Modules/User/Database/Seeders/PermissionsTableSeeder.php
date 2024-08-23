@@ -48,7 +48,13 @@ class PermissionsTableSeeder extends Seeder
             'edit_products',
             'delete_products',
             'view_access_table_product',
-            //Band
+            //Stock Adjustments
+            'adjustment.access',
+            'adjustment.create',
+            'adjustment.view',
+            'adjustment.edit',
+            'adjustment.delete',
+            //Brand
             'brand.access',
             'brand.create',
             'brand.view',
