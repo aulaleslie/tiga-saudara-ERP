@@ -16,15 +16,18 @@ use Illuminate\Support\Facades\Storage;
 use Modules\Product\Entities\Brand;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\Transaction;
 use Modules\Product\Http\Requests\StoreProductRequest;
 use Modules\Product\Http\Requests\UpdateProductRequest;
+use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Unit;
 use Modules\Upload\Entities\Upload;
 
 class ProductController extends Controller
 {
 
-    public function index(ProductDataTable $dataTable) {
+    public function index(ProductDataTable $dataTable)
+    {
         abort_if(Gate::denies('access_products'), 403);
 
         return $dataTable->render('product::products.index');
@@ -41,14 +44,15 @@ class ProductController extends Controller
         $units = Unit::where('setting_id', $currentSettingId)->get();
         $brands = Brand::where('setting_id', $currentSettingId)->get();
         $categories = Category::where('setting_id', $currentSettingId)->with('parent')->get();
+        $locations = Location::where('setting_id', $currentSettingId)->get();
 
         // Format categories with parent category
-        $formattedCategories = $categories->mapWithKeys(function($category) {
+        $formattedCategories = $categories->mapWithKeys(function ($category) {
             $formattedName = $category->parent ? "{$category->parent->category_name} | $category->category_name" : $category->category_name;
             return [$category->id => $formattedName];
         })->sortBy('name')->toArray();
 
-        return view('product::products.create', compact('units', 'brands', 'formattedCategories'));
+        return view('product::products.create', compact('units', 'brands', 'formattedCategories', 'locations'));
     }
 
 
@@ -59,6 +63,9 @@ class ProductController extends Controller
         $validatedData = $request->validated();
 
         Log::info('Validated data.', $validatedData);
+
+        // Extract location_id before unsetting it from the validated data
+        $locationId = $validatedData['location_id'] ?? null;
 
         // Set default values for nullable fields
         $fieldsWithDefaults = [
@@ -82,6 +89,9 @@ class ProductController extends Controller
                 $validatedData[$field] = null;
             }
         }
+
+        // Remove location_id from the validated data to prevent it from being saved to the products table
+        unset($validatedData['location_id']);
 
         $validatedData['setting_id'] = session('setting_id');
 
@@ -117,6 +127,22 @@ class ProductController extends Controller
                     $conversion['base_unit_id'] = $validatedData['base_unit_id'];
                     $product->conversions()->create($conversion);
                 }
+            }
+
+            // Add a transaction if product_quantity is greater than 0
+            if ($validatedData['product_quantity'] > 0) {
+                Transaction::create([
+                    'product_id' => $product->id,
+                    'setting_id' => $validatedData['setting_id'],
+                    'type' => 'INIT', // Assuming 'INIT' is used for initial stock setup
+                    'quantity' => $validatedData['product_quantity'],
+                    'current_quantity' => $validatedData['product_quantity'], // Assuming initial quantity is the current quantity
+                    'broken_quantity' => 0, // Assuming no broken quantity initially
+                    'location_id' => $locationId, // Use the extracted location_id
+                    'user_id' => auth()->id(), // Assuming the user is authenticated
+                    'reason' => 'Initial stock setup', // Provide a reason for the transaction
+                ]);
+                Log::info('Transaction created successfully for the product.', ['product_id' => $product->id]);
             }
 
             DB::commit();

@@ -50,10 +50,17 @@ class StoreProductRequest extends FormRequest
                 }
             }],
 
+            // Location required if product_quantity is greater than 0
+            'location_id' => ['integer', function ($attribute, $value, $fail) {
+                if ($this->input('product_quantity') > 0 && empty($value)) {
+                    $fail('Location harus diisi jika jumlah produk lebih dari 0.');
+                }
+            }],
+
             // Validate conversions if provided
             'conversions' => ['nullable', 'array'],
-            'conversions.*.unit_id' => ['required_with:conversions.*.conversion_factor', 'integer', 'not_in:0'],
-            'conversions.*.conversion_factor' => ['required_with:conversions.*.unit_id', 'numeric', 'min:0.0001'],
+            'conversions.*.unit_id' => ['required_if:stock_managed,1', 'integer', 'not_in:0'],
+            'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
 
             'document' => ['nullable', 'array'],
             'document.*' => ['nullable', 'string'],
@@ -74,6 +81,8 @@ class StoreProductRequest extends FormRequest
             'base_unit_id.required_if' => 'Unit primer diperlukan ketika manajemen stok diaktifkan.',
             'conversions.*.unit_id.required_with' => 'Konversi ke satuan diperlukan ketika memberikan faktor konversi.',
             'conversions.*.conversion_factor.required_with' => 'Faktor konversi diperlukan saat menyediakan unit.',
+            'conversions.*.unit_id' => 'Unit harus dipilih jika stock managed',
+            'conversions.*.conversion_factor' => 'Conversion factor harus dipilih jika stock managed',
             // Add custom messages for other fields as needed
         ];
     }
