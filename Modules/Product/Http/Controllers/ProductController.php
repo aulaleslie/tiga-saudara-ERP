@@ -164,7 +164,25 @@ class ProductController extends Controller
     {
         abort_if(Gate::denies('show_products'), 403);
 
-        return view('product::products.show', compact('product'));
+        $baseUnit = $product->baseUnit; // Assuming this relation exists
+        $conversions = $product->conversions; // Assuming this relation exists
+
+        $convertedQuantity = null;
+        $remainder = null;
+
+        if ($baseUnit && $conversions->isNotEmpty()) {
+            $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
+            $convertedQuantity = floor($product->product_quantity / $biggestConversion->conversion_factor);
+            $remainder = $product->product_quantity % $biggestConversion->conversion_factor;
+
+            $displayQuantity = "{$convertedQuantity} {$biggestConversion->unit->short_name} {$remainder} {$baseUnit->short_name}";
+        } else {
+            $displayQuantity = $product->product_quantity . ' ' . ($product->product_unit ?? '');
+        }
+
+        $transactions = $product->transactions()->orderBy('created_at', 'desc')->get(); // Fetch transactions
+
+        return view('product::products.show', compact('product', 'displayQuantity', 'transactions'));
     }
 
 

@@ -97,4 +97,12 @@ class Transaction extends Model
     {
         return $query->where('product_id', $productId);
     }
+
+    protected array $dates = ['created_at', 'updated_at'];
+
+    // Accessor for formatted created_at
+    public function getFormattedCreatedAtAttribute()
+    {
+        return $this->created_at->format('d-m-Y H:i:s');
+    }
 }

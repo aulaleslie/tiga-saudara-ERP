@@ -121,4 +121,9 @@ class Product extends Model implements HasMedia
     {
         return ($value / 100);
     }
+
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(Transaction::class);
+    }
 }
