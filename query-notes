@@ -152,5 +152,30 @@ SELECT 'role.delete', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
 WHERE NOT EXISTS (
     SELECT 1 FROM tiga_saudara.permissions WHERE name = 'role.delete'
 )
+UNION ALL
+SELECT 'adjustment.access', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'adjustment.access'
+)
+UNION ALL
+SELECT 'adjustment.create', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'adjustment.create'
+)
+UNION ALL
+SELECT 'adjustment.view', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'adjustment.view'
+)
+UNION ALL
+SELECT 'adjustment.edit', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'adjustment.edit'
+)
+UNION ALL
+SELECT 'adjustment.delete', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'adjustment.delete'
+)
 
 ALTER TABLE products ALTER COLUMN stock_managed SET DEFAULT 0;

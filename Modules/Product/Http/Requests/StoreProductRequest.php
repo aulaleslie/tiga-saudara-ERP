@@ -46,7 +46,7 @@ class StoreProductRequest extends FormRequest
             // Ensure base_unit_id is required and not 0 if stock_managed is true, otherwise allow 0 or nullable
             'base_unit_id' => ['required_if:stock_managed,1', 'integer', function ($attribute, $value, $fail) {
                 if ($this->input('stock_managed') && $value == 0) {
-                    $fail('The base unit cannot be 0 when stock management is enabled.');
+                    $fail('Unit dasar tidak boleh 0 ketika manajemen stok diaktifkan.');
                 }
             }],
 
@@ -76,11 +76,11 @@ class StoreProductRequest extends FormRequest
     {
         return [
             'product_name.required' => 'Nama Barang diperlukan.',
-            'product_code.required' => 'Product code is required.',
-            'product_code.unique' => 'This product code is already in use.',
-            'base_unit_id.required_if' => 'Primary unit is required when stock management is enabled.',
-            'conversions.*.unit_id.required_with' => 'Conversion to unit is required when providing a conversion factor.',
-            'conversions.*.conversion_factor.required_with' => 'Conversion factor is required when providing a unit.',
+            'product_code.required' => 'Diperlukan Kode Produk.',
+            'product_code.unique' => 'Kode Produk ini sudah digunakan.',
+            'base_unit_id.required_if' => 'Unit primer diperlukan ketika manajemen stok diaktifkan.',
+            'conversions.*.unit_id.required_with' => 'Konversi ke satuan diperlukan ketika memberikan faktor konversi.',
+            'conversions.*.conversion_factor.required_with' => 'Faktor konversi diperlukan saat menyediakan unit.',
             'conversions.*.unit_id' => 'Unit harus dipilih jika stock managed',
             'conversions.*.conversion_factor' => 'Conversion factor harus dipilih jika stock managed',
             // Add custom messages for other fields as needed

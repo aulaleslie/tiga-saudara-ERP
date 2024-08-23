@@ -333,6 +333,59 @@
                                 </div>
 
 
+
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Stock Adjustments
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input"
+                                                       id="select-all-adjustment">
+                                                <label class="custom-control-label" for="select-all-adjustment">Pilih
+                                                    Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="adjustment" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="adjustment.access" name="permissions[]"
+                                                               value="adjustment.access" {{ $role->hasPermissionTo('adjustment.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="adjustment.access">Access</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="adjustment.create" name="permissions[]"
+                                                               value="adjustment.create" {{ $role->hasPermissionTo('adjustment.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="adjustment.create">Create</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="adjustment.edit" name="permissions[]"
+                                                               value="adjustment.edit" {{ $role->hasPermissionTo('adjustment.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="adjustment.edit">Edit</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="adjustment.delete" name="permissions[]"
+                                                               value="adjustment.delete" {{ $role->hasPermissionTo('adjustment.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="adjustment.delete">Delete</label>
+                                                    </div>
+                                                </div>
+
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+
                                 <!-- Adjustments Permission -->
                                 <!-- <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
@@ -1040,7 +1093,7 @@
                                     </div>
                                 </div>
 
-                                <!-- Merek -->
+                                <!-- Lokasi -->
                                 <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
@@ -1136,6 +1189,12 @@
             $('#select-all-product').click(function () {
                 var checked = this.checked;
                 $('#product input[type="checkbox"]').each(function () {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-adjustment').click(function () {
+                var checked = this.checked;
+                $('#adjustment input[type="checkbox"]').each(function () {
                     this.checked = checked;
                 });
             });
