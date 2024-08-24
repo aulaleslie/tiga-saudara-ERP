@@ -3,7 +3,7 @@
         <div class="col-lg-6">
             <div class="form-group">
                 <label for="current_business">Current Business</label>
-                <input type="text" class="form-control" value="{{ $currentSetting->name }}" readonly>
+                <input type="text" class="form-control" value="{{ $currentSetting->company_name }}" readonly>
             </div>
         </div>
         <div class="col-lg-6">
@@ -12,7 +12,7 @@
                 <select wire:model="destinationSettingId" class="form-control" {{ $formDisabled ? 'disabled' : '' }}>
                     <option value="">Select Destination Business</option>
                     @foreach($settings as $setting)
-                        <option value="{{ $setting->id }}">{{ $setting->name }}</option>
+                        <option value="{{ $setting->id }}">{{ $setting->company_name }}</option>
                     @endforeach
                 </select>
             </div>
