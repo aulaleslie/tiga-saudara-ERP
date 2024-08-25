@@ -32,11 +32,21 @@ class StoreProductRequest extends FormRequest
             'product_name' => ['required', 'string', 'max:255'],
             'product_code' => ['required', 'string', 'max:255', 'unique:products,product_code'],
             'product_quantity' => ['nullable', 'integer', 'min:0'],
-            'product_cost' => ['nullable', 'numeric', 'max:2147483647'],
-            'product_price' => ['required', 'numeric', 'max:2147483647'],
+
+            // Ensure product cost is non-negative
+            'product_cost' => ['nullable', 'numeric', 'min:0', 'max:2147483647'],
+
+            // Ensure product price is required and greater than zero
+            'product_price' => ['required', 'numeric', 'min:0.01', 'max:2147483647'],
+
+            // Ensure profit percentage is between 0 and 100
             'profit_percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
+
             'product_stock_alert' => ['nullable', 'integer', 'min:0'],
+
+            // Ensure product order tax is between 0 and 100
             'product_order_tax' => ['nullable', 'integer', 'min:0', 'max:100'],
+
             'product_tax_type' => ['nullable', 'integer'],
             'product_note' => ['nullable', 'string', 'max:1000'],
             'category_id' => ['nullable', 'integer'],

@@ -21,7 +21,6 @@ use Modules\Product\Http\Requests\StoreProductRequest;
 use Modules\Product\Http\Requests\UpdateProductRequest;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Unit;
-use Modules\Upload\Entities\Upload;
 
 class ProductController extends Controller
 {
@@ -112,12 +111,7 @@ class ProductController extends Controller
             // Handle document uploads
             if (!empty($documents)) {
                 foreach ($documents as $file) {
-                    $tempFile = Upload::where('folder', $file)->first();
-                    if ($tempFile) {
-                        $product->addMedia(Storage::path('temp/dropzone/' . $file))->toMediaCollection('images');
-                        Storage::deleteDirectory('temp/dropzone/' . $file);
-                        $tempFile->delete();
-                    }
+                    $product->addMedia(Storage::path('temp/dropzone/' . $file))->toMediaCollection('images');
                 }
             }
 
