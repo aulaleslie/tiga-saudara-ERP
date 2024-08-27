@@ -161,9 +161,6 @@ class ProductController extends Controller
         $baseUnit = $product->baseUnit; // Assuming this relation exists
         $conversions = $product->conversions; // Assuming this relation exists
 
-        $convertedQuantity = null;
-        $remainder = null;
-
         if ($baseUnit && $conversions->isNotEmpty()) {
             $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
             $convertedQuantity = floor($product->product_quantity / $biggestConversion->conversion_factor);
@@ -190,27 +187,28 @@ class ProductController extends Controller
 
     public function update(UpdateProductRequest $request, Product $product): RedirectResponse
     {
-        $product->update($request->except('document'));
+        $request->except('document');
 
-        if ($request->has('document')) {
-            if (count($product->getMedia('images')) > 0) {
-                foreach ($product->getMedia('images') as $media) {
-                    if (!in_array($media->file_name, $request->input('document', []))) {
-                        $media->delete();
-                    }
-                }
-            }
-
-            $media = $product->getMedia('images')->pluck('file_name')->toArray();
-
-            foreach ($request->input('document', []) as $file) {
-                if (count($media) === 0 || !in_array($file, $media)) {
-                    $product->addMedia(Storage::path('temp/dropzone/' . $file))->toMediaCollection('images');
-                }
-            }
+        // Update only if there are changes
+        if ($request->filled('product_name') && $request->product_name !== $product->product_name) {
+            $product->product_name = $request->product_name;
         }
 
-        toast('Product Updated!', 'info');
+        if ($request->filled('product_note') && $request->product_note !== $product->product_note) {
+            $product->product_note = $request->product_note;
+        }
+
+        if ($product->isDirty()) {
+            $product->save();
+            toast('Product Updated!', 'info');
+        }
+
+        // Handle document upload if new files are provided
+        if ($request->hasFile('document')) {
+            foreach ($request->file('document') as $file) {
+                $product->addMedia($file)->toMediaCollection('images');
+            }
+        }
 
         return redirect()->route('products.index');
     }
