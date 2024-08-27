@@ -2,29 +2,38 @@
 
 namespace Modules\Adjustment\DataTables;
 
+use Illuminate\Database\Eloquent\Builder;
 use Modules\Adjustment\Entities\Adjustment;
+use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class AdjustmentsDataTable extends DataTable
 {
 
-    public function dataTable($query) {
+    public function dataTable($query): EloquentDataTable
+    {
         return datatables()
             ->eloquent($query)
             ->addColumn('action', function ($data) {
                 return view('adjustment::partials.actions', compact('data'));
+            })
+            ->editColumn('type', function ($data) {
+                return strtoupper($data->type);
+            })
+            ->editColumn('status', function ($data) {
+                return strtoupper($data->status);
             });
     }
 
-    public function query(Adjustment $model) {
+    public function query(Adjustment $model): Builder
+    {
         return $model->newQuery()->withCount('adjustedProducts');
     }
 
-    public function html() {
+    public function html(): \Yajra\DataTables\Html\Builder
+    {
         return $this->builder()
             ->setTableId('adjustments-table')
             ->columns($this->getColumns())
@@ -45,12 +54,19 @@ class AdjustmentsDataTable extends DataTable
             );
     }
 
-    protected function getColumns() {
+    protected function getColumns(): array
+    {
         return [
             Column::make('date')
                 ->className('text-center align-middle'),
 
             Column::make('reference')
+                ->className('text-center align-middle'),
+
+            Column::make('type')
+                ->className('text-center align-middle'),
+
+            Column::make('status')
                 ->className('text-center align-middle'),
 
             Column::make('adjusted_products_count')

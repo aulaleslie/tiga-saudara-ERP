@@ -118,7 +118,7 @@
                         </tr>
                         </thead>
                         <tbody>
-                        @forelse($product->transactions as $transaction)
+                        @forelse($transactions as $transaction)
                             <tr>
                                 <td>{{ $transaction->formatted_created_at }}</td>
                                 <td>{{ $transaction->type }}</td>

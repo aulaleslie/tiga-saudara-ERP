@@ -21,6 +21,8 @@ class UsersDataTable extends DataTable
         return datatables()
             ->eloquent($query)
             ->addColumn('role_setting', function ($data) {
+                Log::info("User Data Settings", ['settings' => $data->settings]);
+                Log::info("User Data Roles", ['roles' => $data->roles]);
                 return view('user::users.partials.role_setting', [
                     'settings' => explode(', ', $data->settings),
                     'roles' => explode(', ', $data->roles)

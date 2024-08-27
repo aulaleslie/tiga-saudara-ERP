@@ -171,7 +171,11 @@ class ProductController extends Controller
             $displayQuantity = $product->product_quantity . ' ' . ($product->product_unit ?? '');
         }
 
-        $transactions = $product->transactions()->orderBy('created_at', 'desc')->get(); // Fetch transactions
+        // Eager load the location relationship on transactions
+        $transactions = Transaction::where('product_id', $product->id)
+            ->with('location') // Eager load the location
+            ->orderBy('created_at', 'desc')
+            ->get();// Fetch transactions
 
         return view('product::products.show', compact('product', 'displayQuantity', 'transactions'));
     }

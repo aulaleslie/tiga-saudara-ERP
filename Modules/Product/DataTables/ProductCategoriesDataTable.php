@@ -34,7 +34,8 @@ class ProductCategoriesDataTable extends DataTable
 
     public function query(Category $model): \Illuminate\Database\Eloquent\Builder
     {
-        return $model->newQuery()->with('parent')->withCount('products'); // Eager load the parent category
+        $settingId = session("setting_id");
+        return $model->newQuery()->where('setting_id', $settingId)->with('parent')->withCount('products'); // Eager load the parent category
     }
 
     public function html(): Builder

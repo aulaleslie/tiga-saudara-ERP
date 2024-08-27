@@ -2,6 +2,9 @@
 
 namespace App\Livewire\Adjustment;
 
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 
@@ -12,18 +15,22 @@ class BreakageProductTable extends Component
     public $products;
     public $hasAdjustments;
 
-    public function mount($adjustedProducts = null) {
+    public function mount($adjustedProducts = null): void
+    {
         $this->products = [];
 
         if ($adjustedProducts) {
             $this->hasAdjustments = true;
-            $this->products = $adjustedProducts;
+            $this->products = array_map(function ($adjustedProduct) {
+                return $adjustedProduct['product'];
+            }, $adjustedProducts);
         } else {
             $this->hasAdjustments = false;
         }
     }
 
-    public function render() {
+    public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
         return view('livewire.adjustment.breakage-product-table');
     }
 
@@ -31,14 +38,8 @@ class BreakageProductTable extends Component
         Log::info('product', $product);
 
         switch ($this->hasAdjustments) {
-            case true:
-                if (in_array($product, array_map(function ($adjustment) {
-                    return $adjustment['product'];
-                }, $this->products))) {
-                    return session()->flash('message', 'Already exists in the product list!');
-                }
-                break;
             case false:
+            case true:
                 if (in_array($product, $this->products)) {
                     return session()->flash('message', 'Already exists in the product list!');
                 }
@@ -50,7 +51,8 @@ class BreakageProductTable extends Component
         array_push($this->products, $product);
     }
 
-    public function removeProduct($key) {
+    public function removeProduct($key): void
+    {
         unset($this->products[$key]);
     }
 }
