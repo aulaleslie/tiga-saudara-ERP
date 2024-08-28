@@ -76,12 +76,10 @@ class ProductTable extends Component
     {
         if ($this->locationId) {
             // Query to get the latest quantity for the product in the specified location
-            $transaction = Transaction::where('product_id', $productId)
+            return Transaction::where('product_id', $productId)
                 ->where('location_id', $this->locationId)
-                ->latest('created_at')
-                ->first();
-
-            return $transaction ? $transaction->current_quantity : 0;
+                ->groupBy('product_id', 'location_id')
+                ->sum('quantity');
         }
 
         return 0;

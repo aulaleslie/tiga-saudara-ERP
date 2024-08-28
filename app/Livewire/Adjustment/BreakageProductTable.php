@@ -7,6 +7,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\Product\Entities\Transaction;
 
 class BreakageProductTable extends Component
 {
@@ -14,16 +15,22 @@ class BreakageProductTable extends Component
 
     public $products;
     public $hasAdjustments;
+    public $locationId;
 
-    public function mount($adjustedProducts = null): void
+    public function mount($adjustedProducts = null, $locationId = null): void
     {
         $this->products = [];
+        $this->locationId = $locationId;
 
         if ($adjustedProducts) {
             $this->hasAdjustments = true;
             $this->products = array_map(function ($adjustedProduct) {
                 return $adjustedProduct['product'];
             }, $adjustedProducts);
+
+            if ($this->locationId) {
+                $this->updateProductQuantitiesByLocation();
+            }
         } else {
             $this->hasAdjustments = false;
         }
@@ -34,7 +41,8 @@ class BreakageProductTable extends Component
         return view('livewire.adjustment.breakage-product-table');
     }
 
-    public function productSelected($product) {
+    public function productSelected($product)
+    {
         Log::info('product', $product);
 
         switch ($this->hasAdjustments) {
@@ -54,5 +62,25 @@ class BreakageProductTable extends Component
     public function removeProduct($key): void
     {
         unset($this->products[$key]);
+    }
+
+    protected function updateProductQuantitiesByLocation(): void
+    {
+        foreach ($this->products as &$product) {
+            $product['product_quantity'] = $this->getProductQuantity($product['id']);
+        }
+    }
+
+    protected function getProductQuantity($productId)
+    {
+        if ($this->locationId) {
+            // Query to get the latest quantity for the product in the specified location
+            return Transaction::where('product_id', $productId)
+                ->where('location_id', $this->locationId)
+                ->groupBy('product_id', 'location_id')
+                ->sum('quantity');
+        }
+
+        return 0;
     }
 }

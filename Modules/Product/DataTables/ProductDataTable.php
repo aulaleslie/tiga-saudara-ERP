@@ -25,7 +25,7 @@ class ProductDataTable extends DataTable
             })
             ->addColumn('product_image', function ($data) {
                 $url = $data->getFirstMediaUrl('images', 'thumb');
-                return '<img src="'.$url.'" border="0" width="50" class="img-thumbnail" align="center"/>';
+                return '<img src="' . $url . '" border="0" width="50" class="img-thumbnail" align="center"/>';
             })
             ->addColumn('product_price', function ($data) {
                 return format_currency($data->product_price);
@@ -34,10 +34,13 @@ class ProductDataTable extends DataTable
                 return format_currency($data->product_cost);
             })
             ->addColumn('product_quantity', function ($data) {
-                return $this->formatQuantity($data);
+                return $this->calculateAvailableStock($data);
+            })
+            ->addColumn('broken_quantity', function ($data) {
+                return $this->formatBrokenQuantity($data);
             })
             ->addColumn('category', function ($data) {
-                return optional($data->category)->category_name  ?? 'N/A';
+                return optional($data->category)->category_name ?? 'N/A';
             })
             ->addColumn('brand', function ($data) {
                 return optional($data->brand)->name ?? 'N/A';
@@ -46,22 +49,43 @@ class ProductDataTable extends DataTable
     }
 
     /**
-     * Format the product quantity based on the existence of conversions and units.
+     * Calculate the available stock.
      */
-    protected function formatQuantity($data): string
+    protected function calculateAvailableStock($data): string
     {
+        $availableStock = $data->product_quantity - $data->broken_quantity;
         $baseUnit = $data->baseUnit;
         $conversions = $data->conversions;
 
         if ($baseUnit && $conversions->isNotEmpty()) {
             $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
-            $convertedQuantity = floor($data->product_quantity / $biggestConversion->conversion_factor);
-            $remainder = $data->product_quantity % $biggestConversion->conversion_factor;
+            $convertedQuantity = floor($availableStock / $biggestConversion->conversion_factor);
+            $remainder = $availableStock % $biggestConversion->conversion_factor;
 
             return "{$convertedQuantity} {$biggestConversion->unit->short_name} {$remainder} {$baseUnit->short_name}";
         }
 
-        return $baseUnit ? "{$data->product_quantity} {$baseUnit->short_name}" : (string) $data->product_quantity;
+        return $baseUnit ? "{$availableStock} {$baseUnit->short_name}" : (string) $availableStock;
+    }
+
+    /**
+     * Format the broken quantity with units.
+     */
+    protected function formatBrokenQuantity($data): string
+    {
+        $baseUnit = $data->baseUnit;
+        $conversions = $data->conversions;
+        $brokenQuantity = $data->broken_quantity;
+
+        if ($baseUnit && $conversions->isNotEmpty()) {
+            $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
+            $convertedQuantity = floor($brokenQuantity / $biggestConversion->conversion_factor);
+            $remainder = $brokenQuantity % $biggestConversion->conversion_factor;
+
+            return "{$convertedQuantity} {$biggestConversion->unit->short_name} {$remainder} {$baseUnit->short_name}";
+        }
+
+        return $baseUnit ? "{$brokenQuantity} {$baseUnit->short_name}" : (string) $brokenQuantity;
     }
 
     public function query(Product $model): Builder
@@ -111,6 +135,10 @@ class ProductDataTable extends DataTable
 
             Column::computed('product_quantity')
                 ->title('Stok Tersedia')
+                ->className('text-center align-middle'),
+
+            Column::computed('broken_quantity')
+                ->title('Stok Rusak')
                 ->className('text-center align-middle'),
 
             Column::make('category')

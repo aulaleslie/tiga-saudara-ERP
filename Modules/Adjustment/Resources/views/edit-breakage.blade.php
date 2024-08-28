@@ -18,6 +18,7 @@
     <div class="container-fluid mb-4">
         <div class="row">
             <div class="col-12">
+                <!-- Pass the location_id to the SearchProduct Livewire component -->
                 <livewire:search-product :locationId="$adjustment->location_id"/>
             </div>
         </div>
@@ -46,12 +47,10 @@
                                     </div>
                                 </div>
                             </div>
-                            <livewire:adjustment.breakage-product-table :adjustedProducts="$adjustment->adjustedProducts->toArray()"/>
+                            <livewire:adjustment.breakage-product-table :adjustedProducts="$adjustment->adjustedProducts->toArray()" :locationId="$adjustment->location_id"/>
                             <div class="form-group">
                                 <label for="note">Note (If Needed)</label>
-                                <textarea name="note" id="note" rows="5" class="form-control">
-                                    {{ $adjustment->note }}
-                                </textarea>
+                                <textarea name="note" id="note" rows="5" class="form-control">{{ $adjustment->note }}</textarea>
                             </div>
                             <div class="mt-3">
                                 <a href="{{ route('adjustments.index') }}" class="btn btn-secondary mr-2">

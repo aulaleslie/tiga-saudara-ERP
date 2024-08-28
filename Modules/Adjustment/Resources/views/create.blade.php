@@ -102,7 +102,7 @@
                 document.getElementById('select-location').classList.add('d-none');
 
                 // Trigger Livewire update
-                Livewire.emit('locationSelected', locationId);
+                Livewire.dispatch('locationSelected', { locationId: locationId });
             }
         });
     </script>

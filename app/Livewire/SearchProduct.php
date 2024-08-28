@@ -6,6 +6,7 @@ use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\Transaction;
@@ -21,6 +22,7 @@ class SearchProduct extends Component
 
     public function mount($locationId = null): void
     {
+        Log::info("locationSelectedMounted: " . $locationId);
         $this->locationId = $locationId;
 
         $this->search_results = Collection::empty();
@@ -49,12 +51,10 @@ class SearchProduct extends Component
 
     public function getProductQuantityAtLocation($productId, $locationId): int
     {
-        $transaction = Transaction::where('product_id', $productId)
+        return Transaction::where('product_id', $productId)
             ->where('location_id', $locationId)
-            ->orderBy('created_at', 'desc')
-            ->first();
-
-        return $transaction ? $transaction->current_quantity : 0;
+            ->groupBy('product_id', 'location_id')
+            ->sum('quantity');
     }
 
     public function loadMore(): void
@@ -77,6 +77,7 @@ class SearchProduct extends Component
 
     public function locationSelected($locationId): void
     {
+        Log::info("locationSelected: " . $locationId);
         $this->locationId = $locationId;
         $this->updatedQuery();  // Re-run the query with the new locationId
     }
