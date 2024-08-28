@@ -27,73 +27,45 @@ class ProductDataTable extends DataTable
                 $url = $data->getFirstMediaUrl('images', 'thumb');
                 return '<img src="' . $url . '" border="0" width="50" class="img-thumbnail" align="center"/>';
             })
-            ->addColumn('product_price', function ($data) {
-                return format_currency($data->product_price);
-            })
-            ->addColumn('product_cost', function ($data) {
-                return format_currency($data->product_cost);
-            })
-            ->addColumn('product_quantity', function ($data) {
-                return $this->calculateAvailableStock($data);
-            })
-            ->addColumn('broken_quantity', function ($data) {
-                return $this->formatBrokenQuantity($data);
-            })
-            ->addColumn('category', function ($data) {
-                return optional($data->category)->category_name ?? 'N/A';
-            })
-            ->addColumn('brand', function ($data) {
-                return optional($data->brand)->name ?? 'N/A';
-            })
+            ->addColumn('product_price', fn($data) => format_currency($data->product_price))
+            ->addColumn('product_cost', fn($data) => format_currency($data->product_cost))
+            ->addColumn('product_quantity', fn($data) => $this->formatQuantity($data, 'available'))
+            ->addColumn('broken_quantity', fn($data) => $this->formatQuantity($data, 'broken'))
+            ->addColumn('category', fn($data) => optional($data->category)->category_name ?? 'N/A')
+            ->addColumn('brand', fn($data) => optional($data->brand)->name ?? 'N/A')
             ->rawColumns(['product_image']);
     }
 
     /**
-     * Calculate the available stock.
+     * Format the quantity (either available or broken) with units.
      */
-    protected function calculateAvailableStock($data): string
+    protected function formatQuantity($data, string $type): string
     {
-        $availableStock = $data->product_quantity - $data->broken_quantity;
+        $quantity = $type === 'available'
+            ? $data->product_quantity - $data->broken_quantity
+            : $data->broken_quantity;
+
         $baseUnit = $data->baseUnit;
         $conversions = $data->conversions;
 
         if ($baseUnit && $conversions->isNotEmpty()) {
             $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
-            $convertedQuantity = floor($availableStock / $biggestConversion->conversion_factor);
-            $remainder = $availableStock % $biggestConversion->conversion_factor;
+            $convertedQuantity = floor($quantity / $biggestConversion->conversion_factor);
+            $remainder = $quantity % $biggestConversion->conversion_factor;
 
             return "{$convertedQuantity} {$biggestConversion->unit->short_name} {$remainder} {$baseUnit->short_name}";
         }
 
-        return $baseUnit ? "{$availableStock} {$baseUnit->short_name}" : (string) $availableStock;
-    }
-
-    /**
-     * Format the broken quantity with units.
-     */
-    protected function formatBrokenQuantity($data): string
-    {
-        $baseUnit = $data->baseUnit;
-        $conversions = $data->conversions;
-        $brokenQuantity = $data->broken_quantity;
-
-        if ($baseUnit && $conversions->isNotEmpty()) {
-            $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
-            $convertedQuantity = floor($brokenQuantity / $biggestConversion->conversion_factor);
-            $remainder = $brokenQuantity % $biggestConversion->conversion_factor;
-
-            return "{$convertedQuantity} {$biggestConversion->unit->short_name} {$remainder} {$baseUnit->short_name}";
-        }
-
-        return $baseUnit ? "{$brokenQuantity} {$baseUnit->short_name}" : (string) $brokenQuantity;
+        return $baseUnit ? "{$quantity} {$baseUnit->short_name}" : (string) $quantity;
     }
 
     public function query(Product $model): Builder
     {
         $currentSettingId = session('setting_id');
 
-        return $model->newQuery()->where('setting_id', $currentSettingId)
-            ->with(['category', 'brand', 'baseUnit', 'conversions.unit']);
+        return $model->newQuery()
+            ->where('setting_id', $currentSettingId)
+            ->with(['category:id,category_name', 'brand:id,name', 'baseUnit:id,short_name', 'conversions.unit:id,short_name']);
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
@@ -120,7 +92,7 @@ class ProductDataTable extends DataTable
 
     protected function getColumns(): array
     {
-        $columns = [
+        return array_filter([
             Column::computed('product_image')
                 ->title('Gambar')
                 ->className('text-center align-middle'),
@@ -157,19 +129,16 @@ class ProductDataTable extends DataTable
                 ->title('Harga Jual')
                 ->className('text-center align-middle') : null,
 
-            Column::computed('action')  // Updated from 'Aksi' to 'action'
-            ->exportable(false)
+            Column::computed('action')
+                ->exportable(false)
                 ->printable(false)
                 ->className('text-center align-middle')
-                ->title('Aksi'),  // Display title as 'Aksi'
+                ->title('Aksi'),
 
             Column::make('created_at')
                 ->visible(false)
                 ->title('Tanggal Dibuat')
-        ];
-
-        // Filter out null columns
-        return array_filter($columns);
+        ]);
     }
 
     protected function filename(): string
