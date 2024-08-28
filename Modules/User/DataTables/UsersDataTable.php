@@ -21,11 +21,20 @@ class UsersDataTable extends DataTable
         return datatables()
             ->eloquent($query)
             ->addColumn('role_setting', function ($data) {
-                Log::info("User Data Settings", ['settings' => $data->settings]);
-                Log::info("User Data Roles", ['roles' => $data->roles]);
+                $settings = explode(', ', $data->settings);
+                $roles = explode(', ', $data->roles);
+
+                // Adjusted for correct pairing of settings and roles
+                $roleSettings = [];
+                foreach ($settings as $index => $setting) {
+                    $roleSettings[] = [
+                        'setting' => $setting,
+                        'role' => $roles[$index] ?? 'N/A'
+                    ];
+                }
+
                 return view('user::users.partials.role_setting', [
-                    'settings' => explode(', ', $data->settings),
-                    'roles' => explode(', ', $data->roles)
+                    'roleSettings' => $roleSettings
                 ]);
             })
             ->addColumn('action', function ($data) {
@@ -57,8 +66,8 @@ class UsersDataTable extends DataTable
                 'users.email',
                 'users.is_active',
                 'users.created_at',
-                \DB::raw('GROUP_CONCAT(DISTINCT settings.company_name ORDER BY settings.id SEPARATOR ", ") as settings'),
-                \DB::raw('GROUP_CONCAT(DISTINCT roles.name ORDER BY settings.id SEPARATOR ", ") as roles')
+                \DB::raw('GROUP_CONCAT(settings.company_name ORDER BY user_setting.setting_id SEPARATOR ", ") as settings'),
+                \DB::raw('GROUP_CONCAT(roles.name ORDER BY user_setting.setting_id SEPARATOR ", ") as roles')
             )
             ->groupBy('users.id', 'users.name', 'users.email', 'users.is_active', 'users.created_at')
             ->whereDoesntHave('roles', function($query) {
