@@ -15,13 +15,15 @@ class UnitConversionTable extends Component
     public array $errors = [];
     public array $units = [];
 
-    public function mount(): void
+    public function mount(array $conversions = []): void
     {
-        $this->conversions = old('conversions', []);
+        // If conversions are passed during mount, use them; otherwise, use old input or an empty array
+        $this->conversions = !empty($conversions) ? $conversions : old('conversions', []);
 
         // Ensure errors are passed correctly to the component
         $this->errors = session('errors') ? session('errors')->getBag('default')->toArray() : [];
 
+        // Load units based on the current setting ID
         $currentSettingId = session('setting_id');
         $this->units = Unit::where('setting_id', $currentSettingId)->pluck('name', 'id')->toArray();
     }

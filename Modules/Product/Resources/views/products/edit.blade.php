@@ -25,37 +25,121 @@
                                     <x-input label="Nama Produk" name="product_name"
                                              value="{{ old('product_name', $product->product_name) }}"/>
                                 </div>
+                                <div class="col-md-6">
+                                    <x-input label="Kode Produk" name="product_code"
+                                             value="{{ old('product_code', $product->product_code) }}"/>
+                                </div>
                             </div>
 
                             <div class="form-row">
-                                <div class="col-md-12">
+                                <div class="col-md-6">
+                                    <x-select label="Kategori" name="category_id"
+                                              :options="$formattedCategories"
+                                              selected="{{ old('category_id', $product->category_id) }}"/>
+                                </div>
+                                <div class="col-md-6">
+                                    <x-select label="Merek" name="brand_id"
+                                              :options="$brands->pluck('name', 'id')"
+                                              selected="{{ old('brand_id', $product->brand_id) }}"/>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <x-input label="Stok" name="product_quantity" type="number" step="1"
+                                             value="{{ old('product_quantity', $product->product_quantity) }}" disabled/>
+                                </div>
+                                <div class="col-md-6">
+                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
+                                             step="1" value="{{ old('product_stock_alert', $product->product_stock_alert) }}"/>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <x-input label="Pajak (%)" name="product_order_tax" type="number" step="0.01"
+                                             value="{{ old('product_order_tax', $product->product_order_tax) }}"/>
+                                </div>
+                                <div class="col-md-6">
+                                    <x-select label="Jenis Pajak" name="product_tax_type"
+                                              :options="['1' => 'Exclusive', '2' => 'Inclusive']"
+                                              selected="{{ old('product_tax_type', $product->product_tax_type) }}"/>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <x-input label="Harga" name="product_cost" step="0.01"
+                                             value="{{ old('product_cost', $product->product_cost) }}"/>
+                                </div>
+                                <div class="col-md-6">
+                                    <x-input label="Profit (%)" name="profit_percentage" step="0.01"
+                                             placeholder="Enter Profit Percentage"
+                                             value="{{ old('profit_percentage', $product->profit_percentage) }}"/>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <x-input label="Harga Jual" name="product_price" step="0.01"
+                                             value="{{ old('product_price', $product->product_price) }}"/>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="col-md-4">
                                     <div class="form-group">
-                                        <label for="product_note">Catatan</label>
-                                        <textarea name="product_note" id="product_note" rows="4"
-                                                  class="form-control">{{ old('product_note', $product->product_note) }}</textarea>
+                                        <br>
+                                        <label>
+                                            <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
+                                                   class="input-icheck" {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }}>
+                                            <strong>Manajemen Stok</strong>
+                                        </label>
+                                        <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
+                                           data-placement="top"
+                                           title="Stock Management should be disabled mostly for services. Example: Jasa Instalasi, Jasa Perbaikan, dll."></i>
+                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Dropzone for uploading and managing images -->
                             <div class="form-row">
-                                <div class="col-lg-12">
-                                    <div class="card">
-                                        <div class="card-body">
-                                            <div class="form-group">
-                                                <label for="image">Product Images <i
-                                                        class="bi bi-question-circle-fill text-info"
-                                                        data-toggle="tooltip" data-placement="top"
-                                                        title="Max Files: 3, Max File Size: 1MB, Image Size: 400x400"></i></label>
-                                                <div
-                                                    class="dropzone d-flex flex-wrap align-items-center justify-content-center"
-                                                    id="document-dropzone">
-                                                    <div class="dz-message" data-dz-message>
-                                                        <i class="bi bi-cloud-arrow-up"></i>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
+                                <div class="col-md-6">
+                                    <x-select label="Unit Utama" name="base_unit_id"
+                                              :options="$units->pluck('name', 'id')"
+                                              selected="{{ old('base_unit_id', $product->base_unit_id) }}"/>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <x-input label="Barcode Unit Utama" name="primary_unit_barcode"
+                                             value="{{ old('primary_unit_barcode', $product->primary_unit_barcode) }}"/>
+                                </div>
+                            </div>
+
+                            <!-- Livewire component for Unit Conversion Table -->
+                            <livewire:product.unit-conversion-table :conversions="old('conversions', $product->conversions->toArray())" :errors="$errors->toArray()"/>
+
+                            <div class="form-group">
+                                <label for="product_note">Catatan</label>
+                                <textarea name="product_note" id="product_note" rows="4"
+                                          class="form-control">{{ old('product_note', $product->product_note) }}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label for="image">Gambar Produk <i class="bi bi-question-circle-fill text-info"
+                                                                    data-toggle="tooltip" data-placement="top"
+                                                                    title="Max Files: 3, Max File Size: 1MB, Image Size: 400x400"></i></label>
+                                <div
+                                    class="dropzone d-flex flex-wrap flex-wrap align-items-center justify-content-center"
+                                    id="document-dropzone">
+                                    <div class="dz-message" data-dz-message>
+                                        <i class="bi bi-cloud-arrow-up"></i>
                                     </div>
                                 </div>
                             </div>
@@ -70,6 +154,52 @@
 @endsection
 
 @section('third_party_scripts')
+    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
+    <script>
+        $(document).ready(function () {
+            function applyMask() {
+                $('#product_cost, #product_price').maskMoney({
+                    prefix: '{{ settings()->currency->symbol }}',
+                    thousands: '{{ settings()->currency->thousand_separator }}',
+                    decimal: '{{ settings()->currency->decimal_separator }}',
+                    precision: 2,
+                    allowZero: true,
+                    allowNegative: false
+                });
+            }
+
+            // Call applyMask after document is fully loaded
+            applyMask();
+
+            // On focus, unmask to show raw value for editing and select all text
+            $('#product_cost, #product_price').on('focus', function () {
+                $(this).maskMoney('destroy'); // Remove mask during focus/typing
+                $(this).val($(this).val().replace(/[^0-9.-]/g, '')); // Show raw value without formatting
+                setTimeout(() => {
+                    $(this).select(); // Select all text in the input
+                }, 0);
+            });
+
+            // On blur, reapply the mask to format as currency
+            $('#product_cost, #product_price').on('blur', function () {
+                var value = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
+                if (isNaN(value)) {
+                    value = 0;
+                }
+                $(this).val(value.toFixed(2)); // Ensure two decimal places
+                applyMask(); // Reapply the mask
+                $(this).maskMoney('mask'); // Mask the value again
+            });
+
+            // Submit the form with unmasked values
+            $('#product-form').submit(function () {
+                var productCost = $('#product_cost').maskMoney('unmasked')[0];
+                var productPrice = $('#product_price').maskMoney('unmasked')[0];
+                $('#product_cost').val(productCost);
+                $('#product_price').val(productPrice);
+            });
+        });
+    </script>
     <script src="{{ asset('js/dropzone.js') }}"></script>
     <script>
         var uploadedDocumentMap = {}

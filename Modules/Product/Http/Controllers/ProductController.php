@@ -185,32 +185,101 @@ class ProductController extends Controller
     {
         abort_if(Gate::denies('edit_products'), 403);
 
-        return view('product::products.edit', compact('product'));
+        $currentSettingId = session('setting_id');
+
+        // Filter units, brands, and categories by setting_id
+        $units = Unit::where('setting_id', $currentSettingId)->get();
+        $brands = Brand::where('setting_id', $currentSettingId)->get();
+        $categories = Category::where('setting_id', $currentSettingId)->with('parent')->get();
+        $locations = Location::where('setting_id', $currentSettingId)->get();
+
+        // Format categories with parent category
+        $formattedCategories = $categories->mapWithKeys(function ($category) {
+            $formattedName = $category->parent ? "{$category->parent->category_name} | $category->category_name" : $category->category_name;
+            return [$category->id => $formattedName];
+        })->sortBy('name')->toArray();
+
+        return view('product::products.edit', compact('product', 'units', 'brands', 'formattedCategories', 'locations'));
     }
 
 
     public function update(UpdateProductRequest $request, Product $product): RedirectResponse
     {
-        $request->except('document');
+        $validatedData = $request->validated();
 
-        // Update only if there are changes
-        if ($request->filled('product_name') && $request->product_name !== $product->product_name) {
-            $product->product_name = $request->product_name;
+        // Update the product fields
+        if ($request->filled('product_name')) {
+            $product->product_name = $validatedData['product_name'];
         }
 
-        if ($request->filled('product_note') && $request->product_note !== $product->product_note) {
-            $product->product_note = $request->product_note;
+        if ($request->filled('product_code')) {
+            $product->product_code = $validatedData['product_code'];
         }
 
+        if ($request->filled('category_id')) {
+            $product->category_id = $validatedData['category_id'];
+        }
+
+        if ($request->filled('brand_id')) {
+            $product->brand_id = $validatedData['brand_id'];
+        }
+
+        if ($request->filled('product_stock_alert')) {
+            $product->product_stock_alert = $validatedData['product_stock_alert'];
+        }
+
+        if ($request->filled('product_order_tax')) {
+            $product->product_order_tax = $validatedData['product_order_tax'];
+        }
+
+        if ($request->filled('product_tax_type')) {
+            $product->product_tax_type = $validatedData['product_tax_type'];
+        }
+
+        if ($request->filled('product_cost')) {
+            $product->product_cost = $validatedData['product_cost'];
+        }
+
+        if ($request->filled('profit_percentage')) {
+            $product->profit_percentage = $validatedData['profit_percentage'];
+        }
+
+        if ($request->filled('product_price')) {
+            $product->product_price = $validatedData['product_price'];
+        }
+
+        if ($request->filled('primary_unit_barcode')) {
+            $product->primary_unit_barcode = $validatedData['primary_unit_barcode'];
+        }
+
+        if ($request->filled('base_unit_id')) {
+            $product->base_unit_id = $validatedData['base_unit_id'];
+        }
+
+        if ($request->filled('product_note')) {
+            $product->product_note = $validatedData['product_note'];
+        }
+
+        // Check if the product has been modified and save changes
         if ($product->isDirty()) {
             $product->save();
             toast('Produk Diperbaharui!', 'info');
         }
 
-        // Handle document upload if new files are provided
+        // Handle document uploads if new files are provided
         if ($request->hasFile('document')) {
             foreach ($request->file('document') as $file) {
                 $product->addMedia($file)->toMediaCollection('images');
+            }
+        }
+
+        // Handle unit conversions
+        if (isset($validatedData['conversions']) && is_array($validatedData['conversions'])) {
+            // Remove existing conversions and replace with the new ones
+            $product->conversions()->delete();
+            foreach ($validatedData['conversions'] as $conversion) {
+                $conversion['base_unit_id'] = $validatedData['base_unit_id'];
+                $product->conversions()->create($conversion);
             }
         }
 
