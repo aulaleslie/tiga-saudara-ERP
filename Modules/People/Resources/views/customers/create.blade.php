@@ -18,7 +18,10 @@
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Create Customer <i class="bi bi-check"></i></button>
+                        <a href="<?php echo e(route('customers.index')); ?>" class="btn btn-secondary mr-2">
+                            Kembali
+                        </a>
+                        <button class="btn btn-primary">Tambahkan Pelanggan <i class="bi bi-check"></i></button>
                     </div>
                 </div>
                 <div class="col-lg-12">
@@ -27,7 +30,7 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="customer_name">Customer Name <span class="text-danger">*</span></label>
+                                        <label for="customer_name">Nama Pelanggan <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="customer_name" required>
                                     </div>
                                 </div>
@@ -42,19 +45,19 @@
                             <div class="form-row">
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="customer_phone">Phone <span class="text-danger">*</span></label>
+                                        <label for="customer_phone">Nomor Kontak <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="customer_phone" required>
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="city">City <span class="text-danger">*</span></label>
+                                        <label for="city">Kota <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="city" required>
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="country">Country <span class="text-danger">*</span></label>
+                                        <label for="country">Negara <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="country" required>
                                     </div>
                                 </div>
@@ -63,7 +66,7 @@
                             <div class="form-row">
                                 <div class="col-lg-12">
                                     <div class="form-group">
-                                        <label for="address">Address <span class="text-danger">*</span></label>
+                                        <label for="address">Alamat <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="address" required>
                                     </div>
                                 </div>

@@ -47,7 +47,7 @@ class CustomersController extends Controller
             'address'        => $request->address
         ]);
 
-        toast('Customer Created!', 'success');
+        toast('Pelanggan Ditambahkan!', 'success');
 
         return redirect()->route('customers.index');
     }
@@ -88,7 +88,7 @@ class CustomersController extends Controller
             'address'        => $request->address
         ]);
 
-        toast('Customer Updated!', 'info');
+        toast('Data Pelanggan Diperbaharui!', 'info');
 
         return redirect()->route('customers.index');
     }
@@ -99,7 +99,7 @@ class CustomersController extends Controller
 
         $customer->delete();
 
-        toast('Customer Deleted!', 'warning');
+        toast('Data Pelanggan Dihapus!', 'warning');
 
         return redirect()->route('customers.index');
     }
