@@ -42,3 +42,53 @@ SELECT 'access_user_permissions', 'web', '2024-07-16 21:58:17', '2024-07-16 21:5
 WHERE NOT EXISTS (
     SELECT 1 FROM tiga_saudara.permissions WHERE name = 'access_user_permissions'
 )
+UNION ALL
+SELECT 'customer.access', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'customer.access'
+)
+UNION ALL
+SELECT 'customer.create', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'customer.create'
+)
+UNION ALL
+SELECT 'customer.view', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'customer.view'
+)
+UNION ALL
+SELECT 'customer.edit', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'customer.edit'
+)
+UNION ALL
+SELECT 'customer.delete', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'customer.delete'
+)
+UNION ALL
+SELECT 'supplier.access', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'supplier.access'
+)
+UNION ALL
+SELECT 'supplier.create', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'supplier.create'
+)
+UNION ALL
+SELECT 'supplier.view', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'supplier.view'
+)
+UNION ALL
+SELECT 'supplier.edit', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'supplier.edit'
+)
+UNION ALL
+SELECT 'supplier.delete', 'web', '2024-07-16 21:58:17', '2024-07-16 21:58:17'
+WHERE NOT EXISTS (
+    SELECT 1 FROM tiga_saudara.permissions WHERE name = 'supplier.delete'
+)

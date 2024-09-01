@@ -38,6 +38,18 @@ class PermissionsTableSeeder extends Seeder
             'delete_products',
             //Product Categories
             'access_product_categories',
+            //customer
+            'customer.access',
+            'customer.create',
+            'customer.view',
+            'customer.edit',
+            'customer.delete',
+            //supplier
+            'supplier.access',
+            'supplier.create',
+            'supplier.view',
+            'supplier.edit',
+            'supplier.delete',
             //Barcode Printing
             'print_barcodes',
             //Adjustments
