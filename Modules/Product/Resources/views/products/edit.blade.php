@@ -14,7 +14,7 @@
                         <a href="{{ route('products.index') }}" class="btn btn-secondary mr-2">
                             Kembali
                         </a>
-                        <x-button label="Update Product" icon="bi-check"/>
+                        <x-button label="Perbaharui Produk" icon="bi-check"/>
                     </div>
                 </div>
                 <div class="col-lg-12">

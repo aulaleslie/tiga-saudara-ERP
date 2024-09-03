@@ -154,7 +154,7 @@ class ProductController extends Controller
             return redirect()->route('products.index');
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error('Product creation failed', ['error' => $e->getMessage()]);
+            Log::error('Gagal Menambahkan Produk. Silahkan Coba lagi!', ['error' => $e->getMessage()]);
 
             toast('Failed to create product. Please try again.', 'error');
             return redirect()->back()->withInput();
@@ -218,6 +218,7 @@ class ProductController extends Controller
         // Ensure brand_id and category_id are either NULL or valid
         $validatedData['brand_id'] = $validatedData['brand_id'] ?: null;
         $validatedData['category_id'] = $validatedData['category_id'] ?: null;
+        $validatedData['base_unit_id'] = $validatedData['base_unit_id'] ?: null;
 
         // Handle location_id, conversions, and documents separately
         $locationId = $validatedData['location_id'] ?? null;
@@ -257,7 +258,7 @@ class ProductController extends Controller
             DB::rollBack();
             Log::error('Product update failed', ['error' => $e->getMessage()]);
 
-            toast('Failed to update product. Please try again.', 'error');
+            toast('Gagal Perbaharui Produk. Silahkan Coba Lagi !.', 'error');
             return redirect()->back()->withInput();
         }
     }

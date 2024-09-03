@@ -31,18 +31,20 @@ class StoreProductRequest extends FormRequest
         return [
             'product_name' => ['required', 'string', 'max:255'],
             'product_code' => ['required', 'string', 'max:255', 'unique:products,product_code'],
+            'category_id' => ['nullable', 'integer'],
+            'brand_id' => ['nullable', 'integer'],
             'product_quantity' => ['nullable', 'integer', 'min:0'],
             'product_stock_alert' => ['nullable', 'integer', 'min:0'],
 
             // New Fields for Buying
             'is_purchased' => ['nullable', 'boolean'],
             'purchase_price' => ['required_if:is_purchased,1', 'nullable', 'numeric', 'min:0'],
-            'purchase_tax' => ['required_if:is_purchased,1', 'nullable', 'in:1'],
+            'purchase_tax' => ['nullable', 'integer'],
 
             // New Fields for Selling
             'is_sold' => ['nullable', 'boolean'],
             'sale_price' => ['required_if:is_sold,1', 'nullable', 'numeric', 'min:0'],
-            'sale_tax' => ['required_if:is_sold,1', 'nullable', 'in:1'],
+            'sale_tax' => ['nullable', 'integer'],
 
             'barcode' => ['nullable', 'string', 'max:255'],
 
