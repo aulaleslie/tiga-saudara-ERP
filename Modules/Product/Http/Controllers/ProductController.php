@@ -2,10 +2,12 @@
 
 namespace Modules\Product\Http\Controllers;
 
+use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Product\DataTables\ProductDataTable;
@@ -20,6 +22,8 @@ use Modules\Product\Http\Requests\StoreProductRequest;
 use Modules\Product\Http\Requests\UpdateProductRequest;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Unit;
+use League\Csv\Reader;
+use League\Csv\Statement;
 
 class ProductController extends Controller
 {
@@ -148,7 +152,7 @@ class ProductController extends Controller
 
             toast('Produk Ditambahkan!', 'success');
             return redirect()->route('products.index');
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             DB::rollBack();
             Log::error('Product creation failed', ['error' => $e->getMessage()]);
 
@@ -249,7 +253,7 @@ class ProductController extends Controller
 
             toast('Produk Diperbaharui!', 'info');
             return redirect()->route('products.index');
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             DB::rollBack();
             Log::error('Product update failed', ['error' => $e->getMessage()]);
 
@@ -268,5 +272,142 @@ class ProductController extends Controller
         toast('Produk Dihapus!', 'warning');
 
         return redirect()->route('products.index');
+    }
+
+    public function uploadPage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        // Get the current setting ID from the session
+        $currentSettingId = session('setting_id');
+
+        // Query the locations for the current setting ID
+        $locations = Location::where('setting_id', $currentSettingId)->get();
+
+        // Return the upload view with the locations data
+        return view('product::products.upload', compact('locations'));
+    }
+
+    public function upload(Request $request): RedirectResponse
+    {
+        // Validate the request
+        $request->validate([
+            'file' => 'required|mimes:csv,txt',
+            'location_id' => 'required|exists:locations,id',
+        ]);
+
+        // Handle the uploaded file
+        $file = $request->file('file');
+        $csv = Reader::createFromPath($file->getPathname(), 'r');
+        $csv->setHeaderOffset(0); // The CSV has headers
+        $records = (new Statement())->process($csv);
+
+        // Get the selected location ID
+        $locationId = $request->input('location_id');
+
+        // Initialize counters for logging
+        $rowsProcessed = 0;
+        $rowsRead = 0;
+
+        // Process each row
+        DB::beginTransaction();
+        try {
+            foreach ($records as $record) {
+                $rowsRead++;
+                // Normalize and validate each value
+                $name = trim($record['Name*']);
+                $productCode = trim($record['ProductCode']);
+                $stock = (int)trim($record['Stock']);
+                $unitName = trim($record['*Unit']);
+                $buyPrice = $this->normalizePrice($record['BuyPrice']);
+                $buyTaxName = trim($record['DefaultBuyTaxName']);
+                $sellPrice = $this->normalizePrice($record['SellPrice']);
+                $sellTaxName = trim($record['DefaultSellTaxName']);
+                $minimumStock = (int)trim($record['MinimumStock']);
+
+                // Validate required fields
+                if (!$name || !$unitName || !$buyPrice || !$sellPrice) {
+                    Log::error("Row $rowsRead: Required fields are missing");
+                    continue; // Skip this row
+                }
+
+                // Check for duplicate product name
+                $existingProductWithName = Product::where('product_name', $name)->first();
+                if ($existingProductWithName) {
+                    Log::error("Row $rowsRead: A product with the name '{$name}' already exists.");
+                    continue; // Skip this row
+                }
+
+                // Find or create the unit
+                $unit = Unit::firstOrCreate(['name' => $unitName]);
+
+                // Set tax values based on the tax name
+                $purchaseTax = $buyTaxName === 'PPN 11%' ? 1 : 0;
+                $saleTax = $sellTaxName === 'PPN 11%' ? 1 : 0;
+
+                // Determine if the product is sold or purchased
+                $isPurchased = $buyPrice > 0;
+                $isSold = $sellPrice > 0;
+
+                // Create or update the product using Eloquent
+                $product = Product::updateOrCreate(
+                    ['product_code' => $productCode],
+                    [
+                        'product_name' => $name,
+                        'product_quantity' => $stock,
+                        'base_unit_id' => $unit->id,
+                        'purchase_price' => $buyPrice,
+                        'purchase_tax' => $purchaseTax,
+                        'sale_price' => $sellPrice,
+                        'sale_tax' => $saleTax,
+                        'stock_managed' => true,
+                        'product_stock_alert' => $minimumStock,
+                        'is_purchased' => $isPurchased,
+                        'is_sold' => $isSold,
+                        'setting_id' => session('setting_id'),
+
+                        // set to default
+                        'product_cost' => 0,
+                        'product_order_tax' => 0,
+                        'product_tax_type' => 0,
+                        'profit_percentage' => 0,
+                        'product_price' => 0
+                    ]
+                );
+
+                // If stock is more than 0, record a transaction
+                if ($stock > 0) {
+                    Transaction::create([
+                        'product_id' => $product->id,
+                        'setting_id' => session('setting_id'),
+                        'type' => 'INIT', // Assuming 'INIT' is used for initial stock setup
+                        'quantity' => $stock,
+                        'current_quantity' => $stock,
+                        'broken_quantity' => 0, // Assuming no broken quantity initially
+                        'location_id' => $locationId,
+                        'user_id' => auth()->id(), // Assuming the user is authenticated
+                        'reason' => 'Initial stock setup from upload', // Provide a reason for the transaction
+                    ]);
+                }
+
+                // Log each successfully processed row
+                $rowsProcessed++;
+                Log::info("Row $rowsRead: Product '{$name}' processed successfully.");
+            }
+
+            DB::commit();
+            Log::info("Upload completed: $rowsProcessed rows processed out of $rowsRead rows read.");
+            toast('Upload Berhasil!', 'success');
+            return redirect()->route('products.index')->with('success', 'Products uploaded successfully.');
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error("Upload failed: " . $e->getMessage());
+            toast('Failed to upload product. Please try again.', 'error');
+            return redirect()->back()->withErrors(['error' => 'Failed to upload products: ' . $e->getMessage()]);
+        }
+    }
+
+    private function normalizePrice($price): int
+    {
+        // Remove any commas or currency symbols and convert to float
+        return (int)str_replace([','], '', trim($price));
     }
 }

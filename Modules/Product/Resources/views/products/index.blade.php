@@ -20,9 +20,12 @@
                 <div class="card">
                     <div class="card-body">
                         @can("create_products")
-                        <a href="{{ route('products.create') }}" class="btn btn-primary">
-                            Tambah Produk <i class="bi bi-plus"></i>
-                        </a>
+                            <a href="{{ route('products.create') }}" class="btn btn-primary">
+                                Tambah Produk <i class="bi bi-plus"></i>
+                            </a>
+                            <a href="{{ route('products.upload.page') }}" class="btn btn-secondary">
+                                Upload Produk <i class="bi bi-upload"></i>
+                            </a>
                         @endcan
 
                         <hr>
