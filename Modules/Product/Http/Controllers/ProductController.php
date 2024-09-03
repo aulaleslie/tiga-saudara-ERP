@@ -2,7 +2,6 @@
 
 namespace Modules\Product\Http\Controllers;
 
-use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
@@ -74,6 +73,11 @@ class ProductController extends Controller
             'product_order_tax' => 0,
             'product_tax_type' => 0,
             'profit_percentage' => 0,
+            'purchase_price' => 0,
+            'purchase_tax' => 0,
+            'sale_price' => 0,
+            'sale_tax' => 0,
+            'product_price' => 0
         ];
 
         foreach ($fieldsWithDefaults as $field => $defaultValue) {
@@ -207,83 +211,51 @@ class ProductController extends Controller
     {
         $validatedData = $request->validated();
 
-        // Update the product fields
-        if ($request->filled('product_name')) {
-            $product->product_name = $validatedData['product_name'];
-        }
+        // Ensure brand_id and category_id are either NULL or valid
+        $validatedData['brand_id'] = $validatedData['brand_id'] ?: null;
+        $validatedData['category_id'] = $validatedData['category_id'] ?: null;
 
-        if ($request->filled('product_code')) {
-            $product->product_code = $validatedData['product_code'];
-        }
+        // Handle location_id, conversions, and documents separately
+        $locationId = $validatedData['location_id'] ?? null;
+        $conversions = $validatedData['conversions'] ?? [];
+        $documents = $validatedData['document'] ?? [];
 
-        if ($request->filled('category_id')) {
-            $product->category_id = $validatedData['category_id'];
-        }
+        // Unset fields that should not be saved directly to the products table
+        unset($validatedData['location_id'], $validatedData['conversions'], $validatedData['document']);
 
-        if ($request->filled('brand_id')) {
-            $product->brand_id = $validatedData['brand_id'];
-        }
+        DB::beginTransaction();
 
-        if ($request->filled('product_stock_alert')) {
-            $product->product_stock_alert = $validatedData['product_stock_alert'];
-        }
+        try {
+            // Update the product fields
+            $product->update($validatedData);
 
-        if ($request->filled('product_order_tax')) {
-            $product->product_order_tax = $validatedData['product_order_tax'];
-        }
+            // Handle document uploads if new files are provided
+            if ($request->hasFile('document')) {
+                foreach ($request->file('document') as $file) {
+                    $product->addMedia($file)->toMediaCollection('images');
+                }
+            }
 
-        if ($request->filled('product_tax_type')) {
-            $product->product_tax_type = $validatedData['product_tax_type'];
-        }
+            // Handle unit conversions
+            if (!empty($conversions)) {
+                $product->conversions()->delete(); // Remove existing conversions
+                foreach ($conversions as $conversion) {
+                    $conversion['base_unit_id'] = $validatedData['base_unit_id'];
+                    $product->conversions()->create($conversion);
+                }
+            }
 
-        if ($request->filled('product_cost')) {
-            $product->product_cost = $validatedData['product_cost'];
-        }
+            DB::commit();
 
-        if ($request->filled('profit_percentage')) {
-            $product->profit_percentage = $validatedData['profit_percentage'];
-        }
-
-        if ($request->filled('product_price')) {
-            $product->product_price = $validatedData['product_price'];
-        }
-
-        if ($request->filled('primary_unit_barcode')) {
-            $product->primary_unit_barcode = $validatedData['primary_unit_barcode'];
-        }
-
-        if ($request->filled('base_unit_id')) {
-            $product->base_unit_id = $validatedData['base_unit_id'];
-        }
-
-        if ($request->filled('product_note')) {
-            $product->product_note = $validatedData['product_note'];
-        }
-
-        // Check if the product has been modified and save changes
-        if ($product->isDirty()) {
-            $product->save();
             toast('Produk Diperbaharui!', 'info');
-        }
+            return redirect()->route('products.index');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Product update failed', ['error' => $e->getMessage()]);
 
-        // Handle document uploads if new files are provided
-        if ($request->hasFile('document')) {
-            foreach ($request->file('document') as $file) {
-                $product->addMedia($file)->toMediaCollection('images');
-            }
+            toast('Failed to update product. Please try again.', 'error');
+            return redirect()->back()->withInput();
         }
-
-        // Handle unit conversions
-        if (isset($validatedData['conversions']) && is_array($validatedData['conversions'])) {
-            // Remove existing conversions and replace with the new ones
-            $product->conversions()->delete();
-            foreach ($validatedData['conversions'] as $conversion) {
-                $conversion['base_unit_id'] = $validatedData['base_unit_id'];
-                $product->conversions()->create($conversion);
-            }
-        }
-
-        return redirect()->route('products.index');
     }
 
 

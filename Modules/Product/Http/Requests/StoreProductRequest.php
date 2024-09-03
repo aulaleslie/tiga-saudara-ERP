@@ -32,26 +32,19 @@ class StoreProductRequest extends FormRequest
             'product_name' => ['required', 'string', 'max:255'],
             'product_code' => ['required', 'string', 'max:255', 'unique:products,product_code'],
             'product_quantity' => ['nullable', 'integer', 'min:0'],
-
-            // Ensure product cost is non-negative
-            'product_cost' => ['nullable', 'numeric', 'min:0', 'max:2147483647'],
-
-            // Ensure product price is required and greater than zero
-            'product_price' => ['required', 'numeric', 'min:0.01', 'max:2147483647'],
-
-            // Ensure profit percentage is between 0 and 100
-            'profit_percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
-
             'product_stock_alert' => ['nullable', 'integer', 'min:0'],
 
-            // Ensure product order tax is between 0 and 100
-            'product_order_tax' => ['nullable', 'integer', 'min:0', 'max:100'],
+            // New Fields for Buying
+            'is_purchased' => ['nullable', 'boolean'],
+            'purchase_price' => ['required_if:is_purchased,1', 'nullable', 'numeric', 'min:0'],
+            'purchase_tax' => ['required_if:is_purchased,1', 'nullable', 'in:1'],
 
-            'product_tax_type' => ['nullable', 'integer'],
-            'product_note' => ['nullable', 'string', 'max:1000'],
-            'category_id' => ['nullable', 'integer'],
-            'brand_id' => ['nullable', 'integer'],
-            'stock_managed' => ['nullable', 'boolean'],
+            // New Fields for Selling
+            'is_sold' => ['nullable', 'boolean'],
+            'sale_price' => ['required_if:is_sold,1', 'nullable', 'numeric', 'min:0'],
+            'sale_tax' => ['required_if:is_sold,1', 'nullable', 'in:1'],
+
+            'barcode' => ['nullable', 'string', 'max:255'],
 
             // Ensure base_unit_id is required and not 0 if stock_managed is true, otherwise allow 0 or nullable
             'base_unit_id' => ['required_if:stock_managed,1', 'integer', function ($attribute, $value, $fail) {
@@ -94,6 +87,11 @@ class StoreProductRequest extends FormRequest
             'conversions.*.unit_id' => 'Unit harus dipilih jika stock managed',
             'conversions.*.conversion_factor' => 'Conversion factor harus dipilih jika stock managed',
             // Add custom messages for other fields as needed
+            // New messages for purchase and sale validation
+            'purchase_price.required_if' => 'Harga Beli diperlukan jika Anda membeli barang ini.',
+            'purchase_tax.required_if' => 'Pajak Beli harus dipilih jika Anda membeli barang ini.',
+            'sale_price.required_if' => 'Harga Jual diperlukan jika Anda menjual barang ini.',
+            'sale_tax.required_if' => 'Pajak Jual harus dipilih jika Anda menjual barang ini.',
         ];
     }
 

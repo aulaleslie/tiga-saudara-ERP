@@ -36,12 +36,32 @@
                                     <td>{{ $product->category->category_name ?? 'N/A' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Cost</th>
-                                    <td>{{ format_currency($product->product_cost) }}</td>
+                                    <th>Harga Beli</th>
+                                    <td>{{ format_currency($product->purchase_price) }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Price</th>
-                                    <td>{{ format_currency($product->product_price) }}</td>
+                                    <th>Pajak Beli</th>
+                                    <td>
+                                        @if($product->purchase_tax == 1)
+                                            PPN 11%
+                                        @else
+                                            N/A
+                                        @endif
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>Harga Jual</th>
+                                    <td>{{ format_currency($product->sale_price) }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Pajak Jual</th>
+                                    <td>
+                                        @if($product->sale_tax == 1)
+                                            PPN 11%
+                                        @else
+                                            N/A
+                                        @endif
+                                    </td>
                                 </tr>
                                 <tr>
                                     <th>Quantity</th>
@@ -50,29 +70,13 @@
                                 <tr>
                                     <th>Stock Worth</th>
                                     <td>
-                                        COST: {{ format_currency($product->product_cost * $product->product_quantity) }} /
-                                        PRICE: {{ format_currency($product->product_price * $product->product_quantity) }}
+                                        HARGA BELI: {{ format_currency($product->purchase_price * $product->product_quantity) }} /
+                                        HARGA JUAL: {{ format_currency($product->sale_price * $product->product_quantity) }}
                                     </td>
                                 </tr>
                                 <tr>
                                     <th>Alert Quantity</th>
                                     <td>{{ $product->product_stock_alert }}</td>
-                                </tr>
-                                <tr>
-                                    <th>Tax (%)</th>
-                                    <td>{{ $product->product_order_tax ?? 'N/A' }}</td>
-                                </tr>
-                                <tr>
-                                    <th>Tax Type</th>
-                                    <td>
-                                        @if($product->product_tax_type == 1)
-                                            Exclusive
-                                        @elseif($product->product_tax_type == 2)
-                                            Inclusive
-                                        @else
-                                            N/A
-                                        @endif
-                                    </td>
                                 </tr>
                                 <tr>
                                     <th>Note</th>

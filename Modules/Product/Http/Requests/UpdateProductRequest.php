@@ -31,27 +31,24 @@ class UpdateProductRequest extends FormRequest
         return [
             'product_name' => ['sometimes', 'required', 'string', 'max:255'],
             'product_code' => ['sometimes', 'required', 'string', 'max:255', 'unique:products,product_code,' . $this->product->id],
-            'product_quantity' => ['nullable', 'integer', 'min:0'],
-
-            // Ensure product cost is non-negative
-            'product_cost' => ['nullable', 'numeric', 'min:0', 'max:2147483647'],
-
-            // Ensure product price is required and greater than zero
-            'product_price' => ['sometimes', 'required', 'numeric', 'min:0.01', 'max:2147483647'],
-
-            // Ensure profit percentage is between 0 and 100
-            'profit_percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
 
             'product_stock_alert' => ['nullable', 'integer', 'min:0'],
-
-            // Ensure product order tax is between 0 and 100
-            'product_order_tax' => ['nullable', 'integer', 'min:0', 'max:100'],
-
-            'product_tax_type' => ['nullable', 'integer'],
+            'purchase_price' => ['nullable', 'numeric', 'min:0'],
+            'purchase_tax' => ['nullable', 'in:1'],
+            'sale_price' => ['nullable', 'numeric', 'min:0'],
+            'sale_tax' => ['nullable', 'in:1'],
             'product_note' => ['nullable', 'string', 'max:1000'],
             'category_id' => ['nullable', 'integer'],
             'brand_id' => ['nullable', 'integer'],
             'stock_managed' => ['nullable', 'boolean'],
+
+            // Validate conversions if provided
+            'conversions' => ['nullable', 'array'],
+            'conversions.*.unit_id' => ['required_if:stock_managed,1', 'integer', 'not_in:0'],
+            'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
+
+            'document' => ['nullable', 'array'],
+            'document.*' => ['nullable', 'string'],
 
             // Ensure base_unit_id is required and not 0 if stock_managed is true, otherwise allow 0 or nullable
             'base_unit_id' => ['required_if:stock_managed,1', 'integer', function ($attribute, $value, $fail) {
@@ -67,13 +64,6 @@ class UpdateProductRequest extends FormRequest
                 }
             }],
 
-            // Validate conversions if provided
-            'conversions' => ['nullable', 'array'],
-            'conversions.*.unit_id' => ['required_if:stock_managed,1', 'integer', 'not_in:0'],
-            'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
-
-            'document' => ['nullable', 'array'],
-            'document.*' => ['nullable', 'string'],
         ];
     }
 

@@ -46,34 +46,59 @@
                                              step="1"/>
                                 </div>
                                 <div class="col-md-4">
-                                    <x-select label="Lokasi" name="location_id" :options="$locations->pluck('name', 'id')"/>
+                                    <x-select label="Lokasi" name="location_id"
+                                              :options="$locations->pluck('name', 'id')"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Pajak (%)" name="product_order_tax" type="number" step="0.01"/>
-                                </div>
-                                <div class="col-md-6">
-                                    <x-select label="Jenis Pajak" name="product_tax_type"
-                                              :options="['1' => 'Exclusive', '2' => 'Inclusive']"/>
+                                <div class="col-md-12">
+                                    <div class="border p-3 mb-3">
+                                        <div class="form-group">
+                                            <input type="checkbox" name="is_purchased" id="is_purchased" value="1"
+                                                {{ old('is_purchased') ? 'checked' : '' }}>
+                                            <label for="is_purchased"><strong>Saya Beli Barang Ini</strong></label>
+
+                                            <div class="row mt-3">
+                                                <div class="col-md-6">
+                                                    <x-input label="Harga Beli" name="purchase_price"
+                                                             step="0.01" :disabled="!old('is_purchased')"
+                                                             value="{{ old('purchase_price', $purchase_price ?? '') }}"/>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <x-select label="Pajak Beli" name="purchase_tax"
+                                                              :options="['1' => 'PPN 11%']"
+                                                              :disabled="!old('is_purchased')"/>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
+                            <!-- Bordered Group for "Saya Jual Barang Ini" -->
                             <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Harga" name="product_cost" step="0.01"/>
-                                </div>
-                                <div class="col-md-6">
-                                    <x-input label="Profit (%)" name="profit_percentage" step="0.01"
-                                             placeholder="Enter Profit Percentage"/>
-                                </div>
-                            </div>
+                                <div class="col-md-12">
+                                    <div class="border p-3 mb-3">
+                                        <div class="form-group">
+                                            <input type="checkbox" name="is_sold" id="is_sold" value="1"
+                                                {{ old('is_sold') ? 'checked' : '' }}>
+                                            <label for="is_sold"><strong>Saya Jual Barang Ini</strong></label>
 
-                            <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Harga Jual" name="product_price" step="0.01"
-                                             value="{{ old('product_price', $product_price ?? '') }}"/>
+                                            <div class="row mt-3">
+                                                <div class="col-md-6">
+                                                    <x-input label="Harga Jual" name="sale_price"
+                                                             step="0.01" :disabled="!old('is_sold')"
+                                                             value="{{ old('sale_price', $sale_price ?? '') }}"/>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <x-select label="Pajak Jual" name="sale_tax"
+                                                              :options="['1' => 'PPN 11%']"
+                                                              :disabled="!old('is_sold')"/>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -89,7 +114,8 @@
                                         <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
                                            data-placement="top"
                                            title="Stock Management should be disabled mostly for services. Example: Jasa Instalasi, Jasa Perbaikan, dll."></i>
-                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
+                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk
+                                                produk ini.</i></p>
                                     </div>
                                 </div>
                             </div>
@@ -101,13 +127,14 @@
                                 </div>
 
                                 <div class="col-md-6">
-                                    <x-input label="Barcode Unit Utama" name="primary_unit_barcode"
-                                             value="{{ old('primary_unit_barcode') }}"/>
+                                    <x-input label="Barcode Unit Utama" name="barcode"
+                                             value="{{ old('barcode') }}"/>
                                 </div>
                             </div>
 
                             <!-- Livewire component for Unit Conversion Table -->
-                            <livewire:product.unit-conversion-table :conversions="old('conversions', [])" :errors="$errors->toArray()"/>
+                            <livewire:product.unit-conversion-table :conversions="old('conversions', [])"
+                                                                    :errors="$errors->toArray()"/>
 
                             <div class="form-group">
                                 <label for="product_note">Catatan</label>
@@ -149,7 +176,7 @@
     <script>
         $(document).ready(function () {
             function applyMask() {
-                $('#product_cost, #product_price').maskMoney({
+                $('#purchase_price, #sale_price').maskMoney({
                     prefix: '{{ settings()->currency->symbol }}',
                     thousands: '{{ settings()->currency->thousand_separator }}',
                     decimal: '{{ settings()->currency->decimal_separator }}',
@@ -162,7 +189,7 @@
             applyMask();
 
             // On focus, unmask to show raw value for editing and select all text
-            $('#product_cost, #product_price').on('focus', function () {
+            $('#purchase_price, #sale_price').on('focus', function () {
                 $(this).maskMoney('destroy'); // Remove mask during focus/typing
                 $(this).val($(this).val().replace(/[^0-9.-]/g, '')); // Show raw value without formatting
                 setTimeout(() => {
@@ -171,7 +198,7 @@
             });
 
             // On blur, reapply the mask to format as currency
-            $('#product_cost, #product_price').on('blur', function () {
+            $('#purchase_price, #sale_price').on('blur', function () {
                 var value = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
                 if (isNaN(value)) {
                     value = 0;
@@ -183,11 +210,38 @@
 
             // Submit the form with unmasked values
             $('#product-form').submit(function () {
-                var productCost = $('#product_cost').maskMoney('unmasked')[0];
-                var productPrice = $('#product_price').maskMoney('unmasked')[0];
-                $('#product_cost').val(productCost);
-                $('#product_price').val(productPrice);
+                var purchasePrice = $('#purchase_price').maskMoney('unmasked')[0];
+                var salePrice = $('#sale_price').maskMoney('unmasked')[0];
+                $('#purchase_price').val(purchasePrice);
+                $('#sale_price').val(salePrice);
             });
+
+            function togglePurchaseFields() {
+                $('#is_purchased').on('change', function () {
+                    const isChecked = $(this).is(':checked');
+                    $('#purchase_price').prop('disabled', !isChecked).val(isChecked ? $('#purchase_price').val() : '');
+                    $('#purchase_tax').prop('disabled', !isChecked).val(isChecked ? $('#purchase_tax').val() : '0');
+                    if (!isChecked) {
+                        $('#purchase_price').val('');
+                        $('#purchase_tax').val('0');
+                    }
+                }).trigger('change'); // Trigger change to set the initial state
+            }
+
+            function toggleSaleFields() {
+                $('#is_sold').on('change', function () {
+                    const isChecked = $(this).is(':checked');
+                    $('#sale_price').prop('disabled', !isChecked).val(isChecked ? $('#sale_price').val() : '');
+                    $('#sale_tax').prop('disabled', !isChecked).val(isChecked ? $('#sale_tax').val() : '0');
+                    if (!isChecked) {
+                        $('#sale_price').val('');
+                        $('#sale_tax').val('0');
+                    }
+                }).trigger('change'); // Trigger change to set the initial state
+            }
+
+            togglePurchaseFields();
+            toggleSaleFields();
         });
     </script>
 

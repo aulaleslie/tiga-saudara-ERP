@@ -55,34 +55,53 @@
                                 </div>
                             </div>
 
+                            <!-- Removed Old Fields and Added New Fields -->
                             <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Pajak (%)" name="product_order_tax" type="number" step="0.01"
-                                             value="{{ old('product_order_tax', $product->product_order_tax) }}"/>
-                                </div>
-                                <div class="col-md-6">
-                                    <x-select label="Jenis Pajak" name="product_tax_type"
-                                              :options="['1' => 'Exclusive', '2' => 'Inclusive']"
-                                              selected="{{ old('product_tax_type', $product->product_tax_type) }}"/>
+                                <div class="col-md-12">
+                                    <div class="border p-3 mb-3">
+                                        <div class="form-group">
+                                            <input type="checkbox" name="is_purchased" id="is_purchased" value="1"
+                                                   {{ $product->is_purchased ? 'checked' : '' }} readonly>
+                                            <label for="is_purchased"><strong>Saya Beli Barang Ini</strong></label>
+
+                                            <div class="row mt-3">
+                                                <div class="col-md-6">
+                                                    <x-input label="Harga Beli" name="purchase_price" step="0.01"
+                                                             value="{{ old('purchase_price', $product->purchase_price) }}"/>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <x-select label="Pajak Beli" name="purchase_tax"
+                                                              :options="['1' => 'PPN 11%']"
+                                                              selected="{{ old('purchase_tax', $product->purchase_tax) }}"/>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
+                            <!-- Bordered Group for "Saya Jual Barang Ini" -->
                             <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Harga" name="product_cost" step="0.01"
-                                             value="{{ old('product_cost', $product->product_cost) }}"/>
-                                </div>
-                                <div class="col-md-6">
-                                    <x-input label="Profit (%)" name="profit_percentage" step="0.01"
-                                             placeholder="Enter Profit Percentage"
-                                             value="{{ old('profit_percentage', $product->profit_percentage) }}"/>
-                                </div>
-                            </div>
+                                <div class="col-md-12">
+                                    <div class="border p-3 mb-3">
+                                        <div class="form-group">
+                                            <input type="checkbox" name="is_sold" id="is_sold" value="1"
+                                                   {{ $product->is_sold ? 'checked' : '' }} readonly>
+                                            <label for="is_sold"><strong>Saya Jual Barang Ini</strong></label>
 
-                            <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Harga Jual" name="product_price" step="0.01"
-                                             value="{{ old('product_price', $product->product_price) }}"/>
+                                            <div class="row mt-3">
+                                                <div class="col-md-6">
+                                                    <x-input label="Harga Jual" name="sale_price" step="0.01"
+                                                             value="{{ old('sale_price', $product->sale_price) }}"/>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <x-select label="Pajak Jual" name="sale_tax"
+                                                              :options="['1' => 'PPN 11%']"
+                                                              selected="{{ old('sale_tax', $product->sale_tax) }}"/>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -111,8 +130,8 @@
                                 </div>
 
                                 <div class="col-md-6">
-                                    <x-input label="Barcode Unit Utama" name="primary_unit_barcode"
-                                             value="{{ old('primary_unit_barcode', $product->primary_unit_barcode) }}"/>
+                                    <x-input label="Barcode Unit Utama" name="barcode"
+                                             value="{{ old('barcode', $product->barcode) }}"/>
                                 </div>
                             </div>
 
@@ -158,7 +177,7 @@
     <script>
         $(document).ready(function () {
             function applyMask() {
-                $('#product_cost, #product_price').maskMoney({
+                $('#purchase_price, #sale_price').maskMoney({
                     prefix: '{{ settings()->currency->symbol }}',
                     thousands: '{{ settings()->currency->thousand_separator }}',
                     decimal: '{{ settings()->currency->decimal_separator }}',
@@ -168,11 +187,10 @@
                 });
             }
 
-            // Call applyMask after document is fully loaded
             applyMask();
 
             // On focus, unmask to show raw value for editing and select all text
-            $('#product_cost, #product_price').on('focus', function () {
+            $('#purchase_price, #sale_price').on('focus', function () {
                 $(this).maskMoney('destroy'); // Remove mask during focus/typing
                 $(this).val($(this).val().replace(/[^0-9.-]/g, '')); // Show raw value without formatting
                 setTimeout(() => {
@@ -181,7 +199,7 @@
             });
 
             // On blur, reapply the mask to format as currency
-            $('#product_cost, #product_price').on('blur', function () {
+            $('#purchase_price, #sale_price').on('blur', function () {
                 var value = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
                 if (isNaN(value)) {
                     value = 0;
@@ -193,10 +211,10 @@
 
             // Submit the form with unmasked values
             $('#product-form').submit(function () {
-                var productCost = $('#product_cost').maskMoney('unmasked')[0];
-                var productPrice = $('#product_price').maskMoney('unmasked')[0];
-                $('#product_cost').val(productCost);
-                $('#product_price').val(productPrice);
+                var purchasePrice = $('#purchase_price').maskMoney('unmasked')[0];
+                var salePrice = $('#sale_price').maskMoney('unmasked')[0];
+                $('#purchase_price').val(purchasePrice);
+                $('#sale_price').val(salePrice);
             });
         });
     </script>

@@ -27,8 +27,8 @@ class ProductDataTable extends DataTable
                 $url = $data->getFirstMediaUrl('images', 'thumb');
                 return '<img src="' . $url . '" border="0" width="50" class="img-thumbnail" align="center"/>';
             })
-            ->addColumn('product_price', fn($data) => format_currency($data->product_price))
-            ->addColumn('product_cost', fn($data) => format_currency($data->product_cost))
+            ->addColumn('purchase_price', fn($data) => format_currency($data->purchase_price)) // Display Harga Beli
+            ->addColumn('sale_price', fn($data) => format_currency($data->sale_price)) // Display Harga Jual
             ->addColumn('product_quantity', fn($data) => $this->formatQuantity($data, 'available'))
             ->addColumn('broken_quantity', fn($data) => $this->formatQuantity($data, 'broken'))
             ->addColumn('category', fn($data) => optional($data->category)->category_name ?? 'N/A')
@@ -121,11 +121,11 @@ class ProductDataTable extends DataTable
                 ->title('Brand')
                 ->className('text-center align-middle'),
 
-            Gate::allows('view_access_table_product') ? Column::computed('product_cost')
+            Gate::allows('view_access_table_product') ? Column::computed('purchase_price')
                 ->title('Harga Beli')
                 ->className('text-center align-middle') : null,
 
-            Gate::allows('view_access_table_product') ? Column::computed('product_price')
+            Gate::allows('view_access_table_product') ? Column::computed('sale_price')
                 ->title('Harga Jual')
                 ->className('text-center align-middle') : null,
 
