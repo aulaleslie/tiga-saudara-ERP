@@ -52,8 +52,10 @@ class CategoriesController extends Controller
     {
         abort_if(Gate::denies('access_product_categories'), 403);
 
+        $currentSettingId = session('setting_id');
+
         $category = Category::findOrFail($id);
-        $parentCategories = Category::whereNull('parent_id')->where('id', '!=', $id)->get(); // Exclude current category to prevent self-referencing
+        $parentCategories = Category::whereNull('parent_id')->where('setting_id', $currentSettingId)->where('id', '!=', $id)->get(); // Exclude current category to prevent self-referencing
 
         return view('product::categories.edit', compact('category', 'parentCategories'));
     }
