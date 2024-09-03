@@ -1,9 +1,15 @@
 @php
     use Modules\Product\Entities\Category;
 
+    $currentSettingId = session('setting_id'); // Retrieve the current setting_id from the session
+
     $category_max_id = Category::max('id') + 1;
     $category_code = "CA_" . str_pad($category_max_id, 2, '0', STR_PAD_LEFT);
-    $parent_categories = Category::whereNull('parent_id')->get(); // Fetch categories without parent_id
+
+    // Fetch categories without parent_id and filter by setting_id
+    $parent_categories = Category::whereNull('parent_id')
+                                ->where('setting_id', $currentSettingId)
+                                ->get(); // Fetch categories without parent_id
 @endphp
 
 <div class="modal fade" id="categoryCreateModal" tabindex="-1" role="dialog" aria-labelledby="categoryCreateModal"
