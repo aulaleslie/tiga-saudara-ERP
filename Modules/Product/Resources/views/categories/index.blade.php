@@ -10,7 +10,7 @@
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
         <li class="breadcrumb-item"><a href="{{ route('products.index') }}">Products</a></li>
-        <li class="breadcrumb-item active">Categories</li>
+        <li class="breadcrumb-item active">Kategori Produk</li>
     </ol>
 @endsection
 
@@ -23,7 +23,7 @@
                     <div class="card-body">
                         <!-- Button trigger modal -->
                         <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#categoryCreateModal">
-                            Add Category <i class="bi bi-plus"></i>
+                            Tambah Kategori <i class="bi bi-plus"></i>
                         </button>
 
                         <hr>
@@ -39,6 +39,7 @@
 
     <!-- Create Modal -->
     @include('product::includes.category-modal')
+    @include('components.delete-modal')
 @endsection
 
 @push('page_scripts')

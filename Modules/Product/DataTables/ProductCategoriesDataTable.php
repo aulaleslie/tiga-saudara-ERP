@@ -3,28 +3,43 @@
 namespace Modules\Product\DataTables;
 
 use Modules\Product\Entities\Category;
+use Yajra\DataTables\EloquentDataTable;
+use Yajra\DataTables\Exceptions\Exception;
+use Yajra\DataTables\Html\Builder;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class ProductCategoriesDataTable extends DataTable
 {
 
-    public function dataTable($query) {
+    /**
+     * @throws Exception
+     */
+    public function dataTable($query): EloquentDataTable
+    {
         return datatables()
             ->eloquent($query)
+            ->addColumn('nama_kategori', function (Category $category) {
+                if ($category->parent) {
+                    return $category->parent->category_name . '::' . $category->category_name;
+                } else {
+                    return $category->category_name;
+                }
+            })
             ->addColumn('action', function ($data) {
                 return view('product::categories.partials.actions', compact('data'));
             });
     }
 
-    public function query(Category $model) {
-        return $model->newQuery()->withCount('products');
+    public function query(Category $model): \Illuminate\Database\Eloquent\Builder
+    {
+        $settingId = session("setting_id");
+        return $model->newQuery()->where('setting_id', $settingId)->with('parent')->withCount('products'); // Eager load the parent category
     }
 
-    public function html() {
+    public function html(): Builder
+    {
         return $this->builder()
             ->setTableId('product_categories-table')
             ->columns($this->getColumns())
@@ -45,21 +60,26 @@ class ProductCategoriesDataTable extends DataTable
             );
     }
 
-    protected function getColumns() {
+    protected function getColumns(): array
+    {
         return [
             Column::make('category_code')
-                ->addClass('text-center'),
+                ->addClass('text-center')
+                ->title('Kode Kategori'),
 
-            Column::make('category_name')
-                ->addClass('text-center'),
+            Column::make('nama_kategori')
+                ->addClass('text-center')
+                ->title('Nama Kategori'),
 
             Column::make('products_count')
-                ->addClass('text-center'),
+                ->addClass('text-center')
+                ->title('Total Produk'),
 
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
-                ->addClass('text-center'),
+                ->addClass('text-center')
+                ->title('Aksi'),
 
             Column::make('created_at')
                 ->visible(false)

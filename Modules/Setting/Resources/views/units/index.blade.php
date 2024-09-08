@@ -21,7 +21,7 @@
                 <div class="card border-0 shadow-sm">
                     <div class="card-body">
                         <a href="{{ route('units.create') }}" class="btn btn-primary">
-                            Add Unit <i class="bi bi-plus"></i>
+                            Tambahkan Unit <i class="bi bi-plus"></i>
                         </a>
 
                         <hr>
@@ -31,11 +31,9 @@
                                 <thead>
                                 <tr>
                                     <th class="align-middle">No.</th>
-                                    <th class="align-middle">Name</th>
-                                    <th class="align-middle">Short Name</th>
-                                    <th class="align-middle">Operator</th>
-                                    <th class="align-middle">Operation Value</th>
-                                    <th class="align-middle">Action</th>
+                                    <th class="align-middle">Nama</th>
+                                    <th class="align-middle">Singkatan</th>
+                                    <th class="align-middle">Aksi</th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -44,25 +42,19 @@
                                         <td class="align-middle">{{ $key + 1 }}</td>
                                         <td class="align-middle">{{ $unit->name }}</td>
                                         <td class="align-middle">{{ $unit->short_name }}</td>
-                                        <td class="align-middle">{{ $unit->operator }}</td>
-                                        <td class="align-middle">{{ $unit->operation_value }}</td>
                                         <td class="align-middle">
-                                            <a href="{{ route('units.edit', $unit) }}" class="btn btn-primary btn-sm">
+                                            <a href="{{ route('units.edit', $unit) }}" class="btn btn-info btn-sm">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
-                                            <button id="delete" class="btn btn-danger btn-sm delete-confirm" onclick="
-                                                event.preventDefault();
-                                                if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {
-                                                document.getElementById('destroy{{ $unit->id }}').submit()
-                                                }
-                                                ">
+                                            <button class="btn btn-danger btn-sm"
+                                                    onclick="showDeleteModal({{ $unit->id }})">
                                                 <i class="bi bi-trash"></i>
-                                                <form id="destroy{{ $unit->id }}" class="d-none" action="{{ route('units.destroy', $unit) }}"
-                                                      method="POST">
-                                                    @csrf
-                                                    @method('delete')
-                                                </form>
                                             </button>
+                                            <form id="destroy{{ $unit->id }}" class="d-none"
+                                                  action="{{ route('units.destroy', $unit) }}" method="POST">
+                                                @csrf
+                                                @method('delete')
+                                            </form>
                                         </td>
                                     </tr>
                                 @endforeach
@@ -74,22 +66,25 @@
             </div>
         </div>
     </div>
+    @include('components.delete-modal')
 @endsection
 
 @push('page_scripts')
-    <script type="text/javascript" src="https://cdn.datatables.net/v/bs4/jszip-2.5.0/dt-1.10.24/b-1.7.0/b-html5-1.7.0/b-print-1.7.0/datatables.min.js"></script>
+    <script type="text/javascript"
+            src="https://cdn.datatables.net/v/bs4/jszip-2.5.0/dt-1.10.24/b-1.7.0/b-html5-1.7.0/b-print-1.7.0/datatables.min.js"></script>
     <script type="text/javascript" src="https://cdn.datatables.net/select/1.3.3/js/dataTables.select.min.js"></script>
     <script>
         var table = $('#data-table').DataTable({
             dom: "<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4 justify-content-end'f>>tr<'row'<'col-md-5'i><'col-md-7 mt-2'p>>",
             "buttons": [
-                {extend: 'excel',text: '<i class="bi bi-file-earmark-excel-fill"></i> Excel'},
-                {extend: 'csv',text: '<i class="bi bi-file-earmark-excel-fill"></i> CSV'},
-                {extend: 'print',
+                {extend: 'excel', text: '<i class="bi bi-file-earmark-excel-fill"></i> Excel'},
+                {extend: 'csv', text: '<i class="bi bi-file-earmark-excel-fill"></i> CSV'},
+                {
+                    extend: 'print',
                     text: '<i class="bi bi-printer-fill"></i> Print',
                     title: "Units",
                     exportOptions: {
-                        columns: [ 0, 1, 2, 3, 4 ]
+                        columns: [0, 1, 2] // Only export No., Nama, and Singkatan columns
                     },
                     customize: function (win) {
                         $(win.document.body).find('h1').css('font-size', '15pt');

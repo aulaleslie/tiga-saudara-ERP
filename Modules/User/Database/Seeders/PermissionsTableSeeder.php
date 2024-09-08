@@ -21,6 +21,17 @@ class PermissionsTableSeeder extends Seeder
             'edit_own_profile',
             'access_user_management',
             'access_user_permissions',
+            'user.accces',
+            'user.create',
+            'user.view',
+            'user.edit',
+            'user.delete',
+            //Peran dan Ijin
+            'role.accces',
+            'role.create',
+            'role.view',
+            'role.edit',
+            'role.delete',
             //Dashboard
             'show_total_stats',
             'show_total_income',
@@ -36,6 +47,19 @@ class PermissionsTableSeeder extends Seeder
             'show_products',
             'edit_products',
             'delete_products',
+            'view_access_table_product',
+            //Stock Adjustments
+            'adjustment.access',
+            'adjustment.create',
+            'adjustment.view',
+            'adjustment.edit',
+            'adjustment.delete',
+            //Brand
+            'brand.access',
+            'brand.create',
+            'brand.view',
+            'brand.edit',
+            'brand.delete',
             //Product Categories
             'access_product_categories',
             //customer
@@ -133,6 +157,12 @@ class PermissionsTableSeeder extends Seeder
             'bussines_setting',
             'crud_bussiness',
             'view_bussiness',
+            //lokasi
+            'location.accces',
+            'location.create',
+            'location.view',
+            'location.edit',
+            'location.delete',
             //Units
             'access_units'
         ];

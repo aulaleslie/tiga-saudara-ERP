@@ -21,19 +21,21 @@ use Spatie\Permission\Models\Role;
 class UsersController extends Controller
 {
     public function index(UsersDataTable $dataTable) {
-        abort_if(Gate::denies('access_user_management'), 403);
+        abort_if(Gate::denies('users.access'), 403);
 
         return $dataTable->render('user::users.index');
     }
 
-    public function create() {
-        abort_if(Gate::denies('access_user_management'), 403);
+    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('users.create'), 403);
 
         return view('user::users.create');
     }
 
-    public function store(Request $request) {
-        abort_if(Gate::denies('access_user_management'), 403);
+    public function store(Request $request): RedirectResponse
+    {
+        abort_if(Gate::denies('users.create'), 403);
 
         // Validation rules
         $validatedData = $request->validate([
@@ -44,6 +46,7 @@ class UsersController extends Controller
             'settings.*' => 'integer|exists:settings,id',
             'roles' => 'required|array',
             'roles.*' => 'required|string|exists:roles,name',
+            'is_active' => 'required|boolean',
         ]);
 
         // Ensure each selected setting has an associated role
@@ -53,15 +56,25 @@ class UsersController extends Controller
             }
         }
 
+        // Create the user
         $user = User::create([
             'name' => $validatedData['name'],
             'email' => $validatedData['email'],
             'password' => Hash::make($validatedData['password']),
-            'is_active' => $request->is_active,
+            'is_active' => $validatedData['is_active'],
         ]);
 
-        $user->assignRole($request->role);
+        // Assign the selected roles to the user
+        foreach ($validatedData['settings'] as $settingId) {
+            $roleName = $validatedData['roles'][$settingId];
+            $role = Role::where('name', $roleName)->first();
+            $user->assignRole($role);
 
+            // Attach the setting with the associated role to the user
+            $user->settings()->attach($settingId, ['role_id' => $role->id]);
+        }
+
+        // Handle image upload
         if ($request->has('image')) {
             $tempFile = Upload::where('folder', $request->image)->first();
 
@@ -73,15 +86,6 @@ class UsersController extends Controller
             }
         }
 
-        foreach ($validatedData['settings'] as $settingId) {
-            $roleName = $validatedData['roles'][$settingId];
-            $role = Role::findByName($roleName);
-            $user->assignRole($role);
-
-            $setting = Setting::find($settingId);
-            $user->settings()->attach($setting, ['role_id' => $role->id]);
-        }
-
         toast('Pengguna berhasil dibuat!', 'success');
 
         return redirect()->route('users.index');
@@ -89,33 +93,38 @@ class UsersController extends Controller
 
     public function edit(User $user): View|Application|Factory|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('access_user_management'), 403);
+        abort_if(Gate::denies('users.edit'), 403);
 
         return view('user::users.edit', compact('user'));
     }
 
     public function update(Request $request, User $user): RedirectResponse
     {
-        abort_if(Gate::denies('access_user_management'), 403);
+        abort_if(Gate::denies('users.edit'), 403);
 
-        $request->validate([
+        $validatedData = $request->validate([
             'name'     => 'required|string|max:255',
             'email'    => 'required|email|max:255|unique:users,email,' . $user->id,
             'password' => 'nullable|string|min:8|max:255|confirmed',
-            'settings' => 'required|array',
-            'settings.*' => 'exists:settings,id',
+            'settings' => 'required|array|min:1',
+            'settings.*' => 'integer|exists:settings,id',
             'roles' => 'required|array',
             'roles.*' => 'required|string|exists:roles,name',
             'is_active' => 'required|boolean',
-        ], [
-            'settings.required' => 'Anda harus memilih setidaknya satu setting.',
-            'roles.required' => 'Anda harus memilih peran untuk setiap setting yang dipilih.',
         ]);
 
+        // Ensure each selected setting has an associated role
+        foreach ($validatedData['settings'] as $settingId) {
+            if (!isset($validatedData['roles'][$settingId])) {
+                return back()->withErrors(['roles' => 'Anda harus memilih peran untuk setiap setting yang dipilih.']);
+            }
+        }
+
+        // Update user data
         $updateData = [
-            'name'     => $request->name,
-            'email'    => $request->email,
-            'is_active' => $request->is_active,
+            'name'     => $validatedData['name'],
+            'email'    => $validatedData['email'],
+            'is_active' => $validatedData['is_active'],
         ];
 
         if ($request->filled('password')) {
@@ -125,15 +134,15 @@ class UsersController extends Controller
         $user->update($updateData);
 
         // Sync user settings and roles
-        $settings = $request->input('settings', []);
-        $roles = $request->input('roles', []);
         $userSettings = [];
-        foreach ($settings as $settingId) {
-            $roleId = Role::where('name', $roles[$settingId])->first()->id;
+        foreach ($validatedData['settings'] as $settingId) {
+            $roleName = $validatedData['roles'][$settingId];
+            $roleId = Role::where('name', $roleName)->first()->id;
             $userSettings[$settingId] = ['role_id' => $roleId];
         }
         $user->settings()->sync($userSettings);
 
+        // Handle image upload
         if ($request->has('image')) {
             $tempFile = Upload::where('folder', $request->image)->first();
 
@@ -154,8 +163,9 @@ class UsersController extends Controller
         return redirect()->route('users.index');
     }
 
-    public function destroy(User $user) {
-        abort_if(Gate::denies('access_user_management'), 403);
+    public function destroy(User $user): RedirectResponse
+    {
+        abort_if(Gate::denies('users.delete'), 403);
 
         $user->delete();
 

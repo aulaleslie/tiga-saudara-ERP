@@ -1,97 +1,106 @@
 @extends('layouts.app')
 
-@section('title', 'Edit Product')
-
-@section('breadcrumb')
-    <ol class="breadcrumb border-0 m-0">
-        <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('products.index') }}">Products</a></li>
-        <li class="breadcrumb-item active">Edit</li>
-    </ol>
-@endsection
+@section('title', 'Update Product')
 
 @section('content')
-    <div class="container-fluid mb-4">
-        <form id="product-form" action="{{ route('products.update', $product->id) }}" method="POST" enctype="multipart/form-data">
+    <div class="container-fluid">
+        <form id="product-form" action="{{ route('products.update', $product->id) }}" method="POST"
+              enctype="multipart/form-data">
             @csrf
-            @method('patch')
+            @method('PUT')
             <div class="row">
                 <div class="col-lg-12">
-                    @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Update Product <i class="bi bi-check"></i></button>
+                        <a href="{{ route('products.index') }}" class="btn btn-secondary mr-2">
+                            Kembali
+                        </a>
+                        <x-button label="Perbaharui Produk" icon="bi-check"/>
                     </div>
                 </div>
                 <div class="col-lg-12">
                     <div class="card">
                         <div class="card-body">
                             <div class="form-row">
-                                <div class="col-md-7">
-                                    <div class="form-group">
-                                        <label for="product_name">Product Name <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="product_name" required value="{{ $product->product_name }}">
-                                    </div>
+                                <div class="col-md-6">
+                                    <x-input label="Nama Produk" name="product_name"
+                                             value="{{ old('product_name', $product->product_name) }}"/>
                                 </div>
-                                <div class="col-md-5">
-                                    <div class="form-group">
-                                        <label for="product_code">Code <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="product_code" required value="{{ $product->product_code }}">
-                                    </div>
+                                <div class="col-md-6">
+                                    <x-input label="Kode Produk" name="product_code"
+                                             value="{{ old('product_code', $product->product_code) }}"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="category_id">Category <span class="text-danger">*</span></label>
-                                        <select class="form-control" name="category_id" id="category_id" required>
-                                            @foreach(\Modules\Product\Entities\Category::all() as $category)
-                                                <option {{ $category->id == $product->category->id ? 'selected' : '' }} value="{{ $category->id }}">{{ $category->category_name }}</option>
-                                            @endforeach
-                                        </select>
-                                    </div>
+                                    <x-select label="Kategori" name="category_id"
+                                              :options="$formattedCategories"
+                                              selected="{{ old('category_id', $product->category_id) }}"/>
                                 </div>
                                 <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="barcode_symbology">Barcode Symbology <span class="text-danger">*</span></label>
-                                        <select class="form-control" name="product_barcode_symbology" id="barcode_symbology" required>
-                                            <option {{ $product->product_barcode_symbology == 'C128' ? 'selected' : '' }} value="C128">Code 128</option>
-                                            <option {{ $product->product_barcode_symbology == 'C39' ? 'selected' : '' }} value="C39">Code 39</option>
-                                            <option {{ $product->product_barcode_symbology == 'UPCA' ? 'selected' : '' }} value="UPCA">UPC-A</option>
-                                            <option {{ $product->product_barcode_symbology == 'UPCE' ? 'selected' : '' }} value="UPCE">UPC-E</option>
-                                            <option {{ $product->product_barcode_symbology == 'EAN13' ? 'selected' : '' }} value="EAN13">EAN-13</option>
-                                            <option {{ $product->product_barcode_symbology == 'EAN8' ? 'selected' : '' }} value="EAN8">EAN-8</option>
-                                        </select>
-                                    </div>
+                                    <x-select label="Merek" name="brand_id"
+                                              :options="$brands->pluck('name', 'id')"
+                                              selected="{{ old('brand_id', $product->brand_id) }}"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="product_cost">Cost <span class="text-danger">*</span></label>
-                                        <input id="product_cost" type="text" class="form-control" min="0" name="product_cost" required value="{{ $product->product_cost }}">
-                                    </div>
+                                    <x-input label="Stok" name="product_quantity" type="number" step="1"
+                                             value="{{ old('product_quantity', $product->product_quantity) }}" disabled/>
                                 </div>
                                 <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="product_price">Price <span class="text-danger">*</span></label>
-                                        <input id="product_price" type="text" class="form-control" min="0" name="product_price" required value="{{ $product->product_price }}">
+                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
+                                             step="1" value="{{ old('product_stock_alert', $product->product_stock_alert) }}"/>
+                                </div>
+                            </div>
+
+                            <!-- Removed Old Fields and Added New Fields -->
+                            <div class="form-row">
+                                <div class="col-md-12">
+                                    <div class="border p-3 mb-3">
+                                        <div class="form-group">
+                                            <input type="checkbox" name="is_purchased" id="is_purchased" value="1"
+                                                   {{ $product->is_purchased ? 'checked' : '' }} readonly>
+                                            <label for="is_purchased"><strong>Saya Beli Barang Ini</strong></label>
+
+                                            <div class="row mt-3">
+                                                <div class="col-md-6">
+                                                    <x-input label="Harga Beli" name="purchase_price" step="0.01"
+                                                             value="{{ old('purchase_price', $product->purchase_price) }}"/>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <x-select label="Pajak Beli" name="purchase_tax"
+                                                              :options="['1' => 'PPN 11%']"
+                                                              selected="{{ old('purchase_tax', $product->purchase_tax) }}"/>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
 
+                            <!-- Bordered Group for "Saya Jual Barang Ini" -->
                             <div class="form-row">
-                                <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="product_quantity">Quantity <span class="text-danger">*</span></label>
-                                        <input type="number" class="form-control" name="product_quantity" required value="{{ $product->product_quantity }}" min="1">
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="product_stock_alert">Alert Quantity <span class="text-danger">*</span></label>
-                                        <input type="number" class="form-control" name="product_stock_alert" required value="{{ $product->product_stock_alert }}" min="0">
+                                <div class="col-md-12">
+                                    <div class="border p-3 mb-3">
+                                        <div class="form-group">
+                                            <input type="checkbox" name="is_sold" id="is_sold" value="1"
+                                                   {{ $product->is_sold ? 'checked' : '' }} readonly>
+                                            <label for="is_sold"><strong>Saya Jual Barang Ini</strong></label>
+
+                                            <div class="row mt-3">
+                                                <div class="col-md-6">
+                                                    <x-input label="Harga Jual" name="sale_price" step="0.01"
+                                                             value="{{ old('sale_price', $product->sale_price) }}"/>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <x-select label="Pajak Jual" name="sale_tax"
+                                                              :options="['1' => 'PPN 11%']"
+                                                              selected="{{ old('sale_tax', $product->sale_tax) }}"/>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -99,35 +108,40 @@
                             <div class="form-row">
                                 <div class="col-md-4">
                                     <div class="form-group">
-                                        <label for="product_order_tax">Tax (%)</label>
-                                        <input type="number" class="form-control" name="product_order_tax" value="{{ $product->product_order_tax }}" min="0" max="100">
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="form-group">
-                                        <label for="product_tax_type">Tax type</label>
-                                        <select class="form-control" name="product_tax_type" id="product_tax_type">
-                                            <option value="" selected>None</option>
-                                            <option {{ $product->product_tax_type == 1 ? 'selected' : '' }}  value="1">Exclusive</option>
-                                            <option {{ $product->product_tax_type == 2 ? 'selected' : '' }} value="2">Inclusive</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="form-group">
-                                        <label for="product_unit">Unit <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip" data-placement="top" title="This short text will be placed after Product Quantity."></i> <span class="text-danger">*</span></label>
-                                        <select class="form-control" name="product_unit" id="product_unit" required>
-                                            <option value="" selected >Select Unit</option>
-                                            @foreach(\Modules\Setting\Entities\Unit::all() as $unit)
-                                                <option {{ $product->product_unit == $unit->short_name ? 'selected' : '' }} value="{{ $unit->short_name }}">{{ $unit->name . ' | ' . $unit->short_name }}</option>
-                                            @endforeach
-                                        </select>
+                                        <br>
+                                        <label>
+                                            <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
+                                                   class="input-icheck" {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }}>
+                                            <strong>Manajemen Stok</strong>
+                                        </label>
+                                        <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
+                                           data-placement="top"
+                                           title="Stock Management should be disabled mostly for services. Example: Jasa Instalasi, Jasa Perbaikan, dll."></i>
+                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
                                     </div>
                                 </div>
                             </div>
+
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <x-select label="Unit Utama" name="base_unit_id"
+                                              :options="$units->pluck('name', 'id')"
+                                              selected="{{ old('base_unit_id', $product->base_unit_id) }}"/>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <x-input label="Barcode Unit Utama" name="barcode"
+                                             value="{{ old('barcode', $product->barcode) }}"/>
+                                </div>
+                            </div>
+
+                            <!-- Livewire component for Unit Conversion Table -->
+                            <livewire:product.unit-conversion-table :conversions="old('conversions', $product->conversions->toArray())" :errors="$errors->toArray()"/>
+
                             <div class="form-group">
-                                <label for="product_note">Note</label>
-                                <textarea name="product_note" id="product_note" rows="4 " class="form-control">{{ $product->product_note }}</textarea>
+                                <label for="product_note">Catatan</label>
+                                <textarea name="product_note" id="product_note" rows="4"
+                                          class="form-control">{{ old('product_note', $product->product_note) }}</textarea>
                             </div>
                         </div>
                     </div>
@@ -137,8 +151,12 @@
                     <div class="card">
                         <div class="card-body">
                             <div class="form-group">
-                                <label for="image">Product Images <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip" data-placement="top" title="Max Files: 3, Max File Size: 1MB, Image Size: 400x400"></i></label>
-                                <div class="dropzone d-flex flex-wrap align-items-center justify-content-center" id="document-dropzone">
+                                <label for="image">Gambar Produk <i class="bi bi-question-circle-fill text-info"
+                                                                    data-toggle="tooltip" data-placement="top"
+                                                                    title="Max Files: 3, Max File Size: 1MB, Image Size: 400x400"></i></label>
+                                <div
+                                    class="dropzone d-flex flex-wrap flex-wrap align-items-center justify-content-center"
+                                    id="document-dropzone">
                                     <div class="dz-message" data-dz-message>
                                         <i class="bi bi-cloud-arrow-up"></i>
                                     </div>
@@ -150,13 +168,57 @@
             </div>
         </form>
     </div>
+
+    @include('product::includes.category-modal')
 @endsection
 
 @section('third_party_scripts')
-    <script src="{{ asset('js/dropzone.js') }}"></script>
-@endsection
+    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
+    <script>
+        $(document).ready(function () {
+            function applyMask() {
+                $('#purchase_price, #sale_price').maskMoney({
+                    prefix: '{{ settings()->currency->symbol }}',
+                    thousands: '{{ settings()->currency->thousand_separator }}',
+                    decimal: '{{ settings()->currency->decimal_separator }}',
+                    precision: 2,
+                    allowZero: true,
+                    allowNegative: false
+                });
+            }
 
-@push('page_scripts')
+            applyMask();
+
+            // On focus, unmask to show raw value for editing and select all text
+            $('#purchase_price, #sale_price').on('focus', function () {
+                $(this).maskMoney('destroy'); // Remove mask during focus/typing
+                $(this).val($(this).val().replace(/[^0-9.-]/g, '')); // Show raw value without formatting
+                setTimeout(() => {
+                    $(this).select(); // Select all text in the input
+                }, 0);
+            });
+
+            // On blur, reapply the mask to format as currency
+            $('#purchase_price, #sale_price').on('blur', function () {
+                var value = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
+                if (isNaN(value)) {
+                    value = 0;
+                }
+                $(this).val(value.toFixed(2)); // Ensure two decimal places
+                applyMask(); // Reapply the mask
+                $(this).maskMoney('mask'); // Mask the value again
+            });
+
+            // Submit the form with unmasked values
+            $('#product-form').submit(function () {
+                var purchasePrice = $('#purchase_price').maskMoney('unmasked')[0];
+                var salePrice = $('#sale_price').maskMoney('unmasked')[0];
+                $('#purchase_price').val(purchasePrice);
+                $('#sale_price').val(salePrice);
+            });
+        });
+    </script>
+    <script src="{{ asset('js/dropzone.js') }}"></script>
     <script>
         var uploadedDocumentMap = {}
         Dropzone.options.documentDropzone = {
@@ -197,31 +259,4 @@
             }
         }
     </script>
-
-    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
-    <script>
-        $(document).ready(function () {
-            $('#product_cost').maskMoney({
-                prefix:'{{ settings()->currency->symbol }}',
-                thousands:'{{ settings()->currency->thousand_separator }}',
-                decimal:'{{ settings()->currency->decimal_separator }}',
-            });
-            $('#product_price').maskMoney({
-                prefix:'{{ settings()->currency->symbol }}',
-                thousands:'{{ settings()->currency->thousand_separator }}',
-                decimal:'{{ settings()->currency->decimal_separator }}',
-            });
-
-            $('#product_cost').maskMoney('mask');
-            $('#product_price').maskMoney('mask');
-
-            $('#product-form').submit(function () {
-                var product_cost = $('#product_cost').maskMoney('unmasked')[0];
-                var product_price = $('#product_price').maskMoney('unmasked')[0];
-                $('#product_cost').val(product_cost);
-                $('#product_price').val(product_price);
-            });
-        });
-    </script>
-@endpush
-
+@endsection

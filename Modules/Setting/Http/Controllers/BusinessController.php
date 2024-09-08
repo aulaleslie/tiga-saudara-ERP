@@ -2,7 +2,7 @@
 
 namespace Modules\Setting\Http\Controllers;
 
-use Hamcrest\Core\Set;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Auth;
@@ -112,7 +112,7 @@ class BusinessController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Setting $business)
+    public function destroy(Setting $business): RedirectResponse
     {
         abort_if(Gate::denies('access_settings'), 403);
         // Check if the setting ID is 1

@@ -23,7 +23,8 @@
 
 @section('content')
     <div class="container-fluid mb-4">
-        <form action="{{ route('users.update', $user->id) }}" method="POST" enctype="multipart/form-data" id="user-form">
+        <form action="{{ route('users.update', $user->id) }}" method="POST" enctype="multipart/form-data"
+              id="user-form">
             @csrf
             @method('patch')
             <div class="row">
@@ -40,13 +41,15 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="name">Nama <span class="text-danger">*</span></label>
-                                        <input class="form-control" type="text" name="name" required value="{{ $user->name }}">
+                                        <input class="form-control" type="text" name="name" required
+                                               value="{{ $user->name }}">
                                     </div>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="email">Email <span class="text-danger">*</span></label>
-                                        <input class="form-control" type="email" name="email" required value="{{ $user->email }}">
+                                        <input class="form-control" type="email" name="email" required
+                                               value="{{ $user->email }}">
                                     </div>
                                 </div>
                             </div>
@@ -75,14 +78,18 @@
                                                     $userSetting = $user->settings->where('id', $setting->id)->first();
                                                 @endphp
                                                 <div class="form-check mb-2">
-                                                    <input class="form-check-input" type="checkbox" name="settings[]" value="{{ $setting->id }}" id="setting{{ $setting->id }}" {{ $userSetting ? 'checked' : '' }}>
+                                                    <input class="form-check-input" type="checkbox" name="settings[]"
+                                                           value="{{ $setting->id }}"
+                                                           id="setting{{ $setting->id }}" {{ $userSetting ? 'checked' : '' }}>
                                                     <label class="form-check-label" for="setting{{ $setting->id }}">
                                                         {{ $setting->company_name }}
                                                     </label>
-                                                    <select class="form-control mt-2" name="roles[{{ $setting->id }}]" id="role{{ $setting->id }}" {{ $userSetting ? '' : 'disabled' }}>
+                                                    <select class="form-control mt-2" name="roles[{{ $setting->id }}]"
+                                                            id="role{{ $setting->id }}" {{ $userSetting ? '' : 'disabled' }}>
                                                         <option value="" selected disabled>Pilih Peran</option>
                                                         @foreach(Role::where('name', '!=', 'Super Admin')->get() as $role)
-                                                            <option value="{{ $role->name }}" {{ $userSetting && $userSetting->pivot->role_id == $role->id ? 'selected' : '' }}>{{ $role->name }}</option>
+                                                            <option
+                                                                value="{{ $role->name }}" {{ $userSetting && $userSetting->pivot->role_id == $role->id ? 'selected' : '' }}>{{ $role->name }}</option>
                                                         @endforeach
                                                     </select>
                                                 </div>
@@ -93,14 +100,18 @@
                                                     $userSetting = $user->settings->where('id', $setting->id)->first();
                                                 @endphp
                                                 <div class="form-check mb-2">
-                                                    <input class="form-check-input" type="checkbox" name="settings[]" value="{{ $setting->id }}" id="setting{{ $setting->id }}" {{ $userSetting ? 'checked' : '' }}>
+                                                    <input class="form-check-input" type="checkbox" name="settings[]"
+                                                           value="{{ $setting->id }}"
+                                                           id="setting{{ $setting->id }}" {{ $userSetting ? 'checked' : '' }}>
                                                     <label class="form-check-label" for="setting{{ $setting->id }}">
                                                         {{ $setting->company_name }}
                                                     </label>
-                                                    <select class="form-control mt-2" name="roles[{{ $setting->id }}]" id="role{{ $setting->id }}" {{ $userSetting ? '' : 'disabled' }}>
+                                                    <select class="form-control mt-2" name="roles[{{ $setting->id }}]"
+                                                            id="role{{ $setting->id }}" {{ $userSetting ? '' : 'disabled' }}>
                                                         <option value="" selected disabled>Pilih Peran</option>
                                                         @foreach(Role::where('name', '!=', 'Super Admin')->get() as $role)
-                                                            <option value="{{ $role->name }}" {{ $userSetting && $userSetting->pivot->role_id == $role->id ? 'selected' : '' }}>{{ $role->name }}</option>
+                                                            <option
+                                                                value="{{ $role->name }}" {{ $userSetting && $userSetting->pivot->role_id == $role->id ? 'selected' : '' }}>{{ $role->name }}</option>
                                                         @endforeach
                                                     </select>
                                                 </div>
@@ -125,7 +136,9 @@
                         <div class="card-body">
                             <div class="form-group">
                                 <label for="image">Foto Profil <span class="text-danger">*</span></label>
-                                <img style="width: 100px;height: 100px;" class="d-block mx-auto img-thumbnail img-fluid rounded-circle mb-2" src="{{ $user->getFirstMediaUrl('avatars') }}" alt="Profile Image">
+                                <img style="width: 100px;height: 100px;"
+                                     class="d-block mx-auto img-thumbnail img-fluid rounded-circle mb-2"
+                                     src="{{ $user->getFirstMediaUrl('avatars') }}" alt="Profile Image">
                                 <input id="image" type="file" name="image" data-max-file-size="500KB">
                             </div>
                         </div>
@@ -138,8 +151,10 @@
 
 @section('third_party_scripts')
     <script src="https://unpkg.com/filepond-plugin-image-preview/dist/filepond-plugin-image-preview.js"></script>
-    <script src="https://unpkg.com/filepond-plugin-file-validate-size/dist/filepond-plugin-file-validate-size.js"></script>
-    <script src="https://unpkg.com/filepond-plugin-file-validate-type/dist/filepond-plugin-file-validate-type.js"></script>
+    <script
+        src="https://unpkg.com/filepond-plugin-file-validate-size/dist/filepond-plugin-file-validate-size.js"></script>
+    <script
+        src="https://unpkg.com/filepond-plugin-file-validate-type/dist/filepond-plugin-file-validate-type.js"></script>
     <script src="https://unpkg.com/filepond/dist/filepond.js"></script>
 @endsection
 

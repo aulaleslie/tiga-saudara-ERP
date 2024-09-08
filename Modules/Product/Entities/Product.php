@@ -4,48 +4,126 @@ namespace Modules\Product\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Modules\Product\Notifications\NotifyQuantityAlert;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Unit;
+use Spatie\Image\Exceptions\InvalidManipulation;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class Product extends Model implements HasMedia
 {
-
     use HasFactory, InteractsWithMedia;
 
     protected $guarded = [];
 
     protected $with = ['media'];
 
-    public function category() {
+    /**
+     * Relationship with the Category model.
+     */
+    public function category(): BelongsTo
+    {
         return $this->belongsTo(Category::class, 'category_id', 'id');
     }
 
-    public function registerMediaCollections(): void {
+    /**
+     * Relationship with the Unit model as the primary unit.
+     */
+    public function unit(): BelongsTo
+    {
+        return $this->belongsTo(Unit::class, 'unit_id');
+    }
+
+    /**
+     * Relationship with the Brand model as the primary unit.
+     */
+    public function brand(): BelongsTo
+    {
+        return $this->belongsTo(Brand::class, 'brand_id');
+    }
+
+    /**
+     * Relationship with the Unit model as the base unit for conversions.
+     */
+    public function baseUnit(): BelongsTo
+    {
+        return $this->belongsTo(Unit::class, 'base_unit_id');
+    }
+
+    /**
+     * Relationship with the ProductUnitConversion model.
+     */
+    public function conversions(): HasMany
+    {
+        return $this->hasMany(ProductUnitConversion::class);
+    }
+
+    /**
+     * Relationship with the Setting model.
+     */
+    public function setting(): BelongsTo
+    {
+        return $this->belongsTo(Setting::class, 'setting_id');
+    }
+
+    /**
+     * Register media collections for the product.
+     */
+    public function registerMediaCollections(): void
+    {
         $this->addMediaCollection('images')
             ->useFallbackUrl('/images/fallback_product_image.png');
     }
 
-    public function registerMediaConversions(Media $media = null): void {
+    /**
+     * Register media conversions for the product.
+     *
+     * @throws InvalidManipulation
+     */
+    public function registerMediaConversions(Media $media = null): void
+    {
         $this->addMediaConversion('thumb')
             ->width(50)
             ->height(50);
     }
 
-    public function setProductCostAttribute($value) {
+    /**
+     * Mutator to set the product cost.
+     */
+    public function setProductCostAttribute($value): void
+    {
         $this->attributes['product_cost'] = ($value * 100);
     }
 
-    public function getProductCostAttribute($value) {
+    /**
+     * Accessor to get the product cost.
+     */
+    public function getProductCostAttribute($value): float|int
+    {
         return ($value / 100);
     }
 
-    public function setProductPriceAttribute($value) {
+    /**
+     * Mutator to set the product price.
+     */
+    public function setProductPriceAttribute($value): void
+    {
         $this->attributes['product_price'] = ($value * 100);
     }
 
-    public function getProductPriceAttribute($value) {
+    /**
+     * Accessor to get the product price.
+     */
+    public function getProductPriceAttribute($value): float|int
+    {
         return ($value / 100);
+    }
+
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(Transaction::class);
     }
 }

@@ -2,8 +2,12 @@
 
 namespace Modules\Setting\Entities;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductUnitConversion;
 
 class Unit extends Model
 {
@@ -11,8 +15,43 @@ class Unit extends Model
 
     protected $guarded = [];
 
-    protected static function newFactory()
+    /**
+     * Relationship with the Product model as the primary unit.
+     */
+    public function products(): HasMany
     {
-        return \Modules\Setting\Database\factories\UnitFactory::new();
+        return $this->hasMany(Product::class, 'unit_id');
+    }
+
+    /**
+     * Relationship with the Product model as the base unit for conversions.
+     */
+    public function baseProducts(): HasMany
+    {
+        return $this->hasMany(Product::class, 'base_unit_id');
+    }
+
+    /**
+     * Relationship with the ProductUnitConversion model for conversions involving this unit.
+     */
+    public function conversions(): HasMany
+    {
+        return $this->hasMany(ProductUnitConversion::class, 'unit_id');
+    }
+
+    /**
+     * Relationship with the ProductUnitConversion model for conversions where this unit is the base.
+     */
+    public function baseConversions(): HasMany
+    {
+        return $this->hasMany(ProductUnitConversion::class, 'base_unit_id');
+    }
+
+    /**
+     * Relationship with the Setting model.
+     */
+    public function setting(): BelongsTo
+    {
+        return $this->belongsTo(Setting::class, 'setting_id');
     }
 }
