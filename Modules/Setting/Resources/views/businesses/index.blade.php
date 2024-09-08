@@ -34,7 +34,10 @@
             </div>
         </div>
     </div>
-    @include('components.delete-modal')
+    @include('components.delete-modal', [
+    'title' => 'Penonaktifan Toko',
+    'message' => 'Apakah anda yakin untuk menonaktifkan toko ini?'
+    ])
 @endsection
 
 @push('page_scripts')

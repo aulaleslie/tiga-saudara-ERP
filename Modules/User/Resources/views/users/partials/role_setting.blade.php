@@ -1,9 +1,9 @@
 <div>
-    @if(isset($settings) && isset($roles))
-        @foreach($settings as $index => $setting)
+    @if(isset($roleSettings))
+        @foreach($roleSettings as $roleSetting)
             <div class="mb-2">
-                <span class="badge badge-info">{{ $setting }}</span>
-                <span class="badge badge-primary">{{ $roles[$index] }}</span>
+                <span class="badge badge-info">{{ $roleSetting['setting'] }}</span>
+                <span class="badge badge-primary">{{ $roleSetting['role'] }}</span>
             </div>
         @endforeach
     @endif

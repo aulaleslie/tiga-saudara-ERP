@@ -19,13 +19,14 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
-                        <!-- Button trigger modal -->
+                        <!-- Start Button trigger modal -->
+                        @can("users.create")
                         <a href="{{ route('users.create') }}" class="btn btn-primary">
                             Tambah Pengguna <i class="bi bi-plus"></i>
                         </a>
-
+                        @endcan
+                        <!-- End Button trigger modal -->
                         <hr>
-
                         <div class="table-responsive">
                             {!! $dataTable->table() !!}
                         </div>

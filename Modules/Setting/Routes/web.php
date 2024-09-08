@@ -11,6 +11,7 @@
 |
 */
 
+use Illuminate\Support\Facades\Route;
 use Modules\Setting\Http\Controllers\BusinessController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
@@ -24,4 +25,5 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::resource('units', 'UnitsController')->except('show');
     Route::resource('businesses', 'BusinessController');
     Route::post('/update-active-business', [BusinessController::class, 'updateActiveBusiness'])->name('update.active.business');
+    Route::resource('locations', 'LocationController');
 });

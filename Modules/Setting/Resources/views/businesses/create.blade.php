@@ -49,7 +49,7 @@
                             <div class="form-row">
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="default_currency_id">Mata Uang Default <span
+                                        <label for="default_currency_id">Pengaturan Mata Uang <span
                                                 class="text-danger">*</span></label>
                                         <select name="default_currency_id" id="default_currency_id" class="form-control"
                                                 required>
@@ -62,7 +62,7 @@
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="default_currency_position">Posisi Mata Uang <span
+                                        <label for="default_currency_position">Pengaturan Posisi Mata Uang <span
                                                 class="text-danger">*</span></label>
                                         <select name="default_currency_position" id="default_currency_position"
                                                 class="form-control" required>
@@ -83,6 +83,9 @@
                             </div>
 
                             <div class="form-group mb-0">
+                                <a href="{{ route('businesses.index') }}" class="btn btn-secondary mr-2">
+                                    Kembali
+                                </a>
                                 <button type="submit" class="btn btn-primary"><i class="bi bi-check"></i> Buat</button>
                             </div>
                         </form>

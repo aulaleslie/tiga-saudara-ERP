@@ -9,7 +9,7 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item active">Products</li>
+        <li class="breadcrumb-item active">Produk</li>
     </ol>
 @endsection
 
@@ -19,9 +19,14 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
-                        <a href="{{ route('products.create') }}" class="btn btn-primary">
-                            Add Product <i class="bi bi-plus"></i>
-                        </a>
+                        @can("create_products")
+                            <a href="{{ route('products.create') }}" class="btn btn-primary">
+                                Tambah Produk <i class="bi bi-plus"></i>
+                            </a>
+                            <a href="{{ route('products.upload.page') }}" class="btn btn-secondary">
+                                Upload Produk <i class="bi bi-upload"></i>
+                            </a>
+                        @endcan
 
                         <hr>
 

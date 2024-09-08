@@ -16,6 +16,39 @@
 
 @section('content')
     <div class="container-fluid">
+        <div class="row mb-3">
+            <div class="col-12">
+                <a href="{{ route('adjustments.index') }}" class="btn btn-secondary">
+                    Kembali
+                </a>
+
+                @if($adjustment->status === 'pending')
+                    @can('approve_adjustments')
+                        <form action="{{ route('adjustments.approve', $adjustment) }}" method="POST"
+                              class="d-inline">
+                            @csrf
+                            @method('PATCH')
+                            <button type="submit" class="btn btn-success">
+                                Approve
+                            </button>
+                        </form>
+                    @endcan
+
+                    @can('reject_adjustments')
+                        <form action="{{ route('adjustments.reject', $adjustment) }}" method="POST"
+                              class="d-inline">
+                            @csrf
+                            @method('PATCH')
+                            <button type="submit" class="btn btn-danger">
+                                Reject
+                            </button>
+                        </form>
+                    @endcan
+                @endif
+            </div>
+        </div>
+
+        <!-- Header Table -->
         <div class="row">
             <div class="col-12">
                 <div class="card">
@@ -23,29 +56,40 @@
                         <div class="table-responsive">
                             <table class="table table-bordered">
                                 <tr>
-                                    <th colspan="2">
-                                        Date
-                                    </th>
-                                    <th colspan="2">
-                                        Reference
-                                    </th>
+                                    <th>Date</th>
+                                    <td>{{ $adjustment->date }}</td>
+                                    <th>Reference</th>
+                                    <td>{{ $adjustment->reference }}</td>
                                 </tr>
                                 <tr>
-                                    <td colspan="2">
-                                        {{ $adjustment->date }}
-                                    </td>
-                                    <td colspan="2">
-                                        {{ $adjustment->reference }}
+                                    <th>Adjustment Type</th>
+                                    <td colspan="3">
+                                        {{ strtoupper($adjustment->type) }} <!-- Assuming type is 'breakage' or 'normal' -->
                                     </td>
                                 </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
+        <!-- Details Table -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-bordered">
+                                <thead>
                                 <tr>
                                     <th>Product Name</th>
                                     <th>Code</th>
                                     <th>Quantity</th>
                                     <th>Type</th>
                                 </tr>
-
+                                </thead>
+                                <tbody>
                                 @foreach($adjustment->adjustedProducts as $adjustedProduct)
                                     <tr>
                                         <td>{{ $adjustedProduct->product->product_name }}</td>
@@ -55,11 +99,13 @@
                                             @if($adjustedProduct->type == 'add')
                                                 (+) Addition
                                             @else
-                                                (-) Subtraction
+                                                (-)
+                                                Subtraction
                                             @endif
                                         </td>
                                     </tr>
                                 @endforeach
+                                </tbody>
                             </table>
                         </div>
                     </div>

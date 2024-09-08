@@ -36,7 +36,7 @@
                         <td class="align-middle">{{ $product['product_code'] ?? $product['product']['product_code'] }}</td>
                         <td class="align-middle text-center">
                             <span class="badge badge-info">
-                                {{ $product['product_quantity'] ?? $product['product']['product_quantity'] }} {{ $product['product_unit'] ?? $product['product']['product_unit'] }}
+                                {{ $product['product_quantity'] }} {{ $product['product_unit'] }}
                             </span>
                         </td>
                         <input type="hidden" name="product_ids[]" value="{{ $product['product']['id'] ?? $product['id'] }}">

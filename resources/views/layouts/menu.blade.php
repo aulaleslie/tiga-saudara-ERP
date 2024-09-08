@@ -4,63 +4,109 @@
     </a>
 </li>
 
-{{--@can('access_products')--}}
-{{--<li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('products.*') || request()->routeIs('product-categories.*') ? 'c-show' : '' }}">--}}
-{{--    <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">--}}
-{{--        <i class="c-sidebar-nav-icon bi bi-journal-bookmark" style="line-height: 1;"></i> Products--}}
-{{--    </a>--}}
-{{--    <ul class="c-sidebar-nav-dropdown-items">--}}
-{{--        @can('access_product_categories')--}}
-{{--        <li class="c-sidebar-nav-item">--}}
-{{--            <a class="c-sidebar-nav-link {{ request()->routeIs('product-categories.*') ? 'c-active' : '' }}" href="{{ route('product-categories.index') }}">--}}
-{{--                <i class="c-sidebar-nav-icon bi bi-collection" style="line-height: 1;"></i> Categories--}}
-{{--            </a>--}}
-{{--        </li>--}}
-{{--        @endcan--}}
-{{--        @can('create_products')--}}
-{{--        <li class="c-sidebar-nav-item">--}}
-{{--            <a class="c-sidebar-nav-link {{ request()->routeIs('products.create') ? 'c-active' : '' }}" href="{{ route('products.create') }}">--}}
-{{--                <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Product--}}
-{{--            </a>--}}
-{{--        </li>--}}
-{{--        @endcan--}}
-{{--        <li class="c-sidebar-nav-item">--}}
-{{--            <a class="c-sidebar-nav-link {{ request()->routeIs('products.index') ? 'c-active' : '' }}" href="{{ route('products.index') }}">--}}
-{{--                <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> All Products--}}
-{{--            </a>--}}
-{{--        </li>--}}
-{{--        @can('print_barcodes')--}}
-{{--           <li class="c-sidebar-nav-item">--}}
-{{--               <a class="c-sidebar-nav-link {{ request()->routeIs('barcode.print') ? 'c-active' : '' }}" href="{{ route('barcode.print') }}">--}}
-{{--                   <i class="c-sidebar-nav-icon bi bi-printer" style="line-height: 1;"></i> Print Barcode--}}
-{{--               </a>--}}
-{{--           </li>--}}
-{{--        @endcan--}}
-{{--    </ul>--}}
-{{--</li>--}}
-{{--@endcan--}}
+@can('access_products')
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('products.*') || request()->routeIs('product-categories.*') ? 'c-show' : '' }}">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+            <i class="c-sidebar-nav-icon bbi bi-box2-fill" style="line-height: 1;"></i> Produk
+        </a>
+        <ul class="c-sidebar-nav-dropdown-items">
+            @can('access_product_categories')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('product-categories.*') ? 'c-active' : '' }}"
+                       href="{{ route('product-categories.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-collection" style="line-height: 1;"></i> Kategori Produk
+                    </a>
+                </li>
+            @endcan
 
-{{--@can('access_adjustments')--}}
-{{--    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('adjustments.*') ? 'c-show' : '' }}">--}}
-{{--        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">--}}
-{{--            <i class="c-sidebar-nav-icon bi bi-clipboard-check" style="line-height: 1;"></i> Stock Adjustments--}}
-{{--        </a>--}}
-{{--        <ul class="c-sidebar-nav-dropdown-items">--}}
-{{--            @can('create_adjustments')--}}
-{{--                <li class="c-sidebar-nav-item">--}}
-{{--                    <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.create') ? 'c-active' : '' }}" href="{{ route('adjustments.create') }}">--}}
-{{--                        <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Adjustment--}}
-{{--                    </a>--}}
-{{--                </li>--}}
-{{--            @endcan--}}
-{{--            <li class="c-sidebar-nav-item">--}}
-{{--                <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.index') ? 'c-active' : '' }}" href="{{ route('adjustments.index') }}">--}}
-{{--                    <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> All Adjustments--}}
-{{--                </a>--}}
-{{--            </li>--}}
-{{--        </ul>--}}
-{{--    </li>--}}
-{{--@endcan--}}
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('products.index') ? 'c-active' : '' }}"
+                   href="{{ route('products.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-box-seam" style="line-height: 1;"></i> Semua Produk
+                </a>
+            </li>
+            @can('print_barcodes')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('barcode.print') ? 'c-active' : '' }}"
+                       href="{{ route('barcode.print') }}">
+                        <i class="c-sidebar-nav-icon bi bi-upc-scan" style="line-height: 1;"></i> Print Barcode
+                    </a>
+                </li>
+            @endcan
+
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('units*') ? 'c-active' : '' }}"
+                   href="{{ route('units.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-file-binary" style="line-height: 1;"></i> Units
+                </a>
+            </li>
+
+            @can('brand.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('brands*') ? 'c-active' : '' }}"
+                       href="{{ route('brands.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-nvidia" style="line-height: 1;"></i> Merek
+                    </a>
+                </li>
+            @endcan
+
+        </ul>
+    </li>
+@endcan
+
+@canany(['adjustment.access','adjustment.create'])
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('adjustments.*') ? 'c-show' : '' }}">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+            <i class="c-sidebar-nav-icon bi bi-clipboard-check" style="line-height: 1;"></i> Stock Adjustments
+        </a>
+        <ul class="c-sidebar-nav-dropdown-items">
+            @can('adjustment.create')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.create') ? 'c-active' : '' }}"
+                       href="{{ route('adjustments.create') }}">
+                        <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Adjustment
+                    </a>
+                </li>
+            @endcan
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.createBreakage') ? 'c-active' : '' }}"
+                   href="{{ route('adjustments.createBreakage') }}">
+                    <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Breakage
+                </a>
+            </li>
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.index') ? 'c-active' : '' }}"
+                   href="{{ route('adjustments.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> All Adjustments
+                </a>
+            </li>
+        </ul>
+    </li>
+@endcan
+
+@can('access_adjustments')
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('transfers.*') ? 'c-show' : '' }}">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+            <i class="c-sidebar-nav-icon bi bi-clipboard-check" style="line-height: 1;"></i> Transfer Stock
+        </a>
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('transfers.create') ? 'c-active' : '' }}"
+                   href="{{ route('transfers.create') }}">
+                    <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Transfer Stock
+                </a>
+            </li>
+        </ul>
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('transfers.index') ? 'c-active' : '' }}"
+                   href="{{ route('transfers.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i>List Transfer Stock
+                </a>
+            </li>
+        </ul>
+    </li>
+@endcan
 
 {{--@can('access_quotations')--}}
 {{--    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('quotations.*') ? 'c-show' : '' }}">--}}
@@ -272,50 +318,61 @@
 {{--        </ul>--}}
 {{--    </li>--}}
 {{--@endcan--}}
-@can('access_user_management')
-<li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('users*') || request()->routeIs('roles*') ? 'c-show' : '' }}">
-    <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
-        <i class="c-sidebar-nav-icon bi bi-person-fill-gear" style="line-height: 1;"></i> Pengelolaan Pengguna
-    </a>
-    <ul class="c-sidebar-nav-dropdown-items">
-            <li class="c-sidebar-nav-item">
-                <a class="c-sidebar-nav-link {{ request()->routeIs('users*') ? 'c-active' : '' }}"
-                   href="{{ route('users.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-people-fill" style="line-height: 1;"></i> Semua Pengguna
-                </a>
-            </li>
-        @can('access_user_permissions')
-            <li class="c-sidebar-nav-item">
-                <a class="c-sidebar-nav-link {{ request()->routeIs('roles*') ? 'c-active' : '' }}"
-                   href="{{ route('roles.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-person-workspace" style="line-height: 1;"></i> Peran & Izin
-                </a>
-            </li>
-        @endcan
-    </ul>
-</li>
+@canany(['access_user_management','users.access','role.access'])
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('users*') || request()->routeIs('roles*') ? 'c-show' : '' }}">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+            <i class="c-sidebar-nav-icon bi bi-person-fill-gear" style="line-height: 1;"></i> Pengelolaan Pengguna
+        </a>
+        <ul class="c-sidebar-nav-dropdown-items">
+            @can("users.access")
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('users*') ? 'c-active' : '' }}"
+                       href="{{ route('users.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-people" style="line-height: 1;"></i> Semua Pengguna
+                    </a>
+                </li>
+            @endcan
+            @can('role.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('roles*') ? 'c-active' : '' }}"
+                       href="{{ route('roles.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-person-workspace" style="line-height: 1;"></i> Peran & Izin
+                    </a>
+                </li>
+            @endcan
+        </ul>
+    </li>
 @endcan
 
 @can('access_settings')
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
-            <i class="c-sidebar-nav-icon bi bi-gear-fill" style="line-height: 1;"></i> Pengaturan
+            <i class="c-sidebar-nav-icon bi bi-wrench-adjustable" style="line-height: 1;"></i> Pengaturan
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
             @can('bussines_setting')
-            <li class="c-sidebar-nav-item">
-                <a class="c-sidebar-nav-link {{ request()->routeIs('settings*') ? 'c-active' : '' }}"
-                   href="{{ route('settings.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-building-fill-gear" style="line-height: 1;"></i> Pengaturan Bisnis
-                </a>
-            </li>
-            @endcan
                 <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('businesses*') ? 'c-active' : '' }}"
-                       href="{{ route('businesses.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Bisnis
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('settings*') ? 'c-active' : '' }}"
+                       href="{{ route('settings.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-building-fill-gear" style="line-height: 1;"></i> Pengaturan
+                        Bisnis
                     </a>
                 </li>
+            @endcan
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('businesses*') ? 'c-active' : '' }}"
+                   href="{{ route('businesses.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Bisnis
+                </a>
+            </li>
+            @can("location.accces")
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('locations*') ? 'c-active' : '' }}"
+                       href="{{ route('locations.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Lokasi
+                    </a>
+                </li>
+            @endcan
             {{--access_currencies|acces_setting--}}
             {{--            <li class="c-sidebar-nav-item">--}}
             {{--                <a class="c-sidebar-nav-link {{ request()->routeIs('units*') ? 'c-active' : '' }}" href="{{ route('units.index') }}">--}}

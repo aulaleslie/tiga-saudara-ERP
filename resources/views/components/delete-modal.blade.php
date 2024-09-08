@@ -2,13 +2,13 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="deleteModalLabel">Konfirmasi Penghapusan</h5>
+                <h5 class="modal-title" id="deleteModalLabel">{{ $title ?? 'Konfirmasi Penghapusan' }}</h5>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" aria-label="Close">
                     <i class="bi bi-x-lg"></i>
                 </button>
             </div>
-            <div class="modal-body">
-                Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!
+            <div class="modal-body" id="deleteModalBody">
+                {{ $message ?? 'Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!' }}
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
@@ -21,8 +21,9 @@
 <script>
     let deleteFormId;
 
-    function showDeleteModal(id) {
+    function showDeleteModal(id, message = "{{ $message ?? 'Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!' }}") {
         deleteFormId = id;
+        document.getElementById('deleteModalBody').textContent = message;
         const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
         deleteModal.show();
     }
