@@ -39,7 +39,14 @@ class StockTransfersDataTable extends DataTable
 
     public function query(Transfer $model): Builder
     {
-        return $model->newQuery()->with('originLocation', 'destinationLocation');
+        $settingId = session('setting_id');
+
+        // Filter transfers where originLocation's setting_id equals the current setting_id
+        return $model->newQuery()
+            ->with('originLocation', 'destinationLocation')
+            ->whereHas('originLocation.setting', function ($query) use ($settingId) {
+                $query->where('id', $settingId);
+            });
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
