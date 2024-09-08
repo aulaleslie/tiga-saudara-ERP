@@ -97,6 +97,14 @@
                 </a>
             </li>
         </ul>
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('transfers.index') ? 'c-active' : '' }}"
+                   href="{{ route('transfers.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i>List Transfer Stock
+                </a>
+            </li>
+        </ul>
     </li>
 @endcan
 
