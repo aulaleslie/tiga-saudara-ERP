@@ -12,39 +12,64 @@ use Modules\People\Entities\Supplier;
 class SuppliersController extends Controller
 {
 
-    public function index(SuppliersDataTable $dataTable) {
+    public function index(SuppliersDataTable $dataTable)
+    {
         abort_if(Gate::denies('access_suppliers'), 403);
 
         return $dataTable->render('people::suppliers.index');
     }
 
 
-    public function create() {
+    public function create()
+    {
         abort_if(Gate::denies('create_suppliers'), 403);
 
         return view('people::suppliers.create');
     }
 
 
-    public function store(Request $request) {
+    public function store(Request $request)
+    {
         abort_if(Gate::denies('create_suppliers'), 403);
 
+        // Validate the request data
         $request->validate([
-            'supplier_name'  => 'required|string|max:255',
-            'supplier_phone' => 'required|max:255',
-            'supplier_email' => 'required|email|max:255',
-            'city'           => 'required|string|max:255',
-            'country'        => 'required|string|max:255',
-            'address'        => 'required|string|max:500',
+            'contact_name' => 'required|string|max:255',
+            'supplier_name' => 'required|string|max:255',
+
+            // Bank fields validation, mandatory only if one is filled
+            'bank_name' => 'nullable|required_with:bank_branch,account_number,account_holder|string|max:255',
+            'bank_branch' => 'nullable|required_with:bank_name,account_number,account_holder|string|max:255',
+            'account_number' => 'nullable|required_with:bank_name,bank_branch,account_holder|string|max:255',
+            'account_holder' => 'nullable|required_with:bank_name,bank_branch,account_number|string|max:255',
+        ], [
+            'contact_name.required' => 'Nama kontak wajib diisi.',
+            'company_name.required' => 'Nama pemasok wajib diisi.',
+
+            'bank_name.required_with' => 'Nama bank wajib diisi jika salah satu informasi bank diisi.',
+            'bank_branch.required_with' => 'Cabang bank wajib diisi jika salah satu informasi bank diisi.',
+            'account_number.required_with' => 'Nomor rekening wajib diisi jika salah satu informasi bank diisi.',
+            'account_holder.required_with' => 'Pemegang akun wajib diisi jika salah satu informasi bank diisi.',
         ]);
 
+        $settingId = session('setting_id');
+        // Create the supplier
         Supplier::create([
-            'supplier_name'  => $request->supplier_name,
-            'supplier_phone' => $request->supplier_phone,
-            'supplier_email' => $request->supplier_email,
-            'city'           => $request->city,
-            'country'        => $request->country,
-            'address'        => $request->address
+            'setting_id' => $settingId,
+            'contact_name' => $request->contact_name,
+            'supplier_name' => $request->supplier_name,
+            'supplier_phone' => $request->supplier_phone ?? "",
+            'identity_number' => $request->identity_number ?? "",
+            'supplier_email' => $request->supplier_email ?? "",
+            'city' => $request->city ?? "",
+            'country' => $request->country ?? "",
+            'address' => $request->address ?? "",
+
+            // Optional Bank information
+            'bank_name' => $request->bank_name ?? "",
+            'bank_branch' => $request->bank_branch ?? "",
+            'account_number' => $request->account_number ?? "",
+            'account_holder' => $request->account_holder ?? "",
         ]);
 
         toast('Pemasok Ditambahkan!', 'success');
@@ -53,39 +78,68 @@ class SuppliersController extends Controller
     }
 
 
-    public function show(Supplier $supplier) {
+    public function show(Supplier $supplier)
+    {
         abort_if(Gate::denies('show_suppliers'), 403);
 
         return view('people::suppliers.show', compact('supplier'));
     }
 
 
-    public function edit(Supplier $supplier) {
+    public function edit(Supplier $supplier)
+    {
         abort_if(Gate::denies('edit_suppliers'), 403);
 
         return view('people::suppliers.edit', compact('supplier'));
     }
 
 
-    public function update(Request $request, Supplier $supplier) {
+    public function update(Request $request, Supplier $supplier)
+    {
         abort_if(Gate::denies('edit_suppliers'), 403);
 
+        // Validate the request data
         $request->validate([
-            'supplier_name'  => 'required|string|max:255',
-            'supplier_phone' => 'required|max:255',
-            'supplier_email' => 'required|email|max:255',
-            'city'           => 'required|string|max:255',
-            'country'        => 'required|string|max:255',
-            'address'        => 'required|string|max:500',
+            'contact_name' => 'required|string|max:255',
+            'supplier_name' => 'required|string|max:255',
+            'supplier_phone' => 'nullable|string|max:255',
+            'identity_number' => 'nullable|string|max:255',
+            'supplier_email' => 'nullable|email|max:255',
+            'city' => 'nullable|string|max:255',
+            'country' => 'nullable|string|max:255',
+            'address' => 'nullable|string|max:500',
+
+            // Bank fields validation, mandatory only if one is filled
+            'bank_name' => 'nullable|required_with:bank_branch,account_number,account_holder|string|max:255',
+            'bank_branch' => 'nullable|required_with:bank_name,account_number,account_holder|string|max:255',
+            'account_number' => 'nullable|required_with:bank_name,bank_branch,account_holder|string|max:255',
+            'account_holder' => 'nullable|required_with:bank_name,bank_branch,account_number|string|max:255',
+        ], [
+            'contact_name.required' => 'Nama kontak wajib diisi.',
+            'supplier_name.required' => 'Nama pemasok wajib diisi.',
+
+            'bank_name.required_with' => 'Nama bank wajib diisi jika salah satu informasi bank diisi.',
+            'bank_branch.required_with' => 'Cabang bank wajib diisi jika salah satu informasi bank diisi.',
+            'account_number.required_with' => 'Nomor rekening wajib diisi jika salah satu informasi bank diisi.',
+            'account_holder.required_with' => 'Pemegang akun wajib diisi jika salah satu informasi bank diisi.',
         ]);
 
+        // Update the supplier
         $supplier->update([
-            'supplier_name'  => $request->supplier_name,
-            'supplier_phone' => $request->supplier_phone,
-            'supplier_email' => $request->supplier_email,
-            'city'           => $request->city,
-            'country'        => $request->country,
-            'address'        => $request->address
+            'contact_name' => $request->contact_name,
+            'supplier_name' => $request->supplier_name,
+            'supplier_phone' => $request->supplier_phone ?? "",
+            'identity_number' => $request->identity_number ?? "",
+            'supplier_email' => $request->supplier_email ?? "",
+            'city' => $request->city ?? "",
+            'country' => $request->country ?? "",
+            'address' => $request->address ?? "",
+
+            // Optional Bank information
+            'bank_name' => $request->bank_name ?? "",
+            'bank_branch' => $request->bank_branch ?? "",
+            'account_number' => $request->account_number ?? "",
+            'account_holder' => $request->account_holder ?? "",
         ]);
 
         toast('Data Pemasok Diperbaharui!', 'info');
@@ -94,7 +148,8 @@ class SuppliersController extends Controller
     }
 
 
-    public function destroy(Supplier $supplier) {
+    public function destroy(Supplier $supplier)
+    {
         abort_if(Gate::denies('delete_suppliers'), 403);
 
         $supplier->delete();
