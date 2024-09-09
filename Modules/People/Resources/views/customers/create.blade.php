@@ -16,7 +16,6 @@
             @csrf
             <div class="row">
                 <div class="col-lg-12">
-                    @include('utils.alerts')
                     <div class="form-group">
                         <a href="{{ route('customers.index') }}" class="btn btn-secondary mr-2">
                             Kembali
@@ -34,18 +33,23 @@
                         <div class="card-body">
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="contact_name">Nama Kontak</label>
-                                        <input type="text" class="form-control" name="contact_name" placeholder="Masukkan nama kontak">
-                                    </div>
+                                    <x-input label="Nama Kontak" name="contact_name" value="{{ old('contact_name') }}"/>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="identity">Identitas</label>
                                         <select class="form-control" name="identity" id="identity">
-                                            <option value="KTP">KTP</option>
-                                            <option value="SIM">SIM</option>
-                                            <option value="Passport">Passport</option>
+                                            <option value="" {{ old('identity') == '' ? 'selected' : '' }}>-- Tidak ada
+                                                Identitas --
+                                            </option>
+                                            <option value="KTP" {{ old('identity') == 'KTP' ? 'selected' : '' }}>KTP
+                                            </option>
+                                            <option value="SIM" {{ old('identity') == 'SIM' ? 'selected' : '' }}>SIM
+                                            </option>
+                                            <option
+                                                value="Passport" {{ old('identity') == 'Passport' ? 'selected' : '' }}>
+                                                Passport
+                                            </option>
                                         </select>
                                     </div>
                                 </div>
@@ -53,75 +57,45 @@
 
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="identity_number">Nomor Identitas</label>
-                                        <input type="text" class="form-control" name="identity_number" placeholder="Masukkan nomor identitas">
-                                    </div>
+                                    <x-input label="Nomor Identitas" name="identity_number"
+                                             value="{{ old('identity_number') }}"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="customer_name">Nama Perusahaan</label>
-                                        <input type="text" class="form-control" name="customer_name" required placeholder="Masukkan nama perusahaan">
-                                    </div>
+                                    <x-input label="Nama Perusahaan" name="customer_name"
+                                             value="{{ old('customer_name') }}"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="customer_phone">Nomor Handphone</label>
-                                        <input type="text" class="form-control" name="customer_phone" required placeholder="Masukkan nomor handphone">
-                                    </div>
+                                    <x-input label="Nomor Handphone" name="customer_phone"
+                                             value="{{ old('customer_phone') }}"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="telephone">Nomor Telepon</label>
-                                        <input type="text" class="form-control" name="telephone" placeholder="Masukkan nomor telepon">
-                                    </div>
+                                    <x-input label="E-Mail" name="customer_email" value="{{ old('customer_email') }}"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="fax">E-Mail</label>
-                                        <input type="text" class="form-control" name="fax" placeholder="Masukkan E-Mail">
-                                    </div>
+                                    <x-input label="NPWP" name="npwp" value="{{ old('npwp') }}"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="fax">Fax</label>
-                                        <input type="text" class="form-control" name="fax" placeholder="Masukkan nomor fax">
-                                    </div>
+                                    <x-input label="Alamat Penagihan" name="billing_address"
+                                             value="{{ old('billing_address') }}"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="npwp">NPWP</label>
-                                        <input type="text" class="form-control" name="npwp" placeholder="Masukkan NPWP">
-                                    </div>
-                                </div>
-                                <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="billing_address">Alamat Penagihan</label>
-                                        <input type="text" class="form-control" name="billing_address" placeholder="Masukkan alamat penagihan">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="shipping_address">Alamat Pengiriman</label>
-                                        <input type="text" class="form-control" name="shipping_address" placeholder="Masukkan alamat pengiriman">
-                                    </div>
+                                    <x-input label="Alamat Pengiriman" name="shipping_address"
+                                             value="{{ old('shipping_address') }}"/>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="additional_info">Info Lainnya</label>
-                                        <textarea class="form-control" name="additional_info" placeholder="Masukkan info lainnya"></textarea>
+                                        <textarea class="form-control" name="additional_info"
+                                                  placeholder="Masukkan info lainnya">{{ old('additional_info') }}</textarea>
                                     </div>
                                 </div>
                             </div>
@@ -138,31 +112,22 @@
                         <div class="card-body">
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="bank_name">Nama Bank</label>
-                                        <input type="text" class="form-control" name="bank_name" placeholder="Masukkan nama bank">
-                                    </div>
+                                    <x-input label="Nama Bank" name="bank_name" value="{{ old('bank_name') }}"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="bank_branch">Kantor Cabang Bank</label>
-                                        <input type="text" class="form-control" name="bank_branch" placeholder="Masukkan kantor cabang bank">
-                                    </div>
+                                    <x-input label="Kantor Cabang Bank" name="bank_branch"
+                                             value="{{ old('bank_branch') }}"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="account_number">Nomor Rekening</label>
-                                        <input type="text" class="form-control" name="account_number" placeholder="Masukkan nomor rekening">
-                                    </div>
+                                    <x-input label="Nomor Rekening" name="account_number"
+                                             value="{{ old('account_number') }}"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="account_holder">Pemegang Akun Bank</label>
-                                        <input type="text" class="form-control" name="account_holder" placeholder="Masukkan pemegang akun bank">
-                                    </div>
+                                    <x-input label="Pemegang Akun Bank" name="account_holder"
+                                             value="{{ old('account_holder') }}"/>
                                 </div>
                             </div>
                         </div>
