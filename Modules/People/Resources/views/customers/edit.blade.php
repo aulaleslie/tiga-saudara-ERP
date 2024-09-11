@@ -18,7 +18,10 @@
             <div class="row">
                 <div class="col-lg-12">
                     <div class="form-group">
-                        <button class="btn btn-primary">Update Customer <i class="bi bi-check"></i></button>
+                        <a href="{{ route('customers.index') }}" class="btn btn-secondary mr-2">
+                            Kembali
+                        </a>
+                        <button class="btn btn-primary">Perbaharui Data Pelanggan <i class="bi bi-check"></i></button>
                     </div>
                 </div>
 

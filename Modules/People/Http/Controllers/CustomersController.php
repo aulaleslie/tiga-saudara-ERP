@@ -85,6 +85,7 @@ class CustomersController extends Controller
             'city' => $request->city ?? '',
             'country' => $request->country ?? '',
             'address' => $request->address ?? '',
+            'additional_info' => $request->additional_info ?? '',
 
             // Optional Bank information
             'bank_name' => $request->bank_name,
@@ -149,6 +150,7 @@ class CustomersController extends Controller
             'bank_branch' => $request->bank_branch,
             'account_number' => $request->account_number,
             'account_holder' => $request->account_holder,
+            'additional_info' => $request->additional_info,
         ]);
 
         toast('Data Pelanggan Diperbaharui!', 'info');
