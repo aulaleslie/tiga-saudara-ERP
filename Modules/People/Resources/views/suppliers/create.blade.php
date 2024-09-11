@@ -16,63 +16,89 @@
             @csrf
             <div class="row">
                 <div class="col-lg-12">
-                    @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Create Supplier <i class="bi bi-check"></i></button>
+                        <a href="<?php echo e(route('suppliers.index')); ?>" class="btn btn-secondary mr-2">
+                            Kembali
+                        </a>
+                        <button class="btn btn-primary">Tambahkan Pemasok <i class="bi bi-check"></i></button>
                     </div>
                 </div>
+
+                <!-- Informasi Umum Section -->
                 <div class="col-lg-12">
                     <div class="card">
+                        <div class="card-header">
+                            <h4>Informasi Umum</h4>
+                        </div>
                         <div class="card-body">
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="supplier_name">Supplier Name <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="supplier_name" required>
-                                    </div>
+                                    <x-input label="Nama Kontak" name="contact_name"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="supplier_email">Email <span class="text-danger">*</span></label>
-                                        <input type="email" class="form-control" name="supplier_email" required>
-                                    </div>
+                                    <x-input label="Identitas" name="identity"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="supplier_phone">Phone <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="supplier_phone" required>
-                                    </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Nomor Identitas" name="identity_number"/>
                                 </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="city">City <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="city" required>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="country">Country <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="country" required>
-                                    </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Nama Perusahaan" name="supplier_name"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
-                                <div class="col-lg-12">
-                                    <div class="form-group">
-                                        <label for="address">Address <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="address" required>
-                                    </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Nomor Kontak" name="supplier_phone"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <x-input label="NPWP" name="npwp"/>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <x-input label="Alamat Penagihan" name="billing_address"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Alamat Pengiriman" name="shipping_address"/>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                <!-- Info Bank Section -->
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h4>Info Bank</h4>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <x-input label="Nama Bank" name="bank_name"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Kantor Cabang Bank" name="bank_branch"/>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <x-input label="Nomor Rekening" name="account_number"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Pemegang Akun Bank" name="account_holder"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </form>
     </div>
 @endsection
-

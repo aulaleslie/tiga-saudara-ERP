@@ -3,17 +3,22 @@
 namespace Modules\People\DataTables;
 
 
+use Illuminate\Database\Eloquent\Builder;
 use Modules\People\Entities\Supplier;
+use Yajra\DataTables\EloquentDataTable;
+use Yajra\DataTables\Exceptions\Exception;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class SuppliersDataTable extends DataTable
 {
 
-    public function dataTable($query) {
+    /**
+     * @throws Exception
+     */
+    public function dataTable($query): EloquentDataTable
+    {
         return datatables()
             ->eloquent($query)
             ->addColumn('action', function ($data) {
@@ -21,11 +26,17 @@ class SuppliersDataTable extends DataTable
             });
     }
 
-    public function query(Supplier $model) {
-        return $model->newQuery();
+    public function query(Supplier $model): Builder
+    {
+        // Retrieve the current setting_id from the session
+        $currentSettingId = session('setting_id');
+
+        // Return the query filtered by the current setting_id
+        return $model->newQuery()->where('setting_id', $currentSettingId);
     }
 
-    public function html() {
+    public function html(): \Yajra\DataTables\Html\Builder
+    {
         return $this->builder()
             ->setTableId('suppliers-table')
             ->columns($this->getColumns())
@@ -46,21 +57,26 @@ class SuppliersDataTable extends DataTable
             );
     }
 
-    protected function getColumns() {
+    protected function getColumns(): array
+    {
         return [
-            Column::make('supplier_name')
-                ->className('text-center align-middle'),
+            Column::make('contact_name')
+                ->className('text-center align-middle')
+                ->title('Nama Kontak'),
 
-            Column::make('supplier_email')
-                ->className('text-center align-middle'),
+            Column::make('supplier_name')
+                ->className('text-center align-middle')
+                ->title('Nama Perusahaan'),
 
             Column::make('supplier_phone')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Telepon'),
 
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Aksi'),
 
             Column::make('created_at')
                 ->visible(false)

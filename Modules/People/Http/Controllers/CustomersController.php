@@ -2,6 +2,10 @@
 
 namespace Modules\People\Http\Controllers;
 
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
+use Illuminate\Http\RedirectResponse;
 use Modules\People\DataTables\CustomersDataTable;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
@@ -12,94 +16,154 @@ use Modules\People\Entities\Customer;
 class CustomersController extends Controller
 {
 
-    public function index(CustomersDataTable $dataTable) {
+    public function index(CustomersDataTable $dataTable)
+    {
         abort_if(Gate::denies('access_customers'), 403);
 
         return $dataTable->render('people::customers.index');
     }
 
 
-    public function create() {
+    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
         abort_if(Gate::denies('create_customers'), 403);
 
         return view('people::customers.create');
     }
 
 
-    public function store(Request $request) {
+    public function store(Request $request): RedirectResponse
+    {
         abort_if(Gate::denies('create_customers'), 403);
 
+        // Validate the request data
         $request->validate([
-            'customer_name'  => 'required|string|max:255',
-            'customer_phone' => 'required|max:255',
-            'customer_email' => 'required|email|max:255',
-            'city'           => 'required|string|max:255',
-            'country'        => 'required|string|max:255',
-            'address'        => 'required|string|max:500',
+            'contact_name' => 'required|string|max:255',
+            'customer_phone' => 'required|string|max:255',
+
+            // Bank fields validation, mandatory only if one is filled
+            'bank_name' => 'nullable|required_with:bank_branch,account_number,account_holder|string|max:255',
+            'bank_branch' => 'nullable|required_with:bank_name,account_number,account_holder|string|max:255',
+            'account_number' => 'nullable|required_with:bank_name,bank_branch,account_holder|string|max:255',
+            'account_holder' => 'nullable|required_with:bank_name,bank_branch,account_number|string|max:255',
+
+            'customer_name' => 'nullable|string|max:255',
+            'customer_email' => 'nullable|email|max:255',
+            'identity' => 'nullable|string|max:50',
+            'identity_number' => 'nullable|required_if:identity,KTP,SIM,Passport|string|max:100',  // Required if identity is selected
+            'npwp' => 'nullable|string|max:100',
+            'billing_address' => 'nullable|string|max:500',
+            'shipping_address' => 'nullable|string|max:500',
+            'additional_info' => 'nullable|string|max:1000',
+        ], [
+            'contact_name.required' => 'Nama kontak wajib diisi.',
+            'customer_phone.required' => 'Nomor telepon wajib diisi.',
+
+            'bank_name.required_with' => 'Nama bank wajib diisi jika salah satu informasi bank diisi.',
+            'bank_branch.required_with' => 'Cabang bank wajib diisi jika salah satu informasi bank diisi.',
+            'account_number.required_with' => 'Nomor rekening wajib diisi jika salah satu informasi bank diisi.',
+            'account_holder.required_with' => 'Pemegang akun wajib diisi jika salah satu informasi bank diisi.',
+
+            'identity_number.required_if' => 'Nomor identitas wajib diisi jika identitas dipilih.',
         ]);
 
+        // Assign the setting_id from the session
+        $settingId = session('setting_id');
+
+        // Create the customer
         Customer::create([
-            'customer_name'  => $request->customer_name,
+            'setting_id' => $settingId,
+            'contact_name' => $request->contact_name,
+            'customer_name' => $request->customer_name ?? '',
             'customer_phone' => $request->customer_phone,
-            'customer_email' => $request->customer_email,
-            'city'           => $request->city,
-            'country'        => $request->country,
-            'address'        => $request->address
+            'customer_email' => $request->customer_email ?? '',
+            'identity' => $request->identity,
+            'identity_number' => $request->identity_number,
+            'npwp' => $request->npwp,
+            'billing_address' => $request->billing_address,
+            'shipping_address' => $request->shipping_address,
+            'city' => $request->city ?? '',
+            'country' => $request->country ?? '',
+            'address' => $request->address ?? '',
+
+            // Optional Bank information
+            'bank_name' => $request->bank_name,
+            'bank_branch' => $request->bank_branch,
+            'account_number' => $request->account_number,
+            'account_holder' => $request->account_holder,
         ]);
 
-        toast('Customer Created!', 'success');
+        toast('Pelanggan Ditambahkan!', 'success');
 
         return redirect()->route('customers.index');
     }
 
 
-    public function show(Customer $customer) {
+    public function show(Customer $customer): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
         abort_if(Gate::denies('show_customers'), 403);
 
         return view('people::customers.show', compact('customer'));
     }
 
 
-    public function edit(Customer $customer) {
+    public function edit(Customer $customer): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
         abort_if(Gate::denies('edit_customers'), 403);
 
         return view('people::customers.edit', compact('customer'));
     }
 
 
-    public function update(Request $request, Customer $customer) {
+    public function update(Request $request, Customer $customer): RedirectResponse
+    {
         abort_if(Gate::denies('update_customers'), 403);
 
         $request->validate([
-            'customer_name'  => 'required|string|max:255',
+            'contact_name' => 'required|string|max:255',
             'customer_phone' => 'required|max:255',
             'customer_email' => 'required|email|max:255',
-            'city'           => 'required|string|max:255',
-            'country'        => 'required|string|max:255',
-            'address'        => 'required|string|max:500',
+            'identity' => 'nullable|string|max:50',
+            'identity_number' => 'nullable|string|max:100',
+            'fax' => 'nullable|string|max:100',
+            'npwp' => 'nullable|string|max:100',
+            'billing_address' => 'nullable|string|max:500',
+            'shipping_address' => 'nullable|string|max:500',
+            'bank_name' => 'nullable|string|max:255',
+            'bank_branch' => 'nullable|string|max:255',
+            'account_number' => 'nullable|string|max:255',
+            'account_holder' => 'nullable|string|max:255',
         ]);
 
         $customer->update([
-            'customer_name'  => $request->customer_name,
+            'contact_name' => $request->contact_name,
             'customer_phone' => $request->customer_phone,
             'customer_email' => $request->customer_email,
-            'city'           => $request->city,
-            'country'        => $request->country,
-            'address'        => $request->address
+            'identity' => $request->identity,
+            'identity_number' => $request->identity_number,
+            'fax' => $request->fax,
+            'npwp' => $request->npwp,
+            'billing_address' => $request->billing_address,
+            'shipping_address' => $request->shipping_address,
+            'bank_name' => $request->bank_name,
+            'bank_branch' => $request->bank_branch,
+            'account_number' => $request->account_number,
+            'account_holder' => $request->account_holder,
         ]);
 
-        toast('Customer Updated!', 'info');
+        toast('Data Pelanggan Diperbaharui!', 'info');
 
         return redirect()->route('customers.index');
     }
 
 
-    public function destroy(Customer $customer) {
+    public function destroy(Customer $customer): RedirectResponse
+    {
         abort_if(Gate::denies('delete_customers'), 403);
 
         $customer->delete();
 
-        toast('Customer Deleted!', 'warning');
+        toast('Data Pelanggan Dihapus!', 'warning');
 
         return redirect()->route('customers.index');
     }

@@ -18,7 +18,7 @@ class ProductCategoriesDataTable extends DataTable
      */
     public function dataTable($query): EloquentDataTable
     {
-        return datatables()
+        $dataTable = datatables()
             ->eloquent($query)
             ->addColumn('nama_kategori', function (Category $category) {
                 if ($category->parent) {
@@ -30,6 +30,21 @@ class ProductCategoriesDataTable extends DataTable
             ->addColumn('action', function ($data) {
                 return view('product::categories.partials.actions', compact('data'));
             });
+
+        // Apply custom filter for searching the concatenated "nama_kategori" field
+        $dataTable->filter(function ($query) {
+            if (request()->has('search') && request('search')['value']) {
+                $searchValue = strtolower(request('search')['value']);
+                $query->where(function ($query) use ($searchValue) {
+                    $query->whereRaw('LOWER(category_name) LIKE ?', ["%{$searchValue}%"])
+                        ->orWhereHas('parent', function ($query) use ($searchValue) {
+                            $query->whereRaw('LOWER(category_name) LIKE ?', ["%{$searchValue}%"]);
+                        });
+                });
+            }
+        });
+
+        return $dataTable;
     }
 
     public function query(Category $model): \Illuminate\Database\Eloquent\Builder
@@ -73,7 +88,8 @@ class ProductCategoriesDataTable extends DataTable
 
             Column::make('products_count')
                 ->addClass('text-center')
-                ->title('Total Produk'),
+                ->title('Total Produk')
+                ->searchable(false),
 
             Column::computed('action')
                 ->exportable(false)
@@ -86,7 +102,8 @@ class ProductCategoriesDataTable extends DataTable
         ];
     }
 
-    protected function filename(): string {
+    protected function filename(): string
+    {
         return 'ProductCategories_' . date('YmdHis');
     }
 }

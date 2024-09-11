@@ -19,28 +19,68 @@
                         <div class="table-responsive">
                             <table class="table table-bordered">
                                 <tr>
-                                    <th>Customer Name</th>
+                                    <th>Contact Name</th>
+                                    <td>{{ $customer->contact_name }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Identity</th>
+                                    <td>{{ $customer->identity ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Identity Number</th>
+                                    <td>{{ $customer->identity_number ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Company Name</th>
                                     <td>{{ $customer->customer_name }}</td>
                                 </tr>
                                 <tr>
                                     <th>Customer Email</th>
-                                    <td>{{ $customer->customer_email }}</td>
+                                    <td>{{ $customer->customer_email ?? '-' }}</td>
                                 </tr>
                                 <tr>
                                     <th>Customer Phone</th>
                                     <td>{{ $customer->customer_phone }}</td>
                                 </tr>
                                 <tr>
-                                    <th>City</th>
-                                    <td>{{ $customer->city }}</td>
+                                    <th>Telephone</th>
+                                    <td>{{ $customer->telephone ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Country</th>
-                                    <td>{{ $customer->country }}</td>
+                                    <th>Fax</th>
+                                    <td>{{ $customer->fax ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Address</th>
-                                    <td>{{ $customer->address }}</td>
+                                    <th>NPWP</th>
+                                    <td>{{ $customer->npwp ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Billing Address</th>
+                                    <td>{{ $customer->billing_address ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Shipping Address</th>
+                                    <td>{{ $customer->shipping_address ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Additional Info</th>
+                                    <td>{{ $customer->additional_info ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Bank Name</th>
+                                    <td>{{ $customer->bank_name ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Bank Branch</th>
+                                    <td>{{ $customer->bank_branch ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Account Number</th>
+                                    <td>{{ $customer->account_number ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Account Holder</th>
+                                    <td>{{ $customer->account_holder ?? '-' }}</td>
                                 </tr>
                             </table>
                         </div>
@@ -50,4 +90,3 @@
         </div>
     </div>
 @endsection
-

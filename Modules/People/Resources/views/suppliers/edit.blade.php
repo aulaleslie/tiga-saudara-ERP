@@ -1,79 +1,106 @@
 @extends('layouts.app')
 
-@section('title', 'Update Supplier')
+@section('title', 'Edit Supplier')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
         <li class="breadcrumb-item"><a href="{{ route('suppliers.index') }}">Suppliers</a></li>
-        <li class="breadcrumb-item active">Edit</li>
+        <li class="breadcrumb-item active">Edit Supplier</li>
     </ol>
 @endsection
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('suppliers.update', $supplier) }}" method="POST">
+        <form action="{{ route('suppliers.update', $supplier->id) }}" method="POST">
             @csrf
-            @method('patch')
+            @method('PUT')
             <div class="row">
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Update Supplier <i class="bi bi-check"></i></button>
+                        <a href="{{ route('suppliers.index') }}" class="btn btn-secondary mr-2">
+                            Kembali
+                        </a>
+                        <button class="btn btn-primary">Update Pemasok <i class="bi bi-check"></i></button>
                     </div>
                 </div>
+
+                <!-- Informasi Umum Section -->
                 <div class="col-lg-12">
                     <div class="card">
+                        <div class="card-header">
+                            <h4>Informasi Umum</h4>
+                        </div>
                         <div class="card-body">
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="supplier_name">Supplier Name <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="supplier_name" required value="{{ $supplier->supplier_name }}">
-                                    </div>
+                                    <x-input label="Nama Kontak" name="contact_name" value="{{ old('contact_name', $supplier->contact_name) }}"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <div class="form-group">
-                                        <label for="supplier_email">Email <span class="text-danger">*</span></label>
-                                        <input type="email" class="form-control" name="supplier_email" required value="{{ $supplier->supplier_email }}">
-                                    </div>
+                                    <x-input label="Identitas" name="identity" value="{{ old('identity', $supplier->identity) }}"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="supplier_phone">Phone <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="supplier_phone" required value="{{ $supplier->supplier_phone }}">
-                                    </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Nomor Identitas" name="identity_number" value="{{ old('identity_number', $supplier->identity_number) }}"/>
                                 </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="city">City <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="city" required value="{{ $supplier->city }}">
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="country">Country <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="country" required value="{{ $supplier->country }}">
-                                    </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Nama Perusahaan" name="supplier_name" value="{{ old('supplier_name', $supplier->supplier_name) }}"/>
                                 </div>
                             </div>
 
                             <div class="form-row">
-                                <div class="col-lg-12">
-                                    <div class="form-group">
-                                        <label for="address">Address <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="address" required value="{{ $supplier->address }}">
-                                    </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Nomor Kontak" name="supplier_phone" value="{{ old('supplier_phone', $supplier->supplier_phone) }}"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <x-input label="NPWP" name="npwp" value="{{ old('npwp', $supplier->npwp) }}"/>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <x-input label="Alamat Penagihan" name="billing_address" value="{{ old('billing_address', $supplier->billing_address) }}"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Alamat Pengiriman" name="shipping_address" value="{{ old('shipping_address', $supplier->shipping_address) }}"/>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                <!-- Info Bank Section -->
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h4>Info Bank</h4>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <x-input label="Nama Bank" name="bank_name" value="{{ old('bank_name', $supplier->bank_name) }}"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Kantor Cabang Bank" name="bank_branch" value="{{ old('bank_branch', $supplier->bank_branch) }}"/>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <x-input label="Nomor Rekening" name="account_number" value="{{ old('account_number', $supplier->account_number) }}"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <x-input label="Pemegang Akun Bank" name="account_holder" value="{{ old('account_holder', $supplier->account_holder) }}"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </form>
     </div>
 @endsection
-

@@ -21,11 +21,11 @@ class PermissionsTableSeeder extends Seeder
             'edit_own_profile',
             'access_user_management',
             'access_user_permissions',
-            'user.accces',
-            'user.create',
-            'user.view',
-            'user.edit',
-            'user.delete',
+            'users.accces',
+            'users.create',
+            'users.view',
+            'users.edit',
+            'users.delete',
             //Peran dan Ijin
             'role.accces',
             'role.create',
@@ -62,6 +62,18 @@ class PermissionsTableSeeder extends Seeder
             'brand.delete',
             //Product Categories
             'access_product_categories',
+            //customer
+            'customer.access',
+            'customer.create',
+            'customer.view',
+            'customer.edit',
+            'customer.delete',
+            //supplier
+            'supplier.access',
+            'supplier.create',
+            'supplier.view',
+            'supplier.edit',
+            'supplier.delete',
             //Barcode Printing
             'print_barcodes',
             //Adjustments
