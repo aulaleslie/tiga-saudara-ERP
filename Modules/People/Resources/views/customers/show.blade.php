@@ -19,70 +19,65 @@
                         <div class="table-responsive">
                             <table class="table table-bordered">
                                 <tr>
-                                    <th>Contact Name</th>
+                                    <th>Nama Pelanggan</th>
                                     <td>{{ $customer->contact_name }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Identity</th>
+                                    <th>Identitas</th>
                                     <td>{{ $customer->identity ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Identity Number</th>
+                                    <th>Nomor Identitas</th>
                                     <td>{{ $customer->identity_number ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Company Name</th>
+                                    <th>Nama Perusahaan</th>
                                     <td>{{ $customer->customer_name }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Customer Email</th>
-                                    <td>{{ $customer->customer_email ?? '-' }}</td>
+                                    <th>Nomor Handphone</th>
+                                    <td>{{ $customer->customer_phone?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Customer Phone</th>
-                                    <td>{{ $customer->customer_phone }}</td>
-                                </tr>
-                                <tr>
-                                    <th>Telephone</th>
-                                    <td>{{ $customer->telephone ?? '-' }}</td>
-                                </tr>
-                                <tr>
-                                    <th>Fax</th>
-                                    <td>{{ $customer->fax ?? '-' }}</td>
+                                    <th>E-Mail</th>
+                                    <td>{{ $customer->customer_email }}</td>
                                 </tr>
                                 <tr>
                                     <th>NPWP</th>
                                     <td>{{ $customer->npwp ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Billing Address</th>
+                                    <th>Alamat Penagihan</th>
                                     <td>{{ $customer->billing_address ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Shipping Address</th>
+                                    <th>Alamat Pengiriman</th>
                                     <td>{{ $customer->shipping_address ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Additional Info</th>
+                                    <th>Info Lainnya</th>
                                     <td>{{ $customer->additional_info ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Bank Name</th>
+                                    <th>Nama Bank</th>
                                     <td>{{ $customer->bank_name ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Bank Branch</th>
+                                    <th>Kantor Cabang Bank</th>
                                     <td>{{ $customer->bank_branch ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Account Number</th>
+                                    <th>Nomor Rekening</th>
                                     <td>{{ $customer->account_number ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Account Holder</th>
+                                    <th>Pemegang Akun Bank</th>
                                     <td>{{ $customer->account_holder ?? '-' }}</td>
                                 </tr>
                             </table>
+                        </div>
+                        <div class="mt-3">
+                            <a href="{{ route('customers.index') }}" class="btn btn-secondary">Kembali</a>
                         </div>
                     </div>
                 </div>
