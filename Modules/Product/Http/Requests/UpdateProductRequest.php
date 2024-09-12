@@ -34,9 +34,9 @@ class UpdateProductRequest extends FormRequest
 
             'product_stock_alert' => ['nullable', 'integer', 'min:0'],
             'purchase_price' => ['nullable', 'numeric', 'min:0'],
-            'purchase_tax' => ['nullable', 'in:1'],
+            'purchase_tax' => ['nullable'],
             'sale_price' => ['nullable', 'numeric', 'min:0'],
-            'sale_tax' => ['nullable', 'in:1'],
+            'sale_tax' => ['nullable'],
             'product_note' => ['nullable', 'string', 'max:1000'],
             'category_id' => ['nullable', 'integer'],
             'brand_id' => ['nullable', 'integer'],
