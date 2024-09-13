@@ -263,14 +263,16 @@
         <ul class="c-sidebar-nav-dropdown-items">
             @can('access_customers')
                 <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('customers.*') ? 'c-active' : '' }}" href="{{ route('customers.index') }}">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('customers.*') ? 'c-active' : '' }}"
+                       href="{{ route('customers.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-people-fill" style="line-height: 1;"></i> Pelanggan
                     </a>
                 </li>
             @endcan
             @can('access_suppliers')
                 <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('suppliers.*') ? 'c-active' : '' }}" href="{{ route('suppliers.index') }}">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('suppliers.*') ? 'c-active' : '' }}"
+                       href="{{ route('suppliers.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-people-fill" style="line-height: 1;"></i> Pemasok
                     </a>
                 </li>
@@ -369,7 +371,15 @@
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('locations*') ? 'c-active' : '' }}"
                        href="{{ route('locations.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Lokasi
+                        <i class="c-sidebar-nav-icon bi bi-shop" style="line-height: 1;"></i> Daftar Lokasi
+                    </a>
+                </li>
+            @endcan
+            @can("tax.accces")
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('taxes*') ? 'c-active' : '' }}"
+                       href="{{ route('taxes.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-bank2" style="line-height: 1;"></i> Daftar Pajak
                     </a>
                 </li>
             @endcan
