@@ -35,6 +35,7 @@ class StoreProductRequest extends FormRequest
             'brand_id' => ['nullable', 'integer'],
             'product_quantity' => ['nullable', 'integer', 'min:0'],
             'product_stock_alert' => ['nullable', 'integer', 'min:0'],
+            'stock_managed' => ['nullable', 'boolean'],
 
             // New Fields for Buying
             'is_purchased' => ['nullable', 'boolean'],
