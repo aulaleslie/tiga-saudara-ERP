@@ -209,6 +209,23 @@
                 $(this).maskMoney('mask'); // Mask the value again
             });
 
+            // Reapply mask on page load if old values are present
+            function prefillMaskedValues() {
+                let salePrice = "{{ old('sale_price') }}";
+                let purchasePrice = "{{ old('purchase_price') }}";
+
+                if (salePrice) {
+                    $('#sale_price').val(parseFloat(salePrice).toFixed(2));
+                    $('#sale_price').maskMoney('mask');
+                }
+                if (purchasePrice) {
+                    $('#purchase_price').val(parseFloat(purchasePrice).toFixed(2));
+                    $('#purchase_price').maskMoney('mask');
+                }
+            }
+
+            prefillMaskedValues();
+
             // Submit the form with unmasked values
             $('#product-form').submit(function () {
                 var purchasePrice = $('#purchase_price').maskMoney('unmasked')[0];
