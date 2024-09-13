@@ -38,13 +38,6 @@
                             </div>
 
                             <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Stok" name="product_quantity" type="number" step="1"/>
-                                </div>
-                                <div class="col-md-6">
-                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
-                                             step="1"/>
-                                </div>
                                 <div class="col-md-4">
                                     <x-select label="Lokasi" name="location_id"
                                               :options="$locations->pluck('name', 'id')"/>
@@ -119,7 +112,15 @@
                                     </div>
                                 </div>
                             </div>
-
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <x-input label="Stok" name="product_quantity" type="number" step="1"/>
+                                </div>
+                                <div class="col-md-6">
+                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
+                                             step="1"/>
+                                </div>
+                            </div>
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <x-select label="Unit Utama" name="base_unit_id"
@@ -135,6 +136,7 @@
                             <!-- Livewire component for Unit Conversion Table -->
                             <livewire:product.unit-conversion-table :conversions="old('conversions', [])"
                                                                     :errors="$errors->toArray()"/>
+
 
                             <div class="form-group">
                                 <label for="product_note">Catatan</label>
