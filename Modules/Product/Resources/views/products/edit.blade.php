@@ -44,17 +44,6 @@
                                 </div>
                             </div>
 
-                            <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Stok" name="product_quantity" type="number" step="1"
-                                             value="{{ old('product_quantity', $product->product_quantity) }}" disabled/>
-                                </div>
-                                <div class="col-md-6">
-                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
-                                             step="1" value="{{ old('product_stock_alert', $product->product_stock_alert) }}"/>
-                                </div>
-                            </div>
-
                             <!-- Removed Old Fields and Added New Fields -->
                             <div class="form-row">
                                 <div class="col-md-12">
@@ -121,7 +110,16 @@
                                     </div>
                                 </div>
                             </div>
-
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <x-input label="Stok" name="product_quantity" type="number" step="1"
+                                             value="{{ old('product_quantity', $product->product_quantity) }}" disabled/>
+                                </div>
+                                <div class="col-md-6">
+                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
+                                             step="1" value="{{ old('product_stock_alert', $product->product_stock_alert) }}"/>
+                                </div>
+                            </div>
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <x-select label="Unit Utama" name="base_unit_id"
