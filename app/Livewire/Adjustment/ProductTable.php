@@ -26,7 +26,9 @@ class ProductTable extends Component
         if ($adjustedProducts) {
             $this->hasAdjustments = true;
             $this->products = array_map(function ($adjustedProduct) {
-                return $adjustedProduct['product'];
+                $product = $adjustedProduct['product'];
+                $product['quantity'] = $adjustedProduct['quantity'];
+                return $product;
             }, $adjustedProducts);
 
             if ($this->locationId) {

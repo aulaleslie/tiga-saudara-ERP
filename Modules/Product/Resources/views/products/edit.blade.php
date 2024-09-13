@@ -100,7 +100,7 @@
                                         <br>
                                         <label>
                                             <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
-                                                   class="input-icheck" {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }}>
+                                                   class="input-icheck" {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }} disabled/>
                                             <strong>Manajemen Stok</strong>
                                         </label>
                                         <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
@@ -124,7 +124,7 @@
                                 <div class="col-md-6">
                                     <x-select label="Unit Utama" name="base_unit_id"
                                               :options="$units->pluck('name', 'id')"
-                                              selected="{{ old('base_unit_id', $product->base_unit_id) }}"/>
+                                              selected="{{ old('base_unit_id', $product->base_unit_id) }}" disabled/>
                                 </div>
 
                                 <div class="col-md-6">
