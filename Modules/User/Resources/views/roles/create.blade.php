@@ -1215,6 +1215,57 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Pajak -->
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Pajak
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-tax">
+                                                <label class="custom-control-label" for="select-all-tax">Pilih Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="tax" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="tax.access" name="permissions[]"
+                                                               value="tax.access" {{ old('tax.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="tax.access">Akses</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="tax.create" name="permissions[]"
+                                                               value="tax.create" {{ old('tax.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="tax.create">Buat</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="tax.edit" name="permissions[]"
+                                                               value="tax.edit" {{ old('tax.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="tax.edit">Edit</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="tax.delete" name="permissions[]"
+                                                               value="tax.delete" {{ old('tax.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="tax.delete">Hapus</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1284,6 +1335,12 @@
             $('#select-all-pemasok').click(function() {
                 var checked = this.checked;
                 $('#pemasok input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-tax').click(function() {
+                var checked = this.checked;
+                $('#tax input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });
