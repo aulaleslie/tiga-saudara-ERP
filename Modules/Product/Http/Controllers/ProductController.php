@@ -218,7 +218,6 @@ class ProductController extends Controller
         // Ensure brand_id and category_id are either NULL or valid
         $validatedData['brand_id'] = $validatedData['brand_id'] ?: null;
         $validatedData['category_id'] = $validatedData['category_id'] ?: null;
-        $validatedData['base_unit_id'] = $validatedData['base_unit_id'] ?: null;
 
         // Handle location_id, conversions, and documents separately
         $locationId = $validatedData['location_id'] ?? null;
@@ -245,7 +244,7 @@ class ProductController extends Controller
             if (!empty($conversions)) {
                 $product->conversions()->delete(); // Remove existing conversions
                 foreach ($conversions as $conversion) {
-                    $conversion['base_unit_id'] = $validatedData['base_unit_id'];
+                    $conversion['base_unit_id'] = $product->base_unit_id;
                     $product->conversions()->create($conversion);
                 }
             }

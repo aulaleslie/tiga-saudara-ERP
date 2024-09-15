@@ -46,6 +46,7 @@ class UpdateProductRequest extends FormRequest
             'conversions' => ['nullable', 'array'],
             'conversions.*.unit_id' => ['required_if:stock_managed,1', 'integer', 'not_in:0'],
             'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
+            'conversions.*.barcode' => ['nullable', 'string', 'max:255'],
 
             'document' => ['nullable', 'array'],
             'document.*' => ['nullable', 'string'],
