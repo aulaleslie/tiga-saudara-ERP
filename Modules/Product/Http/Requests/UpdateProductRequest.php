@@ -7,6 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Modules\Product\Entities\ProductUnitConversion;
 
 class UpdateProductRequest extends FormRequest
 {
@@ -41,12 +42,31 @@ class UpdateProductRequest extends FormRequest
             'category_id' => ['nullable', 'integer'],
             'brand_id' => ['nullable', 'integer'],
             'stock_managed' => ['nullable', 'boolean'],
+            'barcode' => ['nullable', 'digits:13', 'regex:/^\d{13}$/', 'unique:products,barcode'],
 
             // Validate conversions if provided
             'conversions' => ['nullable', 'array'],
             'conversions.*.unit_id' => ['required_if:stock_managed,1', 'integer', 'not_in:0'],
             'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
-            'conversions.*.barcode' => ['nullable', 'string', 'max:255'],
+            'conversions.*.barcode' => [
+                'nullable',
+                'digits:13',
+                'regex:/^\d{13}$/',
+                function ($attribute, $value, $fail) {
+                    $conversions = $this->input('conversions') ?? [];
+                    $barcodes = array_column($conversions, 'barcode');
+
+                    // Check for duplicates within the conversions array
+                    if (count(array_unique($barcodes)) !== count($barcodes)) {
+                        $fail('Barcode konversi tidak boleh duplikat di antara elemen-elemen konversi.');
+                    }
+
+                    // Use the ProductUnitConversion model to check for uniqueness in the database
+                    if ($value && ProductUnitConversion::where('barcode', $value)->exists()) {
+                        $fail('Barcode konversi ini sudah ada di database.');
+                    }
+                }
+            ],
 
             'document' => ['nullable', 'array'],
             'document.*' => ['nullable', 'string'],

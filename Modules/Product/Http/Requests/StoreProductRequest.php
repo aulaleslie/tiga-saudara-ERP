@@ -7,6 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Modules\Product\Entities\ProductUnitConversion;
 
 class StoreProductRequest extends FormRequest
 {
@@ -47,7 +48,7 @@ class StoreProductRequest extends FormRequest
             'sale_price' => ['required_if:is_sold,1', 'nullable', 'numeric', 'min:0'],
             'sale_tax' => ['nullable', 'integer'],
 
-            'barcode' => ['nullable', 'string', 'max:255'],
+            'barcode' => ['nullable', 'digits:13', 'regex:/^\d{13}$/', 'unique:products,barcode'],
 
             // Ensure base_unit_id is required and not 0 if stock_managed is true, otherwise allow 0 or nullable
             'base_unit_id' => ['required_if:stock_managed,1', 'integer', function ($attribute, $value, $fail) {
@@ -67,7 +68,25 @@ class StoreProductRequest extends FormRequest
             'conversions' => ['nullable', 'array'],
             'conversions.*.unit_id' => ['required_if:stock_managed,1', 'integer', 'not_in:0'],
             'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
-            'conversions.*.barcode' => ['nullable', 'string', 'max:255'],
+            'conversions.*.barcode' => [
+                'nullable',
+                'digits:13',
+                'regex:/^\d{13}$/',
+                function ($attribute, $value, $fail) {
+                    $conversions = $this->input('conversions') ?? [];
+                    $barcodes = array_column($conversions, 'barcode');
+
+                    // Check for duplicates within the conversions array
+                    if (count(array_unique($barcodes)) !== count($barcodes)) {
+                        $fail('Barcode konversi tidak boleh duplikat di antara elemen-elemen konversi.');
+                    }
+
+                    // Use the ProductUnitConversion model to check for uniqueness in the database
+                    if ($value && ProductUnitConversion::where('barcode', $value)->exists()) {
+                        $fail('Barcode konversi ini sudah ada di database.');
+                    }
+                }
+            ],
 
             'document' => ['nullable', 'array'],
             'document.*' => ['nullable', 'string'],
