@@ -185,7 +185,23 @@
                 });
             }
 
-            applyMask();
+            applyMask(); // Reapply mask after the page loads to ensure it's applied properly
+
+            function prefillMaskedValues() {
+                let salePrice = "{{ old('sale_price', $product->sale_price) }}";
+                let purchasePrice = "{{ old('purchase_price', $product->purchase_price) }}";
+
+                if (salePrice) {
+                    $('#sale_price').val(parseFloat(salePrice).toFixed(2));
+                    $('#sale_price').maskMoney('mask'); // Apply the mask
+                }
+                if (purchasePrice) {
+                    $('#purchase_price').val(parseFloat(purchasePrice).toFixed(2));
+                    $('#purchase_price').maskMoney('mask'); // Apply the mask
+                }
+            }
+
+            prefillMaskedValues(); // Ensure the values are formatted correctly
 
             // On focus, unmask to show raw value for editing and select all text
             $('#purchase_price, #sale_price').on('focus', function () {
@@ -206,23 +222,6 @@
                 applyMask(); // Reapply the mask
                 $(this).maskMoney('mask'); // Mask the value again
             });
-
-            // Reapply mask on page load if old values are present
-            function prefillMaskedValues() {
-                let salePrice = "{{ old('sale_price') }}";
-                let purchasePrice = "{{ old('purchase_price') }}";
-
-                if (salePrice) {
-                    $('#sale_price').val(parseFloat(salePrice).toFixed(2));
-                    $('#sale_price').maskMoney('mask');
-                }
-                if (purchasePrice) {
-                    $('#purchase_price').val(parseFloat(purchasePrice).toFixed(2));
-                    $('#purchase_price').maskMoney('mask');
-                }
-            }
-
-            prefillMaskedValues();
 
             // Submit the form with unmasked values
             $('#product-form').submit(function () {
