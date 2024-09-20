@@ -47,6 +47,9 @@
                                 <small class="form-text text-muted">Leave blank if this is a top-level category.</small>
                             </div>
                             <div class="form-group">
+                                <a href="{{ route('product-categories.index') }}" class="btn btn-secondary mr-2">
+                                    Kembali
+                                </a>
                                 <button type="submit" class="btn btn-primary">Update <i class="bi bi-check"></i>
                                 </button>
                             </div>
