@@ -39,13 +39,13 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="name">Nama <span class="text-danger">*</span></label>
-                                        <input class="form-control" type="text" name="name" required>
+                                        <input class="form-control" type="text" name="name" required value="{{ old('name') }}">
                                     </div>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="email">Email <span class="text-danger">*</span></label>
-                                        <input class="form-control" type="email" name="email" required>
+                                        <input class="form-control" type="email" name="email" required value="{{ old('email') }}">
                                     </div>
                                 </div>
                             </div>
