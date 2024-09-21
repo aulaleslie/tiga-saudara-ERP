@@ -42,7 +42,13 @@ class UpdateProductRequest extends FormRequest
             'category_id' => ['nullable', 'integer'],
             'brand_id' => ['nullable', 'integer'],
             'stock_managed' => ['nullable', 'boolean'],
-            'barcode' => ['nullable', 'digits:13', 'regex:/^\d{13}$/', 'unique:products,barcode'],
+            'barcode' => [
+                'nullable',
+                'digits:13',
+                'regex:/^\d{13}$/',
+                // Add the ID of the current product to the unique validation rule to exclude it
+                'unique:products,barcode,' . $this->product->id,
+            ],
 
             // Validate conversions if provided
             'conversions' => ['nullable', 'array'],
@@ -61,9 +67,22 @@ class UpdateProductRequest extends FormRequest
                         $fail('Barcode konversi tidak boleh duplikat di antara elemen-elemen konversi.');
                     }
 
-                    // Use the ProductUnitConversion model to check for uniqueness in the database
-                    if ($value && ProductUnitConversion::where('barcode', $value)->exists()) {
-                        $fail('Barcode konversi ini sudah ada di database.');
+                    // Retrieve the conversion index
+                    $index = explode('.', $attribute)[1] ?? null;
+                    if (is_null($index)) {
+                        $fail('Invalid conversion index.');
+                        return;
+                    }
+
+                    // Retrieve the corresponding product unit conversion based on the index
+                    $conversion = ProductUnitConversion::find($this->input("conversions.$index.id"));
+
+                    // If the conversion exists, check if the barcode has changed
+                    if ($value && $conversion && $conversion->barcode !== $value) {
+                        // Check if the barcode is unique in the database, ignoring the current conversion
+                        if (ProductUnitConversion::where('barcode', $value)->where('id', '!=', $conversion->id)->exists()) {
+                            $fail('Barcode konversi ini sudah ada di database.');
+                        }
                     }
                 }
             ],
