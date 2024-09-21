@@ -29,6 +29,9 @@
                                 </div>
                                 <div class="col-lg-12 d-flex justify-content-end">
                                     <div class="form-group">
+                                        <a href="{{ route('locations.index') }}" class="btn btn-secondary mr-2">
+                                            Kembali
+                                        </a>
                                         <button class="btn btn-primary">Update Lokasi <i class="bi bi-check"></i></button>
                                     </div>
                                 </div>
