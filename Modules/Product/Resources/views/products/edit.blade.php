@@ -100,31 +100,38 @@
                                         <br>
                                         <label>
                                             <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
-                                                   class="input-icheck" {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }} disabled/>
+                                                   class="input-icheck"
+                                                   {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }} disabled/>
                                             <strong>Manajemen Stok</strong>
                                         </label>
                                         <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
                                            data-placement="top"
                                            title="Stock Management should be disabled mostly for services. Example: Jasa Instalasi, Jasa Perbaikan, dll."></i>
-                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
+                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk
+                                                produk ini.</i></p>
                                     </div>
                                 </div>
                             </div>
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <x-input label="Stok" name="product_quantity" type="number" step="1"
-                                             value="{{ old('product_quantity', $product->product_quantity) }}" disabled/>
+                                             value="{{ old('product_quantity', $product->product_quantity) }}"
+                                             disabled/>
                                 </div>
                                 <div class="col-md-6">
                                     <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
-                                             step="1" value="{{ old('product_stock_alert', $product->product_stock_alert) }}"/>
+                                             step="1"
+                                             value="{{ old('product_stock_alert', $product->product_stock_alert) }}"/>
                                 </div>
                             </div>
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <x-select label="Unit Utama" name="base_unit_id"
+                                    <x-select label="Unit Utama" name="base_unit_id_display"
                                               :options="$units->pluck('name', 'id')"
                                               selected="{{ old('base_unit_id', $product->base_unit_id) }}" disabled/>
+                                    <!-- Hidden field to actually submit the base_unit_id -->
+                                    <input type="hidden" name="base_unit_id"
+                                           value="{{ old('base_unit_id', $product->base_unit_id) }}">
                                 </div>
 
                                 <div class="col-md-6">
@@ -134,7 +141,9 @@
                             </div>
 
                             <!-- Livewire component for Unit Conversion Table -->
-                            <livewire:product.unit-conversion-table :conversions="old('conversions', $product->conversions->toArray())" :errors="$errors->toArray()"/>
+                            <livewire:product.unit-conversion-table
+                                :conversions="old('conversions', $product->conversions->toArray())"
+                                :errors="$errors->toArray()"/>
 
                             <div class="form-group">
                                 <label for="product_note">Catatan</label>

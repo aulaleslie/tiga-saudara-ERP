@@ -66,7 +66,26 @@ class StoreProductRequest extends FormRequest
 
             // Validate conversions if provided
             'conversions' => ['nullable', 'array'],
-            'conversions.*.unit_id' => ['required_if:stock_managed,1', 'integer', 'not_in:0'],
+            'conversions.*.unit_id' => [
+                'required_if:stock_managed,1',
+                'integer',
+                'not_in:0',
+                function ($attribute, $value, $fail) {
+                    // Prevent duplicates within conversions array
+                    $conversions = $this->input('conversions') ?? [];
+                    $unitIds = array_column($conversions, 'unit_id');
+
+                    // Check for duplicate unit_id in conversions array
+                    if (count(array_unique($unitIds)) !== count($unitIds)) {
+                        $fail('Unit ID tidak boleh duplikat di antara elemen-elemen konversi.');
+                    }
+
+                    // Check if the unit_id matches the base_unit_id
+                    if ($value == $this->input('base_unit_id')) {
+                        $fail('Unit ID di konversi tidak boleh sama dengan unit dasar.');
+                    }
+                },
+            ],
             'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
             'conversions.*.barcode' => [
                 'nullable',
