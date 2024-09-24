@@ -29,8 +29,10 @@ class SaleController extends Controller
         abort_if(Gate::denies('create_sales'), 403);
 
         Cart::instance('sale')->destroy();
+        $settingId = session('setting_id');
+        $customers = Customer::where('setting_id', $settingId)->get();
 
-        return view('sale::create');
+        return view('sale::create',compact('customers'));
     }
 
 
@@ -142,8 +144,11 @@ class SaleController extends Controller
                 ]
             ]);
         }
+        $settingId = session('setting_id');
+        $customers = Customer::where('setting_id', $settingId)->get();
 
-        return view('sale::edit', compact('sale'));
+
+        return view('sale::edit', compact('sale','customers'));
     }
 
 
