@@ -47,17 +47,17 @@
                                             <label for="customer_id">Customer <span class="text-danger">*</span></label>
                                             <select class="form-control" name="customer_id" id="customer_id" required>
                                                 @foreach($customers as $customer)
-                                                    <option {{ $sale->customer_id == $customer->id ? 'selected' : '' }} value="{{ $customer->id }}">{{ $customer->customer_name }}</option>
+                                                    <option {{ $sale->customer_id == $customer->id ? 'selected' : '' }} value="{{ $customer->id }}" data-email="{{ $customer->customer_email }}" data-address="{{ $customer->billing_address }}">{{ $customer->customer_name }}</option>
                                                 @endforeach
                                             </select>
                                         </div>
                                         <div class="form-group">
                                             <label for="customer_email">Email Pelanggan <span class="text-danger">*</span></label>
-                                            <input type="email" class="form-control" name="customer_email" wire:model="customerEmail" required value="{{ $sale->customer_email }}">
+                                            <input type="email" class="form-control" name="customer_email" id="customer_email"  required value="{{ $sale->customer_email }}">
                                         </div>
                                         <div class="form-group">
                                             <label for="paying_bill_address">Alamat Penagihan <span class="text-danger">*</span></label>
-                                            <textarea class="form-control" name="paying_bill_address" wire:model="payingBillAddress" required>{{ $sale->paying_bill_address }}</textarea>
+                                            <textarea class="form-control" name="paying_bill_address" id="paying_bill_address"  required>{{ $sale->paying_bill_address }}</textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -148,6 +148,14 @@
             $('#sale-form').submit(function () {
                 var paid_amount = $('#paid_amount').maskMoney('unmasked')[0];
                 $('#paid_amount').val(paid_amount);
+            });
+            $('#customer_id').change(function () {
+                var selectedOption = $(this).find('option:selected');
+                var email = selectedOption.data('email');
+                var address = selectedOption.data('address');
+
+                $('#customer_email').val(email);
+                $('#paying_bill_address').val(address);
             });
         });
     </script>
