@@ -12,12 +12,6 @@
 
 @section('content')
     <div class="container-fluid mb-4">
-        <div class="row">
-            <div class="col-12">
-                <livewire:search-product/>
-            </div>
-        </div>
-
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
@@ -86,6 +80,7 @@
                                 </div>
                             </div>
 
+                            <livewire:search-product/>
                             <livewire:product-cart :cartInstance="'sale'"/>
 
                             <div class="form-row">
