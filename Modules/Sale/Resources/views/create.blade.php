@@ -70,7 +70,7 @@
                                         </div>
                                         <div class="form-group">
                                             <label for="date">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
-                                            <input type="date" class="form-control" name="date" required value="{{ \Carbon\Carbon::now()->format('Y-m-d') }}">
+                                            <input type="date" class="form-control" name="due_date" required value="{{ \Carbon\Carbon::now()->format('Y-m-d') }}">
                                         </div>
                                         <div class="form-group">
                                             <label for="term_of_payment">Syarat Pembayaran<span class="text-danger">*</span></label>

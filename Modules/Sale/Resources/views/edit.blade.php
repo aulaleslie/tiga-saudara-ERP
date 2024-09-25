@@ -53,11 +53,11 @@
                                         </div>
                                         <div class="form-group">
                                             <label for="customer_email">Email Pelanggan <span class="text-danger">*</span></label>
-                                            <input type="email" class="form-control" name="customer_email" wire:model="customerEmail" required value="{{ old('customer_email') }}">
+                                            <input type="email" class="form-control" name="customer_email" wire:model="customerEmail" required value="{{ $sale->customer_email }}">
                                         </div>
                                         <div class="form-group">
                                             <label for="paying_bill_address">Alamat Penagihan <span class="text-danger">*</span></label>
-                                            <textarea class="form-control" name="paying_bill_address" wire:model="payingBillAddress" required>{{ old('paying_bill_address') }}</textarea>
+                                            <textarea class="form-control" name="paying_bill_address" wire:model="payingBillAddress" required>{{ $sale->paying_bill_address }}</textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -69,7 +69,7 @@
                                         </div>
                                         <div class="form-group">
                                             <label for="date">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
-                                            <input type="date" class="form-control" name="date" required value="">
+                                            <input type="date" class="form-control" name="due_date" required value="{{ $sale->due_date }}">
                                         </div>
                                         <div class="form-group">
                                             <label for="term_of_payment">Syarat Pembayaran<span class="text-danger">*</span></label>
