@@ -32,6 +32,7 @@
                     @include('utils.alerts')
                     <div class="form-group">
                         <button class="btn btn-primary" type="submit">Perbarui Akun <i class="bi bi-check"></i></button>
+                        <a href="{{ route('users.index') }}" class="btn btn-secondary">Kembali</a>
                     </div>
                 </div>
                 <div class="col-md-8">

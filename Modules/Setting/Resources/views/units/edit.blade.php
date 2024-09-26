@@ -17,6 +17,7 @@
             @method('put')
             <div class="row">
                 <div class="col-lg-12">
+                    @include('utils.alerts')
                     <div class="card">
                         <div class="card-body">
                             <div class="form-row">

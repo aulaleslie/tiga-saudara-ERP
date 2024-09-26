@@ -6,7 +6,7 @@
 
 @can('access_products')
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('products.*') || request()->routeIs('product-categories.*') ? 'c-show' : '' }}">
-        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#" style="margin: 2px 0;">
             <i class="c-sidebar-nav-icon bbi bi-box2-fill" style="line-height: 1;"></i> Produk
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
@@ -56,27 +56,27 @@
 
 @canany(['adjustment.access','adjustment.create'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('adjustments.*') ? 'c-show' : '' }}">
-        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#" style="margin: 2px 0;">
             <i class="c-sidebar-nav-icon bi bi-clipboard-check" style="line-height: 1;"></i> Stock Adjustments
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
             @can('adjustment.create')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.create') ? 'c-active' : '' }}"
-                       href="{{ route('adjustments.create') }}">
+                       href="{{ route('adjustments.create') }}" style="margin: 2px 0;">
                         <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Adjustment
                     </a>
                 </li>
             @endcan
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.createBreakage') ? 'c-active' : '' }}"
-                   href="{{ route('adjustments.createBreakage') }}">
+                   href="{{ route('adjustments.createBreakage') }}" style="margin: 2px 0;">
                     <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Breakage
                 </a>
             </li>
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.index') ? 'c-active' : '' }}"
-                   href="{{ route('adjustments.index') }}">
+                   href="{{ route('adjustments.index') }}" style="margin: 2px 0;">
                     <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> All Adjustments
                 </a>
             </li>
@@ -86,7 +86,7 @@
 
 @can('access_adjustments')
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('transfers.*') ? 'c-show' : '' }}">
-        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#" style="margin: 2px 0;">
             <i class="c-sidebar-nav-icon bi bi-clipboard-check" style="line-height: 1;"></i> Transfer Stock
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
@@ -257,20 +257,22 @@
 
 @can('access_customers|access_suppliers')
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('customers.*') || request()->routeIs('suppliers.*') ? 'c-show' : '' }}">
-        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#" style="margin: 2px 0;">
             <i class="c-sidebar-nav-icon bi bi-people" style="line-height: 1;"></i> Parties
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
             @can('access_customers')
                 <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('customers.*') ? 'c-active' : '' }}" href="{{ route('customers.index') }}">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('customers.*') ? 'c-active' : '' }}"
+                       href="{{ route('customers.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-people-fill" style="line-height: 1;"></i> Pelanggan
                     </a>
                 </li>
             @endcan
             @can('access_suppliers')
                 <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('suppliers.*') ? 'c-active' : '' }}" href="{{ route('suppliers.index') }}">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('suppliers.*') ? 'c-active' : '' }}"
+                       href="{{ route('suppliers.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-people-fill" style="line-height: 1;"></i> Pemasok
                     </a>
                 </li>
@@ -320,7 +322,7 @@
 {{--@endcan--}}
 @canany(['access_user_management','users.access','role.access'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('users*') || request()->routeIs('roles*') ? 'c-show' : '' }}">
-        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#" style="margin: 2px 0;">
             <i class="c-sidebar-nav-icon bi bi-person-fill-gear" style="line-height: 1;"></i> Pengelolaan Pengguna
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
@@ -346,7 +348,7 @@
 
 @can('access_settings')
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') ? 'c-show' : '' }}">
-        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#" style="margin: 2px 0;">
             <i class="c-sidebar-nav-icon bi bi-wrench-adjustable" style="line-height: 1;"></i> Pengaturan
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
@@ -369,7 +371,15 @@
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('locations*') ? 'c-active' : '' }}"
                        href="{{ route('locations.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Lokasi
+                        <i class="c-sidebar-nav-icon bi bi-shop" style="line-height: 1;"></i> Daftar Lokasi
+                    </a>
+                </li>
+            @endcan
+            @can("tax.accces")
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('taxes*') ? 'c-active' : '' }}"
+                       href="{{ route('taxes.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-bank2" style="line-height: 1;"></i> Daftar Pajak
                     </a>
                 </li>
             @endcan
