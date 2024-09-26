@@ -126,4 +126,9 @@ class Product extends Model implements HasMedia
     {
         return $this->hasMany(Transaction::class);
     }
+
+    public function serialNumbers(): HasMany
+    {
+        return $this->hasMany(ProductSerialNumber::class);
+    }
 }
