@@ -13,8 +13,15 @@
                             Kembali
                         </a>
                         <x-button label="Tambah Produk" icon="bi-check"/>
+
+                        <!-- Save and Proceed to Serial Number Input Button, initially hidden -->
+                        <button type="submit" class="btn btn-primary ml-2" id="serial-number-submit-btn"
+                                formaction="{{ route('products.storeAndRedirect') }}" style="display: none;">
+                            Tambah Produk & Lanjut Input Serial Number
+                        </button>
                     </div>
                 </div>
+
                 <div class="col-lg-12">
                     <div class="card">
                         <div class="card-body">
@@ -34,13 +41,6 @@
                                 </div>
                                 <div class="col-md-6">
                                     <x-select label="Merek" name="brand_id" :options="$brands->pluck('name', 'id')"/>
-                                </div>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="col-md-4">
-                                    <x-select label="Lokasi" name="location_id"
-                                              :options="$locations->pluck('name', 'id')"/>
                                 </div>
                             </div>
 
@@ -112,6 +112,14 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <div class="form-row">
+                                <div class="col-md-4">
+                                    <x-select label="Lokasi" name="location_id"
+                                              :options="$locations->pluck('name', 'id')"/>
+                                </div>
+                            </div>
+
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <x-input label="Stok" name="product_quantity" type="number" step="1"/>
@@ -121,6 +129,7 @@
                                              step="1"/>
                                 </div>
                             </div>
+
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <x-select label="Unit Utama" name="base_unit_id"
@@ -133,10 +142,20 @@
                                 </div>
                             </div>
 
+                            <div class="form-row">
+                                <div class="col-md-4">
+                                    <div class="form-group">
+                                        <input type="checkbox" name="serial_number_required" id="serial_number_required"
+                                               value="1" disabled>
+                                        <label for="serial_number_required"><strong>Serial Number
+                                                Required</strong></label>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Livewire component for Unit Conversion Table -->
                             <livewire:product.unit-conversion-table :conversions="old('conversions', [])"
                                                                     :errors="$errors->toArray()"/>
-
 
                             <div class="form-group">
                                 <label for="product_note">Catatan</label>
@@ -261,6 +280,25 @@
 
             togglePurchaseFields();
             toggleSaleFields();
+
+            function toggleSerialNumberCheckbox() {
+                let quantity = $('#product_quantity').val();
+                let isStockManaged = $('#stock_managed').is(':checked');
+                let isEnabled = quantity > 0 && isStockManaged;
+
+                $('#serial_number_required').prop('disabled', !isEnabled);
+
+                if (isEnabled && $('#serial_number_required').is(':checked')) {
+                    // Show the Serial Number button
+                    $('#serial-number-submit-btn').show();
+                } else {
+                    // Hide the Serial Number button
+                    $('#serial-number-submit-btn').hide();
+                }
+            }
+
+            $('#product_quantity, #stock_managed, #serial_number_required').on('change keyup', toggleSerialNumberCheckbox);
+            toggleSerialNumberCheckbox(); // Trigger on page load
         });
     </script>
 

@@ -17,10 +17,12 @@ use Illuminate\Support\Facades\Storage;
 use Modules\Product\Entities\Brand;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\Transaction;
 use Modules\Product\Http\Requests\StoreProductRequest;
 use Modules\Product\Http\Requests\UpdateProductRequest;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use League\Csv\Reader;
 use League\Csv\Statement;
@@ -409,5 +411,165 @@ class ProductController extends Controller
     {
         // Remove any commas or currency symbols and convert to float
         return (int)str_replace([','], '', trim($price));
+    }
+
+    public function storeProductAndRedirectToSerialNumberInput(StoreProductRequest $request): RedirectResponse
+    {
+        Log::info('Starting product creation.');
+
+        $validatedData = $request->validated();
+
+        Log::info('Validated data.', $validatedData);
+
+        // Extract location_id before unsetting it from the validated data
+        $locationId = $validatedData['location_id'] ?? null;
+
+        // Set default values for nullable fields
+        $fieldsWithDefaults = [
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'product_stock_alert' => 0,
+            'product_order_tax' => 0,
+            'product_tax_type' => 0,
+            'profit_percentage' => 0,
+            'purchase_price' => 0,
+            'purchase_tax' => 0,
+            'sale_price' => 0,
+            'sale_tax' => 0,
+            'product_price' => 0
+        ];
+
+        foreach ($fieldsWithDefaults as $field => $defaultValue) {
+            if (empty($validatedData[$field])) {
+                $validatedData[$field] = $defaultValue;
+            }
+        }
+
+        $fieldsConvertedToNulls = ['brand_id', 'category_id', 'base_unit_id'];
+        foreach ($fieldsConvertedToNulls as $field) {
+            if (empty($validatedData[$field])) {
+                $validatedData[$field] = null;
+            }
+        }
+
+        // Remove location_id from the validated data to prevent it from being saved to the products table
+        $selectedLocationId = $validatedData['location_id'];
+        unset($validatedData['location_id']);
+
+        $validatedData['setting_id'] = session('setting_id');
+
+        // Handle documents separately
+        $documents = $validatedData['document'] ?? [];
+        unset($validatedData['document']);
+
+        // Handle conversions separately
+        $conversions = $validatedData['conversions'] ?? [];
+        unset($validatedData['conversions']);
+
+        DB::beginTransaction();
+
+        try {
+            $product = Product::create($validatedData);
+            Log::info('Product created successfully', ['product_id' => $product->id]);
+
+            // Handle document uploads
+            if (!empty($documents)) {
+                foreach ($documents as $file) {
+                    $product->addMedia(Storage::path('temp/dropzone/' . $file))->toMediaCollection('images');
+                }
+            }
+
+            // Handle unit conversions
+            if (!empty($conversions)) {
+                foreach ($conversions as $conversion) {
+                    $conversion['base_unit_id'] = $validatedData['base_unit_id'];
+                    $product->conversions()->create($conversion);
+                }
+            }
+
+            // Add a transaction if product_quantity is greater than 0
+            if ($validatedData['product_quantity'] > 0) {
+                Transaction::create([
+                    'product_id' => $product->id,
+                    'setting_id' => $validatedData['setting_id'],
+                    'type' => 'INIT', // Assuming 'INIT' is used for initial stock setup
+                    'quantity' => $validatedData['product_quantity'],
+                    'current_quantity' => $validatedData['product_quantity'], // Assuming initial quantity is the current quantity
+                    'broken_quantity' => 0, // Assuming no broken quantity initially
+                    'location_id' => $locationId, // Use the extracted location_id
+                    'user_id' => auth()->id(), // Assuming the user is authenticated
+                    'reason' => 'Initial stock setup', // Provide a reason for the transaction
+                ]);
+                Log::info('Transaction created successfully for the product.', ['product_id' => $product->id]);
+            }
+
+            DB::commit();
+            Log::info('Product creation successful, transaction committed.');
+
+            toast('Produk Ditambahkan!', 'success');
+            return redirect()->route('products.inputSerialNumber', [
+                'product_id' => $product->id,
+                'location_id' => $selectedLocationId,
+            ]);
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Gagal Menambahkan Produk. Silahkan Coba lagi!', ['error' => $e->getMessage()]);
+
+            toast('Failed to create product. Please try again.', 'error');
+            return redirect()->back()->withInput();
+        }
+    }
+
+    public function inputSerialNumber(Request $request): Factory|View|Application
+    {
+        $currentSettingId = session('setting_id');
+        $product = Product::findOrFail($request->product_id);
+        $locationId = $request->location_id;
+        $quantity = $product->product_quantity;
+        $taxes = Tax::where('setting_id', $currentSettingId)->get();
+
+        // Fetch existing serial numbers (for edit mode)
+        $existingSerialNumbers = $product->serialNumbers()
+            ->with('location', 'tax')
+            ->get();
+
+        // Determine if we are in edit mode by checking if there are existing serial numbers
+        $isEditMode = $existingSerialNumbers->isNotEmpty();
+
+        // Create an array of existing serials for read-only rows
+        $readonlySerialNumbers = $existingSerialNumbers->toArray();
+
+        // Determine remaining rows for new serial numbers
+        $remainingRows = $quantity - count($readonlySerialNumbers);
+
+        // Preselected location name (only used in create mode)
+        $preselectedLocationName = Location::findOrFail($locationId)->name;
+
+        return view('product::products.input-serial-number', compact(
+            'product', 'locationId', 'quantity', 'taxes', 'readonlySerialNumbers', 'remainingRows', 'isEditMode', 'preselectedLocationName'
+        ));
+    }
+
+    public function saveSerialNumbers(Request $request): RedirectResponse
+    {
+        $request->validate([
+            'serial_numbers.*' => 'required|string|unique:product_serial_numbers,serial_number',
+            'locations.*' => 'required|exists:locations,id',
+            'tax_ids.*' => 'nullable|exists:taxes,id',
+        ]);
+
+        DB::transaction(function () use ($request) {
+            foreach ($request->input('serial_numbers') as $index => $serialNumber) {
+                ProductSerialNumber::create([
+                    'product_id' => $request->input('product_id'),
+                    'location_id' => $request->input('locations')[$index],
+                    'serial_number' => $serialNumber,
+                    'tax_id' => $request->input('tax_ids')[$index] ?? null,
+                ]);
+            }
+        });
+
+        toast('Serial Numbers Saved Successfully!', 'success');
+        return redirect()->route('products.index');
     }
 }
