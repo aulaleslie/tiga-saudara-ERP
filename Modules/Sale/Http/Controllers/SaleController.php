@@ -62,6 +62,9 @@ class SaleController extends Controller
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
+                'due_date' => $request->due_date,
+                'paying_bill_address' => $request->paying_bill_address,
+                'term_of_payment' => $request->term_of_payment,
                 'tax_amount' => Cart::instance('sale')->tax() * 100,
                 'discount_amount' => Cart::instance('sale')->discount() * 100,
             ]);
@@ -190,6 +193,9 @@ class SaleController extends Controller
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
+                'due_date' => $request->due_date,
+                'paying_bill_address' => $request->paying_bill_address,
+                'term_of_payment' => $request->term_of_payment,
                 'tax_amount' => Cart::instance('sale')->tax() * 100,
                 'discount_amount' => Cart::instance('sale')->discount() * 100,
             ]);
