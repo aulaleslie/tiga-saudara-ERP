@@ -243,9 +243,27 @@ class ProductController extends Controller
             }
 
             // Handle unit conversions
-            if (!empty($conversions)) {
-                $product->conversions()->delete(); // Remove existing conversions
-                foreach ($conversions as $conversion) {
+            // Fetch all existing conversions from the database
+            $existingConversions = $product->conversions->pluck('id')->toArray();
+
+            // Delete conversions that were removed in the form submission
+            foreach ($existingConversions as $existingId) {
+                if (!in_array($existingId, array_column($conversions, 'id'))) {
+                    $product->conversions()->where('id', $existingId)->delete();
+                }
+            }
+
+            // Update or create new conversions
+            foreach ($conversions as $conversion) {
+                if (isset($conversion['id'])) {
+                    // Update existing conversion
+                    $product->conversions()->where('id', $conversion['id'])->update([
+                        'unit_id' => $conversion['unit_id'],
+                        'conversion_factor' => $conversion['conversion_factor'],
+                        'barcode' => $conversion['barcode'],
+                    ]);
+                } else {
+                    // Create new conversion
                     $conversion['base_unit_id'] = $product->base_unit_id;
                     $product->conversions()->create($conversion);
                 }
@@ -263,6 +281,7 @@ class ProductController extends Controller
             return redirect()->back()->withInput();
         }
     }
+
 
 
     public function destroy(Product $product): RedirectResponse
