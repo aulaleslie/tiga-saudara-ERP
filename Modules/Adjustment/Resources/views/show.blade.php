@@ -86,7 +86,6 @@
                                     <th>Product Name</th>
                                     <th>Code</th>
                                     <th>Quantity</th>
-                                    <th>Type</th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -95,14 +94,7 @@
                                         <td>{{ $adjustedProduct->product->product_name }}</td>
                                         <td>{{ $adjustedProduct->product->product_code }}</td>
                                         <td>{{ $adjustedProduct->quantity }}</td>
-                                        <td>
-                                            @if($adjustedProduct->type == 'add')
-                                                (+) Addition
-                                            @else
-                                                (-)
-                                                Subtraction
-                                            @endif
-                                        </td>
+
                                     </tr>
                                 @endforeach
                                 </tbody>
