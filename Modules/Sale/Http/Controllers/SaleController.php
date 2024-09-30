@@ -29,8 +29,10 @@ class SaleController extends Controller
         abort_if(Gate::denies('create_sales'), 403);
 
         Cart::instance('sale')->destroy();
+        $settingId = session('setting_id');
+        $customers = Customer::where('setting_id', $settingId)->get();
 
-        return view('sale::create');
+        return view('sale::create',compact('customers'));
     }
 
 
@@ -50,6 +52,7 @@ class SaleController extends Controller
                 'date' => $request->date,
                 'customer_id' => $request->customer_id,
                 'customer_name' => Customer::findOrFail($request->customer_id)->customer_name,
+                'customer_email' => $request->customer_email,
                 'tax_percentage' => $request->tax_percentage,
                 'discount_percentage' => $request->discount_percentage,
                 'shipping_amount' => $request->shipping_amount * 100,
@@ -60,6 +63,9 @@ class SaleController extends Controller
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
+                'due_date' => $request->due_date,
+                'paying_bill_address' => $request->paying_bill_address,
+                'term_of_payment' => $request->term_of_payment,
                 'tax_amount' => Cart::instance('sale')->tax() * 100,
                 'discount_amount' => Cart::instance('sale')->discount() * 100,
             ]);
@@ -142,8 +148,11 @@ class SaleController extends Controller
                 ]
             ]);
         }
+        $settingId = session('setting_id');
+        $customers = Customer::where('setting_id', $settingId)->get();
 
-        return view('sale::edit', compact('sale'));
+
+        return view('sale::edit', compact('sale','customers'));
     }
 
 
@@ -175,6 +184,7 @@ class SaleController extends Controller
                 'reference' => $request->reference,
                 'customer_id' => $request->customer_id,
                 'customer_name' => Customer::findOrFail($request->customer_id)->customer_name,
+                'customer_email' => $request->customer_email,
                 'tax_percentage' => $request->tax_percentage,
                 'discount_percentage' => $request->discount_percentage,
                 'shipping_amount' => $request->shipping_amount * 100,
@@ -185,6 +195,9 @@ class SaleController extends Controller
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
+                'due_date' => $request->due_date,
+                'paying_bill_address' => $request->paying_bill_address,
+                'term_of_payment' => $request->term_of_payment,
                 'tax_amount' => Cart::instance('sale')->tax() * 100,
                 'discount_amount' => Cart::instance('sale')->discount() * 100,
             ]);

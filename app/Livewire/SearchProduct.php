@@ -43,8 +43,13 @@ class SearchProduct extends Component
             ->take($this->how_many)
             ->get()
             ->map(function ($product) {
-                $quantity = $this->getProductQuantityAtLocation($product->id, $this->locationId);
-                $product->product_quantity = $quantity;  // Adding the calculated quantity to the product object
+                if ($this->locationId) {
+                    $quantity = $this->getProductQuantityAtLocation($product->id, $this->locationId);
+                    $product->product_quantity = $quantity;  // Adding the calculated quantity to the product object
+                } else {
+                    $quantity = $this->getProductQuantity($product->id);
+                    $product->product_quantity = $quantity;  // Adding the calculated quantity to the product object
+                }
                 return $product;
             });
     }
@@ -54,6 +59,13 @@ class SearchProduct extends Component
         return Transaction::where('product_id', $productId)
             ->where('location_id', $locationId)
             ->groupBy('product_id', 'location_id')
+            ->sum('quantity');
+    }
+    
+    public function getProductQuantity($productId): int
+    {
+        return Transaction::where('product_id', $productId)
+            ->groupBy('product_id')
             ->sum('quantity');
     }
 
