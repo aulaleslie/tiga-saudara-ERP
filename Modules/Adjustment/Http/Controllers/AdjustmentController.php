@@ -64,25 +64,27 @@ class AdjustmentController extends Controller
             'note' => 'nullable|string|max:1000',
             'product_ids' => 'required',
             'quantities' => 'required',
-            'types' => 'required',
+            'types' => 'nullable|string',
             'location_id' => 'required|exists:locations,id', // Ensure location_id is provided and valid
         ]);
 
         DB::transaction(function () use ($request) {
             $adjustment = Adjustment::create([
-                'date' => $request->date,
-                'note' => $request->note,
-                'type' => 'normal',  // Save the adjustment type
-                'status' => 'pending',  // Set status to pending
-                'location_id' => $request->location_id,  // Record the location_id
+                'date' => $request->date ?? '',
+                'note' => $request->note ?? '',
+                'type' => 'normal',  // normal atau breakage
+                'status' => 'pending',
+                'location_id' => $request->location_id ?? '',
             ]);
 
             foreach ($request->product_ids as $key => $id) {
+                $product = Product::findOrFail($id);
+                // Simpan quantity aktual dari produk sebagai bagian dari penyesuaian
                 AdjustedProduct::create([
                     'adjustment_id' => $adjustment->id,
-                    'product_id' => $id,
-                    'quantity' => $request->quantities[$key],
-                    'type' => $request->types[$key]
+                    'product_id' => $id ?? '',
+                    'quantity' => $request->quantities[$key], // Ini adalah quantity yang disesuaikan
+                    'type' => $request->types[$key] ?? ''
                 ]);
             }
         });
@@ -156,7 +158,7 @@ class AdjustmentController extends Controller
             'note' => 'nullable|string|max:1000',
             'product_ids' => 'required',
             'quantities' => 'required',
-            'types' => 'required'
+            'types' => 'nullable|string'
         ]);
 
         DB::transaction(function () use ($request, $adjustment) {
@@ -175,7 +177,7 @@ class AdjustmentController extends Controller
                     'adjustment_id' => $adjustment->id,
                     'product_id' => $id,
                     'quantity' => $request->quantities[$key],
-                    'type' => $request->types[$key]
+                    'type' => 'sub'
                 ]);
             }
         });
@@ -248,49 +250,46 @@ class AdjustmentController extends Controller
         DB::beginTransaction();
 
         try {
-            // Iterate through the adjusted products
+            // Iterasi melalui produk yang disesuaikan
             foreach ($adjustment->adjustedProducts as $adjustedProduct) {
                 $product = Product::findOrFail($adjustedProduct->product_id);
 
                 if ($adjustment->type === 'normal') {
-                    // Determine the quantity to update and store in the transaction
+                    // Pastikan stok sesuai dengan quantity yang disesuaikan
                     $quantity = $adjustedProduct->quantity;
-                    if ($adjustedProduct->type == 'sub') {
-                        $quantity = -$quantity; // Make quantity negative for subtraction
-                    }
 
-                    // Update product quantity for normal adjustment
+                    // Update stok produk agar sama dengan quantity yang disesuaikan
                     $product->update([
-                        'product_quantity' => $product->product_quantity + $quantity
+                        'product_quantity' => $quantity
                     ]);
 
-                    // Create a transaction for the adjustment
+                    // Buat transaksi untuk penyesuaian
                     Transaction::create([
                         'product_id' => $product->id,
                         'setting_id' => session('setting_id'),
                         'type' => 'ADJ',
                         'quantity' => $quantity,
-                        'current_quantity' => $product->product_quantity,
-                        'broken_quantity' => 0, // No change in broken quantity for normal adjustments
+                        'current_quantity' => $product->product_quantity, // Nilai stok yang diperbarui
+                        'broken_quantity' => 0, // Tidak ada perubahan dalam jumlah rusak untuk penyesuaian normal
                         'location_id' => $adjustment->location_id,
                         'user_id' => auth()->id(),
                         'reason' => 'Adjustment approved',
                     ]);
 
                 } elseif ($adjustment->type === 'breakage') {
-                    // Update broken quantity for breakage adjustment
+                    // Tangani penyesuaian tipe breakage, tetap sinkron dengan jumlah rusak
                     $product->update([
                         'broken_quantity' => $product->broken_quantity + $adjustedProduct->quantity
                     ]);
 
-                    // Create a transaction for the breakage adjustment
+                    // Buat transaksi untuk penyesuaian breakage
                     Transaction::create([
                         'product_id' => $product->id,
                         'setting_id' => session('setting_id'),
                         'type' => 'ADJ',
                         'quantity' => 0,
-                        'current_quantity' => $product->product_quantity, // No change in current quantity for breakage
-                        'broken_quantity' => $product->broken_quantity, // Update broken quantity
+                        'current_quantity' => $product->product_quantity, // Tidak ada perubahan dalam jumlah saat ini untuk breakage
+                        'broken_quantity' => $product->broken_quantity, // Perbarui jumlah rusak
                         'location_id' => $adjustment->location_id,
                         'user_id' => auth()->id(),
                         'reason' => 'Breakage adjustment approved',
@@ -298,21 +297,22 @@ class AdjustmentController extends Controller
                 }
             }
 
-            // Update adjustment status to approved
+            // Update status penyesuaian menjadi disetujui
             $adjustment->update(['status' => 'approved']);
 
             DB::commit();
-            toast('Adjustment Approved!', 'warning');
+            toast('Adjustment Approved!', 'success');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Adjustment approval failed', ['error' => $e->getMessage()]);
-            session()->flash('error', 'Failed to approve adjustment. Please try again.');
+            Log::error('Gagal menyetujui penyesuaian', ['error' => $e->getMessage()]);
+            session()->flash('error', 'Gagal menyetujui penyesuaian. Silakan coba lagi.');
             toast('Error to Approve Adjustment!', 'error');
         }
 
         return redirect()->route('adjustments.index');
     }
+
 
     public function reject(Adjustment $adjustment): RedirectResponse
     {

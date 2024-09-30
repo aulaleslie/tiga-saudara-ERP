@@ -23,7 +23,6 @@
                 <th class="align-middle">Code</th>
                 <th class="align-middle">Stock</th>
                 <th class="align-middle">Quantity</th>
-                <th class="align-middle">Type</th>
                 <th class="align-middle">Action</th>
             </tr>
             </thead>
@@ -43,26 +42,7 @@
                         <td class="align-middle">
                             <input type="number" name="quantities[]" min="1" class="form-control" value="{{ $product['quantity'] ?? 0 }}">
                         </td>
-                        <td class="align-middle">
-                            @if(isset($product['type']))
-                                @if($product['type'] == 'add')
-                                    <select name="types[]" class="form-control">
-                                        <option value="add" selected>(+) Addition</option>
-                                        <option value="sub">(-) Subtraction</option>
-                                    </select>
-                                @elseif($product['type'] == 'sub')
-                                    <select name="types[]" class="form-control">
-                                        <option value="sub" selected>(-) Subtraction</option>
-                                        <option value="add">(+) Addition</option>
-                                    </select>
-                                @endif
-                            @else
-                                <select name="types[]" class="form-control">
-                                    <option value="add">(+) Addition</option>
-                                    <option value="sub">(-) Subtraction</option>
-                                </select>
-                            @endif
-                        </td>
+
                         <td class="align-middle text-center">
                             <button type="button" class="btn btn-danger" wire:click="removeProduct({{ $key }})">
                                 <i class="bi bi-trash"></i>
