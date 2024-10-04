@@ -12,7 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('products', function (Blueprint $table) {
-            $table->boolean('serial_number_required')->default(false)->after('product_quantity');
+            $table->foreignId('purchase_tax_id')->nullable()->constrained('taxes')->onDelete('set null');
+            $table->foreignId('sale_tax_id')->nullable()->constrained('taxes')->onDelete('set null');
         });
     }
 
@@ -22,8 +23,8 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('products', function (Blueprint $table) {
-            // Drop the column when rolling back
-            $table->dropColumn('serial_number_required');
+            $table->dropColumn('purchase_tax_id');
+            $table->dropColumn('sale_tax_id');
         });
     }
 };

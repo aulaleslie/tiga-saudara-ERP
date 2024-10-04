@@ -15,15 +15,6 @@ class ProductStock extends Model
     // Define the table if it's different from the default plural form
     protected $table = 'product_stocks';
 
-    // Allow mass assignment for these columns
-    protected $fillable = [
-        'product_id',
-        'location_id',
-        'quantity',
-        'broken_quantity',
-        'tax_id'
-    ];
-
     // Define relationships
     public function product(): BelongsTo
     {

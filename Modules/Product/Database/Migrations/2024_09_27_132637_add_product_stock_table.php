@@ -16,7 +16,13 @@ return new class extends Migration
             $table->foreignId('product_id')->constrained('products')->onDelete('cascade');
             $table->foreignId('location_id')->constrained('locations')->onDelete('cascade');
             $table->integer('quantity');
-            $table->integer('broken_quantity');
+            $table->integer('quantity_non_tax');
+            $table->integer('quantity_tax');
+            $table->integer('broken_quantity_non_tax');
+            $table->integer('broken_quantity_tax');
+            $table->decimal('last_purchase_price');
+            $table->decimal('average_purchase_price');
+            $table->decimal('sale_price');
             $table->foreignId('tax_id')->nullable()->constrained('taxes')->onDelete('set null');
             $table->timestamps();
         });

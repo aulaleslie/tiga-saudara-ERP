@@ -9,31 +9,33 @@
             <div class="row">
                 <div class="col-lg-12">
                     <div class="form-group">
-                        <a href="{{ route('products.index') }}" class="btn btn-secondary mr-2">
-                            Kembali
-                        </a>
+                        <a href="{{ route('products.index') }}" class="btn btn-secondary mr-2">Kembali</a>
                         <x-button label="Tambah Produk" icon="bi-check"/>
 
-                        <!-- Save and Proceed to Serial Number Input Button, initially hidden -->
-                        <button type="submit" class="btn btn-primary ml-2" id="serial-number-submit-btn"
-                                formaction="{{ route('products.storeAndRedirect') }}" style="display: none;">
-                            Tambah Produk & Lanjut Input Serial Number
+                        <!-- Show when stock_managed is checked -->
+                        <button type="submit" class="btn btn-primary ml-2" id="stock-initiate-btn"
+                                formaction="{{ route('products.storeProductAndRedirectToInitializeProductStock') }}"
+                                style="display: none;">
+                            Tambah Produk & Lanjut Inisiasi Stock
                         </button>
                     </div>
                 </div>
 
+                <!-- Product Details Section -->
                 <div class="col-lg-12">
                     <div class="card">
                         <div class="card-body">
+                            <!-- Product Name and Code -->
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <x-input label="Nama Produk" name="product_name"/>
+                                    <x-input label="Nama Produk" name="product_name" required/>
                                 </div>
                                 <div class="col-md-6">
-                                    <x-input label="Kode Produk" name="product_code"/>
+                                    <x-input label="Kode Produk" name="product_code" required/>
                                 </div>
                             </div>
 
+                            <!-- Kategori and Merek -->
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <x-select label="Kategori" name="category_id" :options="$formattedCategories"
@@ -59,8 +61,8 @@
                                                              value="{{ old('purchase_price', $purchase_price ?? '') }}"/>
                                                 </div>
                                                 <div class="col-md-6">
-                                                    <x-select label="Pajak Beli" name="purchase_tax"
-                                                              :options="['1' => 'PPN 11%']"
+                                                    <x-select label="Pajak Beli" name="purchase_tax_id"
+                                                              :options="$taxes->pluck('name', 'id')"
                                                               :disabled="!old('is_purchased')"/>
                                                 </div>
                                             </div>
@@ -85,8 +87,8 @@
                                                              value="{{ old('sale_price', $sale_price ?? '') }}"/>
                                                 </div>
                                                 <div class="col-md-6">
-                                                    <x-select label="Pajak Jual" name="sale_tax"
-                                                              :options="['1' => 'PPN 11%']"
+                                                    <x-select label="Pajak Jual" name="sale_tax_id"
+                                                              :options="$taxes->pluck('name', 'id')"
                                                               :disabled="!old('is_sold')"/>
                                                 </div>
                                             </div>
@@ -95,53 +97,22 @@
                                 </div>
                             </div>
 
+                            <!-- Stock Management -->
                             <div class="form-row">
                                 <div class="col-md-4">
                                     <div class="form-group">
-                                        <br>
                                         <label>
-                                            <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
-                                                   class="input-icheck" {{ old('stock_managed') ? 'checked' : '' }}>
+                                            <input type="checkbox" name="stock_managed" id="stock_managed"
+                                                   value="1" {{ old('stock_managed') ? 'checked' : '' }}>
                                             <strong>Manajemen Stok</strong>
                                         </label>
-                                        <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
-                                           data-placement="top"
-                                           title="Stock Management should be disabled mostly for services. Example: Jasa Instalasi, Jasa Perbaikan, dll."></i>
                                         <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk
                                                 produk ini.</i></p>
                                     </div>
                                 </div>
                             </div>
 
-                            <div class="form-row">
-                                <div class="col-md-4">
-                                    <x-select label="Lokasi" name="location_id"
-                                              :options="$locations->pluck('name', 'id')"/>
-                                </div>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Stok" name="product_quantity" type="number" step="1"/>
-                                </div>
-                                <div class="col-md-6">
-                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
-                                             step="1"/>
-                                </div>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-select label="Unit Utama" name="base_unit_id"
-                                              :options="$units->pluck('name', 'id')"/>
-                                </div>
-
-                                <div class="col-md-6">
-                                    <x-input label="Barcode Unit Utama" name="barcode"
-                                             value="{{ old('barcode') }}"/>
-                                </div>
-                            </div>
-
+                            <!-- Serial Number Requirement -->
                             <div class="form-row">
                                 <div class="col-md-4">
                                     <div class="form-group">
@@ -153,43 +124,34 @@
                                 </div>
                             </div>
 
+                            <!-- Product Quantity and Stock Alert -->
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
+                                             step="1"/>
+                                </div>
+                            </div>
+
+                            <!-- Unit and Barcode -->
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <x-select label="Unit Utama" name="base_unit_id"
+                                              :options="$units->pluck('name', 'id')"/>
+                                </div>
+                                <div class="col-md-6">
+                                    <x-input label="Barcode Unit Utama" name="barcode"/>
+                                </div>
+                            </div>
+
                             <!-- Livewire component for Unit Conversion Table -->
                             <livewire:product.unit-conversion-table :conversions="old('conversions', [])"
                                                                     :errors="$errors->toArray()"/>
-
-                            <div class="form-group">
-                                <label for="product_note">Catatan</label>
-                                <textarea name="product_note" id="product_note" rows="4"
-                                          class="form-control"></textarea>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-lg-12">
-                    <div class="card">
-                        <div class="card-body">
-                            <div class="form-group">
-                                <label for="image">Gambar Produk <i class="bi bi-question-circle-fill text-info"
-                                                                    data-toggle="tooltip" data-placement="top"
-                                                                    title="Max Files: 3, Max File Size: 1MB, Image Size: 400x400"></i></label>
-                                <div
-                                    class="dropzone d-flex flex-wrap flex-wrap align-items-center justify-content-center"
-                                    id="document-dropzone">
-                                    <div class="dz-message" data-dz-message>
-                                        <i class="bi bi-cloud-arrow-up"></i>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>
             </div>
         </form>
     </div>
-
-    <!-- Create Category Modal -->
-    @include('product::includes.category-modal')
 @endsection
 
 @section('third_party_scripts')
@@ -258,10 +220,11 @@
                 $('#is_purchased').on('change', function () {
                     const isChecked = $(this).is(':checked');
                     $('#purchase_price').prop('disabled', !isChecked).val(isChecked ? $('#purchase_price').val() : '');
-                    $('#purchase_tax').prop('disabled', !isChecked).val(isChecked ? $('#purchase_tax').val() : '0');
+                    $('#purchase_tax_id').prop('disabled', !isChecked);
+
                     if (!isChecked) {
-                        $('#purchase_price').val('');
-                        $('#purchase_tax').val('0');
+                        $('#purchase_price').val(''); // Clear purchase price
+                        $('#purchase_tax_id').val(null); // Set tax ID to null (remove it)
                     }
                 }).trigger('change'); // Trigger change to set the initial state
             }
@@ -270,10 +233,11 @@
                 $('#is_sold').on('change', function () {
                     const isChecked = $(this).is(':checked');
                     $('#sale_price').prop('disabled', !isChecked).val(isChecked ? $('#sale_price').val() : '');
-                    $('#sale_tax').prop('disabled', !isChecked).val(isChecked ? $('#sale_tax').val() : '0');
+                    $('#sale_tax_id').prop('disabled', !isChecked);
+
                     if (!isChecked) {
-                        $('#sale_price').val('');
-                        $('#sale_tax').val('0');
+                        $('#sale_price').val(''); // Clear sale price
+                        $('#sale_tax_id').val(null); // Set tax ID to null (remove it)
                     }
                 }).trigger('change'); // Trigger change to set the initial state
             }
@@ -281,24 +245,27 @@
             togglePurchaseFields();
             toggleSaleFields();
 
-            function toggleSerialNumberCheckbox() {
-                let quantity = $('#product_quantity').val();
-                let isStockManaged = $('#stock_managed').is(':checked');
-                let isEnabled = quantity > 0 && isStockManaged;
+            function toggleStockManagedFields() {
+                const isStockManaged = $('#stock_managed').is(':checked');
 
-                $('#serial_number_required').prop('disabled', !isEnabled);
-
-                if (isEnabled && $('#serial_number_required').is(':checked')) {
-                    // Show the Serial Number button
-                    $('#serial-number-submit-btn').show();
+                // Show "Tambah Produk & Lanjut Inisiasi Stock" button if stock_managed is checked
+                if (isStockManaged) {
+                    $('#stock-initiate-btn').show();
                 } else {
-                    // Hide the Serial Number button
-                    $('#serial-number-submit-btn').hide();
+                    $('#stock-initiate-btn').hide();
+                }
+
+                // Enable Serial Number Checkbox if stock_managed is checked and quantity is greater than 0
+                if (isStockManaged) {
+                    $('#serial_number_required').prop('disabled', false);
+                } else {
+                    $('#serial_number_required').prop('disabled', true).prop('checked', false); // Disable and uncheck
                 }
             }
 
-            $('#product_quantity, #stock_managed, #serial_number_required').on('change keyup', toggleSerialNumberCheckbox);
-            toggleSerialNumberCheckbox(); // Trigger on page load
+            // Call the function on page load and when the relevant fields change
+            $('#stock_managed').on('change keyup', toggleStockManagedFields);
+            toggleStockManagedFields(); // Initial check on page load // Trigger on page load
         });
     </script>
 

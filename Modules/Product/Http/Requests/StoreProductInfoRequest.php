@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Modules\Product\Entities\ProductUnitConversion;
 
-class StoreProductRequest extends FormRequest
+class StoreProductInfoRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -34,34 +34,28 @@ class StoreProductRequest extends FormRequest
             'product_code' => ['required', 'string', 'max:255', 'unique:products,product_code'],
             'category_id' => ['nullable', 'integer'],
             'brand_id' => ['nullable', 'integer'],
-            'product_quantity' => ['nullable', 'integer', 'min:0'],
-            'product_stock_alert' => ['nullable', 'integer', 'min:0'],
             'stock_managed' => ['nullable', 'boolean'],
             'serial_number_required' => ['nullable', 'boolean'],
+            'product_stock_alert' => ['nullable', 'integer', 'min:0'],
 
-            // New Fields for Buying
+            // Fields for Buying
             'is_purchased' => ['nullable', 'boolean'],
             'purchase_price' => ['required_if:is_purchased,1', 'nullable', 'numeric', 'min:0'],
             'purchase_tax' => ['nullable', 'integer'],
+            'purchase_tax_id' => ['nullable', 'integer', 'exists:taxes,id'],
 
-            // New Fields for Selling
+            // Fields for Selling
             'is_sold' => ['nullable', 'boolean'],
             'sale_price' => ['required_if:is_sold,1', 'nullable', 'numeric', 'min:0'],
             'sale_tax' => ['nullable', 'integer'],
+            'sale_tax_id' => ['nullable', 'integer', 'exists:taxes,id'],
 
             'barcode' => ['nullable', 'digits:13', 'regex:/^\d{13}$/', 'unique:products,barcode'],
 
-            // Ensure base_unit_id is required and not 0 if stock_managed is true, otherwise allow 0 or nullable
+            // Ensure base_unit_id is required if stock_managed is true
             'base_unit_id' => ['required_if:stock_managed,1', 'integer', function ($attribute, $value, $fail) {
                 if ($this->input('stock_managed') && $value == 0) {
                     $fail('Unit dasar tidak boleh 0 ketika manajemen stok diaktifkan.');
-                }
-            }],
-
-            // Location required if product_quantity is greater than 0
-            'location_id' => ['integer', function ($attribute, $value, $fail) {
-                if ($this->input('product_quantity') > 0 && empty($value)) {
-                    $fail('Location harus diisi jika jumlah produk lebih dari 0.');
                 }
             }],
 
@@ -76,12 +70,10 @@ class StoreProductRequest extends FormRequest
                     $conversions = $this->input('conversions') ?? [];
                     $unitIds = array_column($conversions, 'unit_id');
 
-                    // Check for duplicate unit_id in conversions array
                     if (count(array_unique($unitIds)) !== count($unitIds)) {
                         $fail('Unit ID tidak boleh duplikat di antara elemen-elemen konversi.');
                     }
 
-                    // Check if the unit_id matches the base_unit_id
                     if ($value == $this->input('base_unit_id')) {
                         $fail('Unit ID di konversi tidak boleh sama dengan unit dasar.');
                     }
@@ -96,12 +88,10 @@ class StoreProductRequest extends FormRequest
                     $conversions = $this->input('conversions') ?? [];
                     $barcodes = array_column($conversions, 'barcode');
 
-                    // Check for duplicates within the conversions array
                     if (count(array_unique($barcodes)) !== count($barcodes)) {
                         $fail('Barcode konversi tidak boleh duplikat di antara elemen-elemen konversi.');
                     }
 
-                    // Use the ProductUnitConversion model to check for uniqueness in the database
                     if ($value && ProductUnitConversion::where('barcode', $value)->exists()) {
                         $fail('Barcode konversi ini sudah ada di database.');
                     }
@@ -121,20 +111,43 @@ class StoreProductRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'product_name.required' => 'Nama Barang diperlukan.',
-            'product_code.required' => 'Diperlukan Kode Produk.',
-            'product_code.unique' => 'Kode Produk ini sudah digunakan.',
-            'base_unit_id.required_if' => 'Unit primer diperlukan ketika manajemen stok diaktifkan.',
-            'conversions.*.unit_id.required_with' => 'Konversi ke satuan diperlukan ketika memberikan faktor konversi.',
-            'conversions.*.conversion_factor.required_with' => 'Faktor konversi diperlukan saat menyediakan unit.',
-            'conversions.*.unit_id' => 'Unit harus dipilih jika stock managed',
-            'conversions.*.conversion_factor' => 'Conversion factor harus dipilih jika stock managed',
-            // Add custom messages for other fields as needed
-            // New messages for purchase and sale validation
-            'purchase_price.required_if' => 'Harga Beli diperlukan jika Anda membeli barang ini.',
-            'purchase_tax.required_if' => 'Pajak Beli harus dipilih jika Anda membeli barang ini.',
-            'sale_price.required_if' => 'Harga Jual diperlukan jika Anda menjual barang ini.',
-            'sale_tax.required_if' => 'Pajak Jual harus dipilih jika Anda menjual barang ini.',
+            'product_name.required' => 'Nama produk wajib diisi.',
+            'product_name.max' => 'Nama produk tidak boleh lebih dari 255 karakter.',
+            'product_code.required' => 'Kode produk wajib diisi.',
+            'product_code.unique' => 'Kode produk sudah digunakan.',
+            'category_id.integer' => 'Kategori yang dipilih tidak valid.',
+            'brand_id.integer' => 'Merek yang dipilih tidak valid.',
+            'stock_managed.boolean' => 'Nilai manajemen stok tidak valid.',
+            'product_stock_alert.integer' => 'Peringatan jumlah stok harus berupa angka.',
+            'product_stock_alert.min' => 'Peringatan jumlah stok tidak boleh kurang dari 0.',
+
+            // Buying Fields
+            'is_purchased.boolean' => 'Nilai pembelian produk tidak valid.',
+            'purchase_price.required_if' => 'Harga beli wajib diisi jika produk dibeli.',
+            'purchase_price.numeric' => 'Harga beli harus berupa angka.',
+            'purchase_price.min' => 'Harga beli tidak boleh kurang dari 0.',
+            'purchase_tax.integer' => 'Pajak beli yang dipilih tidak valid.',
+
+            // Selling Fields
+            'is_sold.boolean' => 'Nilai penjualan produk tidak valid.',
+            'sale_price.required_if' => 'Harga jual wajib diisi jika produk dijual.',
+            'sale_price.numeric' => 'Harga jual harus berupa angka.',
+            'sale_price.min' => 'Harga jual tidak boleh kurang dari 0.',
+            'sale_tax.integer' => 'Pajak jual yang dipilih tidak valid.',
+
+            // Barcode
+            'barcode.digits' => 'Barcode harus terdiri dari 13 digit.',
+            'barcode.regex' => 'Barcode harus berupa 13 digit angka.',
+            'barcode.unique' => 'Barcode sudah digunakan.',
+
+            // Conversions
+            'base_unit_id.required_if' => 'Unit dasar diperlukan ketika manajemen stok diaktifkan.',
+            'conversions.*.unit_id.required_if' => 'Konversi ke unit wajib diisi ketika manajemen stok diaktifkan.',
+            'conversions.*.unit_id.not_in' => 'Unit ID tidak boleh 0 atau sama dengan unit dasar.',
+            'conversions.*.conversion_factor.required_if' => 'Faktor konversi wajib diisi jika unit tersedia.',
+            'conversions.*.conversion_factor.min' => 'Faktor konversi harus lebih dari 0.',
+            'conversions.*.barcode.digits' => 'Barcode konversi harus terdiri dari 13 digit.',
+            'conversions.*.barcode.regex' => 'Barcode konversi harus berupa 13 digit angka.',
         ];
     }
 

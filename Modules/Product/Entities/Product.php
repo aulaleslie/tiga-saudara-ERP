@@ -131,4 +131,20 @@ class Product extends Model implements HasMedia
     {
         return $this->hasMany(ProductSerialNumber::class);
     }
+
+    /**
+     * Define the relationship with the Tax model for purchase tax.
+     */
+    public function purchaseTax()
+    {
+        return $this->belongsTo(Tax::class, 'purchase_tax_id');
+    }
+
+    /**
+     * Define the relationship with the Tax model for sale tax.
+     */
+    public function saleTax()
+    {
+        return $this->belongsTo(Tax::class, 'sale_tax_id');
+    }
 }
