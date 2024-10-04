@@ -23,6 +23,7 @@ return new class extends Migration
             $table->decimal('last_purchase_price');
             $table->decimal('average_purchase_price');
             $table->decimal('sale_price');
+            $table->integer('broken_quantity');
             $table->foreignId('tax_id')->nullable()->constrained('taxes')->onDelete('set null');
             $table->timestamps();
         });
