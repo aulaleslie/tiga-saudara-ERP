@@ -163,7 +163,6 @@ class ProductController extends Controller
         }
     }
 
-
     public function show(Product $product): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('show_products'), 403);
@@ -190,7 +189,6 @@ class ProductController extends Controller
         return view('product::products.show', compact('product', 'displayQuantity', 'transactions'));
     }
 
-
     public function edit(Product $product): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('edit_products'), 403);
@@ -211,7 +209,6 @@ class ProductController extends Controller
 
         return view('product::products.edit', compact('product', 'units', 'brands', 'formattedCategories', 'locations'));
     }
-
 
     public function update(UpdateProductRequest $request, Product $product): RedirectResponse
     {
@@ -282,8 +279,7 @@ class ProductController extends Controller
         }
     }
 
-
-
+    
     public function destroy(Product $product): RedirectResponse
     {
         abort_if(Gate::denies('delete_products'), 403);
