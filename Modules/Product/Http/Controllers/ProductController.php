@@ -520,15 +520,15 @@ class ProductController extends Controller
         DB::beginTransaction();
 
         try {
-            $product = Product::findOrFail($request->input('product_id'));
             $serialNumbers = $request->input('serial_numbers');
+            $taxIds = $request->input('tax_ids');
 
-            foreach ($serialNumbers as $serialNumberData) {
+            foreach ($serialNumbers as $index => $serialNumberData) {
                 ProductSerialNumber::create([
-                    'product_id' => $product->id,
-                    'location_id' => $request->input('location_id'),
-                    'serial_number' => $serialNumberData['serial_number'],
-                    'tax_id' => $serialNumberData['tax_id'] ?? null, // Tax ID is optional
+                    'product_id' => $request->route('product_id'),
+                    'location_id' => $request->route('location_id'),
+                    'serial_number' => $serialNumberData,
+                    'tax_id' => $taxIds[$index] ?? null, // Tax ID is optional
                 ]);
             }
 

@@ -26,7 +26,8 @@
                 @for($i = 0; $i < $transaction->quantity; $i++)
                     <tr>
                         <td>
-                            <input type="text" name="serial_numbers[]" class="form-control" required>
+                            <input type="text" name="serial_numbers[]" class="form-control" required
+                                   value="{{ old('serial_numbers.' . $i) }}"> <!-- Keeps the old value -->
                         </td>
                         <td>
                             <!-- Location is now readonly -->
@@ -37,7 +38,10 @@
                             <select name="tax_ids[]" class="form-control">
                                 <option value="">No Tax</option>
                                 @foreach($taxes as $tax)
-                                    <option value="{{ $tax->id }}">{{ $tax->name }}</option>
+                                    <option value="{{ $tax->id }}"
+                                            @if(old('tax_ids.' . $i) == $tax->id) selected @endif>
+                                        {{ $tax->name }}
+                                    </option>
                                 @endforeach
                             </select>
                         </td>
