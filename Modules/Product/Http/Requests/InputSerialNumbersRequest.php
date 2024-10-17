@@ -31,8 +31,9 @@ class InputSerialNumbersRequest extends FormRequest
         return [
             'location_id' => ['required', 'integer', 'exists:locations,id'],
             'serial_numbers' => ['required', 'array'],
-            'serial_numbers.*.serial_number' => ['required', 'string', 'max:255'],
-            'serial_numbers.*.tax_id' => ['nullable', 'integer', 'exists:taxes,id'],
+            'serial_numbers.*' => ['required', 'string', 'max:255', 'distinct', 'unique:product_serial_numbers,serial_number'], // Ensure uniqueness in the table
+            'tax_ids' => ['nullable', 'array'],
+            'tax_ids.*' => ['nullable', 'integer', 'exists:taxes,id'], // Validate each tax ID (if provided)
         ];
     }
 

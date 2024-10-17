@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use Spatie\Image\Exceptions\InvalidManipulation;
 use Spatie\MediaLibrary\HasMedia;
@@ -135,7 +136,7 @@ class Product extends Model implements HasMedia
     /**
      * Define the relationship with the Tax model for purchase tax.
      */
-    public function purchaseTax()
+    public function purchaseTax(): BelongsTo
     {
         return $this->belongsTo(Tax::class, 'purchase_tax_id');
     }
@@ -143,7 +144,7 @@ class Product extends Model implements HasMedia
     /**
      * Define the relationship with the Tax model for sale tax.
      */
-    public function saleTax()
+    public function saleTax(): BelongsTo
     {
         return $this->belongsTo(Tax::class, 'sale_tax_id');
     }

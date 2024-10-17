@@ -6,79 +6,49 @@
     <div class="container">
         <h3>Input Serial Numbers for {{ $product->product_name }}</h3>
 
-        <form action="{{ route('products.saveSerialNumbers') }}" method="POST">
+        <form
+            action="{{ route('products.storeSerialNumbers', ['product_id' => $product->id, 'location_id' => $location->id]) }}"
+            method="POST">
             @csrf
             <input type="hidden" name="product_id" value="{{ $product->id }}">
 
-            <!-- Read-only existing serial numbers -->
-            @if(count($readonlySerialNumbers) > 0)
-                <h5>Existing Serial Numbers (Read-only)</h5>
-                <table class="table table-bordered">
-                    <thead>
-                    <tr>
-                        <th>Serial Number</th>
-                        <th>Location</th>
-                        <th>Tax</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    @foreach($readonlySerialNumbers as $serial)
-                        <tr>
-                            <td>{{ $serial['serial_number'] }}</td>
-                            <td>{{ $serial['location']['name'] ?? 'N/A' }}</td>
-                            <td>{{ $serial['tax']['name'] ?? 'No Tax' }}</td>
-                        </tr>
-                    @endforeach
-                    </tbody>
-                </table>
-            @endif
-
             <!-- Input fields for new serial numbers -->
-            @if($remainingRows > 0)
-                <h5>Add New Serial Numbers</h5>
-                <table class="table table-bordered">
-                    <thead>
+            <h5>Add New Serial Numbers</h5>
+            <table class="table table-bordered">
+                <thead>
+                <tr>
+                    <th>Serial Number (Required)</th>
+                    <th>Location (Required)</th>
+                    <th>Tax (Optional)</th>
+                </tr>
+                </thead>
+                <tbody>
+                @for($i = 0; $i < $transaction->quantity; $i++)
                     <tr>
-                        <th>Serial Number (Required)</th>
-                        <th>Location (Required)</th>
-                        <th>Tax (Optional)</th>
+                        <td>
+                            <input type="text" name="serial_numbers[]" class="form-control" required
+                                   value="{{ old('serial_numbers.' . $i) }}"> <!-- Keeps the old value -->
+                        </td>
+                        <td>
+                            <!-- Location is now readonly -->
+                            <input type="hidden" name="locations[]" value="{{ $location->id }}">
+                            <span>{{ $location->name }}</span>
+                        </td>
+                        <td>
+                            <select name="tax_ids[]" class="form-control">
+                                <option value="">No Tax</option>
+                                @foreach($taxes as $tax)
+                                    <option value="{{ $tax->id }}"
+                                            @if(old('tax_ids.' . $i) == $tax->id) selected @endif>
+                                        {{ $tax->name }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </td>
                     </tr>
-                    </thead>
-                    <tbody>
-                    @for($i = 0; $i < $remainingRows; $i++)
-                        <tr>
-                            <td>
-                                <input type="text" name="serial_numbers[]" class="form-control" required>
-                            </td>
-                            <td>
-                                @if($isEditMode)
-                                    <!-- Flexibility to select location during edit -->
-                                    <select name="locations[]" class="form-control" required>
-                                        @foreach($locations as $location)
-                                            <option value="{{ $location->id }}">{{ $location->name }}</option>
-                                        @endforeach
-                                    </select>
-                                @else
-                                    <!-- Preselected location during create -->
-                                    <input type="hidden" name="locations[]" value="{{ $locationId }}">
-                                    <span>{{ $preselectedLocationName }}</span>
-                                @endif
-                            </td>
-                            <td>
-                                <select name="tax_ids[]" class="form-control">
-                                    <option value="">No Tax</option>
-                                    @foreach($taxes as $tax)
-                                        <option value="{{ $tax->id }}">{{ $tax->name }}</option>
-                                    @endforeach
-                                </select>
-                            </td>
-                        </tr>
-                    @endfor
-                    </tbody>
-                </table>
-            @else
-                <p>All serial numbers are already added for this product.</p>
-            @endif
+                @endfor
+                </tbody>
+            </table>
 
             <button type="submit" class="btn btn-primary">Save Serial Numbers</button>
         </form>
