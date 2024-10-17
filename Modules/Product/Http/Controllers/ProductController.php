@@ -20,9 +20,7 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
-use Modules\Product\Http\Requests\InitializeProductStockRequest;
-use Modules\Product\Http\Requests\InputSerialNumbersRequest;
-use Modules\Product\Http\Requests\StoreProductInfoRequest;
+use Modules\Product\Http\Requests\StoreProductRequest;
 use Modules\Product\Http\Requests\UpdateProductRequest;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Tax;
@@ -74,6 +72,11 @@ class ProductController extends Controller
     private function handleProductCreation(array $validatedData): Product
     {
         Log::info('Starting product creation.');
+
+        Log::info('Validated data.', $validatedData);
+
+        // Extract location_id before unsetting it from the validated data
+        $locationId = $validatedData['location_id'] ?? null;
 
         // Set default values for nullable fields
         $fieldsWithDefaults = [
