@@ -34,9 +34,6 @@ class InitializeProductStockRequest extends FormRequest
             'quantity_tax' => ['required', 'integer', 'min:0'],
             'broken_quantity_non_tax' => ['required', 'integer', 'min:0'],
             'broken_quantity_tax' => ['required', 'integer', 'min:0'],
-            'last_purchase_price' => ['required', 'numeric', 'min:0'],
-            'average_purchase_price' => ['required', 'numeric', 'min:0'],
-            'sale_price' => ['required', 'numeric', 'min:0'],
             'location_id' => ['required', 'integer', 'exists:locations,id'],
 
             // Custom rule to validate that the total of the quantities is equal to the overall quantity

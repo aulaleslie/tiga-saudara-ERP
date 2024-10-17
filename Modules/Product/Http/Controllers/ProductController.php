@@ -450,7 +450,7 @@ class ProductController extends Controller
     public function storeInitialProductStockAndRedirectToInputSerialNumbers(InitializeProductStockRequest $request): RedirectResponse
     {
         return $this->handleStockInitialization($request, 'products.inputSerialNumbers', [
-            'product_id' => $request->input('product_id'),
+            'product_id' => $request->route('product_id'),
             'location_id' => $request->input('location_id'),
         ]);
     }
@@ -463,7 +463,7 @@ class ProductController extends Controller
 
         try {
             // Assuming the product ID is passed in the request or retrieved from session
-            $product = Product::findOrFail($request->input('product_id'));
+            $product = Product::findOrFail($request->route('product_id'));
 
             // Create a transaction for product stock initialization
             Transaction::create([
@@ -471,8 +471,16 @@ class ProductController extends Controller
                 'setting_id' => session('setting_id'),
                 'type' => 'INIT', // Assuming 'INIT' is used for initial stock setup
                 'quantity' => $validatedData['quantity'],
+                'previous_quantity' => 0,
+                'previous_quantity_at_location' => 0,
+                'after_quantity' => $validatedData['quantity'],
+                'after_quantity_at_location' => 0,
+                'quantity_tax' => $validatedData['quantity_tax'],
+                'quantity_non_tax' => $validatedData['quantity_non_tax'],
                 'current_quantity' => $validatedData['quantity'],
                 'broken_quantity' => $validatedData['broken_quantity_tax'] + $validatedData['broken_quantity_non_tax'],
+                'broken_quantity_tax' => $validatedData['broken_quantity_tax'],
+                'broken_quantity_non_tax' => $validatedData['broken_quantity_non_tax'],
                 'location_id' => $validatedData['location_id'],
                 'user_id' => auth()->id(), // Assuming the user is authenticated
                 'reason' => 'Initial stock setup',
@@ -495,12 +503,15 @@ class ProductController extends Controller
 
     public function inputSerialNumbers(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        $product = Product::findOrFail($request->product_id);
-        $location = Location::findOrFail($request->location_id);
+        $product = Product::findOrFail($request->route('product_id'));
+        $location = Location::findOrFail($request->route('location_id'));
         $taxes = Tax::all(); // Retrieve all available taxes (assuming they are global, adjust if needed)
+        $transaction = Transaction::where('location_id', $request->route('location_id'))
+            ->where('product_id', $request->route('product_id'))
+            ->firstOrFail();
 
         return view('product::products.input-serial-number', compact(
-            'product', 'location', 'taxes'
+            'product', 'location', 'taxes', 'transaction'
         ));
     }
 
@@ -512,7 +523,7 @@ class ProductController extends Controller
             $product = Product::findOrFail($request->input('product_id'));
             $serialNumbers = $request->input('serial_numbers');
 
-            foreach ($serialNumbers as $index => $serialNumberData) {
+            foreach ($serialNumbers as $serialNumberData) {
                 ProductSerialNumber::create([
                     'product_id' => $product->id,
                     'location_id' => $request->input('location_id'),
