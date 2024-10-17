@@ -18,6 +18,7 @@ use Modules\Product\Entities\Brand;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\Product\Http\Requests\InitializeProductStockRequest;
 use Modules\Product\Http\Requests\InputSerialNumbersRequest;
@@ -200,7 +201,16 @@ class ProductController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();// Fetch transactions
 
-        return view('product::products.show', compact('product', 'displayQuantity', 'transactions'));
+        $productStocks = ProductStock::where('product_id', $product->id)
+            ->with('location') // Eager load the location
+            ->get();// Fetch transactions
+
+        $serialNumbers = ProductSerialNumber::where('product_id', $product->id)
+            ->with('location')
+            ->with('tax') // Eager load the location
+            ->get();
+
+        return view('product::products.show', compact('product', 'displayQuantity', 'transactions', 'productStocks', 'serialNumbers'));
     }
 
 
@@ -486,11 +496,23 @@ class ProductController extends Controller
                 'reason' => 'Initial stock setup',
             ]);
 
+            ProductStock::create([
+                'product_id' => $product->id,  // Assuming $product is available
+                'location_id' => $validatedData['location_id'],  // Assuming location_id comes from the request
+                'quantity' => $validatedData['quantity'],  // Quantity
+                'quantity_non_tax' => $validatedData['quantity_non_tax'],  // Quantity without tax
+                'quantity_tax' => $validatedData['quantity_tax'],  // Quantity with tax
+                'broken_quantity_non_tax' => $validatedData['broken_quantity_non_tax'],  // Broken quantity without tax
+                'broken_quantity_tax' => $validatedData['broken_quantity_tax'],  // Broken quantity with tax
+                'last_purchase_price' => $product->purchase_price,  // Last purchase price
+                'average_purchase_price' => $product->purchase_price,  // Average purchase price
+                'sale_price' => $product->sale_price,  // Sale price
+            ]);
+
             DB::commit();
 
             toast('Stock initialized successfully!', 'success');
 
-            // Redirect to the appropriate route (index or serial number input)
             return redirect()->route($redirectRoute, $routeParams);
         } catch (Exception $e) {
             DB::rollBack();

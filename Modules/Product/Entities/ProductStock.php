@@ -12,6 +12,20 @@ class ProductStock extends Model
 {
     use HasFactory;
 
+    protected $fillable = [
+        'product_id',
+        'location_id',
+        'quantity',
+        'quantity_non_tax',
+        'quantity_tax',
+        'broken_quantity_non_tax',
+        'broken_quantity_tax',
+        'last_purchase_price',
+        'average_purchase_price',
+        'sale_price',
+        'tax_id', // Nullable tax field
+    ];
+
     // Define the table if it's different from the default plural form
     protected $table = 'product_stocks';
 
