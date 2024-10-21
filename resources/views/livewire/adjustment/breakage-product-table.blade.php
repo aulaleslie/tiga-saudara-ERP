@@ -18,12 +18,12 @@
         <table class="table table-bordered">
             <thead>
             <tr class="align-middle">
-                <th class="align-middle">#</th>
-                <th class="align-middle">Product Name</th>
-                <th class="align-middle">Code</th>
-                <th class="align-middle">Stock</th>
-                <th class="align-middle">Quantity</th>
-                <th class="align-middle">Action</th>
+                <th class="align-middle">No</th>
+                <th class="align-middle">Nama Produk</th>
+                <th class="align-middle">Kode Produk</th>
+                <th class="align-middle">Stok</th>
+                <th class="align-middle">Jumlah</th>
+                <th class="align-middle">Aksi</th>
             </tr>
             </thead>
             <tbody>
@@ -53,7 +53,7 @@
                 <tr>
                     <td colspan="7" class="text-center">
                         <span class="text-danger">
-                            Please search & select products!
+                            Silahkan, Cari dan Pilih Produk!
                         </span>
                     </td>
                 </tr>

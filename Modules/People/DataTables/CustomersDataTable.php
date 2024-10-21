@@ -73,7 +73,7 @@ class CustomersDataTable extends DataTable
                 ->exportable(false)
                 ->printable(false)
                 ->className('text-center align-middle')
-            ->title('Aksi'),
+                ->title('Aksi'),
 
             Column::make('created_at')
                 ->visible(false)

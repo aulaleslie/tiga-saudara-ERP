@@ -48,24 +48,30 @@ class CurrencyDataTable extends DataTable
     protected function getColumns() {
         return [
             Column::make('currency_name')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Nama Mata Uang'),
 
             Column::make('code')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Kode Mata Uang'),
 
             Column::make('symbol')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Simbol Mata Uang'),
 
             Column::make('thousand_separator')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Pemisah Seribu'),
 
             Column::make('decimal_separator')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Pemisah Desimal'),
 
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Aksi'),
 
             Column::make('created_at')
                 ->visible(false)

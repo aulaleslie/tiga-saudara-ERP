@@ -43,12 +43,12 @@ class StockTransferRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'origin_location.required' => 'Origin location is required.',
-            'destination_location.required' => 'Destination location is required.',
-            'product_ids.required' => 'You must select at least one product.',
-            'product_ids.*.exists' => 'The selected product is invalid.',
-            'quantities.required' => 'Please provide quantities for each product.',
-            'quantities.*.min' => 'Quantities must be at least 1.',
+            'origin_location.required' => 'Lokasi asal wajib diisi.',
+            'destination_location.required' => 'Lokasi tujuan wajib diisi.',
+            'product_ids.required' => 'Anda harus memilih setidaknya satu produk.',
+            'product_ids.*.exists' => 'Produk yang dipilih tidak valid.',
+            'quantities.required' => 'Harap berikan jumlah untuk setiap produk.',
+            'quantities.*.min' => 'Jumlahnya minimal harus 1.',
         ];
     }
 }

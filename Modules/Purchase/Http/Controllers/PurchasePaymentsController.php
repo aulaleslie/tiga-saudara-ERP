@@ -72,7 +72,7 @@ class PurchasePaymentsController extends Controller
             ]);
         });
 
-        toast('Purchase Payment Created!', 'success');
+        toast('Pembayaran Pembelian Dibuat!', 'success');
 
         return redirect()->route('purchases.index');
     }
@@ -128,7 +128,7 @@ class PurchasePaymentsController extends Controller
             ]);
         });
 
-        toast('Purchase Payment Updated!', 'info');
+        toast('Pembayaran Pembelian Diperbarui!', 'info');
 
         return redirect()->route('purchases.index');
     }
@@ -139,7 +139,7 @@ class PurchasePaymentsController extends Controller
 
         $purchasePayment->delete();
 
-        toast('Purchase Payment Deleted!', 'warning');
+        toast('Pembayaran Pembelian Dihapus!', 'warning');
 
         return redirect()->route('purchases.index');
     }

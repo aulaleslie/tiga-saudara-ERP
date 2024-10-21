@@ -31,7 +31,7 @@
                         </div>
                     @endif
                     <div class="form-group">
-                        <label>Discount Type <span class="text-danger">*</span></label>
+                        <label>Jenis Diskon <span class="text-danger">*</span></label>
                         <select wire:model.live="discount_type.{{ $cart_item->id }}" class="form-control" required>
                             <option value="fixed">Fixed</option>
                             <option value="percentage">Percentage</option>
@@ -39,16 +39,16 @@
                     </div>
                     <div class="form-group">
                         @if($discount_type[$cart_item->id] == 'percentage')
-                            <label>Discount(%) <span class="text-danger">*</span></label>
+                            <label>Diskon(%) <span class="text-danger">*</span></label>
                             <input wire:model="item_discount.{{ $cart_item->id }}" type="number" class="form-control" value="{{ $item_discount[$cart_item->id] }}" min="0" max="100">
                         @elseif($discount_type[$cart_item->id] == 'fixed')
-                            <label>Discount <span class="text-danger">*</span></label>
+                            <label>Diskon <span class="text-danger">*</span></label>
                             <input wire:model="item_discount.{{ $cart_item->id }}" type="number" class="form-control" value="{{ $item_discount[$cart_item->id] }}">
                         @endif
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Keluar</button>
                     <button wire:click="setProductDiscount('{{ $cart_item->rowId }}', {{ $cart_item->id }})" type="button" class="btn btn-primary">Save changes</button>
                 </div>
             </div>

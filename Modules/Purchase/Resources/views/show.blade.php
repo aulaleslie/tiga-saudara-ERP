@@ -5,7 +5,7 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Purchases</a></li>
+        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Pembelian</a></li>
         <li class="breadcrumb-item active">Details</li>
     </ol>
 @endsection
@@ -23,13 +23,13 @@
                             <i class="bi bi-printer"></i> Print
                         </a>
                         <a target="_blank" class="btn btn-sm btn-info mfe-1 d-print-none" href="{{ route('purchases.pdf', $purchase->id) }}">
-                            <i class="bi bi-save"></i> Save
+                            <i class="bi bi-save"></i> Simpan
                         </a>
                     </div>
                     <div class="card-body">
                         <div class="row mb-4">
                             <div class="col-sm-4 mb-3 mb-md-0">
-                                <h5 class="mb-2 border-bottom pb-2">Company Info:</h5>
+                                <h5 class="mb-2 border-bottom pb-2">Informasi Perusahaan:</h5>
                                 <div><strong>{{ settings()->company_name }}</strong></div>
                                 <div>{{ settings()->company_address }}</div>
                                 <div>Email: {{ settings()->company_email }}</div>
@@ -37,22 +37,22 @@
                             </div>
 
                             <div class="col-sm-4 mb-3 mb-md-0">
-                                <h5 class="mb-2 border-bottom pb-2">Supplier Info:</h5>
+                                <h5 class="mb-2 border-bottom pb-2">Informasi Pemasok:</h5>
                                 <div><strong>{{ $supplier->supplier_name }}</strong></div>
                                 <div>{{ $supplier->address }}</div>
                                 <div>Email: {{ $supplier->supplier_email }}</div>
-                                <div>Phone: {{ $supplier->supplier_phone }}</div>
+                                <div>Kontak: {{ $supplier->supplier_phone }}</div>
                             </div>
 
                             <div class="col-sm-4 mb-3 mb-md-0">
-                                <h5 class="mb-2 border-bottom pb-2">Invoice Info:</h5>
-                                <div>Invoice: <strong>INV/{{ $purchase->reference }}</strong></div>
-                                <div>Date: {{ \Carbon\Carbon::parse($purchase->date)->format('d M, Y') }}</div>
+                                <h5 class="mb-2 border-bottom pb-2">Info Faktur:</h5>
+                                <div>Faktur: <strong>INV/{{ $purchase->reference }}</strong></div>
+                                <div>Tanggal: {{ \Carbon\Carbon::parse($purchase->date)->format('d M, Y') }}</div>
                                 <div>
                                     Status: <strong>{{ $purchase->status }}</strong>
                                 </div>
                                 <div>
-                                    Payment Status: <strong>{{ $purchase->payment_status }}</strong>
+                                    Status Pembayaran : <strong>{{ $purchase->payment_status }}</strong>
                                 </div>
                             </div>
 
@@ -62,12 +62,12 @@
                             <table class="table table-striped">
                                 <thead>
                                 <tr>
-                                    <th class="align-middle">Product</th>
-                                    <th class="align-middle">Net Unit Price</th>
-                                    <th class="align-middle">Quantity</th>
-                                    <th class="align-middle">Discount</th>
-                                    <th class="align-middle">Tax</th>
-                                    <th class="align-middle">Sub Total</th>
+                                    <th class="align-middle">Produk</th>
+                                    <th class="align-middle">Harga Satuan Bersih</th>
+                                    <th class="align-middle">Kuantitas</th>
+                                    <th class="align-middle">Dikson</th>
+                                    <th class="align-middle">Pajak</th>
+                                    <th class="align-middle">Jumlah</th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -107,19 +107,19 @@
                                 <table class="table">
                                     <tbody>
                                     <tr>
-                                        <td class="left"><strong>Discount ({{ $purchase->discount_percentage }}%)</strong></td>
+                                        <td class="left"><strong>Dikson ({{ $purchase->discount_percentage }}%)</strong></td>
                                         <td class="right">{{ format_currency($purchase->discount_amount) }}</td>
                                     </tr>
                                     <tr>
-                                        <td class="left"><strong>Tax ({{ $purchase->tax_percentage }}%)</strong></td>
+                                        <td class="left"><strong>Pajak ({{ $purchase->tax_percentage }}%)</strong></td>
                                         <td class="right">{{ format_currency($purchase->tax_amount) }}</td>
                                     </tr>
                                     <tr>
-                                        <td class="left"><strong>Shipping)</strong></td>
+                                        <td class="left"><strong>Pengiriman)</strong></td>
                                         <td class="right">{{ format_currency($purchase->shipping_amount) }}</td>
                                     </tr>
                                     <tr>
-                                        <td class="left"><strong>Grand Total</strong></td>
+                                        <td class="left"><strong>Total Keseluruhan</strong></td>
                                         <td class="right"><strong>{{ format_currency($purchase->total_amount) }}</strong></td>
                                     </tr>
                                     </tbody>

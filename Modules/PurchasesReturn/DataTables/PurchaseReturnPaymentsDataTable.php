@@ -51,21 +51,26 @@ class PurchaseReturnPaymentsDataTable extends DataTable
     protected function getColumns() {
         return [
             Column::make('date')
-                ->className('align-middle text-center'),
+                ->className('align-middle text-center')
+                ->title('Tanggal'),
 
             Column::make('reference')
-                ->className('align-middle text-center'),
+                ->className('align-middle text-center')
+                ->title('Referensi'),
 
             Column::computed('amount')
-                ->className('align-middle text-center'),
+                ->className('align-middle text-center')
+                ->title('Jumlah'),
 
             Column::make('payment_method')
-                ->className('align-middle text-center'),
+                ->className('align-middle text-center')
+                ->title('Metode Pembayaran'),
 
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
-                ->className('align-middle text-center'),
+                ->className('align-middle text-center')
+                ->title('Aksi'),
 
             Column::make('created_at')
                 ->visible(false),

@@ -87,7 +87,7 @@ class AdjustmentController extends Controller
             }
         });
 
-        toast('Adjustment Created!', 'success');
+        toast('Penyesuaian Ditambahkan!', 'success');
 
         return redirect()->route('adjustments.index');
     }
@@ -124,7 +124,7 @@ class AdjustmentController extends Controller
             }
         });
 
-        toast('Adjustment Created!', 'success');
+        toast('Penyesuaian Barang Rusak Ditambahkan!', 'success');
 
         return redirect()->route('adjustments.index');
     }
@@ -180,7 +180,7 @@ class AdjustmentController extends Controller
             }
         });
 
-        toast('Adjustment Updated!', 'info');
+        toast('Penyesuaian Diperbaharui!', 'info');
 
         return redirect()->route('adjustments.index');
     }
@@ -226,7 +226,7 @@ class AdjustmentController extends Controller
             }
         });
 
-        toast('Adjustment Updated!', 'info');
+        toast('Penyesuaian Barang Rusak Diperbaharui!', 'info');
 
         return redirect()->route('adjustments.index');
     }
@@ -238,7 +238,7 @@ class AdjustmentController extends Controller
 
         $adjustment->delete();
 
-        toast('Adjustment Deleted!', 'warning');
+        toast('Penyesuaian Dihapus!', 'warning');
 
         return redirect()->route('adjustments.index');
     }
@@ -302,7 +302,7 @@ class AdjustmentController extends Controller
             $adjustment->update(['status' => 'approved']);
 
             DB::commit();
-            toast('Adjustment Approved!', 'warning');
+            toast('Penyesuaian Disetujui!', 'warning');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -320,7 +320,7 @@ class AdjustmentController extends Controller
         $adjustment->update(['status' => 'rejected']);
 
         // Optionally, you can add a success message to be displayed after the redirect
-        toast('Adjustment Rejected!', 'info');
+        toast('Penyesuian Ditolak!', 'info');
 
         // Redirect back to the adjustments index
         return redirect()->route('adjustments.index');

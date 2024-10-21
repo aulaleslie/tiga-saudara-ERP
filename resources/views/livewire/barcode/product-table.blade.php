@@ -32,7 +32,7 @@
                             </td>
                         @else
                             <td colspan="3" class="text-center">
-                                <span class="text-danger">Cari dan Pilih Produk!</span>
+                                <span class="text-danger">Silahkan, Cari dan Pilih Produk!</span>
                             </td>
                         @endif
                     </tr>

@@ -69,7 +69,7 @@ class QuotationController extends Controller
             Cart::instance('quotation')->destroy();
         });
 
-        toast('Quotation Created!', 'success');
+        toast('Quotation Ditambahkan!', 'success');
 
         return redirect()->route('quotations.index');
     }
@@ -156,7 +156,7 @@ class QuotationController extends Controller
             Cart::instance('quotation')->destroy();
         });
 
-        toast('Quotation Updated!', 'info');
+        toast('Quotation diperbaharui!', 'info');
 
         return redirect()->route('quotations.index');
     }
@@ -167,7 +167,7 @@ class QuotationController extends Controller
 
         $quotation->delete();
 
-        toast('Quotation Deleted!', 'warning');
+        toast('Quotation Dihapus!', 'warning');
 
         return redirect()->route('quotations.index');
     }

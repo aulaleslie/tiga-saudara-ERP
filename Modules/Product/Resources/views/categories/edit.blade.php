@@ -5,8 +5,8 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('products.index') }}">Products</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('product-categories.index') }}">Categories</a></li>
+        <li class="breadcrumb-item"><a href="{{ route('products.index') }}">Produk</a></li>
+        <li class="breadcrumb-item"><a href="{{ route('product-categories.index') }}">Kategori</a></li>
         <li class="breadcrumb-item active">Edit</li>
     </ol>
 @endsection
@@ -22,21 +22,21 @@
                             @csrf
                             @method('patch')
                             <div class="form-group">
-                                <label class="font-weight-bold" for="category_code">Category Code <span
+                                <label class="font-weight-bold" for="category_code">Kode Kategori <span
                                         class="text-danger">*</span></label>
                                 <input class="form-control" type="text" name="category_code" required
                                        value="{{ $category->category_code }}">
                             </div>
                             <div class="form-group">
-                                <label class="font-weight-bold" for="category_name">Category Name <span
+                                <label class="font-weight-bold" for="category_name">Nama Kategori <span
                                         class="text-danger">*</span></label>
                                 <input class="form-control" type="text" name="category_name" required
                                        value="{{ $category->category_name }}">
                             </div>
                             <div class="form-group">
-                                <label class="font-weight-bold" for="parent_id">Parent Category</label>
+                                <label class="font-weight-bold" for="parent_id">Kategori Induk</label>
                                 <select class="form-control" name="parent_id">
-                                    <option value="">-- Select Parent Category --</option>
+                                    <option value="">-- Pilih Kategori Induk --</option>
                                     @foreach($parentCategories as $parentCategory)
                                         <option value="{{ $parentCategory->id }}"
                                                 @if($category->parent_id == $parentCategory->id) selected @endif>
@@ -44,13 +44,13 @@
                                         </option>
                                     @endforeach
                                 </select>
-                                <small class="form-text text-muted">Leave blank if this is a top-level category.</small>
+                                <small class="form-text text-muted">Biarkan kosong jika ini adalah kategori tingkat atas.</small>
                             </div>
                             <div class="form-group">
                                 <a href="{{ route('product-categories.index') }}" class="btn btn-secondary mr-2">
                                     Kembali
                                 </a>
-                                <button type="submit" class="btn btn-primary">Update <i class="bi bi-check"></i>
+                                <button type="submit" class="btn btn-primary">Perbaharui <i class="bi bi-check"></i>
                                 </button>
                             </div>
                         </form>

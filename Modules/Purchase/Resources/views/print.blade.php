@@ -5,7 +5,7 @@
     <meta name="viewport"
           content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>Purchase Details</title>
+    <title>Rincian Pembelian</title>
     <link rel="stylesheet" href="{{ public_path('b3/bootstrap.min.css') }}">
 </head>
 <body>
@@ -22,30 +22,30 @@
                 <div class="card-body">
                     <div class="row mb-4">
                         <div class="col-xs-4 mb-3 mb-md-0">
-                            <h4 class="mb-2" style="border-bottom: 1px solid #dddddd;padding-bottom: 10px;">Company Info:</h4>
+                            <h4 class="mb-2" style="border-bottom: 1px solid #dddddd;padding-bottom: 10px;">Informasi Perusahaan:</h4>
                             <div><strong>{{ settings()->company_name }}</strong></div>
                             <div>{{ settings()->company_address }}</div>
                             <div>Email: {{ settings()->company_email }}</div>
-                            <div>Phone: {{ settings()->company_phone }}</div>
+                            <div>Kontak: {{ settings()->company_phone }}</div>
                         </div>
 
                         <div class="col-xs-4 mb-3 mb-md-0">
-                            <h4 class="mb-2" style="border-bottom: 1px solid #dddddd;padding-bottom: 10px;">Supplier Info:</h4>
+                            <h4 class="mb-2" style="border-bottom: 1px solid #dddddd;padding-bottom: 10px;">Informasi Pemasok:</h4>
                             <div><strong>{{ $supplier->supplier_name }}</strong></div>
                             <div>{{ $supplier->address }}</div>
                             <div>Email: {{ $supplier->supplier_email }}</div>
-                            <div>Phone: {{ $supplier->supplier_phone }}</div>
+                            <div>Kontak: {{ $supplier->supplier_phone }}</div>
                         </div>
 
                         <div class="col-xs-4 mb-3 mb-md-0">
                             <h4 class="mb-2" style="border-bottom: 1px solid #dddddd;padding-bottom: 10px;">Invoice Info:</h4>
-                            <div>Invoice: <strong>INV/{{ $purchase->reference }}</strong></div>
-                            <div>Date: {{ \Carbon\Carbon::parse($purchase->date)->format('d M, Y') }}</div>
+                            <div>Faktur: <strong>INV/{{ $purchase->reference }}</strong></div>
+                            <div>Tanggal: {{ \Carbon\Carbon::parse($purchase->date)->format('d M, Y') }}</div>
                             <div>
                                 Status: <strong>{{ $purchase->status }}</strong>
                             </div>
                             <div>
-                                Payment Status: <strong>{{ $purchase->payment_status }}</strong>
+                                Status Pemabayaran: <strong>{{ $purchase->payment_status }}</strong>
                             </div>
                         </div>
 
@@ -55,12 +55,12 @@
                         <table class="table table-striped">
                             <thead>
                             <tr>
-                                <th class="align-middle">Product</th>
-                                <th class="align-middle">Net Unit Price</th>
-                                <th class="align-middle">Quantity</th>
-                                <th class="align-middle">Discount</th>
-                                <th class="align-middle">Tax</th>
-                                <th class="align-middle">Sub Total</th>
+                                <th class="align-middle">Produk</th>
+                                <th class="align-middle">Harga Satuan Bersih</th>
+                                <th class="align-middle">Kuantitas</th>
+                                <th class="align-middle">Diskon</th>
+                                <th class="align-middle">Pajak</th>
+                                <th class="align-middle">Jumlah Keseluruhan</th>
                             </tr>
                             </thead>
                             <tbody>
@@ -100,19 +100,19 @@
                             <table class="table">
                                 <tbody>
                                 <tr>
-                                    <td class="left"><strong>Discount ({{ $purchase->discount_percentage }}%)</strong></td>
+                                    <td class="left"><strong>Diskon ({{ $purchase->discount_percentage }}%)</strong></td>
                                     <td class="right">{{ format_currency($purchase->discount_amount) }}</td>
                                 </tr>
                                 <tr>
-                                    <td class="left"><strong>Tax ({{ $purchase->tax_percentage }}%)</strong></td>
+                                    <td class="left"><strong>Pajak ({{ $purchase->tax_percentage }}%)</strong></td>
                                     <td class="right">{{ format_currency($purchase->tax_amount) }}</td>
                                 </tr>
                                 <tr>
-                                    <td class="left"><strong>Shipping)</strong></td>
+                                    <td class="left"><strong>Pengiriman)</strong></td>
                                     <td class="right">{{ format_currency($purchase->shipping_amount) }}</td>
                                 </tr>
                                 <tr>
-                                    <td class="left"><strong>Grand Total</strong></td>
+                                    <td class="left"><strong>Jumlah Keseluruhan</strong></td>
                                     <td class="right"><strong>{{ format_currency($purchase->total_amount) }}</strong></td>
                                 </tr>
                                 </tbody>

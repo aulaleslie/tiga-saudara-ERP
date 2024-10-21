@@ -5,7 +5,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
 
-    <title>Reset password | {{ config('app.name') }}</title>
+    <title>Atur Ulang Kata Sandi | {{ config('app.name') }}</title>
 
     <!-- Favicon -->
     <link rel="icon" href="{{ asset('images/favicon.png') }}">
@@ -24,8 +24,8 @@
                 <div class="card-body p-4">
                     <form method="post" action="{{ url('/password/reset') }}">
                         @csrf
-                        <h1>Reset Password</h1>
-                        <p class="text-muted">Enter email and new password</p>
+                        <h1>Atur Ulang Kata Sandi</h1>
+                        <p class="text-muted">Masukkan email dan kata sandi baru</p>
                         <div class="input-group mb-3">
                             <div class="input-group-prepend">
                                 <span class="input-group-text">
@@ -60,7 +60,7 @@
                                    placeholder="Confirm password">
                         </div>
                         <button type="submit" class="btn btn-block btn-primary btn-block btn-flat">
-                            <i class="fa fa-btn fa-refresh"></i> Reset
+                            <i class="fa fa-btn fa-refresh"></i> Atur Ulang Kata Sandi
                         </button>
                     </form>
                 </div>

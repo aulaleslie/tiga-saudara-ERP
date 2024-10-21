@@ -20,7 +20,7 @@
                         <div class="table-responsive">
                             <table class="table table-bordered table-striped mb-0">
                                 <tr>
-                                    <th>Product Code</th>
+                                    <th>Kode Produk</th>
                                     <td>{{ $product->product_code }}</td>
                                 </tr>
                                 <tr>
@@ -28,11 +28,11 @@
                                     <td>{{ $product->product_barcode_symbology }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Name</th>
+                                    <th>Nama Produk</th>
                                     <td>{{ $product->product_name }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Category</th>
+                                    <th>Kategori</th>
                                     <td>{{ $product->category->category_name ?? 'N/A' }}</td>
                                 </tr>
                                 <tr>
@@ -64,7 +64,7 @@
                                     </td>
                                 </tr>
                                 <tr>
-                                    <th>Quantity</th>
+                                    <th>Kuantitas</th>
                                     <td>{{ $displayQuantity }}</td>
                                 </tr>
                                 <tr>
@@ -75,11 +75,11 @@
                                     </td>
                                 </tr>
                                 <tr>
-                                    <th>Alert Quantity</th>
+                                    <th>Peringantan Stok</th>
                                     <td>{{ $product->product_stock_alert }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Note</th>
+                                    <th>Catatan</th>
                                     <td>{{ $product->product_note ?? 'N/A' }}</td>
                                 </tr>
                             </table>
@@ -106,7 +106,7 @@
         <!-- Transaction History -->
         <div class="card mt-4">
             <div class="card-header">
-                <h5>Transaction History</h5>
+                <h5>Riwayat Transaksi</h5>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
@@ -133,7 +133,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="text-center">No transactions found.</td>
+                                <td colspan="6" class="text-center">Transaksi tidak Ditemukan !</td>
                             </tr>
                         @endforelse
                         </tbody>
@@ -146,7 +146,7 @@
         <!-- Product Stocks -->
         <div class="card mt-4">
             <div class="card-header">
-                <h5>Product Stocks</h5>
+                <h5>Stok Produk</h5>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
@@ -179,7 +179,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center">No product stocks found.</td>
+                                <td colspan="9" class="text-center">Stok Produk tidak Ditemukan!.</td>
                             </tr>
                         @endforelse
                         </tbody>
@@ -192,14 +192,14 @@
         <!-- Serial Numbers -->
         <div class="card mt-4">
             <div class="card-header">
-                <h5>Serial Numbers</h5>
+                <h5>Nomor Serial</h5>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table table-bordered table-striped">
                         <thead>
                         <tr>
-                            <th>Serial Number</th>
+                            <th>Nomor Serial</th>
                             <th>Lokasi</th>
                             <th>Pajak</th>
                         </tr>
@@ -213,7 +213,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="3" class="text-center">No serial numbers found.</td>
+                                <td colspan="3" class="text-center">Nomor Serial Tidak Ditemukan !.</td>
                             </tr>
                         @endforelse
                         </tbody>

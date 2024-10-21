@@ -40,7 +40,7 @@
                         @if($search_results->count() >= $how_many)
                             <li class="list-group-item list-group-item-action text-center">
                                 <a wire:click.prevent="loadMore" class="btn btn-primary btn-sm" href="#">
-                                    Load More <i class="bi bi-arrow-down-circle"></i>
+                                    Tampilkan Lebih Banyak <i class="bi bi-arrow-down-circle"></i>
                                 </a>
                             </li>
                         @endif

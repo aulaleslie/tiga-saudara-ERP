@@ -4,7 +4,7 @@
 
 @section('content')
     <div class="container">
-        <h3>Input Serial Numbers for {{ $product->product_name }}</h3>
+        <h3>Masukan Nomor Serial pada {{ $product->product_name }}</h3>
 
         <form
             action="{{ route('products.storeSerialNumbers', ['product_id' => $product->id, 'location_id' => $location->id]) }}"
@@ -13,13 +13,13 @@
             <input type="hidden" name="product_id" value="{{ $product->id }}">
 
             <!-- Input fields for new serial numbers -->
-            <h5>Add New Serial Numbers</h5>
+            <h5>Tambahkan Serial Number Baru</h5>
             <table class="table table-bordered">
                 <thead>
                 <tr>
-                    <th>Serial Number (Required)</th>
-                    <th>Location (Required)</th>
-                    <th>Tax (Optional)</th>
+                    <th>Serial Number (Wajib)</th>
+                    <th>Lokasi (Wajib)</th>
+                    <th>Pajak (Jika diperlukan)</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -50,7 +50,7 @@
                 </tbody>
             </table>
 
-            <button type="submit" class="btn btn-primary">Save Serial Numbers</button>
+            <button type="submit" class="btn btn-primary">Simpan Serial Number</button>
         </form>
     </div>
 @endsection

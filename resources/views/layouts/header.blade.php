@@ -69,12 +69,11 @@
                 </div>
                 @forelse($low_quantity_products as $product)
                     <a class="dropdown-item" href="{{ route('products.show', $product->id) }}">
-                        <i class="bi bi-hash mr-1 text-primary"></i> Product: "{{ $product->product_code }}" is low in
-                        quantity!
+                        <i class="bi bi-hash mr-1 text-primary"></i> Produk: "{{ $product->product_code }}" Kuantitas Rendah!
                     </a>
                 @empty
                     <a class="dropdown-item" href="#">
-                        <i class="bi bi-app-indicator mr-2 text-danger"></i> No notifications available.
+                        <i class="bi bi-app-indicator mr-2 text-danger"></i> Tidak Ada Notifikasi yang Tersedia.
                     </a>
                 @endforelse
             </div>
