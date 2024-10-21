@@ -99,7 +99,7 @@ class PurchaseController extends Controller
             }
         });
 
-        toast('Purchase Created!', 'success');
+        toast('Pembelian Ditambahkan!', 'success');
 
         return redirect()->route('purchases.index');
     }
@@ -212,7 +212,7 @@ class PurchaseController extends Controller
             Cart::instance('purchase')->destroy();
         });
 
-        toast('Purchase Updated!', 'info');
+        toast('Pembelian diperbaharui!', 'info');
 
         return redirect()->route('purchases.index');
     }
@@ -223,7 +223,7 @@ class PurchaseController extends Controller
 
         $purchase->delete();
 
-        toast('Purchase Deleted!', 'warning');
+        toast('Pembelian Dihapus!', 'warning');
 
         return redirect()->route('purchases.index');
     }

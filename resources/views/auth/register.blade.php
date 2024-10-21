@@ -5,7 +5,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
 
-    <title>Register | {{ config('app.name') }}</title>
+    <title>Daftar Akun | {{ config('app.name') }}</title>
 
     <!-- Favicon -->
     <link rel="icon" href="{{ asset('images/favicon.png') }}">
@@ -23,7 +23,7 @@
                     <form method="post" action="{{ url('/register') }}">
                         @csrf
                         <h1>Register</h1>
-                        <p class="text-muted">Create your account</p>
+                        <p class="text-muted">Buat akun Anda</p>
                         <div class="input-group mb-3">
                             <div class="input-group-prepend">
                                 <span class="input-group-text">
@@ -70,8 +70,8 @@
                             <input type="password" name="password_confirmation" class="form-control"
                                    placeholder="Confirm password">
                         </div>
-                        <button type="submit" class="btn btn-primary btn-block btn-flat mb-3">Register</button>
-                        <a href="{{ route('login') }}" class="text-center">I already have a membership.</a>
+                        <button type="submit" class="btn btn-primary btn-block btn-flat mb-3">Daftar</button>
+                        <a href="{{ route('login') }}" class="text-center">Saya sudah memiliki Akun.</a>
                     </form>
                 </div>
             </div>

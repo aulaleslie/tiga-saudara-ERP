@@ -5,9 +5,9 @@
             <thead>
             <tr>
                 <th>To Unit</th>
-                <th>Conversion Factor</th>
+                <th>Faktor Konversi</th>
                 <th>Barcode</th>
-                <th>Actions</th>
+                <th>Aksi</th>
             </tr>
             </thead>
             <tbody id="conversion_table_body">

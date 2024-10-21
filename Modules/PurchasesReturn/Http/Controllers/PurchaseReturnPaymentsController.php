@@ -72,7 +72,7 @@ class PurchaseReturnPaymentsController extends Controller
             ]);
         });
 
-        toast('Purchase Return Payment Created!', 'success');
+        toast('Pembayaran Pengembalian Pembelian Dibuat!', 'success');
 
         return redirect()->route('purchase-returns.index');
     }
@@ -128,7 +128,7 @@ class PurchaseReturnPaymentsController extends Controller
             ]);
         });
 
-        toast('Purchase Return Payment Updated!', 'info');
+        toast('Pembayaran Pengembalian Pembelian Diperbarui!', 'info');
 
         return redirect()->route('purchase-returns.index');
     }
@@ -139,7 +139,7 @@ class PurchaseReturnPaymentsController extends Controller
 
         $purchaseReturnPayment->delete();
 
-        toast('Purchase Return Payment Deleted!', 'warning');
+        toast('Pembayaran Pengembalian Pembelian Dihapus!', 'warning');
 
         return redirect()->route('purchase-returns.index');
     }

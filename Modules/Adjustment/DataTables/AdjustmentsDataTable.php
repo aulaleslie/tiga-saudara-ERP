@@ -58,25 +58,29 @@ class AdjustmentsDataTable extends DataTable
     {
         return [
             Column::make('date')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Tanggal'),
 
             Column::make('reference')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('referensi'),
 
             Column::make('type')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Tipe'),
 
             Column::make('status')
                 ->className('text-center align-middle'),
 
             Column::make('adjusted_products_count')
-                ->title('Products')
+                ->title('Produk')
                 ->className('text-center align-middle'),
 
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Aksi'),
 
             Column::make('created_at')
                 ->visible(false)

@@ -70,7 +70,7 @@ class TransferStockController extends Controller
             ]);
         }
 
-        toast('Stock Transfer Created!', 'success');
+        toast('Transfer Stok Dibuat!', 'success');
         //
         return redirect()->route('transfers.index');
     }
@@ -106,7 +106,7 @@ class TransferStockController extends Controller
             'approved_at' => Carbon::now(),
         ]);
 
-        toast('Stock Transfer Approved!', 'success');
+        toast('Transfer Stok Disetujui!!', 'success');
 
         return redirect()->route('transfers.show', $transfer->id);
     }
@@ -126,7 +126,7 @@ class TransferStockController extends Controller
             'rejected_at' => Carbon::now(),
         ]);
 
-        toast('Stock Transfer Rejected!', 'warning');
+        toast('Transfer Stok Ditolak!', 'warning');
 
         return redirect()->route('transfers.show', $transfer->id);
     }
@@ -169,7 +169,7 @@ class TransferStockController extends Controller
             ]);
         }
 
-        toast('Stock Transfer Dispatched!', 'info');
+        toast('Transfer Stok Dikirim!', 'info');
 
         return redirect()->route('transfers.show', $transfer->id);
     }
@@ -212,7 +212,7 @@ class TransferStockController extends Controller
             ]);
         }
 
-        toast('Stock Transfer Received!', 'info');
+        toast('Transfer Stok Diterima!', 'info');
 
         return redirect()->route('transfers.show', $transfer->id);
     }
@@ -263,7 +263,7 @@ class TransferStockController extends Controller
             ]);
         }
 
-        toast('Stock Transfer Updated!', 'success');
+        toast('Transfer Stok Diperbarui!', 'success');
         return redirect()->route('transfers.show', $transfer->id);
     }
 
@@ -280,7 +280,7 @@ class TransferStockController extends Controller
         // Delete the transfer and its associated products
         $transfer->delete();
 
-        toast('Stock Transfer Deleted!', 'warning');
+        toast('Transfer Stok Dihapus!!', 'warning');
 
         // Redirect to transfers index with a success message
         return redirect()->route('transfers.index');

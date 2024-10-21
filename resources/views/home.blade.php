@@ -4,7 +4,7 @@
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
-        <li class="breadcrumb-item active">Home</li>
+        <li class="breadcrumb-item active">Beranda</li>
     </ol>
 @endsection
 
@@ -80,7 +80,7 @@
                     <div class="col-lg-7">
                         <div class="card border-0 shadow-sm h-100">
                             <div class="card-header">
-                                Sales & Purchases of Last 7 Days
+                                Penjualan & Pembelian 7 Hari Terakhir
                             </div>
                             <div class="card-body">
                                 <canvas id="salesPurchasesChart"></canvas>
@@ -92,7 +92,7 @@
                     <div class="col-lg-5">
                         <div class="card border-0 shadow-sm h-100">
                             <div class="card-header">
-                                Overview of {{ now()->format('F, Y') }}
+                                Sekilas tentang {{ now()->format('F, Y') }}
                             </div>
                             <div class="card-body d-flex justify-content-center">
                                 <div class="chart-container" style="position: relative; height:auto; width:280px">
@@ -110,7 +110,7 @@
                 <div class="col-lg-12">
                     <div class="card border-0 shadow-sm">
                         <div class="card-header">
-                            Monthly Cash Flow (Payment Sent & Received)
+                            Arus Kas Bulanan (Pembayaran Dikirim & Diterima)
                         </div>
                         <div class="card-body">
                             <canvas id="paymentChart"></canvas>

@@ -119,7 +119,7 @@ class ProductController extends Controller
 
         try {
             $product = Product::create($validatedData);
-            Log::info('Product created successfully', ['product_id' => $product->id]);
+            Log::info('Produk berhasil dibuat', ['product_id' => $product->id]);
 
             // Handle document uploads
             if (!empty($documents)) {
@@ -137,12 +137,12 @@ class ProductController extends Controller
             }
 
             DB::commit();
-            Log::info('Product creation successful, transaction committed.');
+            Log::info('Pembuatan produk berhasil, transaksi selesai.');
 
             return $product; // Return the created product
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error('Failed to create product. Please try again.', ['error' => $e->getMessage()]);
+            Log::error('Gagal membuat produk. Silakan coba lagi.', ['error' => $e->getMessage()]);
 
             throw new \Exception('Product creation failed');
         }
@@ -285,7 +285,7 @@ class ProductController extends Controller
             return redirect()->route('products.index');
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error('Product update failed', ['error' => $e->getMessage()]);
+            Log::error('Pembaruan produk gagal', ['error' => $e->getMessage()]);
 
             toast('Gagal Perbaharui Produk. Silahkan Coba Lagi !.', 'error');
             return redirect()->back()->withInput();
@@ -355,14 +355,14 @@ class ProductController extends Controller
 
                 // Validate required fields
                 if (!$name || !$unitName || !$buyPrice || !$sellPrice) {
-                    Log::error("Row $rowsRead: Required fields are missing");
+                    Log::error("Row $rowsRead: Bidang yang wajib diisi tidak ada");
                     continue; // Skip this row
                 }
 
                 // Check for duplicate product name
                 $existingProductWithName = Product::where('product_name', $name)->first();
                 if ($existingProductWithName) {
-                    Log::error("Row $rowsRead: A product with the name '{$name}' already exists.");
+                    Log::error("Row $rowsRead: Produk dengan nama '{$name}' sudah ada.");
                     continue; // Skip this row
                 }
 
@@ -424,14 +424,14 @@ class ProductController extends Controller
             }
 
             DB::commit();
-            Log::info("Upload completed: $rowsProcessed rows processed out of $rowsRead rows read.");
+            Log::info("Pengunggahan selesai: $rowsProcessed rows processed out of $rowsRead rows read.");
             toast('Upload Berhasil!', 'success');
-            return redirect()->route('products.index')->with('success', 'Products uploaded successfully.');
+            return redirect()->route('products.index')->with('Sukses', 'Produk berhasil diunggah.');
         } catch (Exception $e) {
             DB::rollBack();
             Log::error("Upload failed: " . $e->getMessage());
-            toast('Failed to upload product. Please try again.', 'error');
-            return redirect()->back()->withErrors(['error' => 'Failed to upload products: ' . $e->getMessage()]);
+            toast('Gagal mengunggah produk. Silakan coba lagi.', 'error');
+            return redirect()->back()->withErrors(['error' => 'Gagal mengunggah produk: ' . $e->getMessage()]);
         }
     }
 
@@ -516,14 +516,14 @@ class ProductController extends Controller
 
             DB::commit();
 
-            toast('Stock initialized successfully!', 'success');
+            toast('Stok berhasil diinisialisasi!', 'success');
 
             return redirect()->route($redirectRoute, $routeParams);
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error('Failed to initialize stock.', ['error' => $e->getMessage()]);
+            Log::error('Gagal menginisialisasi stok.', ['error' => $e->getMessage()]);
 
-            toast('Failed to initialize stock. Please try again.', 'error');
+            toast('Gagal menginisialisasi stok. Silakan coba lagi.', 'error');
             return redirect()->back()->withInput();
         }
     }
@@ -561,13 +561,13 @@ class ProductController extends Controller
 
             DB::commit();
 
-            toast('Serial numbers saved successfully!', 'success');
+            toast('Serial numbers berhasil disimpan!', 'success');
             return redirect()->route('products.index');
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error('Failed to save serial numbers.', ['error' => $e->getMessage()]);
+            Log::error('Gagal menyimpan Serial Number.', ['error' => $e->getMessage()]);
 
-            toast('Failed to save serial numbers. Please try again.', 'error');
+            toast('Gagal menyimpan Serial Number. Silakan coba lagi.', 'error');
             return redirect()->back()->withInput();
         }
     }

@@ -7,7 +7,7 @@
                         <div class="form-row">
                             <div class="col-lg-4">
                                 <div class="form-group">
-                                    <label>Start Date <span class="text-danger">*</span></label>
+                                    <label>Tanggal Mulai <span class="text-danger">*</span></label>
                                     <input wire:model="start_date" type="date" class="form-control" name="start_date">
                                     @error('start_date')
                                     <span class="text-danger mt-1">{{ $message }}</span>
@@ -16,7 +16,7 @@
                             </div>
                             <div class="col-lg-4">
                                 <div class="form-group">
-                                    <label>End Date <span class="text-danger">*</span></label>
+                                    <label>Tanggal Akhir <span class="text-danger">*</span></label>
                                     <input wire:model="end_date" type="date" class="form-control" name="end_date">
                                     @error('end_date')
                                     <span class="text-danger mt-1">{{ $message }}</span>
@@ -25,9 +25,9 @@
                             </div>
                             <div class="col-lg-4">
                                 <div class="form-group">
-                                    <label>Supplier</label>
+                                    <label>Pemasok</label>
                                     <select wire:model="supplier_id" class="form-control" name="supplier_id">
-                                        <option value="">Select Supplier</option>
+                                        <option value="">Pilih Pemasok</option>
                                         @foreach($suppliers as $supplier)
                                             <option value="{{ $supplier->id }}">{{ $supplier->supplier_name }}</option>
                                         @endforeach
@@ -41,20 +41,20 @@
                                     <label>Status</label>
                                     <select wire:model="purchase_status" class="form-control" name="purchase_status">
                                         <option value="">Select Status</option>
-                                        <option value="Pending">Pending</option>
-                                        <option value="Ordered">Ordered</option>
-                                        <option value="Completed">Completed</option>
+                                        <option value="Pending">Ditunda</option>
+                                        <option value="Ordered">Dipesan</option>
+                                        <option value="Completed">Selesai</option>
                                     </select>
                                 </div>
                             </div>
                             <div class="col-lg-6">
                                 <div class="form-group">
-                                    <label>Payment Status</label>
+                                    <label>Status Pembayaran</label>
                                     <select wire:model="payment_status" class="form-control" name="payment_status">
-                                        <option value="">Select Payment Status</option>
-                                        <option value="Paid">Paid</option>
-                                        <option value="Unpaid">Unpaid</option>
-                                        <option value="Partial">Partial</option>
+                                        <option value="">Pilih Status Pembayaran</option>
+                                        <option value="Paid">Pembayaran</option>
+                                        <option value="Unpaid">Tidak Dibayar</option>
+                                        <option value="Partial">Sebagian</option>
                                     </select>
                                 </div>
                             </div>
@@ -63,7 +63,7 @@
                             <button type="submit" class="btn btn-primary">
                                 <span wire:target="generateReport" wire:loading class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                                 <i wire:target="generateReport" wire:loading.remove class="bi bi-shuffle"></i>
-                                Filter Report
+                                Filter Laporan
                             </button>
                         </div>
                     </form>
@@ -84,14 +84,14 @@
                         </div>
                         <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Reference</th>
-                            <th>Supplier</th>
+                            <th>Tanggal</th>
+                            <th>referensi</th>
+                            <th>Pemasok</th>
                             <th>Status</th>
                             <th>Total</th>
-                            <th>Paid</th>
-                            <th>Due</th>
-                            <th>Payment Status</th>
+                            <th>Dibayar</th>
+                            <th>Jatuh Tempo</th>
+                            <th>Status Pembayaran</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -138,7 +138,7 @@
                         @empty
                             <tr>
                                 <td colspan="8">
-                                    <span class="text-danger">No Purchases Data Available!</span>
+                                    <span class="text-danger">Tidak Ada Data Pembelian Tersedia!</span>
                                 </td>
                             </tr>
                         @endforelse

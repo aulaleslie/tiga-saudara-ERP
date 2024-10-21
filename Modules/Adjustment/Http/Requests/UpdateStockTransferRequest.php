@@ -42,11 +42,11 @@ class UpdateStockTransferRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'product_ids.required' => 'At least one product is required.',
-            'product_ids.*.exists' => 'The selected product is invalid.',
-            'quantities.required' => 'Please enter quantities for the selected products.',
-            'quantities.*.integer' => 'Quantities must be valid numbers.',
-            'quantities.*.min' => 'Quantities must be at least 1.',
+            'product_ids.required' => 'Setidaknya satu produk diperlukan.',
+            'product_ids.*.exists' => 'Produk yang dipilih tidak valid.',
+            'quantities.required' => 'Silakan masukkan jumlah untuk produk yang dipilih.',
+            'quantities.*.integer' => 'Besaran harus berupa angka yang valid.',
+            'quantities.*.min' => 'Jumlahnya minimal harus 1.',
         ];
     }
 }

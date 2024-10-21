@@ -7,7 +7,7 @@
                         <div class="form-row">
                             <div class="col-lg-6">
                                 <div class="form-group">
-                                    <label>Start Date <span class="text-danger">*</span></label>
+                                    <label>Tanggal Mulai <span class="text-danger">*</span></label>
                                     <input wire:model="start_date" type="date" class="form-control" name="start_date">
                                     @error('start_date')
                                     <span class="text-danger mt-1">{{ $message }}</span>
@@ -16,7 +16,7 @@
                             </div>
                             <div class="col-lg-6">
                                 <div class="form-group">
-                                    <label>End Date <span class="text-danger">*</span></label>
+                                    <label>Tanggal Akhir <span class="text-danger">*</span></label>
                                     <input wire:model="end_date" type="date" class="form-control" name="end_date">
                                     @error('end_date')
                                     <span class="text-danger mt-1">{{ $message }}</span>
@@ -27,13 +27,13 @@
                         <div class="form-row">
                             <div class="col-lg-6">
                                 <div class="form-group">
-                                    <label>Payments</label>
+                                    <label>Pembayaran</label>
                                     <select wire:model.live="payments" class="form-control" name="payments">
-                                        <option value="">Select Payments</option>
-                                        <option value="sale">Sales</option>
-                                        <option value="sale_return">Sale Returns</option>
-                                        <option value="purchase">Purchase</option>
-                                        <option value="purchase_return">Purchase Returns</option>
+                                        <option value="">Pilih Pembayaran</option>
+                                        <option value="sale">Penjualan</option>
+                                        <option value="sale_return">Pengembalian Penjualan</option>
+                                        <option value="purchase">Pembeliab</option>
+                                        <option value="purchase_return">Pengembalian Pembelian</option>
                                     </select>
                                     @error('payments')
                                     <span class="text-danger mt-1">{{ $message }}</span>
@@ -42,14 +42,14 @@
                             </div>
                             <div class="col-lg-6">
                                 <div class="form-group">
-                                    <label>Payment Method</label>
+                                    <label>Metode Pembayaran</label>
                                     <select wire:model="payment_method" class="form-control" name="payment_method">
-                                        <option value="">Select Payment Method</option>
-                                        <option value="Cash">Cash</option>
-                                        <option value="Credit Card">Credit Card</option>
-                                        <option value="Bank Transfer">Bank Transfer</option>
+                                        <option value="">Pilih Metode Pembayaran</option>
+                                        <option value="Cash">Tunai</option>
+                                        <option value="Credit Card">Kartu Kredit</option>
+                                        <option value="Bank Transfer">Transfer Bank</option>
                                         <option value="Cheque">Cheque</option>
-                                        <option value="Other">Other</option>
+                                        <option value="Other">Lainnya</option>
                                     </select>
                                 </div>
                             </div>
@@ -58,7 +58,7 @@
                             <button type="submit" class="btn btn-primary">
                                 <span wire:target="generateReport" wire:loading class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                                 <i wire:target="generateReport" wire:loading.remove class="bi bi-shuffle"></i>
-                                Filter Report
+                                Filter Laporan
                             </button>
                         </div>
                     </form>
@@ -80,11 +80,11 @@
                             </div>
                             <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Reference</th>
+                                <th>Tanggal</th>
+                                <th>Referensi</th>
                                 <th>{{ ucwords(str_replace('_', ' ', $payments)) }}</th>
                                 <th>Total</th>
-                                <th>Payment Method</th>
+                                <th>Metode Pembayaran</th>
                             </tr>
                             </thead>
                             <tbody>
@@ -109,7 +109,7 @@
                             @empty
                                 <tr>
                                     <td colspan="8">
-                                        <span class="text-danger">No Data Available!</span>
+                                        <span class="text-danger">Tidak Ada Data Tersedia!</span>
                                     </td>
                                 </tr>
                             @endforelse
@@ -128,7 +128,7 @@
                 <div class="card border-0 shadow-sm">
                     <div class="card-body">
                         <div class="alert alert-warning mb-0">
-                            No Data Available!
+                            Tidak Ada Data Tersedia!
                         </div>
                     </div>
                 </div>

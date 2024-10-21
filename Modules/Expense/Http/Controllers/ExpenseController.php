@@ -45,7 +45,7 @@ class ExpenseController extends Controller
             'details' => $request->details
         ]);
 
-        toast('Expense Created!', 'success');
+        toast('Pembiayaan Ditambahkan!', 'success');
 
         return redirect()->route('expenses.index');
     }
@@ -77,7 +77,7 @@ class ExpenseController extends Controller
             'details' => $request->details
         ]);
 
-        toast('Expense Updated!', 'info');
+        toast('Pembiayaan Diperbaharui!', 'info');
 
         return redirect()->route('expenses.index');
     }
@@ -88,7 +88,7 @@ class ExpenseController extends Controller
 
         $expense->delete();
 
-        toast('Expense Deleted!', 'warning');
+        toast('Pembiayaan Dihapus!', 'warning');
 
         return redirect()->route('expenses.index');
     }

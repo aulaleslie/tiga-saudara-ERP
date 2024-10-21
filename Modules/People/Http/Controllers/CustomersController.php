@@ -63,7 +63,6 @@ class CustomersController extends Controller
             'bank_branch.required_with' => 'Cabang bank wajib diisi jika salah satu informasi bank diisi.',
             'account_number.required_with' => 'Nomor rekening wajib diisi jika salah satu informasi bank diisi.',
             'account_holder.required_with' => 'Pemegang akun wajib diisi jika salah satu informasi bank diisi.',
-
             'identity_number.required_if' => 'Nomor identitas wajib diisi jika identitas dipilih.',
         ]);
 

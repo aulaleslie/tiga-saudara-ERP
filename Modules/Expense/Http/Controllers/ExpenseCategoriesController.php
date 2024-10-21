@@ -31,7 +31,7 @@ class ExpenseCategoriesController extends Controller
             'category_description' => $request->category_description
         ]);
 
-        toast('Expense Category Created!', 'success');
+        toast('Kategori Pengeluaran Dibuat!', 'success');
 
         return redirect()->route('expense-categories.index');
     }
@@ -57,7 +57,7 @@ class ExpenseCategoriesController extends Controller
             'category_description' => $request->category_description
         ]);
 
-        toast('Expense Category Updated!', 'info');
+        toast('Kategori Pengeluaran Diperbarui!', 'info');
 
         return redirect()->route('expense-categories.index');
     }
@@ -72,7 +72,7 @@ class ExpenseCategoriesController extends Controller
 
         $expenseCategory->delete();
 
-        toast('Expense Category Deleted!', 'warning');
+        toast('Kategori Pengeluaran Dihapus!', 'warning');
 
         return redirect()->route('expense-categories.index');
     }
