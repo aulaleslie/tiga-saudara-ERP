@@ -19,14 +19,16 @@
             <table class="table table-bordered">
                 <thead class="thead-dark">
                 <tr>
-                    <th class="align-middle">Product</th>
-                    <th class="align-middle text-center">Net Unit Price</th>
-                    <th class="align-middle text-center">Stock</th>
-                    <th class="align-middle text-center">Quantity</th>
-                    <th class="align-middle text-center">Discount</th>
-                    <th class="align-middle text-center">Tax</th>
+                    <th class="align-middle">Produk</th>
+                    <th class="align-middle text-center">Harga Beli Rata Rata</th>
+                    <th class="align-middle text-center">Harga Beli Terakhir</th>
+                    <th class="align-middle text-center">Harga Beli</th>
+                    <th class="align-middle text-center">Stok</th>
+                    <th class="align-middle text-center">Jumlah</th>
+                    <th class="align-middle text-center">Diskon</th>
+                    <th class="align-middle text-center">Pajak</th>
                     <th class="align-middle text-center">Sub Total</th>
-                    <th class="align-middle text-center">Action</th>
+                    <th class="align-middle text-center">Aksi</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -39,6 +41,16 @@
                                         {{ $cart_item->options->code }}
                                     </span>
                                 @include('livewire.includes.product-cart-modal')
+                            </td>
+
+                            <!-- Harga Beli Rata-Rata -->
+                            <td class="align-middle text-center">
+                                {{ format_currency($cart_item->options->average_purchase_price) }}
+                            </td>
+
+                            <!-- Last Purchase Price -->
+                            <td class="align-middle text-center">
+                                {{ format_currency($cart_item->options->last_purchase_price) }}
                             </td>
 
                             <td x-data="{ open{{ $cart_item->id }}: false }" class="align-middle text-center">
@@ -62,7 +74,15 @@
                             </td>
 
                             <td class="align-middle text-center">
-                                {{ format_currency($cart_item->options->product_tax) }}
+                                <select wire:model.defer="product_tax.{{ $cart_item->id }}" class="form-control">
+                                    <option value="">Pilih Pajak</option>
+                                    @foreach($taxes as $tax)
+                                        <option value="{{ $tax->id }}">{{ $tax->name }} ({{ $tax->value }}%)</option>
+                                    @endforeach
+                                </select>
+                                @error('product_tax.' . $cart_item->id)
+                                <span class="text-danger">{{ $message }}</span>
+                                @enderror
                             </td>
 
                             <td class="align-middle text-center">
@@ -78,7 +98,7 @@
                     @endforeach
                 @else
                     <tr>
-                        <td colspan="8" class="text-center">
+                        <td colspan="10" class="text-center">
                         <span class="text-danger">
                             Please search & select products!
                         </span>
@@ -126,19 +146,13 @@
     <div class="form-row">
         <div class="col-lg-4">
             <div class="form-group">
-                <label for="tax_percentage">Tax (%)</label>
-                <input wire:model.blur="global_tax" type="number" class="form-control" name="tax_percentage" min="0" max="100" value="{{ $global_tax }}" required>
-            </div>
-        </div>
-        <div class="col-lg-4">
-            <div class="form-group">
-                <label for="discount_percentage">Discount (%)</label>
+                <label for="discount_percentage">Diskon (%)</label>
                 <input wire:model.blur="global_discount" type="number" class="form-control" name="discount_percentage" min="0" max="100" value="{{ $global_discount }}" required>
             </div>
         </div>
         <div class="col-lg-4">
             <div class="form-group">
-                <label for="shipping_amount">Shipping</label>
+                <label for="shipping_amount">Ongkos Kirim</label>
                 <input wire:model.blur="shipping" type="number" class="form-control" name="shipping_amount" min="0" value="0" required step="0.01">
             </div>
         </div>
