@@ -11,12 +11,17 @@
 |
 */
 
+use Illuminate\Support\Facades\Route;
+use Modules\People\Entities\Supplier;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Http\Controllers\PurchaseController;
+
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     //Generate PDF
     Route::get('/purchases/pdf/{id}', function ($id) {
-        $purchase = \Modules\Purchase\Entities\Purchase::findOrFail($id);
-        $supplier = \Modules\People\Entities\Supplier::findOrFail($purchase->supplier_id);
+        $purchase = Purchase::findOrFail($id);
+        $supplier = Supplier::findOrFail($purchase->supplier_id);
 
         $pdf = \PDF::loadView('purchase::print', [
             'purchase' => $purchase,
@@ -26,7 +31,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         return $pdf->stream('purchase-'. $purchase->reference .'.pdf');
     })->name('purchases.pdf');
 
-    //Sales
+    //Purchases
+    Route::patch('purchases/{purchase}/status', [PurchaseController::class, 'updateStatus'])->name('purchases.updateStatus');
     Route::resource('purchases', 'PurchaseController');
 
     //Payments

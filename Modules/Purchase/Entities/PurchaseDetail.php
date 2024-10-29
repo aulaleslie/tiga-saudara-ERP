@@ -10,7 +10,11 @@ class PurchaseDetail extends Model
 {
     use HasFactory;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'purchase_id',
+        'product_id',
+        'quantity',
+    ];
 
     protected $with = ['product'];
 
