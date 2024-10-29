@@ -77,9 +77,6 @@ class ProductController extends Controller
 
         Log::info('Validated data.', $validatedData);
 
-        // Extract location_id before unsetting it from the validated data
-        $locationId = $validatedData['location_id'] ?? null;
-
         // Set default values for nullable fields
         $fieldsWithDefaults = [
             'product_quantity' => 0,
@@ -92,7 +89,9 @@ class ProductController extends Controller
             'purchase_tax' => 0,
             'sale_price' => 0,
             'sale_tax' => 0,
-            'product_price' => 0
+            'product_price' => 0,
+            'last_purchase_price' => 0,  // Last purchase price
+            'average_purchase_price' => 0,  // Average purchase price
         ];
 
         foreach ($fieldsWithDefaults as $field => $defaultValue) {
@@ -100,6 +99,9 @@ class ProductController extends Controller
                 $validatedData[$field] = $defaultValue;
             }
         }
+
+        $validatedData['last_purchase_price'] = $validatedData['purchase_price'];
+        $validatedData['average_purchase_price'] = $validatedData['purchase_price'];
 
         $fieldsConvertedToNulls = ['brand_id', 'category_id', 'base_unit_id'];
         foreach ($fieldsConvertedToNulls as $field) {
@@ -509,8 +511,6 @@ class ProductController extends Controller
                 'quantity_tax' => $validatedData['quantity_tax'],  // Quantity with tax
                 'broken_quantity_non_tax' => $validatedData['broken_quantity_non_tax'],  // Broken quantity without tax
                 'broken_quantity_tax' => $validatedData['broken_quantity_tax'],  // Broken quantity with tax
-                'last_purchase_price' => $product->purchase_price,  // Last purchase price
-                'average_purchase_price' => $product->purchase_price,  // Average purchase price
                 'sale_price' => $product->sale_price,  // Sale price
             ]);
 
