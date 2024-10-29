@@ -35,9 +35,14 @@
                                     <th>Category</th>
                                     <td>{{ $product->category->category_name ?? 'N/A' }}</td>
                                 </tr>
+                                <!-- Replace "Harga Beli" with "Harga Beli Terakhir" and "Harga Beli Rata Rata" -->
                                 <tr>
-                                    <th>Harga Beli</th>
-                                    <td>{{ format_currency($product->purchase_price) }}</td>
+                                    <th>Harga Beli Terakhir</th>
+                                    <td>{{ format_currency($product->last_purchase_price) }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Harga Beli Rata Rata</th>
+                                    <td>{{ format_currency($product->average_purchase_price) }}</td>
                                 </tr>
                                 <tr>
                                     <th>Pajak Beli</th>
@@ -159,9 +164,7 @@
                             <th>Jumlah Pajak</th>
                             <th>Jumlah Barang Rusak Non Pajak</th>
                             <th>Jumlah Barang Rusak Pajak</th>
-                            <th>Harga Beli Terakhir</th>
-                            <th>Harga Beli Rata-rata</th>
-                            <th>Harga Jual</th>
+                            <!-- Removed columns: Harga Beli Terakhir, Harga Beli Rata-rata, Harga Jual -->
                         </tr>
                         </thead>
                         <tbody>
@@ -173,13 +176,11 @@
                                 <td>{{ $stock->quantity_tax }}</td>
                                 <td>{{ $stock->broken_quantity_non_tax }}</td>
                                 <td>{{ $stock->broken_quantity_tax }}</td>
-                                <td>{{ format_currency($stock->last_purchase_price) }}</td>
-                                <td>{{ format_currency($stock->average_purchase_price) }}</td>
-                                <td>{{ format_currency($stock->sale_price) }}</td>
+                                <!-- Removed data for the columns we deleted -->
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center">No product stocks found.</td>
+                                <td colspan="6" class="text-center">No product stocks found.</td>
                             </tr>
                         @endforelse
                         </tbody>

@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Http\Controllers;
 
+use Illuminate\Http\RedirectResponse;
 use Modules\Purchase\DataTables\PurchaseDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
@@ -34,69 +35,56 @@ class PurchaseController extends Controller
     }
 
 
-    public function store(StorePurchaseRequest $request) {
+    public function store(StorePurchaseRequest $request): RedirectResponse
+    {
         DB::transaction(function () use ($request) {
-            $due_amount = $request->total_amount - $request->paid_amount;
-            if ($due_amount == $request->total_amount) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
+            // Remove 'paid_amount' and set it to zero
+            $paid_amount = 0;
+            $due_amount = $request->total_amount - $paid_amount;
+            $payment_status = 'Unpaid';
+
+            // Force status to 'DRAFTED'
+            $status = Purchase::STATUS_DRAFTED;
+
+            // Get tax percentage from 'taxes' table using 'tax_id'
+            $tax_percentage = 0;
+            $tax_amount = 0;
+            if ($request->tax_id) {
+                $tax = Tax::find($request->tax_id);
+                if ($tax) {
+                    $tax_percentage = $tax->value; // Assuming 'value' is the percentage
+                    // Calculate tax amount
+                    $tax_amount = ($request->total_amount * $tax_percentage) / 100;
+                }
             }
 
             $purchase = Purchase::create([
                 'date' => $request->date,
+                'due_date' => $request->due_date,
                 'supplier_id' => $request->supplier_id,
-                'supplier_name' => Supplier::findOrFail($request->supplier_id)->supplier_name,
-                'tax_percentage' => $request->tax_percentage,
+                'tax_id' => $request->tax_id,
+                'tax_percentage' => $tax_percentage,
+                'tax_amount' => $tax_amount,
                 'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => $request->shipping_amount * 100,
-                'paid_amount' => $request->paid_amount * 100,
-                'total_amount' => $request->total_amount * 100,
-                'due_amount' => $due_amount * 100,
-                'status' => $request->status,
+                'shipping_amount' => $request->shipping_amount,
+                'total_amount' => $request->total_amount,
+                'due_amount' => $due_amount,
+                'status' => $status,
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
-                'tax_amount' => Cart::instance('purchase')->tax() * 100,
-                'discount_amount' => Cart::instance('purchase')->discount() * 100,
+                'setting_id' => auth()->user()->currentSetting->id ?? null,
             ]);
 
             foreach (Cart::instance('purchase')->content() as $cart_item) {
                 PurchaseDetail::create([
                     'purchase_id' => $purchase->id,
                     'product_id' => $cart_item->id,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options->code,
                     'quantity' => $cart_item->qty,
-                    'price' => $cart_item->price * 100,
-                    'unit_price' => $cart_item->options->unit_price * 100,
-                    'sub_total' => $cart_item->options->sub_total * 100,
-                    'product_discount_amount' => $cart_item->options->product_discount * 100,
-                    'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => $cart_item->options->product_tax * 100,
                 ]);
-
-                if ($request->status == 'Completed') {
-                    $product = Product::findOrFail($cart_item->id);
-                    $product->update([
-                        'product_quantity' => $product->product_quantity + $cart_item->qty
-                    ]);
-                }
             }
 
             Cart::instance('purchase')->destroy();
-
-            if ($purchase->paid_amount > 0) {
-                PurchasePayment::create([
-                    'date' => $request->date,
-                    'reference' => 'INV/'.$purchase->reference,
-                    'amount' => $purchase->paid_amount,
-                    'purchase_id' => $purchase->id,
-                    'payment_method' => $request->payment_method
-                ]);
-            }
         });
 
         toast('Purchase Created!', 'success');
@@ -226,5 +214,21 @@ class PurchaseController extends Controller
         toast('Purchase Deleted!', 'warning');
 
         return redirect()->route('purchases.index');
+    }
+
+    public function updateStatus(Request $request, Purchase $purchase)
+    {
+        abort_if(Gate::denies('update_purchase_status'), 403);
+
+        $request->validate([
+            'status' => 'required|string|in:' . implode(',', Purchase::getStatuses()),
+        ]);
+
+        $purchase->status = $request->status;
+        $purchase->save();
+
+        toast('Purchase status updated!', 'success');
+
+        return redirect()->route('purchases.show', $purchase);
     }
 }

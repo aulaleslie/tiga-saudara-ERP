@@ -20,9 +20,6 @@ class ProductStock extends Model
         'quantity_tax',
         'broken_quantity_non_tax',
         'broken_quantity_tax',
-        'last_purchase_price',
-        'average_purchase_price',
-        'sale_price',
         'tax_id', // Nullable tax field
     ];
 

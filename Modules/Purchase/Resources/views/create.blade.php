@@ -14,7 +14,7 @@
     <div class="container-fluid mb-4">
         <div class="row">
             <div class="col-12">
-                <livewire:search-product/>
+                <livewire:purchase.search-product/>
             </div>
         </div>
 
@@ -55,7 +55,7 @@
                                 </div>
                             </div>
 
-                            <livewire:product-cart :cartInstance="'purchase'"/>
+                            <livewire:purchase.product-cart :cartInstance="'purchase'"/>
 
                             <div class="form-row">
                                 <div class="col-lg-4">

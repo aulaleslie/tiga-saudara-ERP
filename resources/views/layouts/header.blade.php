@@ -9,9 +9,9 @@
 <ul class="c-header-nav ml-auto mr-4">
     @can('create_pos_sales')
         <li class="c-header-nav-item mr-3">
-            {{--        <a class="btn btn-primary btn-pill {{ request()->routeIs('app.pos.index') ? 'disabled' : '' }}" href="{{ route('app.pos.index') }}">--}}
-            {{--            <i class="bi bi-cart mr-1"></i> POS System--}}
-            {{--        </a>--}}
+                    <a class="btn btn-primary btn-pill {{ request()->routeIs('app.pos.index') ? 'disabled' : '' }}" href="{{ route('app.pos.index') }}">
+                        <i class="bi bi-cart mr-1"></i> POS System
+                    </a>
         </li>
     @endcan
 
