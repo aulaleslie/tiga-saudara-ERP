@@ -1,113 +1,126 @@
 @extends('layouts.app')
 
-@section('title', 'Create Purchase')
+@section('title', 'Buat Pembelian')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Purchases</a></li>
-        <li class="breadcrumb-item active">Add</li>
+        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Pembelian</a></li>
+        <li class="breadcrumb-item active">Tambah</li>
     </ol>
 @endsection
 
 @section('content')
     <div class="container-fluid mb-4">
+        <!-- Search Product Livewire Component -->
         <div class="row">
             <div class="col-12">
-                <livewire:search-product/>
+                <livewire:purchase.search-product/>
             </div>
         </div>
 
+        <!-- Purchase Form -->
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
                     <div class="card-body">
+                        <!-- Alert Messages -->
                         @include('utils.alerts')
+
+                        <!-- Purchase Form Start -->
                         <form id="purchase-form" action="{{ route('purchases.store') }}" method="POST">
                             @csrf
 
+                            <!-- Reference, Supplier, Date -->
                             <div class="form-row">
+                                <!-- Referensi -->
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="reference">Reference <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="reference" required readonly value="PR">
+                                        <label for="reference">Referensi <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="reference" id="reference" required readonly value="PR">
+                                        @error('reference')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
                                     </div>
                                 </div>
-                                <div class="col-lg-4">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="supplier_id">Supplier <span class="text-danger">*</span></label>
-                                            <select class="form-control" name="supplier_id" id="supplier_id" required>
-                                                @foreach(\Modules\People\Entities\Supplier::all() as $supplier)
-                                                    <option value="{{ $supplier->id }}">{{ $supplier->supplier_name }}</option>
-                                                @endforeach
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="date">Date <span class="text-danger">*</span></label>
-                                            <input type="date" class="form-control" name="date" required value="{{ now()->format('Y-m-d') }}">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
 
-                            <livewire:product-cart :cartInstance="'purchase'"/>
-
-                            <div class="form-row">
+                                <!-- Pemasok -->
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="status">Status <span class="text-danger">*</span></label>
-                                        <select class="form-control" name="status" id="status" required>
-                                            <option value="Pending">Pending</option>
-                                            <option value="Ordered">Ordered</option>
-                                            <option value="Completed">Completed</option>
+                                        <label for="supplier_id">Pemasok <span class="text-danger">*</span></label>
+                                        <select class="form-control @error('supplier_id') is-invalid @enderror" name="supplier_id" id="supplier_id" required>
+                                            <option value="">Pilih Pemasok</option>
+                                            @foreach(\Modules\People\Entities\Supplier::all() as $supplier)
+                                                <option value="{{ $supplier->id }}">{{ $supplier->supplier_name }}</option>
+                                            @endforeach
                                         </select>
+                                        @error('supplier_id')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
                                     </div>
                                 </div>
-                                <div class="col-lg-4">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="payment_method">Payment Method <span class="text-danger">*</span></label>
-                                            <select class="form-control" name="payment_method" id="payment_method" required>
-                                                <option value="Cash">Cash</option>
-                                                <option value="Credit Card">Credit Card</option>
-                                                <option value="Bank Transfer">Bank Transfer</option>
-                                                <option value="Cheque">Cheque</option>
-                                                <option value="Other">Other</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
+
+                                <!-- Tanggal -->
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="paid_amount">Amount Paid <span class="text-danger">*</span></label>
-                                        <div class="input-group">
-                                            <input id="paid_amount" type="text" class="form-control" name="paid_amount" required>
-                                            <div class="input-group-append">
-                                                <button id="getTotalAmount" class="btn btn-primary" type="button">
-                                                    <i class="bi bi-check-square"></i>
-                                                </button>
-                                            </div>
-                                        </div>
+                                        <label for="date">Tanggal <span class="text-danger">*</span></label>
+                                        <input type="date" class="form-control @error('date') is-invalid @enderror" name="date" id="date" required value="{{ now()->format('Y-m-d') }}">
+                                        @error('date')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
                                     </div>
                                 </div>
                             </div>
 
-                            <div class="form-group">
-                                <label for="note">Note (If Needed)</label>
-                                <textarea name="note" id="note" rows="5" class="form-control"></textarea>
+                            <!-- Tanggal Jatuh Tempo and Pajak Termasuk -->
+                            <div class="form-row">
+                                <!-- Tanggal Jatuh Tempo -->
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="due_date">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
+                                        <input type="date" class="form-control @error('due_date') is-invalid @enderror" name="due_date" id="due_date" required value="{{ now()->addDays(30)->format('Y-m-d') }}">
+                                        @error('due_date')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+
+                                <!-- Pajak Termasuk -->
+                                <div class="col-lg-4">
+                                    <div class="form-group mt-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="is_tax_included" id="is_tax_included" value="1" {{ old('is_tax_included') ? 'checked' : '' }}>
+                                            <label class="form-check-label" for="is_tax_included">
+                                                Pajak Termasuk
+                                            </label>
+                                        </div>
+                                        @error('is_tax_included')
+                                        <div class="text-danger">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
                             </div>
 
+                            <!-- Product Cart Livewire Component -->
+                            <livewire:purchase.product-cart :cartInstance="'purchase'"/>
+
+                            <!-- Catatan -->
+                            <div class="form-group mt-4">
+                                <label for="note">Catatan (Jika Diperlukan)</label>
+                                <textarea name="note" id="note" rows="5" class="form-control @error('note') is-invalid @enderror">{{ old('note') }}</textarea>
+                                @error('note')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <!-- Submit Button -->
                             <div class="mt-3">
                                 <button type="submit" class="btn btn-primary">
-                                    Create Purchase <i class="bi bi-check"></i>
+                                    Buat Pembelian <i class="bi bi-check"></i>
                                 </button>
                             </div>
                         </form>
+                        <!-- Purchase Form End -->
                     </div>
                 </div>
             </div>
@@ -116,24 +129,9 @@
 @endsection
 
 @push('page_scripts')
-    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
+    <!-- Removed scripts related to 'paid_amount' and 'payment_method' -->
+    <!-- Add any additional scripts if necessary -->
     <script>
-        $(document).ready(function () {
-            $('#paid_amount').maskMoney({
-                prefix:'{{ settings()->currency->symbol }}',
-                thousands:'{{ settings()->currency->thousand_separator }}',
-                decimal:'{{ settings()->currency->decimal_separator }}',
-                allowZero: true,
-            });
-
-            $('#getTotalAmount').click(function () {
-                $('#paid_amount').maskMoney('mask', {{ Cart::instance('purchase')->total() }});
-            });
-
-            $('#purchase-form').submit(function () {
-                var paid_amount = $('#paid_amount').maskMoney('unmasked')[0];
-                $('#paid_amount').val(paid_amount);
-            });
-        });
+        // Example: If you need to handle 'is_tax_included' dynamically, consider using Livewire events or JavaScript
     </script>
 @endpush

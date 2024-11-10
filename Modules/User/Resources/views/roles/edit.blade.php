@@ -1040,6 +1040,115 @@
                                     </div>
                                 </div>
 
+                                <!-- pelanggan -->
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Pelanggan
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input"
+                                                       id="select-all-pelanggan">
+                                                <label class="custom-control-label" for="select-all-pelanggan">Pilih
+                                                    Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="pelanggan" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="customer.access" name="permissions[]"
+                                                               value="customer.access" {{ $role->hasPermissionTo('customer.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="customer.access">Hak Akses</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="customer.create" name="permissions[]"
+                                                               value="customer.access" {{ $role->hasPermissionTo('customer.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="customer.create">Buat</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="customer.edit" name="permissions[]"
+                                                               value="customer.edit" {{ $role->hasPermissionTo('customer.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="customer.edit">Edit</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="customer.delete" name="permissions[]"
+                                                               value="customer.delete" {{ $role->hasPermissionTo('customer.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="customer.delete">Delete</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- pemasok -->
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Pemasok
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input"
+                                                       id="select-all-pemasok">
+                                                <label class="custom-control-label" for="select-all-pemasok">Pilih
+                                                    Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="pemasok" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="supplier.access" name="permissions[]"
+                                                               value="supplier.access" {{ $role->hasPermissionTo('supplier.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="supplier.access">Hak Akses</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="supplier.create" name="permissions[]"
+                                                               value="supplier.access" {{ $role->hasPermissionTo('supplier.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="supplier.create">Buat</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="supplier.edit" name="permissions[]"
+                                                               value="supplier.edit" {{ $role->hasPermissionTo('supplier.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="supplier.edit">Edit</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="supplier.delete" name="permissions[]"
+                                                               value="supplier.delete" {{ $role->hasPermissionTo('supplier.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label"
+                                                               for="supplier.delete">Delete</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <!-- Merek -->
                                 <div class="col-lg-4 col-md-6 mb-3">
@@ -1144,108 +1253,51 @@
                                         </div>
                                     </div>
                                 </div>
-                                <!-- pelanggan -->
+
+                                <!-- Pajak -->
                                 <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
-                                            pelanggan
+                                            Pajak
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input"
-                                                       id="select-all-pelanggan">
-                                                <label class="custom-control-label" for="select-all-pelanggan">Pilih
-                                                    Semua</label>
+                                                <input type="checkbox" class="custom-control-input" id="select-all-tax">
+                                                <label class="custom-control-label" for="select-all-tax">Pilih Semua</label>
                                             </div>
                                         </div>
-                                        <div id="pelanggan" class="card-body">
+                                        <div id="tax" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="customer.access" name="permissions[]"
-                                                               value="customer.access" {{ $role->hasPermissionTo('customer.access') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label"
-                                                               for="customer.access">Hak Akses</label>
+                                                               id="tax.access" name="permissions[]"
+                                                               value="tax.access" {{ old('tax.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="tax.access">Akses</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="tax.create" name="permissions[]"
+                                                               value="tax.create" {{ old('tax.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="tax.create">Buat</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="tax.edit" name="permissions[]"
+                                                               value="tax.edit" {{ old('tax.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="tax.edit">Edit</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="customer.create" name="permissions[]"
-                                                               value="customer.access" {{ $role->hasPermissionTo('customer.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label"
-                                                               for="customer.create">Buat</label>
-                                                    </div>
-                                                </div>
-                                                <div class="col-6">
-                                                    <div class="custom-control custom-switch">
-                                                        <input type="checkbox" class="custom-control-input"
-                                                               id="customer.edit" name="permissions[]"
-                                                               value="customer.edit" {{ $role->hasPermissionTo('customer.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label"
-                                                               for="customer.edit">Edit</label>
-                                                    </div>
-                                                </div>
-                                                <div class="col-6">
-                                                    <div class="custom-control custom-switch">
-                                                        <input type="checkbox" class="custom-control-input"
-                                                               id="customer.delete" name="permissions[]"
-                                                               value="customer.delete" {{ $role->hasPermissionTo('customer.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label"
-                                                               for="customer.delete">Delete</label>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <!-- pemasok -->
-                                <div class="col-lg-4 col-md-6 mb-3">
-                                    <div class="card h-100 border-0 shadow">
-                                        <div class="card-header">
-                                            Pemasok
-                                            <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input"
-                                                       id="select-all-pemasok">
-                                                <label class="custom-control-label" for="select-all-pemasok">Pilih
-                                                    Semua</label>
-                                            </div>
-                                        </div>
-                                        <div id="pemasok" class="card-body">
-                                            <div class="row">
-                                                <div class="col-6">
-                                                    <div class="custom-control custom-switch">
-                                                        <input type="checkbox" class="custom-control-input"
-                                                               id="supplier.access" name="permissions[]"
-                                                               value="supplier.access" {{ $role->hasPermissionTo('supplier.access') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label"
-                                                               for="supplier.access">Hak Akses</label>
-                                                    </div>
-                                                </div>
-                                                <div class="col-6">
-                                                    <div class="custom-control custom-switch">
-                                                        <input type="checkbox" class="custom-control-input"
-                                                               id="supplier.create" name="permissions[]"
-                                                               value="supplier.access" {{ $role->hasPermissionTo('supplier.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label"
-                                                               for="supplier.create">Buat</label>
-                                                    </div>
-                                                </div>
-                                                <div class="col-6">
-                                                    <div class="custom-control custom-switch">
-                                                        <input type="checkbox" class="custom-control-input"
-                                                               id="supplier.edit" name="permissions[]"
-                                                               value="supplier.edit" {{ $role->hasPermissionTo('supplier.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label"
-                                                               for="supplier.edit">Edit</label>
-                                                    </div>
-                                                </div>
-                                                <div class="col-6">
-                                                    <div class="custom-control custom-switch">
-                                                        <input type="checkbox" class="custom-control-input"
-                                                               id="supplier.delete" name="permissions[]"
-                                                               value="supplier.delete" {{ $role->hasPermissionTo('supplier.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label"
-                                                               for="supplier.delete">Delete</label>
+                                                               id="tax.delete" name="permissions[]"
+                                                               value="tax.delete" {{ old('tax.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="tax.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1328,6 +1380,12 @@
             $('#select-all-pemasok').click(function () {
                 var checked = this.checked;
                 $('#pemasok input[type="checkbox"]').each(function () {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-tax').click(function() {
+                var checked = this.checked;
+                $('#tax input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });

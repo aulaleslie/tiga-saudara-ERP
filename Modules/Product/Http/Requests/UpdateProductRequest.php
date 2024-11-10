@@ -7,6 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Modules\Product\Entities\ProductUnitConversion;
 
 class UpdateProductRequest extends FormRequest
 {
@@ -31,39 +32,105 @@ class UpdateProductRequest extends FormRequest
         return [
             'product_name' => ['sometimes', 'required', 'string', 'max:255'],
             'product_code' => ['sometimes', 'required', 'string', 'max:255', 'unique:products,product_code,' . $this->product->id],
-
             'product_stock_alert' => ['nullable', 'integer', 'min:0'],
             'purchase_price' => ['nullable', 'numeric', 'min:0'],
-            'purchase_tax' => ['nullable', 'in:1'],
+            'purchase_tax' => ['nullable'],
             'sale_price' => ['nullable', 'numeric', 'min:0'],
-            'sale_tax' => ['nullable', 'in:1'],
+            'sale_tax' => ['nullable'],
             'product_note' => ['nullable', 'string', 'max:1000'],
             'category_id' => ['nullable', 'integer'],
             'brand_id' => ['nullable', 'integer'],
             'stock_managed' => ['nullable', 'boolean'],
+            'barcode' => [
+                'nullable',
+                'digits:13',
+                'regex:/^\d{13}$/',
+                'unique:products,barcode,' . $this->product->id,
+            ],
 
-            // Validate conversions if provided
+            'base_unit_id' => [
+                'required_if:stock_managed,1',
+                'integer',
+                function ($attribute, $value, $fail) {
+                    if ($this->input('stock_managed') && $value == 0) {
+                        $fail('Unit dasar tidak boleh 0 ketika manajemen stok diaktifkan.');
+                    }
+                }
+            ],
+
             'conversions' => ['nullable', 'array'],
-            'conversions.*.unit_id' => ['required_if:stock_managed,1', 'integer', 'not_in:0'],
+
+            // Unit ID validation with custom logic for duplicates and base_unit_id conflict
+            'conversions.*.unit_id' => [
+                'required_if:stock_managed,1',
+                'integer',
+                'not_in:0',
+                function ($attribute, $value, $fail) {
+                    // Prevent duplicates within conversions array
+                    $conversions = $this->input('conversions') ?? [];
+                    $unitIds = array_column($conversions, 'unit_id');
+
+                    // Check for duplicate unit_id in conversions array
+                    if (count(array_unique($unitIds)) !== count($unitIds)) {
+                        $fail('Unit ID tidak boleh duplikat di antara elemen-elemen konversi.');
+                    }
+
+                    // Check if the unit_id matches the base_unit_id
+                    $baseUnitId = (int)$this->input('base_unit_id');
+                    $unitId = (int)$value;
+
+                    if ($unitId === $baseUnitId) {
+                        $fail('Unit ID di konversi tidak boleh sama dengan unit dasar.');
+                    }
+                },
+            ],
+
             'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
+            'conversions.*.barcode' => [
+                'nullable',
+                'digits:13',
+                'regex:/^\d{13}$/',
+                function ($attribute, $value, $fail) {
+                    $conversions = $this->input('conversions') ?? [];
+                    $barcodes = array_column($conversions, 'barcode');
+
+                    // Check for duplicates within the conversions array
+                    if (count(array_unique($barcodes)) !== count($barcodes)) {
+                        $fail('Barcode konversi tidak boleh duplikat di antara elemen-elemen konversi.');
+                    }
+
+                    // Retrieve the conversion index
+                    $index = explode('.', $attribute)[1] ?? null;
+                    if (is_null($index)) {
+                        $fail('Invalid conversion index.');
+                        return;
+                    }
+
+                    // Retrieve the corresponding product unit conversion based on the index
+                    $conversion = ProductUnitConversion::find($this->input("conversions.$index.id"));
+
+                    // If the conversion exists, check if the barcode has changed
+                    if ($value && $conversion && $conversion->barcode !== $value) {
+                        // Check if the barcode is unique in the database, ignoring the current conversion
+                        if (ProductUnitConversion::where('barcode', $value)->where('id', '!=', $conversion->id)->exists()) {
+                            $fail('Barcode konversi ini sudah ada di database.');
+                        }
+                    }
+                }
+            ],
 
             'document' => ['nullable', 'array'],
             'document.*' => ['nullable', 'string'],
 
-            // Ensure base_unit_id is required and not 0 if stock_managed is true, otherwise allow 0 or nullable
-            'base_unit_id' => ['required_if:stock_managed,1', 'integer', function ($attribute, $value, $fail) {
-                if ($this->input('stock_managed') && $value == 0) {
-                    $fail('Unit dasar tidak boleh 0 ketika manajemen stok diaktifkan.');
-                }
-            }],
-
             // Location required if product_quantity is greater than 0
-            'location_id' => ['integer', function ($attribute, $value, $fail) {
-                if ($this->input('product_quantity') > 0 && empty($value)) {
-                    $fail('Location harus diisi jika jumlah produk lebih dari 0.');
+            'location_id' => [
+                'integer',
+                function ($attribute, $value, $fail) {
+                    if ($this->input('product_quantity') > 0 && empty($value)) {
+                        $fail('Location harus diisi jika jumlah produk lebih dari 0.');
+                    }
                 }
-            }],
-
+            ],
         ];
     }
 
@@ -81,7 +148,6 @@ class UpdateProductRequest extends FormRequest
             'base_unit_id.required_if' => 'Unit primer diperlukan ketika manajemen stok diaktifkan.',
             'conversions.*.unit_id.required_with' => 'Konversi ke satuan diperlukan ketika memberikan faktor konversi.',
             'conversions.*.conversion_factor.required_with' => 'Faktor konversi diperlukan saat menyediakan unit.',
-            'conversions.*.unit_id' => 'Unit harus dipilih jika stock managed',
             'conversions.*.conversion_factor' => 'Conversion factor harus dipilih jika stock managed',
             // Add custom messages for other fields as needed
         ];

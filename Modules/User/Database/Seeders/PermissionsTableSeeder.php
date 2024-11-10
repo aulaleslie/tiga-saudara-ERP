@@ -20,7 +20,6 @@ class PermissionsTableSeeder extends Seeder
             //User Mangement
             'edit_own_profile',
             'access_user_management',
-            //Peran dan Ijin
             //Dashboard
             'show_total_stats',
             'show_month_overview',

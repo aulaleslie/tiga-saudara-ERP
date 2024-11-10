@@ -1,4 +1,4 @@
-@props(['label', 'name', 'options' => [], 'selected' => null, 'required' => false, 'addCategoryButton' => false, 'placeholder' => 'Pilih'])
+@props(['label', 'name', 'options' => [], 'selected' => null, 'required' => false, 'addCategoryButton' => false, 'placeholder' => 'Pilih', 'disabled' => null])
 
 <div class="form-group">
     <label for="{{ $name }}">{{ $label }}
@@ -8,7 +8,8 @@
     </label>
     <div class="input-group">
         <select class="form-control @error($name) is-invalid @enderror" name="{{ $name }}" id="{{ $name }}"
-                @if($required) required @endif>
+                @if($required) required @endif
+                @if($disabled) disabled @endif>
             <option value="0">{{ $placeholder }} {{ $label }}</option> <!-- Allow re-selection of the placeholder -->
             @foreach($options as $key => $value)
                 <option value="{{ $key }}"

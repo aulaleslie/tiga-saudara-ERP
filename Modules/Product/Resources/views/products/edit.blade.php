@@ -44,17 +44,6 @@
                                 </div>
                             </div>
 
-                            <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Stok" name="product_quantity" type="number" step="1"
-                                             value="{{ old('product_quantity', $product->product_quantity) }}" disabled/>
-                                </div>
-                                <div class="col-md-6">
-                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
-                                             step="1" value="{{ old('product_stock_alert', $product->product_stock_alert) }}"/>
-                                </div>
-                            </div>
-
                             <!-- Removed Old Fields and Added New Fields -->
                             <div class="form-row">
                                 <div class="col-md-12">
@@ -111,22 +100,38 @@
                                         <br>
                                         <label>
                                             <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
-                                                   class="input-icheck" {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }}>
+                                                   class="input-icheck"
+                                                   {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }} disabled/>
                                             <strong>Manajemen Stok</strong>
                                         </label>
                                         <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
                                            data-placement="top"
                                            title="Stock Management should be disabled mostly for services. Example: Jasa Instalasi, Jasa Perbaikan, dll."></i>
-                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
+                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk
+                                                produk ini.</i></p>
                                     </div>
                                 </div>
                             </div>
-
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <x-select label="Unit Utama" name="base_unit_id"
+                                    <x-input label="Stok" name="product_quantity" type="number" step="1"
+                                             value="{{ old('product_quantity', $product->product_quantity) }}"
+                                             disabled/>
+                                </div>
+                                <div class="col-md-6">
+                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
+                                             step="1"
+                                             value="{{ old('product_stock_alert', $product->product_stock_alert) }}"/>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="col-md-6">
+                                    <x-select label="Unit Utama" name="base_unit_id_display"
                                               :options="$units->pluck('name', 'id')"
-                                              selected="{{ old('base_unit_id', $product->base_unit_id) }}"/>
+                                              selected="{{ old('base_unit_id', $product->base_unit_id) }}" disabled/>
+                                    <!-- Hidden field to actually submit the base_unit_id -->
+                                    <input type="hidden" name="base_unit_id"
+                                           value="{{ old('base_unit_id', $product->base_unit_id) }}">
                                 </div>
 
                                 <div class="col-md-6">
@@ -136,7 +141,9 @@
                             </div>
 
                             <!-- Livewire component for Unit Conversion Table -->
-                            <livewire:product.unit-conversion-table :conversions="old('conversions', $product->conversions->toArray())" :errors="$errors->toArray()"/>
+                            <livewire:product.unit-conversion-table
+                                :conversions="old('conversions', $product->conversions->toArray())"
+                                :errors="$errors->toArray()"/>
 
                             <div class="form-group">
                                 <label for="product_note">Catatan</label>
@@ -187,7 +194,23 @@
                 });
             }
 
-            applyMask();
+            applyMask(); // Reapply mask after the page loads to ensure it's applied properly
+
+            function prefillMaskedValues() {
+                let salePrice = "{{ old('sale_price', $product->sale_price) }}";
+                let purchasePrice = "{{ old('purchase_price', $product->purchase_price) }}";
+
+                if (salePrice) {
+                    $('#sale_price').val(parseFloat(salePrice).toFixed(2));
+                    $('#sale_price').maskMoney('mask'); // Apply the mask
+                }
+                if (purchasePrice) {
+                    $('#purchase_price').val(parseFloat(purchasePrice).toFixed(2));
+                    $('#purchase_price').maskMoney('mask'); // Apply the mask
+                }
+            }
+
+            prefillMaskedValues(); // Ensure the values are formatted correctly
 
             // On focus, unmask to show raw value for editing and select all text
             $('#purchase_price, #sale_price').on('focus', function () {

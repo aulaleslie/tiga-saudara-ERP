@@ -35,15 +35,20 @@
                                     <th>Category</th>
                                     <td>{{ $product->category->category_name ?? 'N/A' }}</td>
                                 </tr>
+                                <!-- Replace "Harga Beli" with "Harga Beli Terakhir" and "Harga Beli Rata Rata" -->
                                 <tr>
-                                    <th>Harga Beli</th>
-                                    <td>{{ format_currency($product->purchase_price) }}</td>
+                                    <th>Harga Beli Terakhir</th>
+                                    <td>{{ format_currency($product->last_purchase_price) }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Harga Beli Rata Rata</th>
+                                    <td>{{ format_currency($product->average_purchase_price) }}</td>
                                 </tr>
                                 <tr>
                                     <th>Pajak Beli</th>
                                     <td>
-                                        @if($product->purchase_tax == 1)
-                                            PPN 11%
+                                        @if($product->purchaseTax)
+                                            {{ $product->purchaseTax->name }}
                                         @else
                                             N/A
                                         @endif
@@ -56,8 +61,8 @@
                                 <tr>
                                     <th>Pajak Jual</th>
                                     <td>
-                                        @if($product->sale_tax == 1)
-                                            PPN 11%
+                                        @if($product->saleTax)
+                                            {{ $product->saleTax->name }}
                                         @else
                                             N/A
                                         @endif
@@ -113,12 +118,12 @@
                     <table class="table table-bordered table-striped">
                         <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Type</th>
-                            <th>Quantity</th>
-                            <th>Current Quantity</th>
-                            <th>Location</th>
-                            <th>Reason</th>
+                            <th>Tanggal</th>
+                            <th>Jenis</th>
+                            <th>Jumlah</th>
+                            <th>Jumlah Saat Ini</th>
+                            <th>Lokasi</th>
+                            <th>Alasan</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -142,5 +147,81 @@
             </div>
         </div>
         <!-- End Transaction History -->
+
+        <!-- Product Stocks -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5>Product Stocks</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped">
+                        <thead>
+                        <tr>
+                            <th>Lokasi</th>
+                            <th>Jumlah</th>
+                            <th>Jumlah Non Pajak</th>
+                            <th>Jumlah Pajak</th>
+                            <th>Jumlah Barang Rusak Non Pajak</th>
+                            <th>Jumlah Barang Rusak Pajak</th>
+                            <!-- Removed columns: Harga Beli Terakhir, Harga Beli Rata-rata, Harga Jual -->
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @forelse($productStocks as $stock)
+                            <tr>
+                                <td>{{ $stock->location->name ?? 'N/A' }}</td>
+                                <td>{{ $stock->quantity }}</td>
+                                <td>{{ $stock->quantity_non_tax }}</td>
+                                <td>{{ $stock->quantity_tax }}</td>
+                                <td>{{ $stock->broken_quantity_non_tax }}</td>
+                                <td>{{ $stock->broken_quantity_tax }}</td>
+                                <!-- Removed data for the columns we deleted -->
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="6" class="text-center">No product stocks found.</td>
+                            </tr>
+                        @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <!-- End Product Stocks -->
+
+        <!-- Serial Numbers -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5>Serial Numbers</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped">
+                        <thead>
+                        <tr>
+                            <th>Serial Number</th>
+                            <th>Lokasi</th>
+                            <th>Pajak</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @forelse($serialNumbers as $serial)
+                            <tr>
+                                <td>{{ $serial->serial_number }}</td>
+                                <td>{{ $serial->location->name ?? 'N/A' }}</td>
+                                <td>{{ $serial->tax->name ?? 'N/A' }}</td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="3" class="text-center">No serial numbers found.</td>
+                            </tr>
+                        @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <!-- End Serial Numbers -->
     </div>
 @endsection

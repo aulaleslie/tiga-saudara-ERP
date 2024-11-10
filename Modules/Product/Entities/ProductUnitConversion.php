@@ -8,7 +8,7 @@ use Modules\Setting\Entities\Unit;
 
 class ProductUnitConversion extends Model
 {
-    protected $fillable = ['product_id', 'unit_id', 'base_unit_id', 'conversion_factor'];
+    protected $fillable = ['product_id', 'unit_id', 'base_unit_id', 'conversion_factor', 'barcode'];
 
     public function product(): BelongsTo
     {

@@ -36,7 +36,22 @@
                                     <x-input label="Nama Kontak" name="contact_name"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <x-input label="Identitas" name="identity"/>
+                                    <div class="form-group">
+                                        <label for="identity">Identitas</label>
+                                        <select class="form-control" name="identity" id="identity">
+                                            <option value="" {{ old('identity') == '' ? 'selected' : '' }}>-- Tidak ada
+                                                Identitas --
+                                            </option>
+                                            <option value="KTP" {{ old('identity') == 'KTP' ? 'selected' : '' }}>KTP
+                                            </option>
+                                            <option value="SIM" {{ old('identity') == 'SIM' ? 'selected' : '' }}>SIM
+                                            </option>
+                                            <option
+                                                value="Passport" {{ old('identity') == 'Passport' ? 'selected' : '' }}>
+                                                Passport
+                                            </option>
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
 
