@@ -18,6 +18,7 @@
         "maatwebsite/excel": "^3.1",
         "milon/barcode": "^10.0",
         "nwidart/laravel-modules": "^10.0",
+        "owen-it/laravel-auditing": "^13.6",
         "realrashid/sweet-alert": "^6.0",
         "spatie/laravel-backup": "^9.1",
         "spatie/laravel-medialibrary": "^10.0",
