@@ -20,23 +20,9 @@ class PermissionsTableSeeder extends Seeder
             //User Mangement
             'edit_own_profile',
             'access_user_management',
-            'access_user_permissions',
-            'users.accces',
-            'users.create',
-            'users.view',
-            'users.edit',
-            'users.delete',
             //Peran dan Ijin
-            'role.accces',
-            'role.create',
-            'role.view',
-            'role.edit',
-            'role.delete',
             //Dashboard
             'show_total_stats',
-            'show_total_income',
-            'show_total_purchase',
-            'show_total_sales',
             'show_month_overview',
             'show_weekly_sales_purchases',
             'show_monthly_cashflow',
@@ -47,7 +33,7 @@ class PermissionsTableSeeder extends Seeder
             'show_products',
             'edit_products',
             'delete_products',
-            'view_access_table_product',
+
             //Stock Adjustments
             'adjustment.access',
             'adjustment.create',
@@ -55,33 +41,13 @@ class PermissionsTableSeeder extends Seeder
             'adjustment.edit',
             'adjustment.delete',
             //Brand
-            'brand.access',
-            'brand.create',
-            'brand.view',
-            'brand.edit',
-            'brand.delete',
             //Product Categories
             'access_product_categories',
             //customer
-            'customer.access',
-            'customer.create',
-            'customer.view',
-            'customer.edit',
-            'customer.delete',
             //supplier
-            'supplier.access',
-            'supplier.create',
-            'supplier.view',
-            'supplier.edit',
-            'supplier.delete',
             //Barcode Printing
             'print_barcodes',
             //Adjustments
-            'access_adjustments',
-            'create_adjustments',
-            'show_adjustments',
-            'edit_adjustments',
-            'delete_adjustments',
             //Quotaions
             'access_quotations',
             'create_quotations',
@@ -154,15 +120,10 @@ class PermissionsTableSeeder extends Seeder
             'delete_currencies',
             //Settings
             'access_settings',
-            'bussines_setting',
+
             'crud_bussiness',
-            'view_bussiness',
+
             //lokasi
-            'location.accces',
-            'location.create',
-            'location.view',
-            'location.edit',
-            'location.delete',
             //Units
             'access_units'
         ];
