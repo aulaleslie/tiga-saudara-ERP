@@ -156,8 +156,6 @@ class ProductCart extends Component
             'id'      => $product['id'],
             'name'    => $product['product_name'],
             'qty'     => 1,
-            'last_purchase_price' => $product['last_purchase_price'],
-            'average_purchase_price' => $product['average_purchase_price'],
             'price'   => $this->calculate($product)['price'],
             'weight'  => 1,
             'options' => [
@@ -167,6 +165,8 @@ class ProductCart extends Component
                 'code'                  => $product['product_code'],
                 'stock'                 => $product['product_quantity'],
                 'unit'                  => $product['product_unit'],
+                'last_purchase_price' => $product['last_purchase_price'],
+                'average_purchase_price' => $product['average_purchase_price'],
                 'product_tax'           => null, // Initialize as null
                 'unit_price'            => $this->calculate($product)['unit_price']
             ]

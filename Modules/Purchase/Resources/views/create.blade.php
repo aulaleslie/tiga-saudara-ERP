@@ -34,7 +34,7 @@
                             <!-- Reference, Supplier, Date -->
                             <div class="form-row">
                                 <!-- Referensi -->
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="reference">Referensi <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="reference" id="reference" required readonly value="PR">
@@ -45,7 +45,7 @@
                                 </div>
 
                                 <!-- Pemasok -->
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="supplier_id">Pemasok <span class="text-danger">*</span></label>
                                         <select class="form-control @error('supplier_id') is-invalid @enderror" name="supplier_id" id="supplier_id" required>
@@ -61,7 +61,7 @@
                                 </div>
 
                                 <!-- Tanggal -->
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="date">Tanggal <span class="text-danger">*</span></label>
                                         <input type="date" class="form-control @error('date') is-invalid @enderror" name="date" id="date" required value="{{ now()->format('Y-m-d') }}">
@@ -70,32 +70,13 @@
                                         @enderror
                                     </div>
                                 </div>
-                            </div>
 
-                            <!-- Tanggal Jatuh Tempo and Pajak Termasuk -->
-                            <div class="form-row">
-                                <!-- Tanggal Jatuh Tempo -->
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="due_date">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
                                         <input type="date" class="form-control @error('due_date') is-invalid @enderror" name="due_date" id="due_date" required value="{{ now()->addDays(30)->format('Y-m-d') }}">
                                         @error('due_date')
                                         <div class="invalid-feedback">{{ $message }}</div>
-                                        @enderror
-                                    </div>
-                                </div>
-
-                                <!-- Pajak Termasuk -->
-                                <div class="col-lg-4">
-                                    <div class="form-group mt-4">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" name="is_tax_included" id="is_tax_included" value="1" {{ old('is_tax_included') ? 'checked' : '' }}>
-                                            <label class="form-check-label" for="is_tax_included">
-                                                Pajak Termasuk
-                                            </label>
-                                        </div>
-                                        @error('is_tax_included')
-                                        <div class="text-danger">{{ $message }}</div>
                                         @enderror
                                     </div>
                                 </div>
