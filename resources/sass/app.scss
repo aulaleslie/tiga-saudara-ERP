@@ -94,3 +94,10 @@ table {
 .c-header-nav-item.dropdown:hover .dropdown-menu {
     display: block;
 }
+
+.c-sidebar-nav-divider {
+    border: 0;
+    height: 1px; /* Adjust thickness */
+    background-color: #6c757d;
+    margin: 0.5rem 0; /* Adjust spacing */
+}
