@@ -5,8 +5,8 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('brands.index') }}">Brands</a></li>
-        <li class="breadcrumb-item active">Edit</li>
+        <li class="breadcrumb-item"><a href="{{ route('brands.index') }}">Merek</a></li>
+        <li class="breadcrumb-item active">Ubah</li>
     </ol>
 @endsection
 
@@ -39,7 +39,7 @@
                                         <a href="{{ route('brands.index') }}" class="btn btn-secondary mr-2">
                                             Kembali
                                         </a>
-                                        <button class="btn btn-primary">Pembaharuan Merek <i class="bi bi-check"></i>
+                                        <button class="btn btn-primary">Perbaharui Merek <i class="bi bi-check"></i>
                                         </button>
                                     </div>
                                 </div>

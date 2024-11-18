@@ -17,6 +17,6 @@
         <input type="number" class="form-control" name="conversions[factor][]" step="0.0001" required>
     </td>
     <td>
-        <button type="button" class="btn btn-danger remove_conversion">Remove</button>
+        <button type="button" class="btn btn-danger remove_conversion">Hapus</button>
     </td>
 </tr>

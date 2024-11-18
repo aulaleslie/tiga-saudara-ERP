@@ -6,7 +6,7 @@
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
         <li class="breadcrumb-item"><a href="{{ route('brands.index') }}">Merek</a></li>
-        <li class="breadcrumb-item active">Add</li>
+        <li class="breadcrumb-item active">Tambahkan</li>
     </ol>
 @endsection
 

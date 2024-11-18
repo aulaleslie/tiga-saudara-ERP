@@ -3,10 +3,10 @@
         <table class="table table-bordered">
             <thead>
             <tr>
-                <th>To Unit</th>
-                <th>Conversion Factor</th>
+                <th>ke Unit</th>
+                <th>Faktor Konversi</th>
                 <th>Barcode</th>
-                <th>Action</th>
+                <th>Aksi</th>
             </tr>
             </thead>
             <tbody>
@@ -15,7 +15,7 @@
                     <td>
                         <select name="conversions[{{ $index }}][unit_id]"
                                 class="form-control {{ isset($errors['conversions.' . $index . '.unit_id']) ? 'is-invalid' : '' }}">
-                            <option value="">Select Unit</option>
+                            <option value="">Pilih Unit</option>
                             @foreach($units as $id => $name)
                                 <option value="{{ $id }}" {{ $conversion['unit_id'] == $id ? 'selected' : '' }}>
                                     {{ $name }}
@@ -48,7 +48,7 @@
                     </td>
                     <td>
                         <button type="button" class="btn btn-danger" wire:click="removeConversionRow({{ $index }})">
-                            Remove
+                            Hapus
                         </button>
                     </td>
                 </tr>
@@ -56,5 +56,5 @@
             </tbody>
         </table>
     </div>
-    <button type="button" class="btn btn-primary" wire:click="addConversionRow">Add Conversion</button>
+    <button type="button" class="btn btn-primary" wire:click="addConversionRow">Tambahkan</button>
 </div>

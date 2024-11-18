@@ -50,7 +50,7 @@
     <div wire:loading wire:target="generateBarcodes" class="w-100">
         <div class="d-flex justify-content-center">
             <div class="spinner-border text-primary" role="status">
-                <span class="sr-only">Loading...</span>
+                <span class="sr-only">Memuat...</span>
             </div>
         </div>
     </div>

@@ -75,15 +75,15 @@ class StockTransfersDataTable extends DataTable
     {
         return [
             Column::make('created_at')
-                ->title('Transfer Date')
+                ->title('Tanggal Transfer')
                 ->className('text-center align-middle'),
 
             Column::make('origin_location_name')
-                ->title('Origin Location')
+                ->title('Lokasi Asal')
                 ->className('text-center align-middle'),
 
             Column::make('destination_location_name')
-                ->title('Destination Location')
+                ->title('Lokasi Tujuan')
                 ->className('text-center align-middle'),
 
             Column::make('status')
@@ -92,7 +92,8 @@ class StockTransfersDataTable extends DataTable
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle')
+                ->title('Aksi'),
         ];
     }
 
