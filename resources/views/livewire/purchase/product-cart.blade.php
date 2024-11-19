@@ -28,6 +28,7 @@
                     <th class="align-middle text-center">Jumlah</th>
                     <th class="align-middle text-center">Diskon</th>
                     <th class="align-middle text-center">Pajak</th>
+                    <th class="align-middle text-center">Sub Total Sebelum Pajak</th>
                     <th class="align-middle text-center">Sub Total</th>
                     <th class="align-middle text-center">Aksi</th>
                 </tr>
@@ -102,6 +103,10 @@
                             </td>
 
                             <td class="align-middle text-center">
+                                {{ format_currency($cart_item->options->sub_total_before_tax ?? ($cart_item->price * $cart_item->qty - $cart_item->options->product_discount)) }}
+                            </td>
+
+                            <td class="align-middle text-center">
                                 {{ format_currency($cart_item->options->sub_total) }}
                             </td>
 
@@ -114,7 +119,7 @@
                     @endforeach
                 @else
                     <tr>
-                        <td colspan="10" class="text-center">
+                        <td colspan="11" class="text-center">
                         <span class="text-danger">
                             Please search & select products!
                         </span>
@@ -131,8 +136,7 @@
             <div class="table-responsive">
                 <table class="table table-striped">
                     <tr>
-                        <th>Termasuk Pajak
-                        </th>
+                        <th>Termasuk Pajak</th>
                         <td>
                             <div class="form-check">
                                 <input
@@ -147,12 +151,16 @@
                         </td>
                     </tr>
                     <tr>
-                        <th>Pajak ({{ $global_tax }}%)</th>
-                        <td>(+) {{ format_currency(Cart::instance($cart_instance)->tax()) }}</td>
+                        <th>Total Sebelum Pajak</th>
+                        <td>{{ format_currency($grand_total_before_tax) }}</td>
                     </tr>
                     <tr>
-                        <th>Diskon ({{ $global_discount }}%)</th>
-                        <td>(-) {{ format_currency(Cart::instance($cart_instance)->discount()) }}</td>
+                        <th>Pajak (%)</th>
+                        <td>(+) {{ format_currency($product_tax_total) }}</td>
+                    </tr>
+                    <tr>
+                        <th>Total Setelah Pajak</th>
+                        <td>{{ format_currency($total_sub_total) }}</td>
                     </tr>
                     <tr>
                         <th>Biaya Ongkir</th>
@@ -160,12 +168,12 @@
                         <td>(+) {{ format_currency($shipping) }}</td>
                     </tr>
                     <tr>
-                        <th>Jumlah</th>
+                        <th>Grand Total</th>
                         @php
-                            $total_with_shipping = Cart::instance($cart_instance)->total() + (float) $shipping
+                            $grand_total = $total_sub_total + (float) $shipping;
                         @endphp
                         <th>
-                            (=) {{ format_currency($total_with_shipping) }}
+                            (=) {{ format_currency($grand_total) }}
                         </th>
                     </tr>
                 </table>
@@ -173,7 +181,7 @@
         </div>
     </div>
 
-    <input type="hidden" name="total_amount" value="{{ $total_with_shipping }}">
+{{--    <input type="hidden" name="total_amount" value="{{ $total_with_shipping }}">--}}
 
     <div class="form-row">
         <div class="col-lg-4">
