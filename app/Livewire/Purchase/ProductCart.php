@@ -28,6 +28,7 @@ class ProductCart extends Component
     public $setting_id; // Current setting ID
     public $product_tax = []; // Array to store selected tax IDs for each product
 
+    public $is_tax_included = false;
     private $product;
 
     protected $rules = [
@@ -229,17 +230,10 @@ class ProductCart extends Component
         $sub_total = ($cart_item->price * $cart_item->qty) - $cart_item->options->product_discount + $tax_amount;
 
         Cart::instance($this->cart_instance)->update($row_id, [
-            'options' => [
+            'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total' => $sub_total,
-                // Retain other options
-                'code'                  => $cart_item->options->code,
-                'stock'                 => $cart_item->options->stock,
-                'unit'                  => $cart_item->options->unit,
-                'product_tax'           => $this->product_tax[$product_id],
-                'unit_price'            => $cart_item->options->unit_price,
-                'product_discount'      => $cart_item->options->product_discount,
-                'product_discount_type' => $cart_item->options->product_discount_type,
-            ]
+                'product_tax' => $this->product_tax[$product_id], // Update tax if applicable
+            ])
         ]);
 
         $this->recalculateCart();
@@ -291,56 +285,49 @@ class ProductCart extends Component
         Cart::instance($this->cart_instance)->update($row_id, ['price' => $this->unit_price[$product['id']]]);
 
         Cart::instance($this->cart_instance)->update($row_id, [
-            'options' => [
+            'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total'             => $this->calculate($product, $this->unit_price[$product['id']])['sub_total'],
-                'code'                  => $cart_item->options->code,
-                'stock'                 => $cart_item->options->stock,
-                'unit'                  => $cart_item->options->unit,
                 'product_tax'           => $this->calculate($product, $this->unit_price[$product['id']])['product_tax'],
                 'unit_price'            => $this->calculate($product, $this->unit_price[$product['id']])['unit_price'],
-                'product_discount'      => $cart_item->options->product_discount,
-                'product_discount_type' => $cart_item->options->product_discount_type,
-                'last_purchase_price'   => $cart_item->options->last_purchase_price, // Preserve
-                'average_purchase_price'=> $cart_item->options->average_purchase_price, // Preserve
-            ]
+            ])
         ]);
 
         $this->recalculateCart();
     }
 
-    public function calculate($product, $new_price = null) {
-        if ($new_price) {
-            $product_price = $new_price;
-        } else {
-            $this->unit_price[$product['id']] = $product['product_price'];
-            if ($this->cart_instance == 'purchase' || $this->cart_instance == 'purchase_return') {
-                $this->unit_price[$product['id']] = $product['product_cost'];
-            }
-            $product_price = $this->unit_price[$product['id']];
-        }
-        $price = 0;
-        $unit_price = 0;
+    public function calculate($product, $new_price = null)
+    {
+        // Determine the base price
+        $product_price = $new_price ?: (($this->cart_instance == 'purchase' || $this->cart_instance == 'purchase_return')
+            ? $product['product_cost']
+            : $product['product_price']);
+
         $product_tax = 0;
-        $sub_total = 0;
+        $sub_total = $product_price; // Start with base price as subtotal
 
-        if ($product['product_tax_type'] == 1) {
-            $price = $product_price + ($product_price * ($product['product_order_tax'] / 100));
-            $unit_price = $product_price;
-            $product_tax = $product_price * ($product['product_order_tax'] / 100);
-            $sub_total = $product_price + ($product_price * ($product['product_order_tax'] / 100));
-        } elseif ($product['product_tax_type'] == 2) {
-            $price = $product_price;
-            $unit_price = $product_price - ($product_price * ($product['product_order_tax'] / 100));
-            $product_tax = $product_price * ($product['product_order_tax'] / 100);
-            $sub_total = $product_price;
-        } else {
-            $price = $product_price;
-            $unit_price = $product_price;
-            $product_tax = 0.00;
-            $sub_total = $product_price;
+        // Check if a tax is selected and calculate accordingly
+        $tax_id = $this->product_tax[$product['id']] ?? null;
+        $tax = $tax_id ? Tax::find($tax_id) : null;
+
+        if ($tax) {
+            if ($this->is_tax_included) {
+                // If tax is included in the price, calculate the tax portion
+                $tax_exclusive_price = $product_price / (1 + $tax->value / 100);
+                $product_tax = $product_price - $tax_exclusive_price;
+                $sub_total = $product_price; // Subtotal remains the same
+            } else {
+                // If tax is not included, add the tax to the subtotal
+                $product_tax = $product_price * ($tax->value / 100);
+                $sub_total += $product_tax;
+            }
         }
 
-        return ['price' => $price, 'unit_price' => $unit_price, 'product_tax' => $product_tax, 'sub_total' => $sub_total];
+        return [
+            'price' => $product_price,
+            'unit_price' => $product_price,
+            'product_tax' => $product_tax,
+            'sub_total' => $sub_total,
+        ];
     }
 
     public function updateCartOptions($row_id, $product_id, $cart_item, $discount_amount)
@@ -363,5 +350,72 @@ class ProductCart extends Component
     {
         // Trigger a re-render to update totals
         $this->render();
+    }
+
+    public function updateTax($row_id, $product_id)
+    {
+        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
+
+        // Get the selected tax ID and its value
+        $tax_id = $this->product_tax[$product_id];
+        $tax = Tax::find($tax_id);
+
+        $tax_amount = 0;
+        if ($tax) {
+            $tax_amount = ($cart_item->price * $tax->value / 100) * $cart_item->qty;
+        }
+
+        // Recalculate the subtotal with the new tax
+        $sub_total = ($cart_item->price * $cart_item->qty) - $cart_item->options->product_discount + $tax_amount;
+
+        // Update the cart item with the new tax and subtotal
+        Cart::instance($this->cart_instance)->update($row_id, [
+            'options' => array_merge($cart_item->options->toArray(), [
+                'product_tax' => $tax_id,
+                'sub_total' => $sub_total,
+            ])
+        ]);
+
+        $this->recalculateCart();
+    }
+
+    public function handleTaxIncluded()
+    {
+        $cart_items = Cart::instance($this->cart_instance)->content();
+
+        foreach ($cart_items as $cart_item) {
+            $product_id = $cart_item->id;
+            $row_id = $cart_item->rowId;
+
+            // Get the current tax ID and its value
+            $tax_id = $this->product_tax[$product_id] ?? null;
+            $tax = $tax_id ? Tax::find($tax_id) : null;
+
+            $tax_amount = 0;
+            $sub_total = $cart_item->price * $cart_item->qty;
+
+            if ($tax) {
+                if ($this->is_tax_included) {
+                    // Tax is included in the price
+                    $tax_exclusive_price = $cart_item->price / (1 + $tax->value / 100);
+                    $tax_amount = ($cart_item->price - $tax_exclusive_price) * $cart_item->qty;
+                    $sub_total = $cart_item->price * $cart_item->qty; // Subtotal remains the same
+                } else {
+                    // Tax is not included, add it to the subtotal
+                    $tax_amount = ($cart_item->price * $tax->value / 100) * $cart_item->qty;
+                    $sub_total += $tax_amount;
+                }
+            }
+
+            // Update the cart item with the new tax and subtotal
+            Cart::instance($this->cart_instance)->update($row_id, [
+                'options' => array_merge($cart_item->options->toArray(), [
+                    'product_tax' => $tax_id,
+                    'sub_total'   => $sub_total,
+                ])
+            ]);
+        }
+
+        $this->recalculateCart();
     }
 }

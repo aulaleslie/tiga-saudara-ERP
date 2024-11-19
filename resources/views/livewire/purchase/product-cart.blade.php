@@ -11,7 +11,8 @@
             </div>
         @endif
         <div class="table-responsive position-relative">
-            <div wire:loading.flex class="col-12 position-absolute justify-content-center align-items-center" style="top:0;right:0;left:0;bottom:0;background-color: rgba(255,255,255,0.5);z-index: 99;">
+            <div wire:loading.flex class="col-12 position-absolute justify-content-center align-items-center"
+                 style="top:0;right:0;left:0;bottom:0;background-color: rgba(255,255,255,0.5);z-index: 99;">
                 <div class="spinner-border text-primary" role="status">
                     <span class="sr-only">Loading...</span>
                 </div>
@@ -40,7 +41,6 @@
                                 <span class="badge badge-success">
                                         {{ $cart_item->options->code }}
                                     </span>
-                                @include('livewire.includes.product-cart-modal')
                             </td>
 
                             <!-- Harga Beli Rata-Rata -->
@@ -53,16 +53,27 @@
                                 {{ format_currency($cart_item->options->last_purchase_price) }}
                             </td>
 
-                            <td x-data="{ open{{ $cart_item->id }}: false }" class="align-middle text-center">
-                                <span x-show="!open{{ $cart_item->id }}" @click="open{{ $cart_item->id }} = !open{{ $cart_item->id }}">{{ format_currency($cart_item->price) }}</span>
+                            <td x-data="{ open: false }" class="align-middle text-center">
+                                <!-- Display formatted price when not editing -->
+                                <span x-show="!open"
+                                      @click="open = true">{{ format_currency($cart_item->price) }}</span>
 
-                                <div x-show="open{{ $cart_item->id }}">
-                                    @include('livewire.includes.product-cart-price')
+                                <!-- Editable input field -->
+                                <div x-show="open" @click.away="open = false">
+                                    <input
+                                        wire:model.defer="unit_price.{{ $cart_item->id }}"
+                                        style="min-width: 40px; max-width: 90px;"
+                                        type="text"
+                                        class="form-control text-center"
+                                        @keydown.enter="open = false"
+                                        wire:blur="updatePrice('{{ $cart_item->rowId }}', {{ $cart_item->id }})"
+                                    >
                                 </div>
                             </td>
 
                             <td class="align-middle text-center text-center">
-                                <span class="badge badge-info">{{ $cart_item->options->stock . ' ' . $cart_item->options->unit }}</span>
+                                <span
+                                    class="badge badge-info">{{ $cart_item->options->stock . ' ' . $cart_item->options->unit }}</span>
                             </td>
 
                             <td class="align-middle text-center">
@@ -71,10 +82,15 @@
 
                             <td class="align-middle text-center">
                                 {{ format_currency($cart_item->options->product_discount) }}
+                                @include('livewire.includes.product-cart-modal')
                             </td>
 
                             <td class="align-middle text-center">
-                                <select wire:model.defer="product_tax.{{ $cart_item->id }}" class="form-control">
+                                <select
+                                    wire:model.defer="product_tax.{{ $cart_item->id }}"
+                                    class="form-control"
+                                    wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
+                                >
                                     <option value="">Pilih Pajak</option>
                                     @foreach($taxes as $tax)
                                         <option value="{{ $tax->id }}">{{ $tax->name }} ({{ $tax->value }}%)</option>
@@ -119,8 +135,14 @@
                         </th>
                         <td>
                             <div class="form-check">
-                                <input wire:model="is_tax_included" type="checkbox" class="form-check-input" id="taxIncludedCheckbox">
-                                <label class="form-check-label" for="taxIncludedCheckbox"></label>
+                                <input
+                                    wire:model="is_tax_included"
+                                    wire:change="handleTaxIncluded"
+                                    type="checkbox"
+                                    class="form-check-input"
+                                    id="taxIncludedCheckbox"
+                                >
+                                <label class="form-check-label" for="taxIncludedCheckbox">Termasuk Pajak</label>
                             </div>
                         </td>
                     </tr>
@@ -157,13 +179,15 @@
         <div class="col-lg-4">
             <div class="form-group">
                 <label for="discount_percentage">Diskon (%)</label>
-                <input wire:model.blur="global_discount" type="number" class="form-control" name="discount_percentage" min="0" max="100" value="{{ $global_discount }}" required>
+                <input wire:model.blur="global_discount" type="number" class="form-control" name="discount_percentage"
+                       min="0" max="100" value="{{ $global_discount }}" required>
             </div>
         </div>
         <div class="col-lg-4">
             <div class="form-group">
                 <label for="shipping_amount">Ongkos Kirim</label>
-                <input wire:model.blur="shipping" type="number" class="form-control" name="shipping_amount" min="0" value="0" required step="0.01">
+                <input wire:model.blur="shipping" type="number" class="form-control" name="shipping_amount" min="0"
+                       value="0" required step="0.01">
             </div>
         </div>
     </div>
