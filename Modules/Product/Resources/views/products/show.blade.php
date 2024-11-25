@@ -5,8 +5,8 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('products.index') }}">Products</a></li>
-        <li class="breadcrumb-item active">Details</li>
+        <li class="breadcrumb-item"><a href="{{ route('products.index') }}">Produk</a></li>
+        <li class="breadcrumb-item active">Informasi</li>
     </ol>
 @endsection
 
@@ -20,7 +20,7 @@
                         <div class="table-responsive">
                             <table class="table table-bordered table-striped mb-0">
                                 <tr>
-                                    <th>Product Code</th>
+                                    <th>Kode Produk</th>
                                     <td>{{ $product->product_code }}</td>
                                 </tr>
                                 <tr>
@@ -28,11 +28,11 @@
                                     <td>{{ $product->product_barcode_symbology }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Name</th>
+                                    <th>Nama</th>
                                     <td>{{ $product->product_name }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Category</th>
+                                    <th>Kategori</th>
                                     <td>{{ $product->category->category_name ?? 'N/A' }}</td>
                                 </tr>
                                 <!-- Replace "Harga Beli" with "Harga Beli Terakhir" and "Harga Beli Rata Rata" -->
@@ -73,18 +73,18 @@
                                     <td>{{ $displayQuantity }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Stock Worth</th>
+                                    <th>Nilai Stok</th>
                                     <td>
                                         HARGA BELI: {{ format_currency($product->purchase_price * $product->product_quantity) }} /
                                         HARGA JUAL: {{ format_currency($product->sale_price * $product->product_quantity) }}
                                     </td>
                                 </tr>
                                 <tr>
-                                    <th>Alert Quantity</th>
+                                    <th>Peringatan Kuantitas</th>
                                     <td>{{ $product->product_stock_alert }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Note</th>
+                                    <th>Catatan</th>
                                     <td>{{ $product->product_note ?? 'N/A' }}</td>
                                 </tr>
                             </table>
