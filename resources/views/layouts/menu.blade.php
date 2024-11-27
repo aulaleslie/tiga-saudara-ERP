@@ -363,7 +363,7 @@
 
 <li class="c-sidebar-nav-divider"></li>
 
-@can('access_settings')
+@canany(['access_settings','access_account'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-wrench-adjustable" style="line-height: 1;"></i> Pengaturan
@@ -392,6 +392,14 @@
                     </a>
                 </li>
             @endcan
+            @can('access_account')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('chart-of-account*') ? 'c-active' : '' }}"
+                       href="{{ route('chart-of-account.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Nomor Akun
+                    </a>
+                </li>
+            @endcan
             {{--access_currencies|acces_setting--}}
             {{--            <li class="c-sidebar-nav-item">--}}
             {{--                <a class="c-sidebar-nav-link {{ request()->routeIs('units*') ? 'c-active' : '' }}" href="{{ route('units.index') }}">--}}
@@ -406,7 +414,6 @@
 
         </ul>
     </li>
-
 @endcan
 {{--@can('access_currencies|access_settings')--}}
 {{--    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('currencies*') || request()->routeIs('units*') ? 'c-show' : '' }}">--}}
