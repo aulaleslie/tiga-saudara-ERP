@@ -2,11 +2,9 @@
 
 namespace App\Livewire\Purchase;
 
-use Gloudemans\Shoppingcart\CartItem;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
-use Modules\Product\Entities\Product;
 use Modules\Setting\Entities\Tax;
 
 class ProductCart extends Component
@@ -461,7 +459,7 @@ class ProductCart extends Component
     public function calculate($product, $new_price = null)
     {
         // Determine the base price
-        $product_price = $product['last_purchase_price'];
+        $product_price = $product['last_purchase_price'] ?? 0;
 
         $product_tax = 0;
         $sub_total = $product_price; // Start with base price as subtotal

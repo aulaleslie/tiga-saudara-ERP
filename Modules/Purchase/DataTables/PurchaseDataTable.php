@@ -2,7 +2,9 @@
 
 namespace Modules\Purchase\DataTables;
 
+use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Entities\Purchase;
+use Modules\People\Entities\Supplier;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
 use Yajra\DataTables\Html\Editor\Editor;
@@ -11,18 +13,20 @@ use Yajra\DataTables\Services\DataTable;
 
 class PurchaseDataTable extends DataTable
 {
-
     public function dataTable($query) {
         return datatables()
             ->eloquent($query)
+            ->addColumn('supplier_name', function ($data) {
+                return $data->supplier->supplier_name ?? 'N/A';
+            })
             ->addColumn('total_amount', function ($data) {
-                return format_currency($data->total_amount);
+                return $this->formatCurrency($data->total_amount);
             })
             ->addColumn('paid_amount', function ($data) {
-                return format_currency($data->paid_amount);
+                return $this->formatCurrency($data->paid_amount);
             })
             ->addColumn('due_amount', function ($data) {
-                return format_currency($data->due_amount);
+                return $this->formatCurrency($data->due_amount);
             })
             ->addColumn('status', function ($data) {
                 return view('purchase::partials.status', compact('data'));
@@ -36,7 +40,9 @@ class PurchaseDataTable extends DataTable
     }
 
     public function query(Purchase $model) {
-        return $model->newQuery();
+        return $model->newQuery()
+            ->with('supplier') // Include the supplier relationship
+            ->select('purchases.*'); // Ensure to select all columns from purchases
     }
 
     public function html() {
@@ -65,8 +71,8 @@ class PurchaseDataTable extends DataTable
             Column::make('reference')
                 ->className('text-center align-middle'),
 
-            Column::make('supplier_name')
-                ->title('Supplier')
+            Column::make('supplier_name') // Supplier name column
+            ->title('Supplier')
                 ->className('text-center align-middle'),
 
             Column::computed('status')
@@ -90,11 +96,39 @@ class PurchaseDataTable extends DataTable
                 ->className('text-center align-middle'),
 
             Column::make('created_at')
-                ->visible(false)
+                ->visible(false),
         ];
     }
 
     protected function filename(): string {
         return 'Purchase_' . date('YmdHis');
+    }
+
+    private function formatCurrency($value, $scale = 1) {
+        // Fetch settings using the provided setting ID or session('setting_id')
+        $settings = settings();
+
+        Log::info('Settings Retrieved:', [
+            'position' => $settings->default_currency_position ?? 'prefix',
+            'symbol' => $settings->currency->symbol ?? '$',
+            'decimal_separator' => $settings->currency->decimal_separator ?? '.',
+            'thousand_separator' => $settings->currency->thousand_separator ?? ',',
+            'value' => $value
+        ]);
+
+        $position = $settings->default_currency_position ?? 'prefix';
+        $symbol = $settings->currency->symbol ?? '$';
+        $decimal_separator = $settings->currency->decimal_separator ?? '.';
+        $thousand_separator = $settings->currency->thousand_separator ?? ',';
+
+        // Adjust for scaling (e.g., converting cents to full value)
+        $value = $value / $scale;
+
+        // Format the currency value based on position
+        if ($position == 'prefix') {
+            return $symbol . number_format($value, 2, $decimal_separator, $thousand_separator);
+        } else {
+            return number_format($value, 2, $decimal_separator, $thousand_separator) . $symbol;
+        }
     }
 }

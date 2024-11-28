@@ -29,6 +29,8 @@ class Purchase extends Model
         'payment_method',
         'note',
         'setting_id',
+        'paid_amount',
+        'is_tax_included'
     ];
 
     const STATUS_DRAFTED = 'DRAFTED';
@@ -72,27 +74,27 @@ class Purchase extends Model
     }
 
     public function getShippingAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getPaidAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getTotalAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getDueAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getTaxAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getDiscountAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
     public function supplier(): BelongsTo
     {
@@ -102,5 +104,10 @@ class Purchase extends Model
     public function tax(): BelongsTo
     {
         return $this->belongsTo(Tax::class);
+    }
+
+    public function paymentTerm(): BelongsTo
+    {
+        return $this->belongsTo(PaymentTerm::class, 'payment_term_id');
     }
 }

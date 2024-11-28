@@ -2,7 +2,9 @@
 
 namespace Modules\Purchase\Http\Controllers;
 
+use Exception;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Log;
 use Modules\Purchase\DataTables\PurchaseDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
@@ -10,11 +12,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
+use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
-use Modules\Purchase\Entities\PurchasePayment;
 use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
+use Modules\Setting\Entities\Tax;
 
 class PurchaseController extends Controller
 {
@@ -26,70 +29,95 @@ class PurchaseController extends Controller
     }
 
 
-    public function create() {
+    public function create()
+    {
         abort_if(Gate::denies('create_purchases'), 403);
 
+        // Clear the purchase cart
         Cart::instance('purchase')->destroy();
 
-        return view('purchase::create');
+        // Retrieve the current setting_id from the session
+        $setting_id = session('setting_id');
+
+        // Filter PaymentTerms by the setting_id
+        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
+
+        // Pass the filtered terms to the view
+        return view('purchase::create', compact('paymentTerms'));
     }
 
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
-        DB::transaction(function () use ($request) {
-            // Remove 'paid_amount' and set it to zero
-            $paid_amount = 0;
-            $due_amount = $request->total_amount - $paid_amount;
-            $payment_status = 'Unpaid';
+        try {
+            DB::transaction(function () use ($request) {
+                $paid_amount = 0;
+                $due_amount = $request->total_amount - $paid_amount;
+                $payment_status = 'Unpaid';
+                $status = Purchase::STATUS_DRAFTED;
 
-            // Force status to 'DRAFTED'
-            $status = Purchase::STATUS_DRAFTED;
-
-            // Get tax percentage from 'taxes' table using 'tax_id'
-            $tax_percentage = 0;
-            $tax_amount = 0;
-            if ($request->tax_id) {
-                $tax = Tax::find($request->tax_id);
-                if ($tax) {
-                    $tax_percentage = $tax->value; // Assuming 'value' is the percentage
-                    // Calculate tax amount
-                    $tax_amount = ($request->total_amount * $tax_percentage) / 100;
+                $tax_percentage = 0;
+                $tax_amount = 0;
+                if ($request->tax_id) {
+                    $tax = Tax::find($request->tax_id);
+                    if ($tax) {
+                        $tax_percentage = $tax->value;
+                        $tax_amount = ($request->total_amount * $tax_percentage) / 100;
+                    }
                 }
-            }
 
-            $purchase = Purchase::create([
-                'date' => $request->date,
-                'due_date' => $request->due_date,
-                'supplier_id' => $request->supplier_id,
-                'tax_id' => $request->tax_id,
-                'tax_percentage' => $tax_percentage,
-                'tax_amount' => $tax_amount,
-                'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => $request->shipping_amount,
-                'total_amount' => $request->total_amount,
-                'due_amount' => $due_amount,
-                'status' => $status,
-                'payment_status' => $payment_status,
-                'payment_method' => $request->payment_method,
-                'note' => $request->note,
-                'setting_id' => auth()->user()->currentSetting->id ?? null,
-            ]);
-
-            foreach (Cart::instance('purchase')->content() as $cart_item) {
-                PurchaseDetail::create([
-                    'purchase_id' => $purchase->id,
-                    'product_id' => $cart_item->id,
-                    'quantity' => $cart_item->qty,
+                $purchase = Purchase::create([
+                    'date' => $request->date,
+                    'due_date' => $request->due_date,
+                    'supplier_id' => $request->supplier_id,
+                    'tax_id' => $request->tax_id,
+                    'tax_percentage' => $tax_percentage,
+                    'tax_amount' => $tax_amount,
+                    'discount_percentage' => $request->discount_percentage,
+                    'shipping_amount' => $request->shipping_amount,
+                    'total_amount' => $request->total_amount,
+                    'due_amount' => $due_amount,
+                    'status' => $status,
+                    'payment_status' => $payment_status,
+                    'payment_term_id' => $request->payment_term,
+                    'note' => $request->note,
+                    'setting_id' => auth()->user()->currentSetting->id ?? null,
+                    'paid_amount' => 0.0,
+                    'is_tax_included' => $request->is_tax_included,
+                    'payment_method' => '',
                 ]);
-            }
 
-            Cart::instance('purchase')->destroy();
-        });
+                foreach (Cart::instance('purchase')->content() as $cart_item) {
+                    PurchaseDetail::create([
+                        'purchase_id' => $purchase->id,
+                        'product_id' => $cart_item->id,
+                        'quantity' => $cart_item->qty,
+                        'tax_id' => $cart_item->options['product_tax'] ?? null,
+                        'unit_price' => $cart_item->options['unit_price'],
+                        'price' => $cart_item->price,
+                        'product_discount_type' => $cart_item->options['product_discount_type'],
+                        'product_discount_amount' => $cart_item->options['product_discount'],
+                        'sub_total' => $cart_item->options['sub_total'],
+                        'product_name' => '',
+                        'product_code' => '',
+                        'product_tax_amount' => 0.0,
+                    ]);
+                }
 
-        toast('Purchase Created!', 'success');
+                Cart::instance('purchase')->destroy();
+            });
 
-        return redirect()->route('purchases.index');
+            // If successful, return success message
+            toast('Purchase Created!', 'success');
+            return redirect()->route('purchases.index');
+        } catch (Exception $e) {
+            // Log the error for debugging
+            Log::error('Purchase Creation Failed:', ['error' => $e->getMessage()]);
+
+            // Return an error message to the user
+            toast('An error occurred while creating the purchase. Please try again.', 'error');
+            return redirect()->back()->withInput();
+        }
     }
 
 
