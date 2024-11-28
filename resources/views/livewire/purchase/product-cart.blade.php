@@ -146,6 +146,7 @@
                                     class="form-check-input"
                                     id="taxIncludedCheckbox"
                                 >
+                                <input type="hidden" name="is_tax_included" value="{{ $is_tax_included ? 1 : 0 }}">
                                 <label class="form-check-label" for="taxIncludedCheckbox">Termasuk Pajak</label>
                             </div>
                         </td>
@@ -181,7 +182,7 @@
         </div>
     </div>
 
-{{--    <input type="hidden" name="total_amount" value="{{ $total_with_shipping }}">--}}
+    <input type="hidden" name="total_amount" value="{{ $grand_total }}">
 
     <div class="form-row">
         <div class="col-lg-4">

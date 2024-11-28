@@ -80,6 +80,21 @@
                                         @enderror
                                     </div>
                                 </div>
+
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="payment_term">Term Pembayaran <span class="text-danger">*</span></label>
+                                        <select class="form-control @error('payment_term') is-invalid @enderror" name="payment_term" id="payment_term" required>
+                                            <option value="">Pilih Term Pembayaran</option>
+                                            @foreach($paymentTerms as $term)
+                                                <option value="{{ $term->id }}">{{ $term->name }}</option>
+                                            @endforeach
+                                        </select>
+                                        @error('payment_term')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- Product Cart Livewire Component -->

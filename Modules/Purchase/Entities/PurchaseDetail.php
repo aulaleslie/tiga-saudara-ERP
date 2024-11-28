@@ -4,7 +4,9 @@ namespace Modules\Purchase\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
+use Modules\Setting\Entities\Tax;
 
 class PurchaseDetail extends Model
 {
@@ -14,35 +16,52 @@ class PurchaseDetail extends Model
         'purchase_id',
         'product_id',
         'quantity',
+        'tax_id',
+        'unit_price',
+        'product_discount_type',
+        'sub_total',
+        'product_discount_amount',
+        'product_name',
+        'product_code',
+        'price',
+        'product_tax_amount',
     ];
 
     protected $with = ['product'];
 
-    public function product() {
+    public function product(): BelongsTo
+    {
         return $this->belongsTo(Product::class, 'product_id', 'id');
     }
 
-    public function purchase() {
+    public function purchase(): BelongsTo
+    {
         return $this->belongsTo(Purchase::class, 'purchase_id', 'id');
     }
 
-    public function getPriceAttribute($value) {
-        return $value / 100;
+    public function getPriceAttribute($value): float|int
+    {
+        return $value;
     }
 
     public function getUnitPriceAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getSubTotalAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getProductDiscountAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getProductTaxAmountAttribute($value) {
-        return $value / 100;
+        return $value;
+    }
+
+    public function tax(): BelongsTo
+    {
+        return $this->belongsTo(Tax::class, 'tax_id', 'id');
     }
 }
