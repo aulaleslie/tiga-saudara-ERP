@@ -49,6 +49,7 @@ class PurchaseController extends Controller
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
+        $setting_id = session('setting_id');
         DB::beginTransaction(); // Start the transaction manually
         try {
             // Create the purchase record (example shown earlier)
@@ -60,15 +61,15 @@ class PurchaseController extends Controller
                 'tax_percentage' => 0, // Example
                 'tax_amount' => 0, // Example
                 'discount_percentage' => $request->discount_percentage,
-                'discount_amount' => 0, // Example
+                'discount_amount' => $request->discount_amount,
                 'shipping_amount' => $request->shipping_amount,
                 'total_amount' => $request->total_amount,
                 'due_amount' => $request->total_amount,
-                'status' => 'draft',
+                'status' => Purchase::STATUS_DRAFTED,
                 'payment_status' => 'unpaid',
                 'payment_term_id' => $request->payment_term,
                 'note' => $request->note,
-                'setting_id' => auth()->user()->currentSetting->id ?? null,
+                'setting_id' => $setting_id,
                 'paid_amount' => 0.0,
                 'is_tax_included' => $request->is_tax_included,
                 'payment_method' => '',

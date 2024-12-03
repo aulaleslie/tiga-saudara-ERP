@@ -21,6 +21,8 @@ class Purchase extends Model
         'tax_percentage',
         'tax_amount',
         'discount_percentage',
+        'discount_amount',
+        'payment_term_id',
         'shipping_amount',
         'total_amount',
         'due_amount',
