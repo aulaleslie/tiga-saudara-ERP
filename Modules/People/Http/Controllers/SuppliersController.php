@@ -3,7 +3,6 @@
 namespace Modules\People\Http\Controllers;
 
 use Modules\People\DataTables\SuppliersDataTable;
-use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
