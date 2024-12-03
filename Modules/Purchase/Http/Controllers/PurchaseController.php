@@ -124,15 +124,22 @@ class PurchaseController extends Controller
     }
 
 
-    public function edit(Purchase $purchase) {
+    public function edit(Purchase $purchase)
+    {
         abort_if(Gate::denies('edit_purchases'), 403);
 
+        // Retrieve the current setting_id from the session
+        $setting_id = session('setting_id');
+
+        // Filter PaymentTerms by the setting_id
+        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
+
+        // Retrieve purchase details
         $purchase_details = $purchase->purchaseDetails;
 
+        // Clear and re-add items to the cart
         Cart::instance('purchase')->destroy();
-
         $cart = Cart::instance('purchase');
-
         foreach ($purchase_details as $purchase_detail) {
             $cart->add([
                 'id'      => $purchase_detail->product_id,
@@ -146,13 +153,14 @@ class PurchaseController extends Controller
                     'sub_total'   => $purchase_detail->sub_total,
                     'code'        => $purchase_detail->product_code,
                     'stock'       => Product::findOrFail($purchase_detail->product_id)->product_quantity,
-                    'product_tax' => $purchase_detail->product_tax_amount,
+                    'product_tax' => $purchase_detail->tax_id,
                     'unit_price'  => $purchase_detail->unit_price
                 ]
             ]);
         }
 
-        return view('purchase::edit', compact('purchase'));
+        // Pass $paymentTerms to the view
+        return view('purchase::edit', compact('purchase', 'paymentTerms'));
     }
 
 

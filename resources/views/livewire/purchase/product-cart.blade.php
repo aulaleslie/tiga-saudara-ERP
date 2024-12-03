@@ -94,7 +94,11 @@
                                 >
                                     <option value="">Pilih Pajak</option>
                                     @foreach($taxes as $tax)
-                                        <option value="{{ $tax->id }}">{{ $tax->name }} ({{ $tax->value }}%)</option>
+                                        <option
+                                            value="{{ $tax->id }}"
+                                            {{ $tax->id == $cart_item->options->product_tax ? 'selected' : '' }}>
+                                            {{ $tax->name }} ({{ $tax->value }}%)
+                                        </option>
                                     @endforeach
                                 </select>
                                 @error('product_tax.' . $cart_item->id)
@@ -145,6 +149,7 @@
                                     type="checkbox"
                                     class="form-check-input"
                                     id="taxIncludedCheckbox"
+                                    {{ $is_tax_included ? 'checked' : '' }}
                                 >
                                 <input type="hidden" name="is_tax_included" value="{{ $is_tax_included ? 1 : 0 }}">
                                 <label class="form-check-label" for="taxIncludedCheckbox">Termasuk Pajak</label>

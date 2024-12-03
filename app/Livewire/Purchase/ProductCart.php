@@ -53,6 +53,7 @@ class ProductCart extends Component
             $this->data = $data;
             $this->global_discount = $data->discount_percentage;
             $this->shipping = $data->shipping_amount;
+            $this->is_tax_included = $data->is_tax_included;
 
             $cart_items = Cart::instance($this->cart_instance)->content();
 
