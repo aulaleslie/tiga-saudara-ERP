@@ -1,3 +1,4 @@
+@php use Modules\People\Entities\Supplier;use Modules\Purchase\Entities\PaymentTerm; @endphp
 @extends('layouts.app')
 
 @section('title', 'Edit Purchase')
@@ -5,96 +6,134 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Purchases</a></li>
+        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Pembelian</a></li>
         <li class="breadcrumb-item active">Edit</li>
     </ol>
 @endsection
 
 @section('content')
     <div class="container-fluid mb-4">
+        <!-- Search Product Livewire Component -->
         <div class="row">
             <div class="col-12">
-                <livewire:search-product/>
+                <livewire:purchase.search-product/>
             </div>
         </div>
 
+        <!-- Purchase Form -->
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
                     <div class="card-body">
+                        <!-- Alert Messages -->
                         @include('utils.alerts')
-                        <form id="purchase-form" action="{{ route('purchases.update', $purchase) }}" method="POST">
+
+                        <!-- Purchase Form Start -->
+                        <form id="purchase-form" action="{{ route('purchases.update', $purchase->id) }}" method="POST">
                             @csrf
                             @method('patch')
-                            <div class="form-row">
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="reference">Reference <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="reference" required value="{{ $purchase->reference }}" readonly>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="supplier_id">Supplier <span class="text-danger">*</span></label>
-                                            <select class="form-control" name="supplier_id" id="supplier_id" required>
-                                                @foreach(\Modules\People\Entities\Supplier::all() as $supplier)
-                                                    <option {{ $purchase->supplier_id == $supplier->id ? 'selected' : '' }} value="{{ $supplier->id }}">{{ $supplier->supplier_name }}</option>
-                                                @endforeach
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="date">Date <span class="text-danger">*</span></label>
-                                            <input type="date" class="form-control" name="date" required value="{{ $purchase->date }}">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
 
-                            <livewire:product-cart :cartInstance="'purchase'" :data="$purchase"/>
-
+                            <!-- Reference, Supplier, Date -->
                             <div class="form-row">
-                                <div class="col-lg-4">
+                                <!-- Referensi -->
+                                <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="status">Status <span class="text-danger">*</span></label>
-                                        <select class="form-control" name="status" id="status" required>
-                                            <option {{ $purchase->status == 'Pending' ? 'selected' : '' }} value="Pending">Pending</option>
-                                            <option {{ $purchase->status == 'Ordered' ? 'selected' : '' }} value="Ordered">Ordered</option>
-                                            <option {{ $purchase->status == 'Completed' ? 'selected' : '' }} value="Completed">Completed</option>
+                                        <label for="reference">Referensi <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="reference" id="reference" required
+                                               readonly value="{{ $purchase->reference }}">
+                                        @error('reference')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+
+                                <!-- Pemasok -->
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="supplier_id">Pemasok <span class="text-danger">*</span></label>
+                                        <select class="form-control @error('supplier_id') is-invalid @enderror"
+                                                name="supplier_id" id="supplier_id" required>
+                                            <option value="">Pilih Pemasok</option>
+                                            @foreach(Supplier::where('setting_id', session('setting_id'))->get() as $supplier)
+                                                <option
+                                                    value="{{ $supplier->id }}" {{ $supplier->id == $purchase->supplier_id ? 'selected' : '' }}>
+                                                    {{ $supplier->supplier_name }}
+                                                </option>
+                                            @endforeach
                                         </select>
+                                        @error('supplier_id')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
                                     </div>
                                 </div>
-                                <div class="col-lg-4">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="payment_method">Payment Method <span class="text-danger">*</span></label>
-                                            <input type="text" class="form-control" name="payment_method" required value="{{ $purchase->payment_method }}" readonly>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
+
+                                <!-- Tanggal -->
+                                <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="paid_amount">Amount Received <span class="text-danger">*</span></label>
-                                        <input id="paid_amount" type="text" class="form-control" name="paid_amount" required value="{{ $purchase->paid_amount }}" readonly>
+                                        <label for="date">Tanggal <span class="text-danger">*</span></label>
+                                        <input type="date" class="form-control @error('date') is-invalid @enderror"
+                                               name="date" id="date" required value="{{ $purchase->date }}">
+                                        @error('date')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="due_date">Tanggal Jatuh Tempo <span
+                                                class="text-danger">*</span></label>
+                                        <input type="date" class="form-control @error('due_date') is-invalid @enderror"
+                                               name="due_date" id="due_date" required value="{{ $purchase->due_date }}">
+                                        @error('due_date')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+
+                                <!-- Term Pembayaran -->
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="payment_term">Term Pembayaran <span
+                                                class="text-danger">*</span></label>
+                                        <select class="form-control @error('payment_term') is-invalid @enderror"
+                                                name="payment_term" id="payment_term" required>
+                                            <option value="">Pilih Term Pembayaran</option>
+                                            @foreach($paymentTerms as $term)
+                                                <option value="{{ $term->id }}"
+                                                        data-longevity="{{ $term->longevity }}" {{ $term->id == $purchase->payment_term_id ? 'selected' : '' }}>
+                                                    {{ $term->name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        @error('payment_term')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
                                     </div>
                                 </div>
                             </div>
 
-                            <div class="form-group">
-                                <label for="note">Note (If Needed)</label>
-                                <textarea name="note" id="note" rows="5" class="form-control">{{ $purchase->note }}</textarea>
+                            <!-- Product Cart Livewire Component -->
+                            <livewire:purchase.product-cart :cartInstance="'purchase'" :data="$purchase"/>
+
+                            <!-- Catatan -->
+                            <div class="form-group mt-4">
+                                <label for="note">Catatan (Jika Diperlukan)</label>
+                                <textarea name="note" id="note" rows="5"
+                                          class="form-control @error('note') is-invalid @enderror">{{ $purchase->note }}</textarea>
+                                @error('note')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
                             </div>
 
+                            <!-- Submit Button -->
                             <div class="mt-3">
                                 <button type="submit" class="btn btn-primary">
-                                    Update Purchase <i class="bi bi-check"></i>
+                                    Update Pembelian <i class="bi bi-check"></i>
                                 </button>
                             </div>
                         </form>
+                        <!-- Purchase Form End -->
                     </div>
                 </div>
             </div>
@@ -103,21 +142,19 @@
 @endsection
 
 @push('page_scripts')
-    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
     <script>
-        $(document).ready(function () {
-            $('#paid_amount').maskMoney({
-                prefix:'{{ settings()->currency->symbol }}',
-                thousands:'{{ settings()->currency->thousand_separator }}',
-                decimal:'{{ settings()->currency->decimal_separator }}',
-                allowZero: true,
-            });
+        document.addEventListener('DOMContentLoaded', () => {
+            const paymentTermSelect = document.getElementById('payment_term');
+            const dueDateInput = document.getElementById('due_date');
 
-            $('#paid_amount').maskMoney('mask');
-
-            $('#purchase-form').submit(function () {
-                var paid_amount = $('#paid_amount').maskMoney('unmasked')[0];
-                $('#paid_amount').val(paid_amount);
+            paymentTermSelect.addEventListener('change', function () {
+                const selectedOption = this.options[this.selectedIndex];
+                const longevity = selectedOption.dataset.longevity;
+                if (longevity) {
+                    const baseDate = new Date(document.getElementById('date').value);
+                    baseDate.setDate(baseDate.getDate() + parseInt(longevity));
+                    dueDateInput.value = baseDate.toISOString().split('T')[0];
+                }
             });
         });
     </script>

@@ -39,10 +39,18 @@ class PurchaseDataTable extends DataTable
             });
     }
 
-    public function query(Purchase $model) {
-        return $model->newQuery()
+    public function query(Purchase $model)
+    {
+        $query = $model->newQuery()
             ->with('supplier') // Include the supplier relationship
-            ->select('purchases.*'); // Ensure to select all columns from purchases
+            ->select('purchases.*'); // Select all columns from the purchases table
+
+        if ($this->request()->has('supplier_id') && $this->request()->get('supplier_id')) {
+            $supplier_id = $this->request()->get('supplier_id');
+            $query->where('supplier_id', $supplier_id);
+        }
+
+        return $query;
     }
 
     public function html() {

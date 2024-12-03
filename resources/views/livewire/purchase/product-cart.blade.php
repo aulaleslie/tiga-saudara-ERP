@@ -94,7 +94,11 @@
                                 >
                                     <option value="">Pilih Pajak</option>
                                     @foreach($taxes as $tax)
-                                        <option value="{{ $tax->id }}">{{ $tax->name }} ({{ $tax->value }}%)</option>
+                                        <option
+                                            value="{{ $tax->id }}"
+                                            {{ $tax->id == $cart_item->options->product_tax ? 'selected' : '' }}>
+                                            {{ $tax->name }} ({{ $tax->value }}%)
+                                        </option>
                                     @endforeach
                                 </select>
                                 @error('product_tax.' . $cart_item->id)
@@ -145,6 +149,7 @@
                                     type="checkbox"
                                     class="form-check-input"
                                     id="taxIncludedCheckbox"
+                                    {{ $is_tax_included ? 'checked' : '' }}
                                 >
                                 <input type="hidden" name="is_tax_included" value="{{ $is_tax_included ? 1 : 0 }}">
                                 <label class="form-check-label" for="taxIncludedCheckbox">Termasuk Pajak</label>
@@ -164,18 +169,17 @@
                         <td>{{ format_currency($total_sub_total) }}</td>
                     </tr>
                     <tr>
+                        <th>Diskon Global</th>
+                        <td>(-) {{ format_currency($global_discount_amount) }}</td>
+                    </tr>
+                    <tr>
                         <th>Biaya Ongkir</th>
                         <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
                         <td>(+) {{ format_currency($shipping) }}</td>
                     </tr>
                     <tr>
                         <th>Grand Total</th>
-                        @php
-                            $grand_total = $total_sub_total + (float) $shipping;
-                        @endphp
-                        <th>
-                            (=) {{ format_currency($grand_total) }}
-                        </th>
+                        <th>(=) {{ format_currency($grand_total) }}</th>
                     </tr>
                 </table>
             </div>
@@ -183,6 +187,7 @@
     </div>
 
     <input type="hidden" name="total_amount" value="{{ $grand_total }}">
+    <input type="hidden" name="discount_amount" value="{{ $global_discount_amount }}">
 
     <div class="form-row">
         <div class="col-lg-4">

@@ -4,6 +4,7 @@ namespace Modules\Purchase\Http\Controllers;
 
 use Exception;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Modules\Purchase\DataTables\PurchaseDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
@@ -17,7 +18,6 @@ use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
-use Modules\Setting\Entities\Tax;
 
 class PurchaseController extends Controller
 {
@@ -49,68 +49,62 @@ class PurchaseController extends Controller
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
+        $setting_id = session('setting_id');
+        DB::beginTransaction(); // Start the transaction manually
         try {
-            DB::transaction(function () use ($request) {
-                $paid_amount = 0;
-                $due_amount = $request->total_amount - $paid_amount;
-                $payment_status = 'Unpaid';
-                $status = Purchase::STATUS_DRAFTED;
+            // Create the purchase record (example shown earlier)
+            $purchase = Purchase::create([
+                'date' => $request->date,
+                'due_date' => $request->due_date,
+                'supplier_id' => $request->supplier_id,
+                'tax_id' => $request->tax_id,
+                'tax_percentage' => 0, // Example
+                'tax_amount' => 0, // Example
+                'discount_percentage' => $request->discount_percentage,
+                'discount_amount' => $request->discount_amount,
+                'shipping_amount' => $request->shipping_amount,
+                'total_amount' => $request->total_amount,
+                'due_amount' => $request->total_amount,
+                'status' => Purchase::STATUS_DRAFTED,
+                'payment_status' => 'unpaid',
+                'payment_term_id' => $request->payment_term,
+                'note' => $request->note,
+                'setting_id' => $setting_id,
+                'paid_amount' => 0.0,
+                'is_tax_included' => $request->is_tax_included,
+                'payment_method' => '',
+            ]);
 
-                $tax_percentage = 0;
-                $tax_amount = 0;
-                if ($request->tax_id) {
-                    $tax = Tax::find($request->tax_id);
-                    if ($tax) {
-                        $tax_percentage = $tax->value;
-                        $tax_amount = ($request->total_amount * $tax_percentage) / 100;
-                    }
-                }
+            // Iterate over cart items
+            foreach (Cart::instance('purchase')->content() as $cart_item) {
+                // Map cart item to purchase details
+                $product_tax_amount = $cart_item->options['sub_total'] - $cart_item->options['sub_total_before_tax'];
 
-                $purchase = Purchase::create([
-                    'date' => $request->date,
-                    'due_date' => $request->due_date,
-                    'supplier_id' => $request->supplier_id,
-                    'tax_id' => $request->tax_id,
-                    'tax_percentage' => $tax_percentage,
-                    'tax_amount' => $tax_amount,
-                    'discount_percentage' => $request->discount_percentage,
-                    'shipping_amount' => $request->shipping_amount,
-                    'total_amount' => $request->total_amount,
-                    'due_amount' => $due_amount,
-                    'status' => $status,
-                    'payment_status' => $payment_status,
-                    'payment_term_id' => $request->payment_term,
-                    'note' => $request->note,
-                    'setting_id' => auth()->user()->currentSetting->id ?? null,
-                    'paid_amount' => 0.0,
-                    'is_tax_included' => $request->is_tax_included,
-                    'payment_method' => '',
+                PurchaseDetail::create([
+                    'purchase_id' => $purchase->id, // FK reference
+                    'product_id' => $cart_item->id,
+                    'product_name' => $cart_item->name,
+                    'product_code' => $cart_item->options['code'],
+                    'quantity' => $cart_item->qty,
+                    'unit_price' => $cart_item->options['unit_price'],
+                    'price' => $cart_item->price,
+                    'product_discount_type' => $cart_item->options['product_discount_type'],
+                    'product_discount_amount' => $cart_item->options['product_discount'],
+                    'sub_total' => $cart_item->options['sub_total'],
+                    'product_tax_amount' => $product_tax_amount, // Calculated
+                    'tax_id' => $cart_item->options['product_tax'], // Tax ID
                 ]);
+            }
 
-                foreach (Cart::instance('purchase')->content() as $cart_item) {
-                    PurchaseDetail::create([
-                        'purchase_id' => $purchase->id,
-                        'product_id' => $cart_item->id,
-                        'quantity' => $cart_item->qty,
-                        'tax_id' => $cart_item->options['product_tax'] ?? null,
-                        'unit_price' => $cart_item->options['unit_price'],
-                        'price' => $cart_item->price,
-                        'product_discount_type' => $cart_item->options['product_discount_type'],
-                        'product_discount_amount' => $cart_item->options['product_discount'],
-                        'sub_total' => $cart_item->options['sub_total'],
-                        'product_name' => '',
-                        'product_code' => '',
-                        'product_tax_amount' => 0.0,
-                    ]);
-                }
+            // Commit transaction
+            DB::commit();
 
-                Cart::instance('purchase')->destroy();
-            });
-
-            // If successful, return success message
             toast('Purchase Created!', 'success');
             return redirect()->route('purchases.index');
         } catch (Exception $e) {
+            // Rollback on error
+            DB::rollBack();
+
             // Log the error for debugging
             Log::error('Purchase Creation Failed:', ['error' => $e->getMessage()]);
 
@@ -130,15 +124,22 @@ class PurchaseController extends Controller
     }
 
 
-    public function edit(Purchase $purchase) {
+    public function edit(Purchase $purchase)
+    {
         abort_if(Gate::denies('edit_purchases'), 403);
 
+        // Retrieve the current setting_id from the session
+        $setting_id = session('setting_id');
+
+        // Filter PaymentTerms by the setting_id
+        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
+
+        // Retrieve purchase details
         $purchase_details = $purchase->purchaseDetails;
 
+        // Clear and re-add items to the cart
         Cart::instance('purchase')->destroy();
-
         $cart = Cart::instance('purchase');
-
         foreach ($purchase_details as $purchase_detail) {
             $cart->add([
                 'id'      => $purchase_detail->product_id,
@@ -152,13 +153,14 @@ class PurchaseController extends Controller
                     'sub_total'   => $purchase_detail->sub_total,
                     'code'        => $purchase_detail->product_code,
                     'stock'       => Product::findOrFail($purchase_detail->product_id)->product_quantity,
-                    'product_tax' => $purchase_detail->product_tax_amount,
+                    'product_tax' => $purchase_detail->tax_id,
                     'unit_price'  => $purchase_detail->unit_price
                 ]
             ]);
         }
 
-        return view('purchase::edit', compact('purchase'));
+        // Pass $paymentTerms to the view
+        return view('purchase::edit', compact('purchase', 'paymentTerms'));
     }
 
 
@@ -258,5 +260,10 @@ class PurchaseController extends Controller
         toast('Purchase status updated!', 'success');
 
         return redirect()->route('purchases.show', $purchase);
+    }
+
+    public function datatable(PurchaseDataTable $dataTable, Request $request)
+    {
+        return $dataTable->with('supplier_id', $request->get('supplier_id'))->render('purchase::index');
     }
 }
