@@ -182,6 +182,7 @@
     </div>
 
     <input type="hidden" name="total_amount" value="{{ $grand_total }}">
+    <input type="hidden" name="discount_amount" value="{{ $global_discount_amount }}">
 
     <div class="form-row">
         <div class="col-lg-4">

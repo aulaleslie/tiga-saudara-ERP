@@ -49,68 +49,61 @@ class PurchaseController extends Controller
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
+        DB::beginTransaction(); // Start the transaction manually
         try {
-            DB::transaction(function () use ($request) {
-                $paid_amount = 0;
-                $due_amount = $request->total_amount - $paid_amount;
-                $payment_status = 'Unpaid';
-                $status = Purchase::STATUS_DRAFTED;
+            // Create the purchase record (example shown earlier)
+            $purchase = Purchase::create([
+                'date' => $request->date,
+                'due_date' => $request->due_date,
+                'supplier_id' => $request->supplier_id,
+                'tax_id' => $request->tax_id,
+                'tax_percentage' => 0, // Example
+                'tax_amount' => 0, // Example
+                'discount_percentage' => $request->discount_percentage,
+                'discount_amount' => 0, // Example
+                'shipping_amount' => $request->shipping_amount,
+                'total_amount' => $request->total_amount,
+                'due_amount' => $request->total_amount,
+                'status' => 'draft',
+                'payment_status' => 'unpaid',
+                'payment_term_id' => $request->payment_term,
+                'note' => $request->note,
+                'setting_id' => auth()->user()->currentSetting->id ?? null,
+                'paid_amount' => 0.0,
+                'is_tax_included' => $request->is_tax_included,
+                'payment_method' => '',
+            ]);
 
-                $tax_percentage = 0;
-                $tax_amount = 0;
-                if ($request->tax_id) {
-                    $tax = Tax::find($request->tax_id);
-                    if ($tax) {
-                        $tax_percentage = $tax->value;
-                        $tax_amount = ($request->total_amount * $tax_percentage) / 100;
-                    }
-                }
+            // Iterate over cart items
+            foreach (Cart::instance('purchase')->content() as $cart_item) {
+                // Map cart item to purchase details
+                $product_tax_amount = $cart_item->options['sub_total'] - $cart_item->options['sub_total_before_tax'];
 
-                $purchase = Purchase::create([
-                    'date' => $request->date,
-                    'due_date' => $request->due_date,
-                    'supplier_id' => $request->supplier_id,
-                    'tax_id' => $request->tax_id,
-                    'tax_percentage' => $tax_percentage,
-                    'tax_amount' => $tax_amount,
-                    'discount_percentage' => $request->discount_percentage,
-                    'shipping_amount' => $request->shipping_amount,
-                    'total_amount' => $request->total_amount,
-                    'due_amount' => $due_amount,
-                    'status' => $status,
-                    'payment_status' => $payment_status,
-                    'payment_term_id' => $request->payment_term,
-                    'note' => $request->note,
-                    'setting_id' => auth()->user()->currentSetting->id ?? null,
-                    'paid_amount' => 0.0,
-                    'is_tax_included' => $request->is_tax_included,
-                    'payment_method' => '',
+                PurchaseDetail::create([
+                    'purchase_id' => $purchase->id, // FK reference
+                    'product_id' => $cart_item->id,
+                    'product_name' => $cart_item->name,
+                    'product_code' => $cart_item->options['code'],
+                    'quantity' => $cart_item->qty,
+                    'unit_price' => $cart_item->options['unit_price'],
+                    'price' => $cart_item->price,
+                    'product_discount_type' => $cart_item->options['product_discount_type'],
+                    'product_discount_amount' => $cart_item->options['product_discount'],
+                    'sub_total' => $cart_item->options['sub_total'],
+                    'product_tax_amount' => $product_tax_amount, // Calculated
+                    'tax_id' => $cart_item->options['product_tax'], // Tax ID
                 ]);
+            }
 
-                foreach (Cart::instance('purchase')->content() as $cart_item) {
-                    PurchaseDetail::create([
-                        'purchase_id' => $purchase->id,
-                        'product_id' => $cart_item->id,
-                        'quantity' => $cart_item->qty,
-                        'tax_id' => $cart_item->options['product_tax'] ?? null,
-                        'unit_price' => $cart_item->options['unit_price'],
-                        'price' => $cart_item->price,
-                        'product_discount_type' => $cart_item->options['product_discount_type'],
-                        'product_discount_amount' => $cart_item->options['product_discount'],
-                        'sub_total' => $cart_item->options['sub_total'],
-                        'product_name' => '',
-                        'product_code' => '',
-                        'product_tax_amount' => 0.0,
-                    ]);
-                }
+            // Commit transaction
+            DB::commit();
 
-                Cart::instance('purchase')->destroy();
-            });
-
-            // If successful, return success message
             toast('Purchase Created!', 'success');
             return redirect()->route('purchases.index');
         } catch (Exception $e) {
+            // Rollback on error
+            DB::rollBack();
+
             // Log the error for debugging
             Log::error('Purchase Creation Failed:', ['error' => $e->getMessage()]);
 
