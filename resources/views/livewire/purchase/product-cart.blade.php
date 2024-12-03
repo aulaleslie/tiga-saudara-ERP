@@ -164,18 +164,17 @@
                         <td>{{ format_currency($total_sub_total) }}</td>
                     </tr>
                     <tr>
+                        <th>Diskon Global</th>
+                        <td>(-) {{ format_currency($global_discount_amount) }}</td>
+                    </tr>
+                    <tr>
                         <th>Biaya Ongkir</th>
                         <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
                         <td>(+) {{ format_currency($shipping) }}</td>
                     </tr>
                     <tr>
                         <th>Grand Total</th>
-                        @php
-                            $grand_total = $total_sub_total + (float) $shipping;
-                        @endphp
-                        <th>
-                            (=) {{ format_currency($grand_total) }}
-                        </th>
+                        <th>(=) {{ format_currency($grand_total) }}</th>
                     </tr>
                 </table>
             </div>

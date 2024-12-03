@@ -3,6 +3,9 @@
 namespace App\Livewire\Purchase;
 
 use Gloudemans\Shoppingcart\Facades\Cart;
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Setting\Entities\Tax;
@@ -78,17 +81,14 @@ class ProductCart extends Component
         $this->product_tax[$cart_item->id] = $cart_item->options->product_tax ?? null;
     }
 
-    public function render()
+    public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         $cart_items = Cart::instance($this->cart_instance)->content();
 
         // Initialize totals
-        $cart_total = 0;
-        $product_tax_amount = 0;
         $grand_total_before_tax = 0;
+        $product_tax_amount = 0;
         $total_sub_total = 0;
-
-        Log::info('Rendering cart items', ['cart_instance' => $this->cart_instance]);
 
         foreach ($cart_items as $item) {
             $grand_total_before_tax += $item->options->sub_total_before_tax ?? 0;
@@ -97,79 +97,39 @@ class ProductCart extends Component
 
             // Calculate the tax amount for the item
             $product_tax_amount += $sub_total - $sub_total_before_tax;
-            $total_sub_total += $item->options->sub_total ?? 0;
-//            Log::info('Cart Item', ['cart_item' => $item]);
-//            $tax_id = $item->options->product_tax ?? null;
-//            $discount = $item->options->product_discount ?? 0;
-//
-//            Log::info('Processing cart item', [
-//                'item_id' => $item->id,
-//                'price' => $item->price,
-//                'qty' => $item->qty,
-//                'discount' => $discount,
-//                'tax_id' => $tax_id,
-//            ]);
-//
-//            // Calculate total discount (per unit discount * quantity)
-//            $total_discount = $discount * $item->qty;
-//
-//            // Calculate subtotal before tax and discount
-//            $subtotal_before_tax = ($item->price * $item->qty) - $total_discount;
-//
-//            Log::info('Subtotal before tax calculated', [
-//                'subtotal_before_tax' => $subtotal_before_tax,
-//            ]);
-//
-//            // Calculate product tax if applicable
-//            $tax_amount = 0;
-//            if ($tax_id) {
-//                $tax = Tax::find($tax_id);
-//                if ($tax) {
-//                    $tax_amount = $subtotal_before_tax * ($tax->value / 100);
-//                    Log::info('Tax applied', [
-//                        'tax_value' => $tax->value,
-//                        'tax_amount' => $tax_amount,
-//                    ]);
-//                } else {
-//                    Log::warning('Tax not found for tax_id', ['tax_id' => $tax_id]);
-//                }
-//            }
-//
-//            // Calculate subtotal (including tax if applicable)
-//            $sub_total = $subtotal_before_tax + $tax_amount;
-//
-//            // Aggregate totals
-//            $grand_total_before_tax += $subtotal_before_tax; // Sum of subtotals before tax
-//            $product_tax_amount += $tax_amount;             // Sum of all tax amounts
-//            $total_sub_total += $sub_total;                 // Sum of all subtotals (with tax)
-//
-//            Log::info('Updated totals', [
-//                'grand_total_before_tax' => $grand_total_before_tax,
-//                'product_tax_amount' => $product_tax_amount,
-//                'total_sub_total' => $total_sub_total,
-//            ]);
+            $total_sub_total += $sub_total;
         }
 
-        // Calculate grand total including shipping
-        $grand_total = $total_sub_total + (float) $this->shipping;
+        // Calculate global discount amount
+        $global_discount_amount = 0;
+        if ($this->global_discount > 0) {
+            $global_discount_amount = $total_sub_total * ($this->global_discount / 100);
+        }
 
+        // Apply discount and shipping to calculate grand total
+        $grand_total = ($total_sub_total - $global_discount_amount) + (float) $this->shipping;
+
+        // Log the final totals for debugging
         Log::info('Final totals calculated', [
             'grand_total' => $grand_total,
+            'total_sub_total' => $total_sub_total,
+            'global_discount' => $this->global_discount,
+            'global_discount_amount' => $global_discount_amount,
             'shipping' => $this->shipping,
         ]);
 
         return view('livewire.purchase.product-cart', [
             'cart_items' => $cart_items,
-            'cart_total' => $cart_total,
             'grand_total' => $grand_total,
-            'taxes' => $this->taxes, // Pass taxes to the view
-            'product_tax_total' => $product_tax_amount, // Total tax for all items
-            'grand_total_before_tax' => $grand_total_before_tax, // Grand total before tax
-            'total_sub_total' => $total_sub_total, // Grand total with tax
+            'taxes' => $this->taxes,
+            'product_tax_total' => $product_tax_amount,
+            'grand_total_before_tax' => $grand_total_before_tax,
+            'total_sub_total' => $total_sub_total,
+            'global_discount_amount' => $global_discount_amount,
         ]);
     }
 
-    public function productSelected($product)
+    public function productSelected($product): void
     {
         Log::info('Product Selected:', $product);
         $cart = Cart::instance($this->cart_instance);
