@@ -4,6 +4,7 @@ namespace Modules\Purchase\Http\Controllers;
 
 use Exception;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Modules\Purchase\DataTables\PurchaseDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
@@ -17,7 +18,6 @@ use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
-use Modules\Setting\Entities\Tax;
 
 class PurchaseController extends Controller
 {
@@ -260,5 +260,10 @@ class PurchaseController extends Controller
         toast('Purchase status updated!', 'success');
 
         return redirect()->route('purchases.show', $purchase);
+    }
+
+    public function datatable(PurchaseDataTable $dataTable, Request $request)
+    {
+        return $dataTable->with('supplier_id', $request->get('supplier_id'))->render('purchase::index');
     }
 }

@@ -18,6 +18,7 @@ use Modules\Purchase\Http\Controllers\PurchaseController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
+    Route::get('/purchases/datatable', [PurchaseController::class, 'datatable'])->name('datatable.purchases');
     //Generate PDF
     Route::get('/purchases/pdf/{id}', function ($id) {
         $purchase = Purchase::findOrFail($id);

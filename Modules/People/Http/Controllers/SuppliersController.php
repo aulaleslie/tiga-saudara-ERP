@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Supplier;
+use Modules\Purchase\DataTables\PurchaseDataTable;
 
 class SuppliersController extends Controller
 {
@@ -86,11 +87,12 @@ class SuppliersController extends Controller
     }
 
 
-    public function show(Supplier $supplier)
+    public function show(Supplier $supplier, PurchaseDataTable $dataTable)
     {
         abort_if(Gate::denies('show_suppliers'), 403);
 
-        return view('people::suppliers.show', compact('supplier'));
+        // Pass the supplier_id to the DataTable
+        return $dataTable->with(['supplier_id' => $supplier->id])->render('people::suppliers.show', compact('supplier'));
     }
 
 
