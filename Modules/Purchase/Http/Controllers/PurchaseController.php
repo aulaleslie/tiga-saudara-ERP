@@ -273,4 +273,9 @@ class PurchaseController extends Controller
     {
         return $dataTable->with('supplier_id', $request->get('supplier_id'))->render('purchase::index');
     }
+
+    public function datatable(PurchaseDataTable $dataTable, Request $request)
+    {
+        return $dataTable->with('supplier_id', $request->get('supplier_id'))->render('purchase::index');
+    }
 }
