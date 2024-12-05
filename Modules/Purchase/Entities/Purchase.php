@@ -41,6 +41,8 @@ class Purchase extends Model
     const STATUS_REJECTED = 'REJECTED';
     const STATUS_RECEIVED_PARTIALLY = 'RECEIVED PARTIALLY';
     const STATUS_RECEIVED = 'RECEIVED';
+    const STATUS_RETURNED = 'RETURNED';
+    const STATUS_RETURNED_PARTIALLY = 'RETURNED PARTIALLY';
 
     public static function getStatuses(): array
     {

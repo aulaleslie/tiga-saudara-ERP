@@ -250,16 +250,28 @@ class PurchaseController extends Controller
     {
         abort_if(Gate::denies('update_purchase_status'), 403);
 
-        $request->validate([
-            'status' => 'required|string|in:' . implode(',', Purchase::getStatuses()),
+        $validated = $request->validate([
+            'status' => 'required|string|in:' . implode(',', [
+                    Purchase::STATUS_WAITING_APPROVAL,
+                    Purchase::STATUS_APPROVED,
+                    Purchase::STATUS_REJECTED
+                ]),
         ]);
 
-        $purchase->status = $request->status;
-        $purchase->save();
+        try {
+            $purchase->update(['status' => $validated['status']]);
+            toast("Purchase status updated to {$validated['status']}!", 'success');
+        } catch (Exception $e) {
+            Log::error('Failed to update purchase status', ['error' => $e->getMessage()]);
+            toast('Failed to update purchase status.', 'error');
+        }
 
-        toast('Purchase status updated!', 'success');
+        return redirect()->route('purchases.show', $purchase->id);
+    }
 
-        return redirect()->route('purchases.show', $purchase);
+    public function datatable(PurchaseDataTable $dataTable, Request $request)
+    {
+        return $dataTable->with('supplier_id', $request->get('supplier_id'))->render('purchase::index');
     }
 
     public function datatable(PurchaseDataTable $dataTable, Request $request)
