@@ -49,6 +49,7 @@
                                         <td class="align-middle">{{ $account->parentAccount->name ?? '-' }}</td>
                                         <td class="align-middle">{{ $account->description ?? '-' }}</td>
                                         <td class="align-middle">
+
                                             <a href="{{ route('chart-of-account.edit', $account) }}" class="btn btn-info btn-sm">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
