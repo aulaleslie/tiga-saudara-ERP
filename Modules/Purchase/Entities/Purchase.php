@@ -21,6 +21,8 @@ class Purchase extends Model
         'tax_percentage',
         'tax_amount',
         'discount_percentage',
+        'discount_amount',
+        'payment_term_id',
         'shipping_amount',
         'total_amount',
         'due_amount',
@@ -39,6 +41,8 @@ class Purchase extends Model
     const STATUS_REJECTED = 'REJECTED';
     const STATUS_RECEIVED_PARTIALLY = 'RECEIVED PARTIALLY';
     const STATUS_RECEIVED = 'RECEIVED';
+    const STATUS_RETURNED = 'RETURNED';
+    const STATUS_RETURNED_PARTIALLY = 'RETURNED PARTIALLY';
 
     public static function getStatuses(): array
     {
@@ -60,12 +64,30 @@ class Purchase extends Model
         return $this->hasMany(PurchasePayment::class, 'purchase_id', 'id');
     }
 
-    public static function boot() {
+    public static function boot(): void
+    {
         parent::boot();
 
         static::creating(function ($model) {
-            $number = Purchase::max('id') + 1;
-            $model->reference = make_reference_id('PR', $number);
+            $year = now()->year;
+            $month = now()->month;
+
+            // Fetch the latest reference for the current year and month
+            $latestReference = Purchase::whereYear('created_at', $year)
+                ->whereMonth('created_at', $month)
+                ->latest('id')
+                ->value('reference');
+
+            // Extract the number from the latest reference
+            $nextNumber = 1; // Default to 1 if no reference exists
+            if ($latestReference) {
+                $parts = explode('-', $latestReference);
+                $lastNumber = (int) end($parts);
+                $nextNumber = $lastNumber + 1;
+            }
+
+            // Generate the new reference ID
+            $model->reference = make_reference_id('PR', $year, $month, $nextNumber);
         });
     }
 
