@@ -284,6 +284,7 @@ class PurchaseController extends Controller
         $data = $request->validate([
             'received.*' => 'nullable|integer|min:0',
             'notes.*' => 'nullable|string|max:255',
+            'serial_numbers.*.*' => 'nullable|string|max:255', // Serial numbers validation
         ]);
 
         DB::transaction(function () use ($data, $purchase) {
@@ -297,7 +298,18 @@ class PurchaseController extends Controller
                         'notes' => $notes,
                     ]);
 
-                    // Optional: Update inventory
+                    // Handle serial numbers
+                    if ($detail->product->serial_number_required && isset($data['serial_numbers'][$detail->id])) {
+                        foreach ($data['serial_numbers'][$detail->id] as $serialNumber) {
+                            // Save serial numbers to a related table if necessary
+                            \Modules\Product\Entities\SerialNumber::create([
+                                'product_id' => $detail->product_id,
+                                'serial_number' => $serialNumber,
+                            ]);
+                        }
+                    }
+
+                    // Update inventory
                     $detail->product->increment('quantity', $receivedQuantity);
                 }
             }

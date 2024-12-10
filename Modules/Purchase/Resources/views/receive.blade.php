@@ -49,6 +49,7 @@
                                         <th>Quantity Ordered</th>
                                         <th>Quantity Received</th>
                                         <th>New Quantity to Receive</th>
+                                        <th>Serial Numbers (if required)</th>
                                         <th>Notes</th>
                                     </tr>
                                     </thead>
@@ -64,8 +65,23 @@
                                             <td>{{ $detail->quantity_received ?? 0 }}</td>
                                             <td>
                                                 <input type="number" name="received[{{ $detail->id }}]" class="form-control"
-                                                       min="0" max="{{ $detail->quantity - ($detail->quantity_received ?? 0) }}"
-                                                       value="0">
+                                                       min="0" max="{{ $detail->quantity - ($detail->quantity_received ?? 0) }}" value="0"
+                                                       data-require-serial="{{ $detail->product->serial_number_required ? 'true' : 'false' }}"
+                                                       data-detail-id="{{ $detail->id }}">
+                                            </td>
+                                            <td>
+                                                @if ($detail->product->serial_number_required)
+                                                    <div class="serial-number-container" id="serial-number-container-{{ $detail->id }}">
+                                                        <button type="button" class="btn btn-sm btn-secondary mb-2" onclick="toggleSerialFields({{ $detail->id }})">
+                                                            <i class="bi bi-chevron-down"></i> Toggle Serial Number Fields
+                                                        </button>
+                                                        <div class="serial-fields d-none" id="serial-fields-{{ $detail->id }}">
+                                                            <!-- Serial Number Input Fields will be added dynamically -->
+                                                        </div>
+                                                    </div>
+                                                @else
+                                                    <span class="text-muted">Not Required</span>
+                                                @endif
                                             </td>
                                             <td>
                                                 <input type="text" name="notes[{{ $detail->id }}]" class="form-control" placeholder="Optional">
@@ -86,4 +102,38 @@
             </div>
         </div>
     </div>
+
+    <!-- JavaScript Section -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Monitor input for quantity received
+            document.querySelectorAll('input[name^="received"]').forEach(input => {
+                input.addEventListener('input', function () {
+                    const detailId = this.dataset.detailId;
+                    const requireSerial = this.dataset.requireSerial === 'true';
+                    const quantity = parseInt(this.value) || 0;
+
+                    if (requireSerial) {
+                        const container = document.getElementById(`serial-fields-${detailId}`);
+                        container.innerHTML = ''; // Clear existing fields
+
+                        for (let i = 0; i < quantity; i++) {
+                            const field = document.createElement('input');
+                            field.type = 'text';
+                            field.name = `serial_numbers[${detailId}][]`;
+                            field.className = 'form-control mb-2';
+                            field.placeholder = `Serial Number ${i + 1}`;
+                            container.appendChild(field);
+                        }
+                    }
+                });
+            });
+        });
+
+        // Toggle serial number fields visibility
+        function toggleSerialFields(detailId) {
+            const container = document.getElementById(`serial-fields-${detailId}`);
+            container.classList.toggle('d-none');
+        }
+    </script>
 @endsection
