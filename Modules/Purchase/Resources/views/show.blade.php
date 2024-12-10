@@ -134,8 +134,7 @@
 
                         <div class="card-footer text-end">
                             @if ($purchase->status === Purchase::STATUS_DRAFTED)
-                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}"
-                                      class="d-inline">
+                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
                                     @csrf
                                     @method('PATCH')
                                     <input type="hidden" name="status" value="{{ Purchase::STATUS_WAITING_APPROVAL }}">
@@ -144,20 +143,24 @@
                             @endif
 
                             @if ($purchase->status === Purchase::STATUS_WAITING_APPROVAL)
-                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}"
-                                      class="d-inline">
+                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
                                     @csrf
                                     @method('PATCH')
                                     <input type="hidden" name="status" value="{{ Purchase::STATUS_APPROVED }}">
                                     <button type="submit" class="btn btn-success">Approve</button>
                                 </form>
-                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}"
-                                      class="d-inline">
+                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
                                     @csrf
                                     @method('PATCH')
                                     <input type="hidden" name="status" value="{{ Purchase::STATUS_REJECTED }}">
                                     <button type="submit" class="btn btn-danger">Reject</button>
                                 </form>
+                            @endif
+
+                            @if ($purchase->status === Purchase::STATUS_APPROVED)
+                                <a href="{{ route('purchases.receive', $purchase->id) }}" class="btn btn-primary">
+                                    Receive
+                                </a>
                             @endif
                         </div>
                     </div>

@@ -274,8 +274,40 @@ class PurchaseController extends Controller
         return $dataTable->with('supplier_id', $request->get('supplier_id'))->render('purchase::index');
     }
 
-    public function datatable(PurchaseDataTable $dataTable, Request $request)
+    public function receive(Purchase $purchase)
     {
-        return $dataTable->with('supplier_id', $request->get('supplier_id'))->render('purchase::index');
+        return view('purchase::receive', compact('purchase'));
+    }
+
+    public function storeReceive(Request $request, Purchase $purchase)
+    {
+        $data = $request->validate([
+            'received.*' => 'nullable|integer|min:0',
+            'notes.*' => 'nullable|string|max:255',
+        ]);
+
+        DB::transaction(function () use ($data, $purchase) {
+            foreach ($purchase->purchaseDetails as $detail) {
+                $receivedQuantity = $data['received'][$detail->id] ?? 0;
+                $notes = $data['notes'][$detail->id] ?? null;
+
+                if ($receivedQuantity > 0) {
+                    $detail->update([
+                        'quantity_received' => ($detail->quantity_received ?? 0) + $receivedQuantity,
+                        'notes' => $notes,
+                    ]);
+
+                    // Optional: Update inventory
+                    $detail->product->increment('quantity', $receivedQuantity);
+                }
+            }
+
+            // Update purchase status to "Received" if all quantities are received
+            if ($purchase->purchaseDetails->every(fn($detail) => $detail->quantity_received >= $detail->quantity)) {
+                $purchase->update(['status' => Purchase::STATUS_RECEIVED]);
+            }
+        });
+
+        return redirect()->route('purchases.show', $purchase->id)->with('message', 'Items successfully received.');
     }
 }
