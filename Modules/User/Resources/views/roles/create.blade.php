@@ -137,11 +137,11 @@
                                         <div class="card-header">
                                             Penjualan
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-user-settings">
-                                                <label class="custom-control-label" for="select-all-user-settings">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input" id="select-all-sale">
+                                                <label class="custom-control-label" for="select-all-sale">Pilih Semua</label>
                                             </div>
                                         </div>
-                                        <div id="user-settings" class="card-body">
+                                        <div id="sale" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -151,7 +151,6 @@
                                                         <label class="custom-control-label" for="sale.access">Hak Akses</label>
                                                     </div>
                                                 </div>
-
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
@@ -160,7 +159,6 @@
                                                         <label class="custom-control-label" for="sale.create">Create</label>
                                                     </div>
                                                 </div>
-
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
@@ -188,11 +186,11 @@
                                         <div class="card-header">
                                             Retur Penjualan
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-user-settings">
-                                                <label class="custom-control-label" for="select-all-user-settings">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input" id="select-all-rsale">
+                                                <label class="custom-control-label" for="select-all-rsale">Pilih Semua</label>
                                             </div>
                                         </div>
-                                        <div id="user-settings" class="card-body">
+                                        <div id="rsale" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -239,11 +237,11 @@
                                         <div class="card-header">
                                             Pembelian
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-user-settings">
-                                                <label class="custom-control-label" for="select-all-user-settings">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input" id="select-all-purchase">
+                                                <label class="custom-control-label" for="select-all-purchase">Pilih Semua</label>
                                             </div>
                                         </div>
-                                        <div id="user-settings" class="card-body">
+                                        <div id="purchase" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -290,11 +288,11 @@
                                         <div class="card-header">
                                             Pembelian Retur
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-user-settings">
-                                                <label class="custom-control-label" for="select-all-user-settings">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input" id="select-all-rpurchase">
+                                                <label class="custom-control-label" for="select-all-rpurchase">Pilih Semua</label>
                                             </div>
                                         </div>
-                                        <div id="user-settings" class="card-body">
+                                        <div id="rpurchase" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -341,11 +339,11 @@
                                         <div class="card-header">
                                             Biaya
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-user-settings">
-                                                <label class="custom-control-label" for="select-all-user-settings">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input" id="select-all-cost">
+                                                <label class="custom-control-label" for="select-all-cost">Pilih Semua</label>
                                             </div>
                                         </div>
-                                        <div id="user-settings" class="card-body">
+                                        <div id="cost" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -486,7 +484,7 @@
                                     </div>
                                 </div>
 
-                                <!-- Roles Pengguna -->
+                                <!-- Peran dan Ijin -->
                                 <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
@@ -675,11 +673,11 @@
                                         <div class="card-header">
                                             Transfer Stok
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-merek">
-                                                <label class="custom-control-label" for="select-all-merek">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input" id="select-all-tfstock">
+                                                <label class="custom-control-label" for="select-all-tfstock">Pilih Semua</label>
                                             </div>
                                         </div>
-                                        <div id="merek" class="card-body">
+                                        <div id="tfstock" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -771,17 +769,17 @@
                                     </div>
                                 </div>
 
-                                <!-- Stock Adjustments -->
+                                <!-- Breakage -->
                                 <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
                                         <div class="card-header">
                                             Breakage
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-adjustment">
-                                                <label class="custom-control-label" for="select-all-adjustment">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input" id="select-all-break">
+                                                <label class="custom-control-label" for="select-all-break">Pilih Semua</label>
                                             </div>
                                         </div>
-                                        <div id="adjustment" class="card-body">
+                                        <div id="break" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -980,11 +978,11 @@
                                         <div class="card-header">
                                             Nomor Akun
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-tax">
-                                                <label class="custom-control-label" for="select-all-tax">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input" id="select-all-account">
+                                                <label class="custom-control-label" for="select-all-account">Pilih Semua</label>
                                             </div>
                                         </div>
-                                        <div id="tax" class="card-body">
+                                        <div id="account" class="card-body">
                                             <div class="row">
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
@@ -1654,6 +1652,60 @@
                     this.checked = checked;
                 });
             });
+            $('#select-all-sale').click(function() {
+                var checked = this.checked;
+                $('#sale input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-rsale').click(function() {
+                var checked = this.checked;
+                $('#rsale input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-purchase').click(function() {
+                var checked = this.checked;
+                $('#purchase input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-rpurchase').click(function() {
+                var checked = this.checked;
+                $('#rpurchase input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-cost').click(function() {
+                var checked = this.checked;
+                $('#cost input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-account').click(function() {
+                var checked = this.checked;
+                $('#account input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-break').click(function() {
+                var checked = this.checked;
+                $('#break input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-break').click(function() {
+                var checked = this.checked;
+                $('#break input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-tfstock').click(function() {
+                var checked = this.checked;
+                $('#tfstock input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
             $('#select-all-product').click(function() {
                 var checked = this.checked;
                 $('#product input[type="checkbox"]').each(function() {
@@ -1693,6 +1745,12 @@
             $('#select-all-pemasok').click(function() {
                 var checked = this.checked;
                 $('#pemasok input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-ijin').click(function() {
+                var checked = this.checked;
+                $('#ijin input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });
