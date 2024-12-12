@@ -9,8 +9,8 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('adjustments.index') }}">Adjustments</a></li>
-        <li class="breadcrumb-item active">Details</li>
+        <li class="breadcrumb-item"><a href="{{ route('adjustments.index') }}">Penyesuaian</a></li>
+        <li class="breadcrumb-item active">Rincian</li>
     </ol>
 @endsection
 
@@ -29,7 +29,7 @@
                             @csrf
                             @method('PATCH')
                             <button type="submit" class="btn btn-success">
-                                Approve
+                                Setuju
                             </button>
                         </form>
                     @endcan
@@ -40,7 +40,7 @@
                             @csrf
                             @method('PATCH')
                             <button type="submit" class="btn btn-danger">
-                                Reject
+                                Tolak
                             </button>
                         </form>
                     @endcan
@@ -56,13 +56,13 @@
                         <div class="table-responsive">
                             <table class="table table-bordered">
                                 <tr>
-                                    <th>Date</th>
+                                    <th>Tanggal</th>
                                     <td>{{ $adjustment->date }}</td>
                                     <th>Reference</th>
                                     <td>{{ $adjustment->reference }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Adjustment Type</th>
+                                    <th>Jenis Penyesuaian</th>
                                     <td colspan="3">
                                         {{ strtoupper($adjustment->type) }} <!-- Assuming type is 'breakage' or 'normal' -->
                                     </td>
@@ -83,10 +83,10 @@
                             <table class="table table-bordered">
                                 <thead>
                                 <tr>
-                                    <th>Product Name</th>
-                                    <th>Code</th>
-                                    <th>Quantity</th>
-                                    <th>Type</th>
+                                    <th>Nama Produk</th>
+                                    <th>Kode Produk</th>
+                                    <th>Kuantitas</th>
+                                    <th>Jenis</th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -97,10 +97,10 @@
                                         <td>{{ $adjustedProduct->quantity }}</td>
                                         <td>
                                             @if($adjustedProduct->type == 'add')
-                                                (+) Addition
+                                                (+) Penambahan
                                             @else
                                                 (-)
-                                                Subtraction
+                                                Pengurangan
                                             @endif
                                         </td>
                                     </tr>

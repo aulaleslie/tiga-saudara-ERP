@@ -65,7 +65,7 @@
             </a>
             <div class="dropdown-menu dropdown-menu-right dropdown-menu-lg pt-0">
                 <div class="dropdown-header bg-light">
-                    <strong>{{ $low_quantity_products->count() }} Notifications</strong>
+                    <strong>{{ $low_quantity_products->count() }} Pemberitahuan</strong>
                 </div>
                 @forelse($low_quantity_products as $product)
                     <a class="dropdown-item" href="{{ route('products.show', $product->id) }}">
@@ -74,7 +74,7 @@
                     </a>
                 @empty
                     <a class="dropdown-item" href="#">
-                        <i class="bi bi-app-indicator mr-2 text-danger"></i> No notifications available.
+                        <i class="bi bi-app-indicator mr-2 text-danger"></i> Tidak ada notifikasi yang tersedia.
                     </a>
                 @endforelse
             </div>

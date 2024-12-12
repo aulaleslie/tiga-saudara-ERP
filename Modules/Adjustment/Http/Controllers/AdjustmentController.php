@@ -87,7 +87,7 @@ class AdjustmentController extends Controller
             }
         });
 
-        toast('Adjustment Created!', 'success');
+        toast('Penyesuaian Dibuat!', 'success');
 
         return redirect()->route('adjustments.index');
     }
@@ -124,7 +124,7 @@ class AdjustmentController extends Controller
             }
         });
 
-        toast('Adjustment Created!', 'success');
+        toast('Penyesuaian Barang Rusak Dibuat!', 'success');
 
         return redirect()->route('adjustments.index');
     }
@@ -180,7 +180,7 @@ class AdjustmentController extends Controller
             }
         });
 
-        toast('Adjustment Updated!', 'info');
+        toast('Penyesuaian Diperbaharui!', 'info');
 
         return redirect()->route('adjustments.index');
     }
@@ -226,7 +226,7 @@ class AdjustmentController extends Controller
             }
         });
 
-        toast('Adjustment Updated!', 'info');
+        toast('Penyesuaian Barang Rusak Diperbaharui!', 'info');
 
         return redirect()->route('adjustments.index');
     }
@@ -302,13 +302,13 @@ class AdjustmentController extends Controller
             $adjustment->update(['status' => 'approved']);
 
             DB::commit();
-            toast('Adjustment Approved!', 'warning');
+            toast('Penyesuain Disetujui!', 'warning');
 
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Adjustment approval failed', ['error' => $e->getMessage()]);
-            session()->flash('error', 'Failed to approve adjustment. Please try again.');
-            toast('Error to Approve Adjustment!', 'error');
+            session()->flash('error', 'Gagal menyetujui penyesuaian. Silakan coba lagi.');
+            toast('Kesalahan saat Menyetujui Penyesuaian!', 'error');
         }
 
         return redirect()->route('adjustments.index');
@@ -320,7 +320,7 @@ class AdjustmentController extends Controller
         $adjustment->update(['status' => 'rejected']);
 
         // Optionally, you can add a success message to be displayed after the redirect
-        toast('Adjustment Rejected!', 'info');
+        toast('Penyesuaian Ditolak!', 'info');
 
         // Redirect back to the adjustments index
         return redirect()->route('adjustments.index');

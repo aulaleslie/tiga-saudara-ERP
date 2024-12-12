@@ -119,7 +119,7 @@
                                         <input type="checkbox" name="serial_number_required" id="serial_number_required"
                                                value="1" disabled>
                                         <label for="serial_number_required"><strong>Serial Number
-                                                Required</strong></label>
+                                                Diperlukan</strong></label>
                                     </div>
                                 </div>
                             </div>

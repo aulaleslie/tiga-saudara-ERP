@@ -40,7 +40,7 @@
                             required
                         >
                             <option value="fixed">Fixed</option>
-                            <option value="percentage">Percentage</option>
+                            <option value="percentage">Persentase</option>
                         </select>
                     </div>
 
@@ -65,7 +65,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                    <button wire:click="setProductDiscount('{{ $cart_item->rowId }}', {{ $cart_item->id }})" type="button" class="btn btn-primary">Save changes</button>
+                    <button wire:click="setProductDiscount('{{ $cart_item->rowId }}', {{ $cart_item->id }})" type="button" class="btn btn-primary">Simpan Perubahan</button>
                 </div>
             </div>
         </div>

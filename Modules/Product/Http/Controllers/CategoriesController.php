@@ -92,12 +92,12 @@ class CategoriesController extends Controller
 
         // Check if the category has associated products
         if ($category->products()->exists()) {
-            return back()->withErrors('Can\'t delete because there are products associated with this category.');
+            return back()->withErrors('Tidak dapat dihapus karena ada produk yang terkait dengan kategori ini.');
         }
 
         // Check if the category has any subcategories
         if ($category->children()->exists()) {
-            return back()->withErrors('Can\'t delete because there are subcategories associated with this category.');
+            return back()->withErrors('Tidak dapat dihapus karena ada subkategori yang terkait dengan kategori ini.');
         }
 
         // If no products or subcategories, delete the category

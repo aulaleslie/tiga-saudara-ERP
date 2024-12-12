@@ -212,7 +212,7 @@
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('transfers.create') ? 'c-active' : '' }}"
                    href="{{ route('transfers.create') }}">
-                    <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Transfer Stock
+                    <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Buat Transfer Stock
                 </a>
             </li>
         </ul>
@@ -221,7 +221,7 @@
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('transfers.index') ? 'c-active' : '' }}"
                    href="{{ route('transfers.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i>List Transfer Stock
+                    <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i>Daftar Transfer Stock
                 </a>
             </li>
         </ul>
@@ -329,7 +329,7 @@
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.create') ? 'c-active' : '' }}"
                        href="{{ route('adjustments.create') }}">
-                        <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Adjustment
+                        <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Buat Penyesuain
                     </a>
                 </li>
             @endcan
@@ -337,13 +337,13 @@
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.createBreakage') ? 'c-active' : '' }}"
                    href="{{ route('adjustments.createBreakage') }}">
-                    <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Breakage
+                    <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Buat Daftar Barang Rusak
                 </a>
             </li>
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.index') ? 'c-active' : '' }}"
                    href="{{ route('adjustments.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> All Adjustments
+                    <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> Semua Penyesuaian
                 </a>
             </li>
                 @endcan
