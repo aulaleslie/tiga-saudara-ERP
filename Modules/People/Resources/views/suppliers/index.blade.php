@@ -19,9 +19,11 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
+                        @canany('supplier.create')
                         <a href="{{ route('suppliers.create') }}" class="btn btn-primary">
                             Tambahkan Pemasok <i class="bi bi-plus"></i>
                         </a>
+                        @endcanany
 
                         <hr>
 

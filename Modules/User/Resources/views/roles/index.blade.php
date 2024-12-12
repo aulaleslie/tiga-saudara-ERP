@@ -20,9 +20,11 @@
                 <div class="card">
                     <div class="card-body">
                         <!-- Button trigger modal -->
+                        @canany('role.create')
                         <a href="{{ route('roles.create') }}" class="btn btn-primary">
                             Tambah Peran <i class="bi bi-plus"></i>
                         </a>
+                        @endcanany
 
                         <hr>
 

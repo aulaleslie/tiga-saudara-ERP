@@ -128,9 +128,11 @@
 
                             <!-- Submit Button -->
                             <div class="mt-3">
+                                @canany('purchase.edit')
                                 <button type="submit" class="btn btn-primary">
                                     Update Pembelian <i class="bi bi-check"></i>
                                 </button>
+                                @endcanany
                             </div>
                         </form>
                         <!-- Purchase Form End -->

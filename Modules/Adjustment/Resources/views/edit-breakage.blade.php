@@ -56,9 +56,11 @@
                                 <a href="{{ route('adjustments.index') }}" class="btn btn-secondary mr-2">
                                     Kembali
                                 </a>
+                                @canany('break.edit')
                                 <button type="submit" class="btn btn-primary">
                                     Perbaharui Barang Rusak <i class="bi bi-check"></i>
                                 </button>
+                                @endcanany
                             </div>
                         </form>
                     </div>

@@ -14,7 +14,7 @@ class SuppliersController extends Controller
 
     public function index(SuppliersDataTable $dataTable)
     {
-        abort_if(Gate::denies('access_suppliers'), 403);
+        abort_if(Gate::denies('supplier.access'), 403);
 
         return $dataTable->render('people::suppliers.index');
     }
@@ -22,7 +22,7 @@ class SuppliersController extends Controller
 
     public function create()
     {
-        abort_if(Gate::denies('create_suppliers'), 403);
+        abort_if(Gate::denies('supplier.create'), 403);
 
         return view('people::suppliers.create');
     }
@@ -97,7 +97,7 @@ class SuppliersController extends Controller
 
     public function edit(Supplier $supplier)
     {
-        abort_if(Gate::denies('edit_suppliers'), 403);
+        abort_if(Gate::denies('supplier.edit'), 403);
 
         return view('people::suppliers.edit', compact('supplier'));
     }
@@ -166,7 +166,7 @@ class SuppliersController extends Controller
 
     public function destroy(Supplier $supplier)
     {
-        abort_if(Gate::denies('delete_suppliers'), 403);
+        abort_if(Gate::denies('supplier.delete'), 403);
 
         $supplier->delete();
 

@@ -89,9 +89,11 @@
 
                                 <!-- Simpan button to submit the form -->
                                 <div class="col-md-12 mt-4 text-right">
+                                    @canany('tfstock.create')
                                     <button type="submit" class="btn btn-primary">
                                         Simpan <i class="bi bi-check"></i>
                                     </button>
+                                    @endcanany
                                 </div>
                             </div>
                         </form>
