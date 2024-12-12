@@ -33,6 +33,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     })->name('purchases.pdf');
 
     //Purchases
+    Route::post('/purchases/{purchase}/receive', [PurchaseController::class, 'storeReceive'])->name('purchases.storeReceive');
+    Route::get('/purchases/{purchase}/receive', [PurchaseController::class, 'receive'])->name('purchases.receive');
     Route::patch('purchases/{purchase}/status', [PurchaseController::class, 'updateStatus'])->name('purchases.updateStatus');
     Route::resource('purchases', 'PurchaseController');
 
