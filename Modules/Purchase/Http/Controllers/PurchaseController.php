@@ -2,7 +2,10 @@
 
 namespace Modules\Purchase\Http\Controllers;
 
+use Exception;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Modules\Purchase\DataTables\PurchaseDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
@@ -10,9 +13,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
+use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
-use Modules\Purchase\Entities\PurchasePayment;
 use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
 
@@ -26,70 +29,89 @@ class PurchaseController extends Controller
     }
 
 
-    public function create() {
+    public function create()
+    {
         abort_if(Gate::denies('create_purchases'), 403);
 
+        // Clear the purchase cart
         Cart::instance('purchase')->destroy();
 
-        return view('purchase::create');
+        // Retrieve the current setting_id from the session
+        $setting_id = session('setting_id');
+
+        // Filter PaymentTerms by the setting_id
+        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
+
+        // Pass the filtered terms to the view
+        return view('purchase::create', compact('paymentTerms'));
     }
 
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
-        DB::transaction(function () use ($request) {
-            // Remove 'paid_amount' and set it to zero
-            $paid_amount = 0;
-            $due_amount = $request->total_amount - $paid_amount;
-            $payment_status = 'Unpaid';
-
-            // Force status to 'DRAFTED'
-            $status = Purchase::STATUS_DRAFTED;
-
-            // Get tax percentage from 'taxes' table using 'tax_id'
-            $tax_percentage = 0;
-            $tax_amount = 0;
-            if ($request->tax_id) {
-                $tax = Tax::find($request->tax_id);
-                if ($tax) {
-                    $tax_percentage = $tax->value; // Assuming 'value' is the percentage
-                    // Calculate tax amount
-                    $tax_amount = ($request->total_amount * $tax_percentage) / 100;
-                }
-            }
-
+        $setting_id = session('setting_id');
+        DB::beginTransaction(); // Start the transaction manually
+        try {
+            // Create the purchase record (example shown earlier)
             $purchase = Purchase::create([
                 'date' => $request->date,
                 'due_date' => $request->due_date,
                 'supplier_id' => $request->supplier_id,
                 'tax_id' => $request->tax_id,
-                'tax_percentage' => $tax_percentage,
-                'tax_amount' => $tax_amount,
+                'tax_percentage' => 0, // Example
+                'tax_amount' => 0, // Example
                 'discount_percentage' => $request->discount_percentage,
+                'discount_amount' => $request->discount_amount,
                 'shipping_amount' => $request->shipping_amount,
                 'total_amount' => $request->total_amount,
-                'due_amount' => $due_amount,
-                'status' => $status,
-                'payment_status' => $payment_status,
-                'payment_method' => $request->payment_method,
+                'due_amount' => $request->total_amount,
+                'status' => Purchase::STATUS_DRAFTED,
+                'payment_status' => 'unpaid',
+                'payment_term_id' => $request->payment_term,
                 'note' => $request->note,
-                'setting_id' => auth()->user()->currentSetting->id ?? null,
+                'setting_id' => $setting_id,
+                'paid_amount' => 0.0,
+                'is_tax_included' => $request->is_tax_included,
+                'payment_method' => '',
             ]);
 
+            // Iterate over cart items
             foreach (Cart::instance('purchase')->content() as $cart_item) {
+                // Map cart item to purchase details
+                $product_tax_amount = $cart_item->options['sub_total'] - $cart_item->options['sub_total_before_tax'];
+
                 PurchaseDetail::create([
-                    'purchase_id' => $purchase->id,
+                    'purchase_id' => $purchase->id, // FK reference
                     'product_id' => $cart_item->id,
+                    'product_name' => $cart_item->name,
+                    'product_code' => $cart_item->options['code'],
                     'quantity' => $cart_item->qty,
+                    'unit_price' => $cart_item->options['unit_price'],
+                    'price' => $cart_item->price,
+                    'product_discount_type' => $cart_item->options['product_discount_type'],
+                    'product_discount_amount' => $cart_item->options['product_discount'],
+                    'sub_total' => $cart_item->options['sub_total'],
+                    'product_tax_amount' => $product_tax_amount, // Calculated
+                    'tax_id' => $cart_item->options['product_tax'], // Tax ID
                 ]);
             }
 
-            Cart::instance('purchase')->destroy();
-        });
+            // Commit transaction
+            DB::commit();
 
-        toast('Purchase Created!', 'success');
+            toast('Purchase Created!', 'success');
+            return redirect()->route('purchases.index');
+        } catch (Exception $e) {
+            // Rollback on error
+            DB::rollBack();
 
-        return redirect()->route('purchases.index');
+            // Log the error for debugging
+            Log::error('Purchase Creation Failed:', ['error' => $e->getMessage()]);
+
+            // Return an error message to the user
+            toast('An error occurred while creating the purchase. Please try again.', 'error');
+            return redirect()->back()->withInput();
+        }
     }
 
 
@@ -102,15 +124,22 @@ class PurchaseController extends Controller
     }
 
 
-    public function edit(Purchase $purchase) {
+    public function edit(Purchase $purchase)
+    {
         abort_if(Gate::denies('edit_purchases'), 403);
 
+        // Retrieve the current setting_id from the session
+        $setting_id = session('setting_id');
+
+        // Filter PaymentTerms by the setting_id
+        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
+
+        // Retrieve purchase details
         $purchase_details = $purchase->purchaseDetails;
 
+        // Clear and re-add items to the cart
         Cart::instance('purchase')->destroy();
-
         $cart = Cart::instance('purchase');
-
         foreach ($purchase_details as $purchase_detail) {
             $cart->add([
                 'id'      => $purchase_detail->product_id,
@@ -124,13 +153,14 @@ class PurchaseController extends Controller
                     'sub_total'   => $purchase_detail->sub_total,
                     'code'        => $purchase_detail->product_code,
                     'stock'       => Product::findOrFail($purchase_detail->product_id)->product_quantity,
-                    'product_tax' => $purchase_detail->product_tax_amount,
+                    'product_tax' => $purchase_detail->tax_id,
                     'unit_price'  => $purchase_detail->unit_price
                 ]
             ]);
         }
 
-        return view('purchase::edit', compact('purchase'));
+        // Pass $paymentTerms to the view
+        return view('purchase::edit', compact('purchase', 'paymentTerms'));
     }
 
 
@@ -220,15 +250,64 @@ class PurchaseController extends Controller
     {
         abort_if(Gate::denies('update_purchase_status'), 403);
 
-        $request->validate([
-            'status' => 'required|string|in:' . implode(',', Purchase::getStatuses()),
+        $validated = $request->validate([
+            'status' => 'required|string|in:' . implode(',', [
+                    Purchase::STATUS_WAITING_APPROVAL,
+                    Purchase::STATUS_APPROVED,
+                    Purchase::STATUS_REJECTED
+                ]),
         ]);
 
-        $purchase->status = $request->status;
-        $purchase->save();
+        try {
+            $purchase->update(['status' => $validated['status']]);
+            toast("Purchase status updated to {$validated['status']}!", 'success');
+        } catch (Exception $e) {
+            Log::error('Failed to update purchase status', ['error' => $e->getMessage()]);
+            toast('Failed to update purchase status.', 'error');
+        }
 
-        toast('Purchase status updated!', 'success');
+        return redirect()->route('purchases.show', $purchase->id);
+    }
 
-        return redirect()->route('purchases.show', $purchase);
+    public function datatable(PurchaseDataTable $dataTable, Request $request)
+    {
+        return $dataTable->with('supplier_id', $request->get('supplier_id'))->render('purchase::index');
+    }
+
+    public function receive(Purchase $purchase)
+    {
+        return view('purchase::receive', compact('purchase'));
+    }
+
+    public function storeReceive(Request $request, Purchase $purchase)
+    {
+        $data = $request->validate([
+            'received.*' => 'nullable|integer|min:0',
+            'notes.*' => 'nullable|string|max:255',
+        ]);
+
+        DB::transaction(function () use ($data, $purchase) {
+            foreach ($purchase->purchaseDetails as $detail) {
+                $receivedQuantity = $data['received'][$detail->id] ?? 0;
+                $notes = $data['notes'][$detail->id] ?? null;
+
+                if ($receivedQuantity > 0) {
+                    $detail->update([
+                        'quantity_received' => ($detail->quantity_received ?? 0) + $receivedQuantity,
+                        'notes' => $notes,
+                    ]);
+
+                    // Optional: Update inventory
+                    $detail->product->increment('quantity', $receivedQuantity);
+                }
+            }
+
+            // Update purchase status to "Received" if all quantities are received
+            if ($purchase->purchaseDetails->every(fn($detail) => $detail->quantity_received >= $detail->quantity)) {
+                $purchase->update(['status' => Purchase::STATUS_RECEIVED]);
+            }
+        });
+
+        return redirect()->route('purchases.show', $purchase->id)->with('message', 'Items successfully received.');
     }
 }

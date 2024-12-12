@@ -30,21 +30,37 @@
                             </div>
                         </div>
                     @endif
+
+                    <!-- Discount Type -->
                     <div class="form-group">
-                        <label>Jenis Diskon <span class="text-danger">*</span></label>
-                        <select wire:model.live="discount_type.{{ $cart_item->id }}" class="form-control" required>
+                        <label style="display: block; text-align: left;">Discount Type <span class="text-danger">*</span></label>
+                        <select
+                            wire:model.live="discount_type.{{ $cart_item->id }}"
+                            class="form-control"
+                            required
+                        >
                             <option value="fixed">Fixed</option>
                             <option value="percentage">Persentase</option>
                         </select>
                     </div>
+
+                    <!-- Discount -->
                     <div class="form-group">
-                        @if($discount_type[$cart_item->id] == 'percentage')
-                            <label>Diskon(%) <span class="text-danger">*</span></label>
-                            <input wire:model="item_discount.{{ $cart_item->id }}" type="number" class="form-control" value="{{ $item_discount[$cart_item->id] }}" min="0" max="100">
-                        @elseif($discount_type[$cart_item->id] == 'fixed')
-                            <label>Diskon <span class="text-danger">*</span></label>
-                            <input wire:model="item_discount.{{ $cart_item->id }}" type="number" class="form-control" value="{{ $item_discount[$cart_item->id] }}">
-                        @endif
+                        <label style="display: block; text-align: left;">
+                            @if($discount_type[$cart_item->id] == 'percentage')
+                                Discount(%) <span class="text-danger">*</span>
+                            @else
+                                Discount <span class="text-danger">*</span>
+                            @endif
+                        </label>
+                        <input
+                            wire:model="item_discount.{{ $cart_item->id }}"
+                            type="number"
+                            class="form-control"
+                            value="{{ $item_discount[$cart_item->id] }}"
+                            min="0"
+                            @if($discount_type[$cart_item->id] == 'percentage') max="100" @endif
+                        >
                     </div>
                 </div>
                 <div class="modal-footer">

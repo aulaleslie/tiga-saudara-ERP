@@ -34,7 +34,7 @@
                             <!-- Reference, Supplier, Date -->
                             <div class="form-row">
                                 <!-- Referensi -->
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="reference">Referensi <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="reference" id="reference" required readonly value="PR">
@@ -45,7 +45,7 @@
                                 </div>
 
                                 <!-- Pemasok -->
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="supplier_id">Pemasok <span class="text-danger">*</span></label>
                                         <select class="form-control @error('supplier_id') is-invalid @enderror" name="supplier_id" id="supplier_id" required>
@@ -61,7 +61,7 @@
                                 </div>
 
                                 <!-- Tanggal -->
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="date">Tanggal <span class="text-danger">*</span></label>
                                         <input type="date" class="form-control @error('date') is-invalid @enderror" name="date" id="date" required value="{{ now()->format('Y-m-d') }}">
@@ -70,12 +70,8 @@
                                         @enderror
                                     </div>
                                 </div>
-                            </div>
 
-                            <!-- Tanggal Jatuh Tempo and Pajak Termasuk -->
-                            <div class="form-row">
-                                <!-- Tanggal Jatuh Tempo -->
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="due_date">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
                                         <input type="date" class="form-control @error('due_date') is-invalid @enderror" name="due_date" id="due_date" required value="{{ now()->addDays(30)->format('Y-m-d') }}">
@@ -85,17 +81,17 @@
                                     </div>
                                 </div>
 
-                                <!-- Pajak Termasuk -->
-                                <div class="col-lg-4">
-                                    <div class="form-group mt-4">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" name="is_tax_included" id="is_tax_included" value="1" {{ old('is_tax_included') ? 'checked' : '' }}>
-                                            <label class="form-check-label" for="is_tax_included">
-                                                Pajak Termasuk
-                                            </label>
-                                        </div>
-                                        @error('is_tax_included')
-                                        <div class="text-danger">{{ $message }}</div>
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="payment_term">Term Pembayaran <span class="text-danger">*</span></label>
+                                        <select class="form-control @error('payment_term') is-invalid @enderror" name="payment_term" id="payment_term" required data-terms='@json($paymentTerms)'>
+                                            <option value="">Pilih Term Pembayaran</option>
+                                            @foreach($paymentTerms as $term)
+                                                <option value="{{ $term->id }}" data-longevity="{{ $term->longevity }}">{{ $term->name }}</option>
+                                            @endforeach
+                                        </select>
+                                        @error('payment_term')
+                                        <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
                                     </div>
                                 </div>
@@ -129,9 +125,20 @@
 @endsection
 
 @push('page_scripts')
-    <!-- Removed scripts related to 'paid_amount' and 'payment_method' -->
-    <!-- Add any additional scripts if necessary -->
     <script>
-        // Example: If you need to handle 'is_tax_included' dynamically, consider using Livewire events or JavaScript
+        document.addEventListener('DOMContentLoaded', () => {
+            const paymentTermSelect = document.getElementById('payment_term');
+            const dueDateInput = document.getElementById('due_date');
+
+            paymentTermSelect.addEventListener('change', function () {
+                const selectedOption = this.options[this.selectedIndex];
+                const longevity = selectedOption.dataset.longevity;
+                if (longevity) {
+                    const baseDate = new Date(document.getElementById('date').value);
+                    baseDate.setDate(baseDate.getDate() + parseInt(longevity));
+                    dueDateInput.value = baseDate.toISOString().split('T')[0];
+                }
+            });
+        });
     </script>
 @endpush

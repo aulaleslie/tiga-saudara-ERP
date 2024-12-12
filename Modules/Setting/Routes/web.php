@@ -29,4 +29,6 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::resource('locations', 'LocationController')->except('show');
     // Taxes
     Route::resource('taxes', 'TaxController')->except('show');
+    // Chart of accounts
+    Route::resource('chart-of-account', 'ChartofAccountController')->except('show');
 });
