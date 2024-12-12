@@ -24,38 +24,46 @@ class PermissionsSeeder_B2 extends Seeder
             'view_bussiness',
             'crud_bussiness',
             'access_user_permissions',
+            //Costumer
             'customer.access',
             'customer.create',
             'customer.view',
             'customer.edit',
             'customer.delete',
+            //Suplier
             'supplier.access',
             'supplier.create',
             'supplier.view',
             'supplier.edit',
             'supplier.delete',
+            //Product
             'view_access_table_product',
+            //Brand
             'access_brand',
             'brand.access',
             'brand.create',
             'brand.edit',
             'brand.delete',
             'brand.view',
+            //Location
             'location.access',
             'location.create',
             'location.view',
             'location.edit',
             'location.delete',
+            //User
             'users.access',
             'users.create',
             'users.view',
             'users.edit',
             'users.delete',
+            //Roles
             'role.access',
             'role.create',
             'role.view',
             'role.edit',
             'role.delete',
+            //Adjustment
             'adjustment.access',
             'adjustment.create',
             'adjustment.view',

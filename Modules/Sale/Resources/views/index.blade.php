@@ -19,9 +19,11 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
+                        @can("sale.create")
                         <a href="{{ route('sales.create') }}" class="btn btn-primary">
                             Add Sale <i class="bi bi-plus"></i>
                         </a>
+                        @endcan
 
                         <hr>
 

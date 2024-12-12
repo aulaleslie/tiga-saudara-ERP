@@ -90,7 +90,9 @@
                                         <a href="{{ route('chart-of-account.index') }}" class="btn btn-secondary mr-2">
                                             Kembali
                                         </a>
+                                        @can("create_account")
                                         <button class="btn btn-primary">Tambah Akun <i class="bi bi-check"></i></button>
+                                        @endcan
                                     </div>
                                 </div>
                             </div>
