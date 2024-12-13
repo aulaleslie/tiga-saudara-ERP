@@ -46,5 +46,6 @@ jobs:
           php artisan route:cache
           php artisan view:cache
           rm -rf public/build
-          cp -R build public/
+          mkdir -p public/build
+          scp -r ./public/build/* public/build/
           EOF
