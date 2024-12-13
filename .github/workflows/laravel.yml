@@ -1,7 +1,7 @@
 name: Deploy Laravel to Jagoan Hosting
 
 on:
-  workflow_dispatch: # Allows manual triggering from the Actions tab
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -16,7 +16,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16' # Ensure this matches your Node.js version
+          node-version: '16'
 
       # Step 3: Install Node.js dependencies
       - name: Install Node.js dependencies
@@ -26,7 +26,11 @@ jobs:
       - name: Build assets with Vite
         run: npm run build
 
-      # Step 5: Set up SSH
+      # Step 5: Verify Build Output
+      - name: Verify Build Output
+        run: ls -la public/build
+
+      # Step 6: Set up SSH
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
@@ -34,7 +38,7 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -p 45022 -H 103.163.138.84 >> ~/.ssh/known_hosts
 
-      # Step 6: Deploy Laravel Application
+      # Step 7: Deploy Laravel Application
       - name: Deploy Laravel Application
         run: |
           ssh -p 45022 tigasau2@103.163.138.84 << 'EOF'
@@ -47,5 +51,9 @@ jobs:
           php artisan view:cache
           rm -rf public/build
           mkdir -p public/build
-          scp -r ./public/build/* public/build/
           EOF
+
+      # Step 8: Copy Build Files to Server
+      - name: Copy Build Files
+        run: |
+          scp -P 45022 -r public/build/* tigasau2@103.163.138.84:public_html/public/build/
