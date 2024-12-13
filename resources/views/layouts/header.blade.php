@@ -9,9 +9,9 @@
 <ul class="c-header-nav ml-auto mr-4">
     @can('create_pos_sales')
         <li class="c-header-nav-item mr-3">
-            {{--        <a class="btn btn-primary btn-pill {{ request()->routeIs('app.pos.index') ? 'disabled' : '' }}" href="{{ route('app.pos.index') }}">--}}
-            {{--            <i class="bi bi-cart mr-1"></i> POS System--}}
-            {{--        </a>--}}
+                    <a class="btn btn-primary btn-pill {{ request()->routeIs('app.pos.index') ? 'disabled' : '' }}" href="{{ route('app.pos.index') }}">
+                        <i class="bi bi-cart mr-1"></i> POS System
+                    </a>
         </li>
     @endcan
 
@@ -65,7 +65,7 @@
             </a>
             <div class="dropdown-menu dropdown-menu-right dropdown-menu-lg pt-0">
                 <div class="dropdown-header bg-light">
-                    <strong>{{ $low_quantity_products->count() }} Notifications</strong>
+                    <strong>{{ $low_quantity_products->count() }} Pemberitahuan</strong>
                 </div>
                 @forelse($low_quantity_products as $product)
                     <a class="dropdown-item" href="{{ route('products.show', $product->id) }}">
@@ -74,7 +74,7 @@
                     </a>
                 @empty
                     <a class="dropdown-item" href="#">
-                        <i class="bi bi-app-indicator mr-2 text-danger"></i> No notifications available.
+                        <i class="bi bi-app-indicator mr-2 text-danger"></i> Tidak ada notifikasi yang tersedia.
                     </a>
                 @endforelse
             </div>

@@ -18,7 +18,7 @@
         <div class="card-body shadow">
             <div class="d-flex justify-content-center">
                 <div class="spinner-border text-primary" role="status">
-                    <span class="sr-only">Loading...</span>
+                    <span class="sr-only">Memuat...</span>
                 </div>
             </div>
         </div>
@@ -40,7 +40,7 @@
                         @if($search_results->count() >= $how_many)
                              <li class="list-group-item list-group-item-action text-center">
                                  <a wire:click.prevent="loadMore" class="btn btn-primary btn-sm" href="#">
-                                     Load More <i class="bi bi-arrow-down-circle"></i>
+                                     Memuat lebih <i class="bi bi-arrow-down-circle"></i>
                                  </a>
                              </li>
                         @endif

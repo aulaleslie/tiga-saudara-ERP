@@ -103,9 +103,11 @@
                             </div>
 
                             <div class="mt-3">
+                                @can("create.sale")
                                 <button type="submit" class="btn btn-primary">
                                     Create Sale <i class="bi bi-check"></i>
                                 </button>
+                                    @endcan
                             </div>
                         </form>
                     </div>

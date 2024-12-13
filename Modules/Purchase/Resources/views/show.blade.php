@@ -1,3 +1,4 @@
+@php use Modules\Purchase\Entities\Purchase; @endphp
 @extends('layouts.app')
 
 @section('title', 'Purchases Details')
@@ -19,10 +20,12 @@
                         <div>
                             Reference: <strong>{{ $purchase->reference }}</strong>
                         </div>
-                        <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" href="{{ route('purchases.pdf', $purchase->id) }}">
+                        <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none"
+                           href="{{ route('purchases.pdf', $purchase->id) }}">
                             <i class="bi bi-printer"></i> Print
                         </a>
-                        <a target="_blank" class="btn btn-sm btn-info mfe-1 d-print-none" href="{{ route('purchases.pdf', $purchase->id) }}">
+                        <a target="_blank" class="btn btn-sm btn-info mfe-1 d-print-none"
+                           href="{{ route('purchases.pdf', $purchase->id) }}">
                             <i class="bi bi-save"></i> Save
                         </a>
                     </div>
@@ -107,7 +110,8 @@
                                 <table class="table">
                                     <tbody>
                                     <tr>
-                                        <td class="left"><strong>Discount ({{ $purchase->discount_percentage }}%)</strong></td>
+                                        <td class="left"><strong>Discount ({{ $purchase->discount_percentage }}
+                                                %)</strong></td>
                                         <td class="right">{{ format_currency($purchase->discount_amount) }}</td>
                                     </tr>
                                     <tr>
@@ -120,11 +124,44 @@
                                     </tr>
                                     <tr>
                                         <td class="left"><strong>Grand Total</strong></td>
-                                        <td class="right"><strong>{{ format_currency($purchase->total_amount) }}</strong></td>
+                                        <td class="right">
+                                            <strong>{{ format_currency($purchase->total_amount) }}</strong></td>
                                     </tr>
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+
+                        <div class="card-footer text-end">
+                            @if ($purchase->status === Purchase::STATUS_DRAFTED)
+                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
+                                    @csrf
+                                    @method('PATCH')
+                                    <input type="hidden" name="status" value="{{ Purchase::STATUS_WAITING_APPROVAL }}">
+                                    <button type="submit" class="btn btn-warning">Submit for Approval</button>
+                                </form>
+                            @endif
+
+                            @if ($purchase->status === Purchase::STATUS_WAITING_APPROVAL)
+                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
+                                    @csrf
+                                    @method('PATCH')
+                                    <input type="hidden" name="status" value="{{ Purchase::STATUS_APPROVED }}">
+                                    <button type="submit" class="btn btn-success">Approve</button>
+                                </form>
+                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
+                                    @csrf
+                                    @method('PATCH')
+                                    <input type="hidden" name="status" value="{{ Purchase::STATUS_REJECTED }}">
+                                    <button type="submit" class="btn btn-danger">Reject</button>
+                                </form>
+                            @endif
+
+                            @if ($purchase->status === Purchase::STATUS_APPROVED)
+                                <a href="{{ route('purchases.receive', $purchase->id) }}" class="btn btn-primary">
+                                    Receive
+                                </a>
+                            @endif
                         </div>
                     </div>
                 </div>

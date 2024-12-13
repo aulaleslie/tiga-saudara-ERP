@@ -5,8 +5,8 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('adjustments.index') }}">Adjustments</a></li>
-        <li class="breadcrumb-item active">Add</li>
+        <li class="breadcrumb-item"><a href="{{ route('adjustments.index') }}">Penyesuaian Barang Rusak</a></li>
+        <li class="breadcrumb-item active">Tambahkan</li>
     </ol>
 @endsection
 
@@ -19,16 +19,16 @@
                     <div class="card-body">
                         <form id="location-form">
                             <div class="form-group">
-                                <label for="location_id">Select Location <span class="text-danger">*</span></label>
+                                <label for="location_id">Pilih Lokasi <span class="text-danger">*</span></label>
                                 <select name="location_id" id="location_id" class="form-control" required>
-                                    <option value="" disabled selected>Choose a location</option>
+                                    <option value="" disabled selected>Pilih Lokasi</option>
                                     @foreach($locations as $location)
                                         <option value="{{ $location->id }}">{{ $location->name }}</option>
                                     @endforeach
                                 </select>
                             </div>
                             <button type="button" id="select-location" class="btn btn-primary">
-                                Select Location
+                                Pilih Lokasi
                             </button>
                         </form>
                     </div>
@@ -51,14 +51,14 @@
                                         <div class="form-row">
                                             <div class="col-lg-6">
                                                 <div class="form-group">
-                                                    <label for="reference">Reference <span class="text-danger">*</span></label>
+                                                    <label for="reference">Keterangan <span class="text-danger">*</span></label>
                                                     <input type="text" class="form-control" name="reference" required
                                                            readonly value="BRK">
                                                 </div>
                                             </div>
                                             <div class="col-lg-6">
                                                 <div class="form-group">
-                                                    <label for="date">Date <span class="text-danger">*</span></label>
+                                                    <label for="date">Tanggal <span class="text-danger">*</span></label>
                                                     <input type="date" class="form-control" name="date" required
                                                            value="{{ now()->format('Y-m-d') }}">
                                                 </div>
@@ -66,7 +66,7 @@
                                         </div>
                                         <livewire:adjustment.breakage-product-table :type="'sub'" :locationId="old('location_id')"/>
                                         <div class="form-group">
-                                            <label for="note">Note (If Needed)</label>
+                                            <label for="note">Catatan (Jika Dibutuhkan)</label>
                                             <textarea name="note" id="note" rows="5" class="form-control"></textarea>
                                         </div>
                                         <div class="mt-3">
@@ -74,7 +74,7 @@
                                                 Kembali
                                             </a>
                                             <button type="submit" class="btn btn-primary">
-                                                Create Breakage <i class="bi bi-check"></i>
+                                                Buat Penyesuaian Barang Rusak <i class="bi bi-check"></i>
                                             </button>
                                         </div>
                                     </form>

@@ -17,10 +17,15 @@ use Illuminate\Support\Facades\Storage;
 use Modules\Product\Entities\Brand;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
-use Modules\Product\Http\Requests\StoreProductRequest;
+use Modules\Product\Http\Requests\InitializeProductStockRequest;
+use Modules\Product\Http\Requests\InputSerialNumbersRequest;
+use Modules\Product\Http\Requests\StoreProductInfoRequest;
 use Modules\Product\Http\Requests\UpdateProductRequest;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use League\Csv\Reader;
 use League\Csv\Statement;
@@ -47,6 +52,7 @@ class ProductController extends Controller
         $brands = Brand::where('setting_id', $currentSettingId)->get();
         $categories = Category::where('setting_id', $currentSettingId)->with('parent')->get();
         $locations = Location::where('setting_id', $currentSettingId)->get();
+        $taxes = Tax::where('setting_id', $currentSettingId)->get();
 
         // Format categories with parent category
         $formattedCategories = $categories->mapWithKeys(function ($category) {
@@ -54,20 +60,22 @@ class ProductController extends Controller
             return [$category->id => $formattedName];
         })->sortBy('name')->toArray();
 
-        return view('product::products.create', compact('units', 'brands', 'formattedCategories', 'locations'));
+        return view('product::products.create', compact('units', 'brands', 'formattedCategories', 'locations', 'taxes'));
     }
 
 
-    public function store(StoreProductRequest $request): RedirectResponse
+    /**
+     * Common logic to handle product creation.
+     *
+     * @param array $validatedData
+     * @return Product
+     * @throws Exception
+     */
+    private function handleProductCreation(array $validatedData): Product
     {
         Log::info('Starting product creation.');
 
-        $validatedData = $request->validated();
-
         Log::info('Validated data.', $validatedData);
-
-        // Extract location_id before unsetting it from the validated data
-        $locationId = $validatedData['location_id'] ?? null;
 
         // Set default values for nullable fields
         $fieldsWithDefaults = [
@@ -81,7 +89,9 @@ class ProductController extends Controller
             'purchase_tax' => 0,
             'sale_price' => 0,
             'sale_tax' => 0,
-            'product_price' => 0
+            'product_price' => 0,
+            'last_purchase_price' => 0,  // Last purchase price
+            'average_purchase_price' => 0,  // Average purchase price
         ];
 
         foreach ($fieldsWithDefaults as $field => $defaultValue) {
@@ -90,6 +100,9 @@ class ProductController extends Controller
             }
         }
 
+        $validatedData['last_purchase_price'] = $validatedData['purchase_price'];
+        $validatedData['average_purchase_price'] = $validatedData['purchase_price'];
+
         $fieldsConvertedToNulls = ['brand_id', 'category_id', 'base_unit_id'];
         foreach ($fieldsConvertedToNulls as $field) {
             if (empty($validatedData[$field])) {
@@ -97,18 +110,12 @@ class ProductController extends Controller
             }
         }
 
-        // Remove location_id from the validated data to prevent it from being saved to the products table
-        unset($validatedData['location_id']);
-
         $validatedData['setting_id'] = session('setting_id');
 
-        // Handle documents separately
+        // Handle documents and conversions separately
         $documents = $validatedData['document'] ?? [];
-        unset($validatedData['document']);
-
-        // Handle conversions separately
         $conversions = $validatedData['conversions'] ?? [];
-        unset($validatedData['conversions']);
+        unset($validatedData['document'], $validatedData['conversions'], $validatedData['location_id']);
 
         DB::beginTransaction();
 
@@ -131,34 +138,50 @@ class ProductController extends Controller
                 }
             }
 
-            // Add a transaction if product_quantity is greater than 0
-            if ($validatedData['product_quantity'] > 0) {
-                Transaction::create([
-                    'product_id' => $product->id,
-                    'setting_id' => $validatedData['setting_id'],
-                    'type' => 'INIT', // Assuming 'INIT' is used for initial stock setup
-                    'quantity' => $validatedData['product_quantity'],
-                    'current_quantity' => $validatedData['product_quantity'], // Assuming initial quantity is the current quantity
-                    'broken_quantity' => 0, // Assuming no broken quantity initially
-                    'location_id' => $locationId, // Use the extracted location_id
-                    'user_id' => auth()->id(), // Assuming the user is authenticated
-                    'reason' => 'Initial stock setup', // Provide a reason for the transaction
-                ]);
-                Log::info('Transaction created successfully for the product.', ['product_id' => $product->id]);
-            }
-
             DB::commit();
-            Log::info('Product creation successful, transaction committed.');
+            Log::info('Pembuatan produk berhasil, transaksi dilakukan.');
 
-            toast('Produk Ditambahkan!', 'success');
-            return redirect()->route('products.index');
+            return $product; // Return the created product
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error('Gagal Menambahkan Produk. Silahkan Coba lagi!', ['error' => $e->getMessage()]);
+            Log::error('Gagal membuat Produk. Silakan coba lagi.', ['error' => $e->getMessage()]);
 
-            toast('Failed to create product. Please try again.', 'error');
-            return redirect()->back()->withInput();
+            throw new \Exception('Pembuatan Produk gagal');
         }
+    }
+
+    /**
+     * Store the product and redirect to product index.
+     *
+     * @param StoreProductInfoRequest $request
+     * @return RedirectResponse
+     * @throws Exception
+     */
+    public function store(StoreProductInfoRequest $request): RedirectResponse
+    {
+        $validatedData = $request->validated();
+
+        // Use the handleProductCreation method to create the product and get the product object
+        $this->handleProductCreation($validatedData);
+
+        return redirect()->route('products.index');
+    }
+
+    /**
+     * Store the product and redirect to initialize product stock.
+     *
+     * @param StoreProductInfoRequest $request
+     * @return RedirectResponse
+     * @throws Exception
+     */
+    public function storeProductAndRedirectToInitializeProductStock(StoreProductInfoRequest $request): RedirectResponse
+    {
+        $validatedData = $request->validated();
+
+        $product = $this->handleProductCreation($validatedData); // Retrieve the created product
+
+        // Pass the created product's ID when redirecting
+        return redirect()->route('products.initializeProductStock', ['product_id' => $product->id]);
     }
 
 
@@ -185,7 +208,16 @@ class ProductController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();// Fetch transactions
 
-        return view('product::products.show', compact('product', 'displayQuantity', 'transactions'));
+        $productStocks = ProductStock::where('product_id', $product->id)
+            ->with('location') // Eager load the location
+            ->get();// Fetch transactions
+
+        $serialNumbers = ProductSerialNumber::where('product_id', $product->id)
+            ->with('location')
+            ->with('tax') // Eager load the location
+            ->get();
+
+        return view('product::products.show', compact('product', 'displayQuantity', 'transactions', 'productStocks', 'serialNumbers'));
     }
 
 
@@ -218,7 +250,6 @@ class ProductController extends Controller
         // Ensure brand_id and category_id are either NULL or valid
         $validatedData['brand_id'] = $validatedData['brand_id'] ?: null;
         $validatedData['category_id'] = $validatedData['category_id'] ?: null;
-        $validatedData['base_unit_id'] = $validatedData['base_unit_id'] ?: null;
 
         // Handle location_id, conversions, and documents separately
         $locationId = $validatedData['location_id'] ?? null;
@@ -245,7 +276,7 @@ class ProductController extends Controller
             if (!empty($conversions)) {
                 $product->conversions()->delete(); // Remove existing conversions
                 foreach ($conversions as $conversion) {
-                    $conversion['base_unit_id'] = $validatedData['base_unit_id'];
+                    $conversion['base_unit_id'] = $product->base_unit_id;
                     $product->conversions()->create($conversion);
                 }
             }
@@ -256,7 +287,7 @@ class ProductController extends Controller
             return redirect()->route('products.index');
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error('Product update failed', ['error' => $e->getMessage()]);
+            Log::error('Pembaruan Produk Gagal', ['error' => $e->getMessage()]);
 
             toast('Gagal Perbaharui Produk. Silahkan Coba Lagi !.', 'error');
             return redirect()->back()->withInput();
@@ -397,12 +428,12 @@ class ProductController extends Controller
             DB::commit();
             Log::info("Upload completed: $rowsProcessed rows processed out of $rowsRead rows read.");
             toast('Upload Berhasil!', 'success');
-            return redirect()->route('products.index')->with('success', 'Products uploaded successfully.');
+            return redirect()->route('products.index')->with('Sukses', 'Produk berhasil diunggah.');
         } catch (Exception $e) {
             DB::rollBack();
             Log::error("Upload failed: " . $e->getMessage());
-            toast('Failed to upload product. Please try again.', 'error');
-            return redirect()->back()->withErrors(['error' => 'Failed to upload products: ' . $e->getMessage()]);
+            toast('Gagal mengunggah produk. Silakan coba lagi.', 'error');
+            return redirect()->back()->withErrors(['error' => 'Gagal mengunggah produk : ' . $e->getMessage()]);
         }
     }
 
@@ -410,5 +441,134 @@ class ProductController extends Controller
     {
         // Remove any commas or currency symbols and convert to float
         return (int)str_replace([','], '', trim($price));
+    }
+
+    public function initializeProductStock(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        $product = Product::findOrFail($request->product_id);
+
+        // Fetch the locations from the database
+        $locations = Location::where('setting_id', session('setting_id'))->get();
+
+        // Get prices from product
+        $last_purchase_price = $product->purchase_price;
+        $average_purchase_price = $product->purchase_price;
+        $sale_price = $product->sale_price;
+
+        // Pass the product, prices, and locations to the view
+        return view('product::products.initialize-product-stock', compact('product', 'last_purchase_price', 'average_purchase_price', 'sale_price', 'locations'));
+    }
+
+    public function storeInitialProductStock(InitializeProductStockRequest $request): RedirectResponse
+    {
+        return $this->handleStockInitialization($request, 'products.index');
+    }
+
+    public function storeInitialProductStockAndRedirectToInputSerialNumbers(InitializeProductStockRequest $request): RedirectResponse
+    {
+        return $this->handleStockInitialization($request, 'products.inputSerialNumbers', [
+            'product_id' => $request->route('product_id'),
+            'location_id' => $request->input('location_id'),
+        ]);
+    }
+
+    private function handleStockInitialization(InitializeProductStockRequest $request, string $redirectRoute, array $routeParams = []): RedirectResponse
+    {
+        $validatedData = $request->validated();
+
+        DB::beginTransaction();
+
+        try {
+            // Assuming the product ID is passed in the request or retrieved from session
+            $product = Product::findOrFail($request->route('product_id'));
+
+            // Create a transaction for product stock initialization
+            Transaction::create([
+                'product_id' => $product->id,
+                'setting_id' => session('setting_id'),
+                'type' => 'INIT', // Assuming 'INIT' is used for initial stock setup
+                'quantity' => $validatedData['quantity'],
+                'previous_quantity' => 0,
+                'previous_quantity_at_location' => 0,
+                'after_quantity' => $validatedData['quantity'],
+                'after_quantity_at_location' => 0,
+                'quantity_tax' => $validatedData['quantity_tax'],
+                'quantity_non_tax' => $validatedData['quantity_non_tax'],
+                'current_quantity' => $validatedData['quantity'],
+                'broken_quantity' => $validatedData['broken_quantity_tax'] + $validatedData['broken_quantity_non_tax'],
+                'broken_quantity_tax' => $validatedData['broken_quantity_tax'],
+                'broken_quantity_non_tax' => $validatedData['broken_quantity_non_tax'],
+                'location_id' => $validatedData['location_id'],
+                'user_id' => auth()->id(), // Assuming the user is authenticated
+                'reason' => 'Initial stock setup',
+            ]);
+
+            ProductStock::create([
+                'product_id' => $product->id,  // Assuming $product is available
+                'location_id' => $validatedData['location_id'],  // Assuming location_id comes from the request
+                'quantity' => $validatedData['quantity'],  // Quantity
+                'quantity_non_tax' => $validatedData['quantity_non_tax'],  // Quantity without tax
+                'quantity_tax' => $validatedData['quantity_tax'],  // Quantity with tax
+                'broken_quantity_non_tax' => $validatedData['broken_quantity_non_tax'],  // Broken quantity without tax
+                'broken_quantity_tax' => $validatedData['broken_quantity_tax'],  // Broken quantity with tax
+                'sale_price' => $product->sale_price,  // Sale price
+            ]);
+
+            DB::commit();
+
+            toast('Stok berhasil diinisialisasi!', 'success');
+
+            return redirect()->route($redirectRoute, $routeParams);
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Gagal menginisialisasi stok.', ['error' => $e->getMessage()]);
+
+            toast('Gagal menginisialisasi stok. Silakan coba lagi.', 'error');
+            return redirect()->back()->withInput();
+        }
+    }
+
+    public function inputSerialNumbers(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        $product = Product::findOrFail($request->route('product_id'));
+        $location = Location::findOrFail($request->route('location_id'));
+        $taxes = Tax::all(); // Retrieve all available taxes (assuming they are global, adjust if needed)
+        $transaction = Transaction::where('location_id', $request->route('location_id'))
+            ->where('product_id', $request->route('product_id'))
+            ->firstOrFail();
+
+        return view('product::products.input-serial-number', compact(
+            'product', 'location', 'taxes', 'transaction'
+        ));
+    }
+
+    public function storeSerialNumbers(InputSerialNumbersRequest $request): RedirectResponse
+    {
+        DB::beginTransaction();
+
+        try {
+            $serialNumbers = $request->input('serial_numbers');
+            $taxIds = $request->input('tax_ids');
+
+            foreach ($serialNumbers as $index => $serialNumberData) {
+                ProductSerialNumber::create([
+                    'product_id' => $request->route('product_id'),
+                    'location_id' => $request->route('location_id'),
+                    'serial_number' => $serialNumberData,
+                    'tax_id' => $taxIds[$index] ?? null, // Tax ID is optional
+                ]);
+            }
+
+            DB::commit();
+
+            toast('Nomor seri berhasil disimpan!', 'success');
+            return redirect()->route('products.index');
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Gagal menyimpan nomor seri.', ['error' => $e->getMessage()]);
+
+            toast('Failed to save serial numbers. Please try again.', 'error');
+            return redirect()->back()->withInput();
+        }
     }
 }

@@ -3,11 +3,11 @@
 namespace Modules\People\Http\Controllers;
 
 use Modules\People\DataTables\SuppliersDataTable;
-use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Supplier;
+use Modules\Purchase\DataTables\PurchaseDataTable;
 
 class SuppliersController extends Controller
 {
@@ -36,6 +36,8 @@ class SuppliersController extends Controller
         $request->validate([
             'contact_name' => 'required|string|max:255',
             'supplier_name' => 'required|string|max:255',
+            'identity' => 'nullable|string|max:50',
+            'identity_number' => 'nullable|required_if:identity,KTP,SIM,Passport|string|max:100',  // Required if identity is selected
 
             // Bank fields validation, mandatory only if one is filled
             'bank_name' => 'nullable|required_with:bank_branch,account_number,account_holder|string|max:255',
@@ -50,6 +52,8 @@ class SuppliersController extends Controller
             'bank_branch.required_with' => 'Cabang bank wajib diisi jika salah satu informasi bank diisi.',
             'account_number.required_with' => 'Nomor rekening wajib diisi jika salah satu informasi bank diisi.',
             'account_holder.required_with' => 'Pemegang akun wajib diisi jika salah satu informasi bank diisi.',
+
+            'identity_number.required_if' => 'Nomor identitas wajib diisi jika identitas dipilih.',
         ]);
 
         $settingId = session('setting_id');
@@ -59,7 +63,11 @@ class SuppliersController extends Controller
             'contact_name' => $request->contact_name,
             'supplier_name' => $request->supplier_name,
             'supplier_phone' => $request->supplier_phone ?? "",
+            'identity' => $request->identity ?? "",
             'identity_number' => $request->identity_number ?? "",
+            'billing_address' => $request->billing_address ?? "",
+            'shipping_address' => $request->shipping_address ?? "",
+            'npwp' => $request->npwp ?? "",
             'supplier_email' => $request->supplier_email ?? "",
             'city' => $request->city ?? "",
             'country' => $request->country ?? "",
@@ -78,11 +86,12 @@ class SuppliersController extends Controller
     }
 
 
-    public function show(Supplier $supplier)
+    public function show(Supplier $supplier, PurchaseDataTable $dataTable)
     {
         abort_if(Gate::denies('show_suppliers'), 403);
 
-        return view('people::suppliers.show', compact('supplier'));
+        // Pass the supplier_id to the DataTable
+        return $dataTable->with(['supplier_id' => $supplier->id])->render('people::suppliers.show', compact('supplier'));
     }
 
 
@@ -103,7 +112,8 @@ class SuppliersController extends Controller
             'contact_name' => 'required|string|max:255',
             'supplier_name' => 'required|string|max:255',
             'supplier_phone' => 'nullable|string|max:255',
-            'identity_number' => 'nullable|string|max:255',
+            'identity' => 'nullable|string|max:50',
+            'identity_number' => 'nullable|required_if:identity,KTP,SIM,Passport|string|max:100',  // Required if identity is selected
             'supplier_email' => 'nullable|email|max:255',
             'city' => 'nullable|string|max:255',
             'country' => 'nullable|string|max:255',
@@ -122,6 +132,8 @@ class SuppliersController extends Controller
             'bank_branch.required_with' => 'Cabang bank wajib diisi jika salah satu informasi bank diisi.',
             'account_number.required_with' => 'Nomor rekening wajib diisi jika salah satu informasi bank diisi.',
             'account_holder.required_with' => 'Pemegang akun wajib diisi jika salah satu informasi bank diisi.',
+
+            'identity_number.required_if' => 'Nomor identitas wajib diisi jika identitas dipilih.',
         ]);
 
         // Update the supplier
@@ -129,7 +141,11 @@ class SuppliersController extends Controller
             'contact_name' => $request->contact_name,
             'supplier_name' => $request->supplier_name,
             'supplier_phone' => $request->supplier_phone ?? "",
+            'identity' => $request->identity ?? "",
             'identity_number' => $request->identity_number ?? "",
+            'billing_address' => $request->billing_address ?? "",
+            'shipping_address' => $request->shipping_address ?? "",
+            'npwp' => $request->npwp ?? "",
             'supplier_email' => $request->supplier_email ?? "",
             'city' => $request->city ?? "",
             'country' => $request->country ?? "",

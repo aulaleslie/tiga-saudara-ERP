@@ -25,5 +25,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::resource('units', 'UnitsController')->except('show');
     Route::resource('businesses', 'BusinessController');
     Route::post('/update-active-business', [BusinessController::class, 'updateActiveBusiness'])->name('update.active.business');
-    Route::resource('locations', 'LocationController');
+    // Locations
+    Route::resource('locations', 'LocationController')->except('show');
+    // Taxes
+    Route::resource('taxes', 'TaxController')->except('show');
+    // Chart of accounts
+    Route::resource('chart-of-account', 'ChartofAccountController')->except('show');
 });

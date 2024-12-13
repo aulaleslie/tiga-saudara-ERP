@@ -27,12 +27,28 @@ class ProductDataTable extends DataTable
                 $url = $data->getFirstMediaUrl('images', 'thumb');
                 return '<img src="' . $url . '" border="0" width="50" class="img-thumbnail" align="center"/>';
             })
-            ->addColumn('purchase_price', fn($data) => format_currency($data->purchase_price)) // Display Harga Beli
-            ->addColumn('sale_price', fn($data) => format_currency($data->sale_price)) // Display Harga Jual
-            ->addColumn('product_quantity', fn($data) => $this->formatQuantity($data, 'available'))
-            ->addColumn('broken_quantity', fn($data) => $this->formatQuantity($data, 'broken'))
-            ->addColumn('category', fn($data) => optional($data->category)->category_name ?? 'N/A')
-            ->addColumn('brand', fn($data) => optional($data->brand)->name ?? 'N/A')
+            // Add columns for Last Purchase Price and Average Purchase Price
+            ->addColumn('last_purchase_price', function ($data) {
+                return format_currency($data->last_purchase_price);
+            })
+            ->addColumn('average_purchase_price', function ($data) {
+                return format_currency($data->average_purchase_price);
+            })
+            ->addColumn('sale_price', function ($data) {
+                return format_currency($data->sale_price);
+            })
+            ->addColumn('product_quantity', function ($data) {
+                return $this->formatQuantity($data, 'available');
+            })
+            ->addColumn('broken_quantity', function ($data) {
+                return $this->formatQuantity($data, 'broken');
+            })
+            ->addColumn('category', function ($data) {
+                return optional($data->category)->category_name ?? 'N/A';
+            })
+            ->addColumn('brand', function ($data) {
+                return optional($data->brand)->name ?? 'N/A';
+            })
             ->rawColumns(['product_image']);
     }
 
@@ -65,7 +81,12 @@ class ProductDataTable extends DataTable
 
         return $model->newQuery()
             ->where('setting_id', $currentSettingId)
-            ->with(['category:id,category_name', 'brand:id,name', 'baseUnit:id,short_name', 'conversions.unit:id,short_name']);
+            ->with([
+                'category:id,category_name',
+                'brand:id,name',
+                'baseUnit:id,short_name',
+                'conversions.unit:id,short_name'
+            ]);
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
@@ -74,9 +95,9 @@ class ProductDataTable extends DataTable
             ->setTableId('product-table')
             ->columns($this->getColumns())
             ->minifiedAjax()
-            ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
-                                'tr' .
-                                <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
+            ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>>" .
+                "tr" .
+                "<'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
             ->orderBy(7)
             ->buttons(
                 Button::make('excel')
@@ -121,8 +142,13 @@ class ProductDataTable extends DataTable
                 ->title('Brand')
                 ->className('text-center align-middle'),
 
-            Gate::allows('view_access_table_product') ? Column::computed('purchase_price')
-                ->title('Harga Beli')
+            // Add columns for Last Purchase Price and Average Purchase Price
+            Gate::allows('view_access_table_product') ? Column::computed('last_purchase_price')
+                ->title('Harga Beli Terakhir')
+                ->className('text-center align-middle') : null,
+
+            Gate::allows('view_access_table_product') ? Column::computed('average_purchase_price')
+                ->title('Harga Beli Rata Rata')
                 ->className('text-center align-middle') : null,
 
             Gate::allows('view_access_table_product') ? Column::computed('sale_price')

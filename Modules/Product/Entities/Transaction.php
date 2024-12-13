@@ -29,6 +29,14 @@ class Transaction extends Model
         'location_id',
         'user_id',
         'reason',
+        'previous_quantity',
+        'previous_quantity_at_location',
+        'after_quantity',
+        'after_quantity_at_location',
+        'quantity_tax',
+        'quantity_non_tax',
+        'broken_quantity_tax',
+        'broken_quantity_non_tax'
     ];
 
     /**

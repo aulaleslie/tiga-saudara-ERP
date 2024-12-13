@@ -50,7 +50,7 @@
     <div wire:loading wire:target="generateBarcodes" class="w-100">
         <div class="d-flex justify-content-center">
             <div class="spinner-border text-primary" role="status">
-                <span class="sr-only">Loading...</span>
+                <span class="sr-only">Memuat...</span>
             </div>
         </div>
     </div>
@@ -74,7 +74,7 @@
                                 {!! $barcode !!}
                             </div>
                             <p style="font-size: 15px;color: #000;">
-                                Price:: {{ format_currency($product->product_price) }}
+                                Price:: {{ format_currency($product->sale_price) }}
                             </p>
                         </div>
                     @endforeach

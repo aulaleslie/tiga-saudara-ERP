@@ -5,8 +5,8 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('suppliers.index') }}">Suppliers</a></li>
-        <li class="breadcrumb-item active">Edit Supplier</li>
+        <li class="breadcrumb-item"><a href="{{ route('suppliers.index') }}">Pemasok</a></li>
+        <li class="breadcrumb-item active">Ubah Pemasok</li>
     </ol>
 @endsection
 
@@ -22,7 +22,7 @@
                         <a href="{{ route('suppliers.index') }}" class="btn btn-secondary mr-2">
                             Kembali
                         </a>
-                        <button class="btn btn-primary">Update Pemasok <i class="bi bi-check"></i></button>
+                        <button class="btn btn-primary">Perbaharui Pemasok <i class="bi bi-check"></i></button>
                     </div>
                 </div>
 
@@ -38,7 +38,15 @@
                                     <x-input label="Nama Kontak" name="contact_name" value="{{ old('contact_name', $supplier->contact_name) }}"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <x-input label="Identitas" name="identity" value="{{ old('identity', $supplier->identity) }}"/>
+                                    <div class="form-group">
+                                        <label for="identity">Identitas</label>
+                                        <select class="form-control" name="identity" id="identity">
+                                            <option value="" {{ old('identity', $supplier->identity) == '' ? 'selected' : '' }}>-- Tidak ada Identitas --</option>
+                                            <option value="KTP" {{ old('identity', $supplier->identity) == 'KTP' ? 'selected' : '' }}>KTP</option>
+                                            <option value="SIM" {{ old('identity', $supplier->identity) == 'SIM' ? 'selected' : '' }}>SIM</option>
+                                            <option value="Passport" {{ old('identity', $supplier->identity) == 'Passport' ? 'selected' : '' }}>Passport</option>
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
 
