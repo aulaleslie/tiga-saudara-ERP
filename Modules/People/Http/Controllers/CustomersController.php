@@ -18,7 +18,7 @@ class CustomersController extends Controller
 
     public function index(CustomersDataTable $dataTable)
     {
-        abort_if(Gate::denies('access_customers'), 403);
+        abort_if(Gate::denies('customer.access'), 403);
 
         return $dataTable->render('people::customers.index');
     }
@@ -26,7 +26,7 @@ class CustomersController extends Controller
 
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('create_customers'), 403);
+        abort_if(Gate::denies('customer.create'), 403);
 
         return view('people::customers.create');
     }
@@ -118,7 +118,7 @@ class CustomersController extends Controller
 
     public function update(Request $request, Customer $customer): RedirectResponse
     {
-        abort_if(Gate::denies('update_customers'), 403);
+        abort_if(Gate::denies('customer.edit'), 403);
 
         $request->validate([
             'contact_name' => 'required|string|max:255',
@@ -161,7 +161,7 @@ class CustomersController extends Controller
 
     public function destroy(Customer $customer): RedirectResponse
     {
-        abort_if(Gate::denies('delete_customers'), 403);
+        abort_if(Gate::denies('customer.delete'), 403);
 
         $customer->delete();
 

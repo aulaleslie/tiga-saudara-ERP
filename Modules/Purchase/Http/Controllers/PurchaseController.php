@@ -23,7 +23,7 @@ class PurchaseController extends Controller
 {
 
     public function index(PurchaseDataTable $dataTable) {
-        abort_if(Gate::denies('access_purchases'), 403);
+        abort_if(Gate::denies('purchase.access'), 403);
 
         return $dataTable->render('purchase::index');
     }
@@ -31,7 +31,7 @@ class PurchaseController extends Controller
 
     public function create()
     {
-        abort_if(Gate::denies('create_purchases'), 403);
+        abort_if(Gate::denies('purchase.create'), 403);
 
         // Clear the purchase cart
         Cart::instance('purchase')->destroy();
@@ -99,7 +99,7 @@ class PurchaseController extends Controller
             // Commit transaction
             DB::commit();
 
-            toast('Purchase Created!', 'success');
+            toast('Pembelian Ditambahkan!', 'success');
             return redirect()->route('purchases.index');
         } catch (Exception $e) {
             // Rollback on error
@@ -126,7 +126,7 @@ class PurchaseController extends Controller
 
     public function edit(Purchase $purchase)
     {
-        abort_if(Gate::denies('edit_purchases'), 403);
+        abort_if(Gate::denies('purchase.edit'), 403);
 
         // Retrieve the current setting_id from the session
         $setting_id = session('setting_id');
@@ -230,18 +230,18 @@ class PurchaseController extends Controller
             Cart::instance('purchase')->destroy();
         });
 
-        toast('Purchase Updated!', 'info');
+        toast('Pembelian Diperbaharui!', 'info');
 
         return redirect()->route('purchases.index');
     }
 
 
     public function destroy(Purchase $purchase) {
-        abort_if(Gate::denies('delete_purchases'), 403);
+        abort_if(Gate::denies('purchase.delete'), 403);
 
         $purchase->delete();
 
-        toast('Purchase Deleted!', 'warning');
+        toast('Pembelian Dihapus!', 'warning');
 
         return redirect()->route('purchases.index');
     }

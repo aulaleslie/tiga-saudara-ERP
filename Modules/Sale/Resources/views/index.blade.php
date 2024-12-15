@@ -9,7 +9,7 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item active">Sales</li>
+        <li class="breadcrumb-item active">Penjualan</li>
     </ol>
 @endsection
 
@@ -21,7 +21,7 @@
                     <div class="card-body">
                         @can("sale.create")
                         <a href="{{ route('sales.create') }}" class="btn btn-primary">
-                            Add Sale <i class="bi bi-plus"></i>
+                            Tambahkan Penjualan <i class="bi bi-plus"></i>
                         </a>
                         @endcan
 

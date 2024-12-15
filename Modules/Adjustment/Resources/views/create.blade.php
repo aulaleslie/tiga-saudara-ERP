@@ -74,7 +74,7 @@
                                                 Kembali
                                             </a>
                                             <button type="submit" class="btn btn-primary">
-                                                Buat Penyesuian <i class="bi bi-check"></i>
+                                                Buat Penyesuaian <i class="bi bi-check"></i>
                                             </button>
                                         </div>
                                     </form>

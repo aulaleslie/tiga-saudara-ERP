@@ -19,9 +19,11 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
+                        @canany('tfstock.create')
                         <a href="{{ route('transfers.create') }}" class="btn btn-primary">
                             Add Stock Transfer <i class="bi bi-plus"></i>
                         </a>
+                        @endcanany
 
                         <hr>
 

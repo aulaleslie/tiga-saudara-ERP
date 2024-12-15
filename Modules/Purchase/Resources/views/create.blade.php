@@ -36,7 +36,7 @@
                                 <!-- Referensi -->
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="reference">Referensi <span class="text-danger">*</span></label>
+                                        <label for="reference">Keterangan <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="reference" id="reference" required readonly value="PR">
                                         @error('reference')
                                         <div class="invalid-feedback">{{ $message }}</div>
@@ -111,9 +111,13 @@
 
                             <!-- Submit Button -->
                             <div class="mt-3">
+
+                                @canany('purchase.create')
                                 <button type="submit" class="btn btn-primary">
                                     Buat Pembelian <i class="bi bi-check"></i>
                                 </button>
+                                @endcanany
+
                             </div>
                         </form>
                         <!-- Purchase Form End -->

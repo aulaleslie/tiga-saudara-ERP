@@ -20,7 +20,9 @@
                         <a href="<?php echo e(route('suppliers.index')); ?>" class="btn btn-secondary mr-2">
                             Kembali
                         </a>
+                        @canany('supplier.create')
                         <button class="btn btn-primary">Tambahkan Pemasok <i class="bi bi-check"></i></button>
+                        @endcanany
                     </div>
                 </div>
 

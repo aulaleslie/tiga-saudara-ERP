@@ -19,14 +19,14 @@ class SalesReturnController extends Controller
 {
 
     public function index(SaleReturnsDataTable $dataTable) {
-        abort_if(Gate::denies('access_sale_returns'), 403);
+        abort_if(Gate::denies('rsale.access'), 403);
 
         return $dataTable->render('salesreturn::index');
     }
 
 
     public function create() {
-        abort_if(Gate::denies('create_sale_returns'), 403);
+        abort_if(Gate::denies('rsale.create'), 403);
 
         Cart::instance('sale_return')->destroy();
 
@@ -100,7 +100,7 @@ class SalesReturnController extends Controller
             }
         });
 
-        toast('Sale Return Created!', 'success');
+        toast('Retur Penjualan Dibuat!', 'success');
 
         return redirect()->route('sale-returns.index');
     }
@@ -116,7 +116,7 @@ class SalesReturnController extends Controller
 
 
     public function edit(SaleReturn $sale_return) {
-        abort_if(Gate::denies('edit_sale_returns'), 403);
+        abort_if(Gate::denies('rsale.edit'), 403);
 
         $sale_return_details = $sale_return->saleReturnDetails;
 
@@ -214,18 +214,18 @@ class SalesReturnController extends Controller
             Cart::instance('sale_return')->destroy();
         });
 
-        toast('Sale Return Updated!', 'info');
+        toast('Retur Penjualan Diperbaharui!', 'info');
 
         return redirect()->route('sale-returns.index');
     }
 
 
     public function destroy(SaleReturn $sale_return) {
-        abort_if(Gate::denies('delete_sale_returns'), 403);
+        abort_if(Gate::denies('rsale.delete'), 403);
 
         $sale_return->delete();
 
-        toast('Sale Return Deleted!', 'warning');
+        toast('Retur Penjualan Dihapus!', 'warning');
 
         return redirect()->route('sale-returns.index');
     }

@@ -9,7 +9,7 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item active">Purchase Returns</li>
+        <li class="breadcrumb-item active">Retur Pembelian</li>
     </ol>
 @endsection
 
@@ -19,9 +19,11 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
+                        @canany('rpurchase.create')
                         <a href="{{ route('purchase-returns.create') }}" class="btn btn-primary">
-                            Add Purchase Return <i class="bi bi-plus"></i>
+                            Tambahkan Retur Pembelian <i class="bi bi-plus"></i>
                         </a>
+                        @endcanany
 
                         <hr>
 

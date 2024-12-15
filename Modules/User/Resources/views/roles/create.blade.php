@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Create Role')
+@section('title', 'Buat Role')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
@@ -156,7 +156,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="sale.create" name="permissions[]"
                                                                value="sale.create" {{ old('sale.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="sale.create">Create</label>
+                                                        <label class="custom-control-label" for="sale.create">Buat</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -164,7 +164,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="sale.edit" name="permissions[]"
                                                                value="sale.edit" {{ old('sale.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="sale.edit">Edit</label>
+                                                        <label class="custom-control-label" for="sale.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -172,7 +172,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="sale.delete" name="permissions[]"
                                                                value="sale.delete" {{ old('sale.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="sale.delete">Delete</label>
+                                                        <label class="custom-control-label" for="sale.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -206,7 +206,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="rsale.create" name="permissions[]"
                                                                value="rsale.create" {{ old('rsale.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="rsale.create">Create</label>
+                                                        <label class="custom-control-label" for="rsale.create">Buat</label>
                                                     </div>
                                                 </div>
 
@@ -215,7 +215,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="rsale.edit" name="permissions[]"
                                                                value="rsale.edit" {{ old('rsale.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="rsale.edit">Edit</label>
+                                                        <label class="custom-control-label" for="rsale.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -223,7 +223,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="rsale.delete" name="permissions[]"
                                                                value="rsale.delete" {{ old('rsale.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="rsale.delete">Delete</label>
+                                                        <label class="custom-control-label" for="rsale.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -257,7 +257,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="purchase.create" name="permissions[]"
                                                                value="purchase.create" {{ old('purchase.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="purchase.create">Create</label>
+                                                        <label class="custom-control-label" for="purchase.create">Buat</label>
                                                     </div>
                                                 </div>
 
@@ -266,7 +266,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="purchase.edit" name="permissions[]"
                                                                value="purchase.edit" {{ old('purchase.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="purchase.edit">Edit</label>
+                                                        <label class="custom-control-label" for="purchase.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -274,7 +274,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="purchase.delete" name="permissions[]"
                                                                value="purchase.delete" {{ old('purchase.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="purchase.delete">Delete</label>
+                                                        <label class="custom-control-label" for="purchase.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -308,7 +308,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="rpurchase.create" name="permissions[]"
                                                                value="rpurchase.create" {{ old('rpurchase.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="rpurchase.create">Create</label>
+                                                        <label class="custom-control-label" for="rpurchase.create">Buat</label>
                                                     </div>
                                                 </div>
 
@@ -317,7 +317,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="rpurchase.edit" name="permissions[]"
                                                                value="rpurchase.edit" {{ old('rpurchase.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="rpurchase.edit">Edit</label>
+                                                        <label class="custom-control-label" for="rpurchase.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -325,7 +325,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="rpurchase.delete" name="permissions[]"
                                                                value="rpurchase.delete" {{ old('rpurchase.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="rpurchase.delete">Delete</label>
+                                                        <label class="custom-control-label" for="rpurchase.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -359,7 +359,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="cost.create" name="permissions[]"
                                                                value="cost.create" {{ old('cost.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="cost.create">Create</label>
+                                                        <label class="custom-control-label" for="cost.create">Buat</label>
                                                     </div>
                                                 </div>
 
@@ -368,7 +368,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="cost.edit" name="permissions[]"
                                                                value="cost.edit" {{ old('cost.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="cost.edit">Edit</label>
+                                                        <label class="custom-control-label" for="cost.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -376,7 +376,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="cost.delete" name="permissions[]"
                                                                value="cost.delete" {{ old('cost.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="cost.delete">Delete</label>
+                                                        <label class="custom-control-label" for="cost.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -418,7 +418,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="customer.edit" name="permissions[]"
                                                                value="customer.edit" {{ old('customer.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="customer.edit">Edit</label>
+                                                        <label class="custom-control-label" for="customer.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -468,7 +468,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="supplier.edit" name="permissions[]"
                                                                value="supplier.edit" {{ old('supplier.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="supplier.edit">Edit</label>
+                                                        <label class="custom-control-label" for="supplier.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -510,7 +510,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="role.create" name="permissions[]"
                                                                value="role.create" {{ old('role.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="role.create">Create</label>
+                                                        <label class="custom-control-label" for="role.create">Buat</label>
                                                     </div>
                                                 </div>
 
@@ -519,7 +519,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="role.edit" name="permissions[]"
                                                                value="role.edit" {{ old('role.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="role.edit">Edit</label>
+                                                        <label class="custom-control-label" for="role.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -527,7 +527,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="role.delete" name="permissions[]"
                                                                value="role.delete" {{ old('role.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="role.delete">Delete</label>
+                                                        <label class="custom-control-label" for="role.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -568,7 +568,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="create_products" name="permissions[]"
                                                                value="create_products" {{ old('create_products') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="create_products">Create</label>
+                                                        <label class="custom-control-label" for="create_products">Buat</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -576,7 +576,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="edit_products" name="permissions[]"
                                                                value="edit_products" {{ old('edit_products') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="edit_products">Edit</label>
+                                                        <label class="custom-control-label" for="edit_products">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -642,7 +642,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="brand.create" name="permissions[]"
                                                                value="brand.create" {{ old('brand.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="brand.create">Create</label>
+                                                        <label class="custom-control-label" for="brand.create">Buat</label>
                                                     </div>
                                                 </div>
 
@@ -651,7 +651,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="brand.edit" name="permissions[]"
                                                                value="brand.edit" {{ old('brand.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="brand.edit">Edit</label>
+                                                        <label class="custom-control-label" for="brand.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -659,7 +659,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="brand.delete" name="permissions[]"
                                                                value="delete_products" {{ old('brand.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="brand.delete">Delete</label>
+                                                        <label class="custom-control-label" for="brand.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -693,7 +693,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="tfstock.create" name="permissions[]"
                                                                value="tfstock.create" {{ old('tfstock.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="tfstock.create">Create</label>
+                                                        <label class="custom-control-label" for="tfstock.create">Buat</label>
                                                     </div>
                                                 </div>
 
@@ -702,7 +702,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="tfstock.edit" name="permissions[]"
                                                                value="tfstock.edit" {{ old('tfstock.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="tfstock.edit">Edit</label>
+                                                        <label class="custom-control-label" for="tfstock.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -710,7 +710,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="tfstock.delete" name="permissions[]"
                                                                value="tfstock" {{ old('tfstock.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="tfstock.delete">Delete</label>
+                                                        <label class="custom-control-label" for="tfstock.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -735,7 +735,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="adjustment.access" name="permissions[]"
                                                                value="adjustment.access" {{ old('adjustment.access') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="adjustment.access">Akses</label>
+                                                        <label class="custom-control-label" for="adjustment.access">Hak Akses</label>
                                                     </div>
                                                 </div>
 
@@ -753,7 +753,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="adjustment.edit" name="permissions[]"
                                                                value="adjustment.edit" {{ old('adjustment.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="adjustment.edit">Edit</label>
+                                                        <label class="custom-control-label" for="adjustment.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -786,7 +786,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="break.access" name="permissions[]"
                                                                value="break.access" {{ old('break.access') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="break.access">Akses</label>
+                                                        <label class="custom-control-label" for="break.access">Hak Akses</label>
                                                     </div>
                                                 </div>
 
@@ -804,7 +804,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="break.edit" name="permissions[]"
                                                                value="break.edit" {{ old('break.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="break.edit">Edit</label>
+                                                        <label class="custom-control-label" for="break.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -846,7 +846,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="users.create" name="permissions[]"
                                                                value="users.create" {{ old('users.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="users.create">Create</label>
+                                                        <label class="custom-control-label" for="users.create">Buat</label>
                                                     </div>
                                                 </div>
 
@@ -855,7 +855,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="users.edit" name="permissions[]"
                                                                value="users.edit" {{ old('users.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="users.edit">Edit</label>
+                                                        <label class="custom-control-label" for="users.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -863,7 +863,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="users.delete" name="permissions[]"
                                                                value="users.delete" {{ old('users.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="users.delete">Delete</label>
+                                                        <label class="custom-control-label" for="users.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -938,7 +938,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="location.access" name="permissions[]"
                                                                value="location.access" {{ old('location.access') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="location.access">Akses</label>
+                                                        <label class="custom-control-label" for="location.access">Hak Akses</label>
                                                     </div>
                                                 </div>
 
@@ -956,7 +956,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="location.edit" name="permissions[]"
                                                                value="location.edit" {{ old('location.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="location.edit">Edit</label>
+                                                        <label class="custom-control-label" for="location.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -989,7 +989,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="access_account" name="permissions[]"
                                                                value="access_account" {{ old('access_account') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="access_account">Akses</label>
+                                                        <label class="custom-control-label" for="access_account">Hak Akses</label>
                                                     </div>
                                                 </div>
 
@@ -1007,7 +1007,7 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="edit_account" name="permissions[]"
                                                                value="edit_account" {{ old('edit_account') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="edit_account">Edit</label>
+                                                        <label class="custom-control-label" for="edit_account">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -1045,7 +1045,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="create_adjustments" name="permissions[]"--}}
 {{--                                                               value="create_adjustments" {{ old('create_adjustments') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="create_adjustments">Create</label>--}}
+{{--                                                        <label class="custom-control-label" for="create_adjustments">Buat</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1061,7 +1061,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="edit_adjustments" name="permissions[]"--}}
 {{--                                                               value="edit_adjustments" {{ old('edit_adjustments') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="edit_adjustments">Edit</label>--}}
+{{--                                                        <label class="custom-control-label" for="edit_adjustments">Ubah</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1069,7 +1069,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="delete_adjustments" name="permissions[]"--}}
 {{--                                                               value="delete_adjustments" {{ old('delete_adjustments') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="delete_adjustments">Delete</label>--}}
+{{--                                                        <label class="custom-control-label" for="delete_adjustments">Hapus</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                            </div>--}}
@@ -1098,7 +1098,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="create_quotations" name="permissions[]"--}}
 {{--                                                               value="create_quotations" {{ old('create_quotations') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="create_quotations">Create</label>--}}
+{{--                                                        <label class="custom-control-label" for="create_quotations">Buat</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1114,7 +1114,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="edit_quotations" name="permissions[]"--}}
 {{--                                                               value="edit_quotations" {{ old('edit_quotations') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="edit_quotations">Edit</label>--}}
+{{--                                                        <label class="custom-control-label" for="edit_quotations">Ubah</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1122,7 +1122,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="delete_quotations" name="permissions[]"--}}
 {{--                                                               value="delete_quotations" {{ old('delete_quotations') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="delete_quotations">Delete</label>--}}
+{{--                                                        <label class="custom-control-label" for="delete_quotations">Hapus</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1167,7 +1167,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="create_expenses" name="permissions[]"--}}
 {{--                                                               value="create_expenses" {{ old('create_expenses') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="create_expenses">Create</label>--}}
+{{--                                                        <label class="custom-control-label" for="create_expenses">Buat</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1175,7 +1175,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="edit_expenses" name="permissions[]"--}}
 {{--                                                               value="edit_expenses" {{ old('edit_expenses') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="edit_expenses">Edit</label>--}}
+{{--                                                        <label class="custom-control-label" for="edit_expenses">Ubah</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1183,7 +1183,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="delete_expenses" name="permissions[]"--}}
 {{--                                                               value="delete_expenses" {{ old('delete_expenses') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="delete_expenses">Delete</label>--}}
+{{--                                                        <label class="custom-control-label" for="delete_expenses">Hapus</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1220,7 +1220,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="create_customers" name="permissions[]"--}}
 {{--                                                               value="create_customers" {{ old('create_customers') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="create_customers">Create</label>--}}
+{{--                                                        <label class="custom-control-label" for="create_customers">Buat</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1236,7 +1236,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="edit_customers" name="permissions[]"--}}
 {{--                                                               value="edit_customers" {{ old('edit_customers') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="edit_customers">Edit</label>--}}
+{{--                                                        <label class="custom-control-label" for="edit_customers">Ubah</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1244,7 +1244,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="delete_customers" name="permissions[]"--}}
 {{--                                                               value="delete_customers" {{ old('delete_customers') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="delete_customers">Delete</label>--}}
+{{--                                                        <label class="custom-control-label" for="delete_customers">Hapus</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                            </div>--}}
@@ -1273,7 +1273,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="create_suppliers" name="permissions[]"--}}
 {{--                                                               value="create_suppliers" {{ old('create_suppliers') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="create_suppliers">Create</label>--}}
+{{--                                                        <label class="custom-control-label" for="create_suppliers">Buat</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1289,7 +1289,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="edit_suppliers" name="permissions[]"--}}
 {{--                                                               value="edit_suppliers" {{ old('edit_suppliers') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="edit_suppliers">Edit</label>--}}
+{{--                                                        <label class="custom-control-label" for="edit_suppliers">Ubah</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1297,7 +1297,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="delete_customers" name="permissions[]"--}}
 {{--                                                               value="delete_customers" {{ old('delete_customers') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="delete_customers">Delete</label>--}}
+{{--                                                        <label class="custom-control-label" for="delete_customers">Hapus</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                            </div>--}}
@@ -1326,7 +1326,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="create_sales" name="permissions[]"--}}
 {{--                                                               value="create_sales" {{ old('create_sales') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="create_sales">Create</label>--}}
+{{--                                                        <label class="custom-control-label" for="create_sales">Buat</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1342,7 +1342,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="edit_sales" name="permissions[]"--}}
 {{--                                                               value="edit_sales" {{ old('edit_sales') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="edit_sales">Edit</label>--}}
+{{--                                                        <label class="custom-control-label" for="edit_sales">Ubah</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1350,7 +1350,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="delete_sales" name="permissions[]"--}}
 {{--                                                               value="delete_sales" {{ old('delete_sales') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="delete_sales">Delete</label>--}}
+{{--                                                        <label class="custom-control-label" for="delete_sales">Hapus</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1395,7 +1395,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="create_sale_returns" name="permissions[]"--}}
 {{--                                                               value="create_sale_returns" {{ old('create_sale_returns') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="create_sale_returns">Create</label>--}}
+{{--                                                        <label class="custom-control-label" for="create_sale_returns">Buat</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1411,7 +1411,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="edit_sale_returns" name="permissions[]"--}}
 {{--                                                               value="edit_sale_returns" {{ old('edit_sale_returns') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="edit_sale_returns">Edit</label>--}}
+{{--                                                        <label class="custom-control-label" for="edit_sale_returns">Ubah</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1419,7 +1419,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="delete_sale_returns" name="permissions[]"--}}
 {{--                                                               value="delete_sale_returns" {{ old('delete_sale_returns') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="delete_sale_returns">Delete</label>--}}
+{{--                                                        <label class="custom-control-label" for="delete_sale_returns">Hapus</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1456,7 +1456,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="create_purchases" name="permissions[]"--}}
 {{--                                                               value="create_purchases" {{ old('create_purchases') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="create_purchases">Create</label>--}}
+{{--                                                        <label class="custom-control-label" for="create_purchases">Buat</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1472,7 +1472,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="edit_purchases" name="permissions[]"--}}
 {{--                                                               value="edit_purchases" {{ old('edit_purchases') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="edit_purchases">Edit</label>--}}
+{{--                                                        <label class="custom-control-label" for="edit_purchases">Ubah</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1480,7 +1480,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="delete_purchases" name="permissions[]"--}}
 {{--                                                               value="delete_purchases" {{ old('delete_purchases') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="delete_purchases">Delete</label>--}}
+{{--                                                        <label class="custom-control-label" for="delete_purchases">Hapus</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1517,7 +1517,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="create_purchase_returns" name="permissions[]"--}}
 {{--                                                               value="create_purchase_returns" {{ old('create_purchase_returns') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="create_purchase_returns">Create</label>--}}
+{{--                                                        <label class="custom-control-label" for="create_purchase_returns">Buat</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1533,7 +1533,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="edit_purchase_returns" name="permissions[]"--}}
 {{--                                                               value="edit_purchase_returns" {{ old('edit_purchase_returns') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="edit_purchase_returns">Edit</label>--}}
+{{--                                                        <label class="custom-control-label" for="edit_purchase_returns">Ubah</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1541,7 +1541,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="delete_purchase_returns" name="permissions[]"--}}
 {{--                                                               value="delete_purchase_returns" {{ old('delete_purchase_returns') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="delete_purchase_returns">Delete</label>--}}
+{{--                                                        <label class="custom-control-label" for="delete_purchase_returns">Hapus</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1578,7 +1578,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="create_currencies" name="permissions[]"--}}
 {{--                                                               value="create_currencies" {{ old('create_currencies') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="create_currencies">Create</label>--}}
+{{--                                                        <label class="custom-control-label" for="create_currencies">Buat</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1586,7 +1586,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="edit_currencies" name="permissions[]"--}}
 {{--                                                               value="edit_currencies" {{ old('edit_currencies') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="edit_currencies">Edit</label>--}}
+{{--                                                        <label class="custom-control-label" for="edit_currencies">Ubah</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                                <div class="col-6">--}}
@@ -1594,7 +1594,7 @@
 {{--                                                        <input type="checkbox" class="custom-control-input"--}}
 {{--                                                               id="delete_currencies" name="permissions[]"--}}
 {{--                                                               value="delete_currencies" {{ old('delete_currencies') ? 'checked' : '' }}>--}}
-{{--                                                        <label class="custom-control-label" for="delete_currencies">Delete</label>--}}
+{{--                                                        <label class="custom-control-label" for="delete_currencies">Hapus</label>--}}
 {{--                                                    </div>--}}
 {{--                                                </div>--}}
 {{--                                            </div>--}}

@@ -14,7 +14,9 @@
                         <a href="{{ route('products.index') }}" class="btn btn-secondary mr-2">
                             Kembali
                         </a>
+                        @canany('edit_products')
                         <x-button label="Perbaharui Produk" icon="bi-check"/>
+                        @endcanany
                     </div>
                 </div>
                 <div class="col-lg-12">

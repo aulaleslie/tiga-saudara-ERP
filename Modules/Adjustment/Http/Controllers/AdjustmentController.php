@@ -43,7 +43,7 @@ class AdjustmentController extends Controller
 
     public function createBreakage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('create_adjustments'), 403);
+        abort_if(Gate::denies('break.create'), 403);
 
         $currentSettingId = session('setting_id');
 
@@ -94,7 +94,7 @@ class AdjustmentController extends Controller
 
     public function storeBreakage(Request $request): RedirectResponse
     {
-        abort_if(Gate::denies('create_adjustments'), 403);
+        abort_if(Gate::denies('break.create'), 403);
 
         $request->validate([
             'reference' => 'required|string|max:255',
@@ -187,7 +187,7 @@ class AdjustmentController extends Controller
 
     public function editBreakage(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('edit_adjustments'), 403);
+        abort_if(Gate::denies('break.edit'), 403);
 
         return view('adjustment::edit-breakage', compact('adjustment'));
     }
@@ -195,7 +195,7 @@ class AdjustmentController extends Controller
 
     public function updateBreakage(Request $request, Adjustment $adjustment): RedirectResponse
     {
-        abort_if(Gate::denies('edit_adjustments'), 403);
+        abort_if(Gate::denies('break.edit'), 403);
 
         $request->validate([
             'reference' => 'required|string|max:255',

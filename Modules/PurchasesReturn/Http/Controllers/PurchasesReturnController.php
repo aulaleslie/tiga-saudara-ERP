@@ -19,14 +19,14 @@ class PurchasesReturnController extends Controller
 {
 
     public function index(PurchaseReturnsDataTable $dataTable) {
-        abort_if(Gate::denies('access_purchase_returns'), 403);
+        abort_if(Gate::denies('rpurchase.access'), 403);
 
         return $dataTable->render('purchasesreturn::index');
     }
 
 
     public function create() {
-        abort_if(Gate::denies('create_purchase_returns'), 403);
+        abort_if(Gate::denies('rpurchase.create'), 403);
 
         Cart::instance('purchase_return')->destroy();
 
@@ -100,7 +100,7 @@ class PurchasesReturnController extends Controller
             }
         });
 
-        toast('Purchase Return Created!', 'success');
+        toast('Retur Pembelian Dibuat!', 'success');
 
         return redirect()->route('purchase-returns.index');
     }
@@ -116,7 +116,7 @@ class PurchasesReturnController extends Controller
 
 
     public function edit(PurchaseReturn $purchase_return) {
-        abort_if(Gate::denies('edit_purchase_returns'), 403);
+        abort_if(Gate::denies('rpurchase.edit'), 403);
 
         $purchase_return_details = $purchase_return->purchaseReturnDetails;
 
@@ -214,18 +214,18 @@ class PurchasesReturnController extends Controller
             Cart::instance('purchase_return')->destroy();
         });
 
-        toast('Purchase Return Updated!', 'info');
+        toast('Retur Pembelian Diperbaharui!', 'info');
 
         return redirect()->route('purchase-returns.index');
     }
 
 
     public function destroy(PurchaseReturn $purchase_return) {
-        abort_if(Gate::denies('delete_purchase_returns'), 403);
+        abort_if(Gate::denies('rpurchase.delete'), 403);
 
         $purchase_return->delete();
 
-        toast('Purchase Return Deleted!', 'warning');
+        toast('Retur Pembelian Dihapus!', 'warning');
 
         return redirect()->route('purchase-returns.index');
     }

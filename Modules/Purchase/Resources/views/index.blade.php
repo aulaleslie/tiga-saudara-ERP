@@ -19,9 +19,11 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
+                        @canany('purchase.create')
                         <a href="{{ route('purchases.create') }}" class="btn btn-primary">
-                            Add Purchase <i class="bi bi-plus"></i>
+                            Tambahkan Pembelian <i class="bi bi-plus"></i>
                         </a>
+                        @endcanany
 
                         <hr>
 
