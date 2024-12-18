@@ -709,7 +709,7 @@
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="tfstock.delete" name="permissions[]"
-                                                               value="tfstock" {{ old('tfstock.delete') ? 'checked' : '' }}>
+                                                               value="tfstock.delete" {{ old('tfstock.delete') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="tfstock.delete">Hapus</label>
                                                     </div>
                                                 </div>
@@ -903,17 +903,17 @@
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="crud_bussines" name="permissions[]"
-                                                               value="crud_bussines" {{ old('crud_bussiness') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="crud_bussines">Hak Akses Bisnis</label>
+                                                               id="crud_bussiness" name="permissions[]"
+                                                               value="crud_bussiness" {{ old('crud_bussiness') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="crud_bussiness">Hak Akses Bisnis</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="view_bussines" name="permissions[]"
-                                                               value="view_bussines" {{ old('view_bussiness') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="view_bussines">Daftar Bisnis</label>
+                                                               id="view_bussiness" name="permissions[]"
+                                                               value="view_bussiness" {{ old('view_bussiness') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="view_bussiness">Daftar Bisnis</label>
                                                     </div>
                                                 </div>
                                             </div>

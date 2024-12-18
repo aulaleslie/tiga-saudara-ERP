@@ -8,7 +8,7 @@
     <i class="bi bi-trash"></i>
 </button>
 @endcan
-<form id="destroyRoles{{ $data->id }}" class="d-none" action="{{ route('roles.destroy', $data->id) }}" method="POST">
+<form id="destroy{{ $data->id }}" class="d-none" action="{{ route('roles.destroy', $data->id) }}" method="POST">
     @csrf
     @method('delete')
 </form>

@@ -7,7 +7,7 @@ use Spatie\Permission\Models\Permission;
 use Carbon\Carbon;
 
 
-class PermissionsSeeder_B3 extends Seeder
+class PermissionSeeder_B3 extends Seeder
 {
     /**
      * Run the database seeds.
