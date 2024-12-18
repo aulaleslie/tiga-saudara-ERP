@@ -23,6 +23,7 @@
 
     function showDeleteModal(id, message = "{{ $message ?? 'Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!' }}") {
         deleteFormId = id;
+        console.log(deleteFormId)
         document.getElementById('deleteModalBody').textContent = message;
         const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
         deleteModal.show();
