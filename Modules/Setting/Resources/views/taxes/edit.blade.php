@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Edit Unit')
+@section('title', 'Ubah Pajak')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
@@ -23,14 +23,14 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="name">Nama <span class="text-danger">*</span></label>
+                                        <label for="name">Nama Pajak<span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" name="name" required
                                                value="{{ $tax->name }}">
                                     </div>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="value">Nilai <span class="text-danger">*</span></label>
+                                        <label for="value">Nilai Presentase Pajak <span class="text-danger">*</span></label>
                                         <input type="number" class="form-control" name="value" step="0.01" value="{{ $tax->value }}" required>
                                     </div>
                                 </div>
