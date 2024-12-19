@@ -31,8 +31,8 @@
                                 <thead>
                                 <tr>
                                     <th class="align-middle">No.</th>
-                                    <th class="align-middle">Nama</th>
-                                    <th class="align-middle">Nilai</th>
+                                    <th class="align-middle">Nama Pajak</th>
+                                    <th class="align-middle">Nilai Presentase Pajak</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
                                 </thead>
