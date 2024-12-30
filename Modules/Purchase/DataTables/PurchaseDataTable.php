@@ -16,6 +16,9 @@ class PurchaseDataTable extends DataTable
     public function dataTable($query) {
         return datatables()
             ->eloquent($query)
+            ->addColumn('reference', function ($data) {
+                return '<a href="' . route('purchases.show', $data->id) . '" class="text-primary">' . $data->reference . '</a>';
+            })
             ->addColumn('supplier_name', function ($data) {
                 return $data->supplier->supplier_name ?? 'N/A';
             })
@@ -36,7 +39,8 @@ class PurchaseDataTable extends DataTable
             })
             ->addColumn('action', function ($data) {
                 return view('purchase::partials.actions', compact('data'));
-            });
+            })
+            ->rawColumns(['reference']);
     }
 
     public function query(Purchase $model)

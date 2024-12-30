@@ -314,7 +314,6 @@ class PurchaseController extends Controller
 
             foreach ($purchase->purchaseDetails as $detail) {
                 $receivedQuantity = $data['received'][$detail->id] ?? 0;
-                $notes = $data['notes'][$detail->id] ?? null;
 
                 if ($receivedQuantity > 0) {
                     // Update PurchaseDetail quantity received
@@ -323,7 +322,7 @@ class PurchaseController extends Controller
                     ]);
 
                     // Create ReceivedNoteDetail
-                    $receivedNoteDetail = ReceivedNoteDetail::create([
+                    ReceivedNoteDetail::create([
                         'received_note_id' => $receivedNote->id,
                         'quantity_received' => $receivedQuantity,
                         'po_detail_id' => $detail->id,
@@ -345,15 +344,16 @@ class PurchaseController extends Controller
                     $productStock = ProductStock::firstOrCreate([
                         'product_id' => $detail->product_id,
                         'location_id' => $data['location_id'], // Use selected location ID
-                    ], [ // Default values for fields that do not have database defaults
+                    ], [
                         'quantity' => 0,
                         'quantity_tax' => 0,
                         'quantity_non_tax' => 0,
                         'broken_quantity_non_tax' => 0,
                         'broken_quantity_tax' => 0,
+                        'broken_quantity' => 0
                     ]);
 
-                    // Update stock quantity
+                    // Increment stock quantity
                     $productStock->increment('quantity', $receivedQuantity);
 
                     if ($detail->tax_id) {
@@ -364,10 +364,16 @@ class PurchaseController extends Controller
                 }
             }
 
-            // Update purchase status based on quantities
-            $allReceived = $purchase->purchaseDetails->every(fn($detail) => $detail->quantity_received >= $detail->quantity);
-            $status = $allReceived ? Purchase::STATUS_RECEIVED : Purchase::STATUS_RECEIVED_PARTIALLY;
+            // Check if all items are fully received
+            $fullyReceived = $purchase->purchaseDetails->every(fn($detail) => $detail->quantity_received >= $detail->quantity);
 
+            if ($fullyReceived) {
+                $status = Purchase::STATUS_RECEIVED;
+            } else {
+                $status = Purchase::STATUS_RECEIVED_PARTIALLY;
+            }
+
+            // Update purchase status
             $purchase->update(['status' => $status]);
         });
 

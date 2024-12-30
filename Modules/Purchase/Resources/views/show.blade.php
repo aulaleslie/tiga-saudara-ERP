@@ -157,7 +157,7 @@
                                 </form>
                             @endif
 
-                            @if ($purchase->status === Purchase::STATUS_APPROVED)
+                            @if ($purchase->status === Purchase::STATUS_APPROVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY)
                                 <a href="{{ route('purchases.receive', $purchase->id) }}" class="btn btn-primary">
                                     Receive
                                 </a>
