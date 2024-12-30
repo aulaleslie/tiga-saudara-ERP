@@ -71,4 +71,46 @@ class LoginController extends Controller
 
         return redirect()->intended(RouteServiceProvider::HOME);
     }
+
+    public function apiLogin(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required',
+        ]);
+
+        if (Auth::attempt($request->only('email', 'password'))) {
+            $user = Auth::user();
+
+            // Ensure the user is active
+            if ($user->is_active != 1) {
+                return response()->json([
+                    'message' => 'Your account is deactivated! Please contact the Super Admin.',
+                ], 403);
+            }
+
+            // Issue a Sanctum token
+            $token = $user->createToken('api-token')->plainTextToken;
+
+            return response()->json([
+                'message' => 'Login successful',
+                'token' => $token,
+                'user' => $user,
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Invalid credentials',
+        ], 401);
+    }
+
+    public function apiLogout(Request $request)
+    {
+        // Revoke the token used to authenticate the request
+        $request->user()->currentAccessToken()->delete();
+
+        return response()->json([
+            'message' => 'Logged out successfully',
+        ]);
+    }
 }

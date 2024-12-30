@@ -11,6 +11,7 @@
 |
 */
 
+use App\Http\Controllers\PrintController;
 use Illuminate\Support\Facades\Route;
 use Modules\Setting\Http\Controllers\BusinessController;
 
@@ -31,4 +32,20 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::resource('taxes', 'TaxController')->except('show');
     // Chart of accounts
     Route::resource('chart-of-account', 'ChartofAccountController')->except('show');
+
+    Route::get('/print-receipt', function() {
+
+        $pdf = \PDF::loadView('setting::print.receipt', [
+        ])->setPaper('a4');
+
+        return $pdf->stream('receipt.pdf');
+    })->name('print.receipt');
+    Route::get('/print-sales-document', function() {
+
+        $pdf = \PDF::loadView('setting::print.sales', [
+        ])->setPaper('a4');
+
+        return $pdf->stream('sales.pdf');
+    })->name('print.salesDocument');
+
 });
