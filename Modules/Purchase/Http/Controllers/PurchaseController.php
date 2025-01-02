@@ -291,6 +291,12 @@ class PurchaseController extends Controller
         $currentSettingId = session('setting_id');
         $locations = Location::where('setting_id', $currentSettingId)->get();
 
+        // Calculate quantity_received for each purchase detail
+        foreach ($purchase->purchaseDetails as $detail) {
+            $detail->quantity_received = ReceivedNoteDetail::where('po_detail_id', $detail->id)
+                ->sum('quantity_received');
+        }
+
         return view('purchase::receive', compact('purchase', 'locations'));
     }
 
@@ -312,14 +318,15 @@ class PurchaseController extends Controller
                 'date' => now(),
             ]);
 
+            // Track the newly received quantities for this transaction
+            $newReceivedQuantities = [];
+
             foreach ($purchase->purchaseDetails as $detail) {
                 $receivedQuantity = $data['received'][$detail->id] ?? 0;
 
                 if ($receivedQuantity > 0) {
-                    // Update PurchaseDetail quantity received
-                    $detail->update([
-                        'quantity_received' => ($detail->quantity_received ?? 0) + $receivedQuantity,
-                    ]);
+                    // Track the received quantity for this transaction
+                    $newReceivedQuantities[$detail->id] = ($newReceivedQuantities[$detail->id] ?? 0) + $receivedQuantity;
 
                     // Create ReceivedNoteDetail
                     ReceivedNoteDetail::create([
@@ -350,7 +357,7 @@ class PurchaseController extends Controller
                         'quantity_non_tax' => 0,
                         'broken_quantity_non_tax' => 0,
                         'broken_quantity_tax' => 0,
-                        'broken_quantity' => 0
+                        'broken_quantity' => 0,
                     ]);
 
                     // Increment stock quantity
@@ -364,14 +371,27 @@ class PurchaseController extends Controller
                 }
             }
 
-            // Check if all items are fully received
-            $fullyReceived = $purchase->purchaseDetails->every(fn($detail) => $detail->quantity_received >= $detail->quantity);
+            // Calculate status based on stored and new received quantities
+            $allFullyReceived = true;
 
-            if ($fullyReceived) {
-                $status = Purchase::STATUS_RECEIVED;
-            } else {
-                $status = Purchase::STATUS_RECEIVED_PARTIALLY;
+            foreach ($purchase->purchaseDetails as $detail) {
+                // Sum of stored and new received quantities
+                $storedReceived = ReceivedNoteDetail::where('po_detail_id', $detail->id)->sum('quantity_received');
+                $newReceived = $newReceivedQuantities[$detail->id] ?? 0;
+                $totalReceived = $storedReceived + $newReceived;
+
+                Log::info('numbers', [
+                    '$storedReceived' => $storedReceived,
+                    'newReceived' => $newReceived,
+                    'detailQuantity' => $detail->quantity
+                ]);
+                if ($totalReceived < $detail->quantity) {
+                    $allFullyReceived = false;
+                    break;
+                }
             }
+
+            $status = $allFullyReceived ? Purchase::STATUS_RECEIVED : Purchase::STATUS_RECEIVED_PARTIALLY;
 
             // Update purchase status
             $purchase->update(['status' => $status]);
