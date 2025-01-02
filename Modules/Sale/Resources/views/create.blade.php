@@ -1,3 +1,4 @@
+@php use Carbon\Carbon;use Modules\People\Entities\Customer; @endphp
 @extends('layouts.app')
 
 @section('title', 'Create Sale')
@@ -30,16 +31,19 @@
                                 <div class="col-lg-4">
                                     <div class="form-group">
                                         <label for="reference">Keterangan <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="reference" required readonly value="SL">
+                                        <input type="text" class="form-control" name="reference" required readonly
+                                               value="SL">
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="from-group">
                                         <div class="form-group">
-                                            <label for="customer_id">Pelanggan <span class="text-danger">*</span></label>
+                                            <label for="customer_id">Pelanggan <span
+                                                    class="text-danger">*</span></label>
                                             <select class="form-control" name="customer_id" id="customer_id" required>
-                                                @foreach(\Modules\People\Entities\Customer::all() as $customer)
-                                                    <option value="{{ $customer->id }}">{{ $customer->contact_name }}</option>
+                                                @foreach(Customer::all() as $customer)
+                                                    <option
+                                                        value="{{ $customer->id }}">{{ $customer->contact_name }}</option>
                                                 @endforeach
                                             </select>
                                         </div>
@@ -49,7 +53,8 @@
                                     <div class="from-group">
                                         <div class="form-group">
                                             <label for="date">Tanggal <span class="text-danger">*</span></label>
-                                            <input type="date" class="form-control" name="date" required value="{{ \Carbon\Carbon::now()->format('Y-m-d') }}">
+                                            <input type="date" class="form-control" name="date" required
+                                                   value="{{ Carbon::now()->format('Y-m-d') }}">
                                         </div>
                                     </div>
                                 </div>
@@ -71,8 +76,10 @@
                                 <div class="col-lg-4">
                                     <div class="from-group">
                                         <div class="form-group">
-                                            <label for="payment_method">Metode Pembayaran <span class="text-danger">*</span></label>
-                                            <select class="form-control" name="payment_method" id="payment_method" required>
+                                            <label for="payment_method">Metode Pembayaran <span
+                                                    class="text-danger">*</span></label>
+                                            <select class="form-control" name="payment_method" id="payment_method"
+                                                    required>
                                                 <option value="Cash">Cash</option>
                                                 <option value="Credit Card">Credit Card</option>
                                                 <option value="Bank Transfer">Bank Transfer</option>
@@ -86,7 +93,8 @@
                                     <div class="form-group">
                                         <label for="paid_amount">Jumlah yang Diterima <span class="text-danger">*</span></label>
                                         <div class="input-group">
-                                            <input id="paid_amount" type="text" class="form-control" name="paid_amount" required>
+                                            <input id="paid_amount" type="text" class="form-control" name="paid_amount"
+                                                   required>
                                             <div class="input-group-append">
                                                 <button id="getTotalAmount" class="btn btn-primary" type="button">
                                                     <i class="bi bi-check-square"></i>
@@ -104,9 +112,9 @@
 
                             <div class="mt-3">
                                 @canany("sale.create")
-                                <button type="submit" class="btn btn-primary">
-                                    Buat Penjualan <i class="bi bi-check"></i>
-                                </button>
+                                    <button type="submit" class="btn btn-primary">
+                                        Buat Penjualan <i class="bi bi-check"></i>
+                                    </button>
                                 @endcan
 
 
@@ -124,9 +132,9 @@
     <script>
         $(document).ready(function () {
             $('#paid_amount').maskMoney({
-                prefix:'{{ settings()->currency->symbol }}',
-                thousands:'{{ settings()->currency->thousand_separator }}',
-                decimal:'{{ settings()->currency->decimal_separator }}',
+                prefix: '{{ settings()->currency->symbol }}',
+                thousands: '{{ settings()->currency->thousand_separator }}',
+                decimal: '{{ settings()->currency->decimal_separator }}',
                 allowZero: true,
             });
 
