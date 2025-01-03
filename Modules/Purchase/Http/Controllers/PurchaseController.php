@@ -311,6 +311,20 @@ class PurchaseController extends Controller
         ]);
 
         DB::transaction(function () use ($data, $purchase) {
+            // Lock the purchase row
+            $purchase->lockForUpdate();
+
+            // Lock all purchase details
+            $purchaseDetails = $purchase->purchaseDetails()->lockForUpdate()->get();
+
+            // Lock all related products and product stocks
+            $productIds = $purchaseDetails->pluck('product_id')->unique();
+            $products = Product::whereIn('id', $productIds)->lockForUpdate()->get();
+            $productStocks = ProductStock::whereIn('product_id', $productIds)
+                ->where('location_id', $data['location_id'])
+                ->lockForUpdate()
+                ->get();
+
             // Create a ReceivedNote
             $receivedNote = ReceivedNote::create([
                 'po_id' => $purchase->id,
@@ -321,7 +335,7 @@ class PurchaseController extends Controller
             // Track the newly received quantities for this transaction
             $newReceivedQuantities = [];
 
-            foreach ($purchase->purchaseDetails as $detail) {
+            foreach ($purchaseDetails as $detail) {
                 $receivedQuantity = $data['received'][$detail->id] ?? 0;
 
                 if ($receivedQuantity > 0) {
@@ -348,17 +362,20 @@ class PurchaseController extends Controller
                     }
 
                     // Update product stock
-                    $productStock = ProductStock::firstOrCreate([
-                        'product_id' => $detail->product_id,
-                        'location_id' => $data['location_id'], // Use selected location ID
-                    ], [
-                        'quantity' => 0,
-                        'quantity_tax' => 0,
-                        'quantity_non_tax' => 0,
-                        'broken_quantity_non_tax' => 0,
-                        'broken_quantity_tax' => 0,
-                        'broken_quantity' => 0,
-                    ]);
+                    $productStock = $productStocks->where('product_id', $detail->product_id)->first();
+
+                    if (!$productStock) {
+                        // If no ProductStock exists, create one and lock it
+                        $productStock = ProductStock::create([
+                            'product_id' => $detail->product_id,
+                            'location_id' => $data['location_id'],
+                            'quantity' => 0,
+                            'quantity_tax' => 0,
+                            'quantity_non_tax' => 0,
+                            'broken_quantity_non_tax' => 0,
+                            'broken_quantity_tax' => 0,
+                        ]);
+                    }
 
                     // Increment stock quantity
                     $productStock->increment('quantity', $receivedQuantity);
@@ -368,13 +385,17 @@ class PurchaseController extends Controller
                     } else {
                         $productStock->increment('quantity_non_tax', $receivedQuantity);
                     }
+
+                    // Update product quantity in the Product model
+                    $product = $products->where('id', $detail->product_id)->first();
+                    $product->increment('product_quantity', $receivedQuantity);
                 }
             }
 
             // Calculate status based on stored and new received quantities
             $allFullyReceived = true;
 
-            foreach ($purchase->purchaseDetails as $detail) {
+            foreach ($purchaseDetails as $detail) {
                 // Sum of stored and new received quantities
                 $storedReceived = ReceivedNoteDetail::where('po_detail_id', $detail->id)->sum('quantity_received');
                 $newReceived = $newReceivedQuantities[$detail->id] ?? 0;
