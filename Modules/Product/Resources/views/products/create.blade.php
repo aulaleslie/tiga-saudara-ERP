@@ -14,11 +14,11 @@
 
                         <!-- Show when stock_managed is checked -->
                         @canany('create_products')
-                        <button type="submit" class="btn btn-primary ml-2" id="stock-initiate-btn"
-                                formaction="{{ route('products.storeProductAndRedirectToInitializeProductStock') }}"
-                                style="display: none;">
-                            Tambah Produk & Lanjut Inisiasi Stock
-                        </button>
+                            <button type="submit" class="btn btn-primary ml-2" id="stock-initiate-btn"
+                                    formaction="{{ route('products.storeProductAndRedirectToInitializeProductStock') }}"
+                                    style="display: none;">
+                                Tambah Produk & Lanjut Inisiasi Stock
+                            </button>
                         @endcanany
                     </div>
                 </div>
@@ -148,6 +148,28 @@
                             <!-- Livewire component for Unit Conversion Table -->
                             <livewire:product.unit-conversion-table :conversions="old('conversions', [])"
                                                                     :errors="$errors->toArray()"/>
+
+                            <div class="form-row">
+                                <div class="col-lg-12">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <div class="form-group">
+                                                <label for="image">Gambar Produk <i
+                                                        class="bi bi-question-circle-fill text-info"
+                                                        data-toggle="tooltip" data-placement="top"
+                                                        title="Max Files: 3, Max File Size: 1MB, Image Size: 400x400"></i></label>
+                                                <div
+                                                    class="dropzone d-flex flex-wrap flex-wrap align-items-center justify-content-center"
+                                                    id="document-dropzone">
+                                                    <div class="dz-message" data-dz-message>
+                                                        <i class="bi bi-cloud-arrow-up"></i>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

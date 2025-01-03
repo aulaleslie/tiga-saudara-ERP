@@ -103,7 +103,7 @@
                                         <label>
                                             <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
                                                    class="input-icheck"
-                                                   {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }} disabled/>
+                                                   {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }} {{ $product->product_quantity > 0 ? 'disabled' : '' }}/>
                                             <strong>Manajemen Stok</strong>
                                         </label>
                                         <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
