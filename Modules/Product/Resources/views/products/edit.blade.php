@@ -101,9 +101,12 @@
                                     <div class="form-group">
                                         <br>
                                         <label>
+                                            <!-- Hidden input to send '0' if the checkbox is unchecked -->
+                                            <input type="hidden" name="stock_managed" value="0" />
                                             <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
                                                    class="input-icheck"
-                                                   {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }} {{ $product->product_quantity > 0 ? 'disabled' : '' }}/>
+                                                {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }}
+                                                {{ $product->product_quantity > 0 ? 'disabled' : '' }} />
                                             <strong>Manajemen Stok</strong>
                                         </label>
                                         <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
@@ -114,6 +117,21 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <div class="form-row">
+                                <div class="col-md-4">
+                                    <div class="form-group">
+                                        <!-- Hidden input to send '0' if the checkbox is unchecked -->
+                                        <input type="hidden" name="serial_number_required" value="0" />
+                                        <input type="checkbox" name="serial_number_required" id="serial_number_required"
+                                               value="1"
+                                            {{ old('serial_number_required', $product->serial_number_required) ? 'checked' : '' }}
+                                            {{ $product->product_quantity > 0 ? 'disabled' : '' }}>
+                                        <label for="serial_number_required"><strong>Serial Number Diperlukan</strong></label>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <x-input label="Stok" name="product_quantity" type="number" step="1"
@@ -241,6 +259,25 @@
                 $('#purchase_price').val(purchasePrice);
                 $('#sale_price').val(salePrice);
             });
+
+            function toggleStockManagedFields() {
+                const isStockManaged = $('#stock_managed').is(':checked');
+                const isStockManagedDisabled = $('#stock_managed').prop('disabled');
+                // Enable Serial Number Checkbox if stock_managed is checked and quantity is greater than 0
+                if (isStockManaged) {
+                    $('#serial_number_required').prop('disabled', false);
+                } else {
+                    $('#serial_number_required').prop('disabled', true).prop('checked', false); // Disable and uncheck
+                }
+
+                if (isStockManagedDisabled) {
+                    $('#serial_number_required').prop('disabled', true)
+                }
+            }
+
+            // Call the function on page load and when the relevant fields change
+            $('#stock_managed').on('change keyup', toggleStockManagedFields);
+            toggleStockManagedFields();
         });
     </script>
     <script src="{{ asset('js/dropzone.js') }}"></script>

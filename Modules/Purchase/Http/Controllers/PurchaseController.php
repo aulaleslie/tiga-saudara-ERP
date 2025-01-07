@@ -325,6 +325,13 @@ class PurchaseController extends Controller
                 ->lockForUpdate()
                 ->get();
 
+            // Fetch all stored received quantities in bulk
+            $poDetailIds = $purchaseDetails->pluck('id');
+            $storedReceiveds = ReceivedNoteDetail::whereIn('po_detail_id', $poDetailIds)
+                ->selectRaw('po_detail_id, SUM(quantity_received) as total_received')
+                ->groupBy('po_detail_id')
+                ->pluck('total_received', 'po_detail_id');
+
             // Create a ReceivedNote
             $receivedNote = ReceivedNote::create([
                 'po_id' => $purchase->id,
@@ -374,6 +381,7 @@ class PurchaseController extends Controller
                             'quantity_non_tax' => 0,
                             'broken_quantity_non_tax' => 0,
                             'broken_quantity_tax' => 0,
+                            'broken_quantity' => 0,
                         ]);
                     }
 
@@ -396,16 +404,19 @@ class PurchaseController extends Controller
             $allFullyReceived = true;
 
             foreach ($purchaseDetails as $detail) {
+                // Retrieve the stored received quantity
+                $storedReceived = $storedReceiveds[$detail->id] ?? 0;
+
                 // Sum of stored and new received quantities
-                $storedReceived = ReceivedNoteDetail::where('po_detail_id', $detail->id)->sum('quantity_received');
                 $newReceived = $newReceivedQuantities[$detail->id] ?? 0;
                 $totalReceived = $storedReceived + $newReceived;
 
                 Log::info('numbers', [
                     '$storedReceived' => $storedReceived,
                     'newReceived' => $newReceived,
-                    'detailQuantity' => $detail->quantity
+                    'detailQuantity' => $detail->quantity,
                 ]);
+
                 if ($totalReceived < $detail->quantity) {
                     $allFullyReceived = false;
                     break;
