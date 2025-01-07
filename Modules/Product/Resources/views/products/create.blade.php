@@ -119,7 +119,7 @@
                                 <div class="col-md-4">
                                     <div class="form-group">
                                         <input type="checkbox" name="serial_number_required" id="serial_number_required"
-                                               value="1" disabled>
+                                               value="1" {{ old('serial_number_required') ? 'checked' : '' }} disabled>
                                         <label for="serial_number_required"><strong>Serial Number
                                                 Diperlukan</strong></label>
                                     </div>
