@@ -55,7 +55,7 @@ class PaymentTermController extends Controller
 
         toast('Term Pembayaran Berhasil ditambahkan!', 'success');
 
-        return redirect()->route('payment_terms.index');
+        return redirect()->route('payment-terms.index');
     }
 
     /**
@@ -90,7 +90,7 @@ class PaymentTermController extends Controller
 
         toast('Term Pembayaran diperbaharui!', 'info');
 
-        return redirect()->route('payment_terms.index');
+        return redirect()->route('payment-terms.index');
     }
 
     /**
@@ -104,6 +104,6 @@ class PaymentTermController extends Controller
 
         toast('Term Pembayaran Berhasil dihapus!', 'warning');
 
-        return redirect()->route('payment_terms.index');
+        return redirect()->route('payment-terms.index');
     }
 }
