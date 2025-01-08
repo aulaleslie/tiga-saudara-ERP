@@ -1,0 +1,59 @@
+name: Deploy Laravel to Jagoan Hosting
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # Step 2: Set up Node.js for Vite
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      # Step 3: Install Node.js dependencies
+      - name: Install Node.js dependencies
+        run: npm install
+
+      # Step 4: Build assets with Vite
+      - name: Build assets with Vite
+        run: npm run build
+
+      # Step 5: Verify Build Output
+      - name: Verify Build Output
+        run: ls -la public/build
+
+      # Step 6: Set up SSH
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p 45022 -H 103.163.138.84 >> ~/.ssh/known_hosts
+
+      # Step 7: Deploy Laravel Application
+      - name: Deploy Laravel Application
+        run: |
+          ssh -p 45022 tigasau2@103.163.138.84 << 'EOF'
+          cd public_html
+          git pull origin SPRINT-4/main
+          composer install --no-dev --optimize-autoloader
+          php artisan migrate --force
+          php artisan config:cache
+          php artisan route:cache
+          php artisan view:cache
+          rm -rf public/build
+          mkdir -p public/build
+          EOF
+
+      # Step 8: Copy Build Files to Server
+      - name: Copy Build Files
+        run: |
+          scp -P 45022 -r public/build/* tigasau2@103.163.138.84:public_html/public/build/

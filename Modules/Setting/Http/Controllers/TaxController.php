@@ -45,7 +45,7 @@ class TaxController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255|unique:taxes,name,NULL,id,setting_id,' . session('setting_id'),
-            'value' => 'required|numeric|gt:0',
+            'value' => 'required|numeric|gt:0|lte:100',
         ]);
 
         Tax::create([
@@ -81,7 +81,7 @@ class TaxController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255|unique:taxes,name,' . $tax->id . ',id,setting_id,' . session('setting_id'),
-            'value' => 'required|numeric|gt:0',
+            'value' => 'required|numeric|gt:0|lte:100',
         ]);
 
         $tax->update([

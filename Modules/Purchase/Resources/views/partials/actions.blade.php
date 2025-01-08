@@ -18,7 +18,7 @@
         @endcan
 
         @can('edit_purchases')
-            @if($data->status === 'DRAFT')
+            @if($data->status === 'DRAFTED')
                 <a href="{{ route('purchases.edit', $data->id) }}" class="dropdown-item">
                     <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Edit
                 </a>
@@ -32,7 +32,7 @@
         @endcan
 
         @can('delete_purchases')
-            @if($data->status === 'DRAFT')
+            @if($data->status === 'DRAFTED')
                 <button id="delete" class="dropdown-item" onclick="
                     event.preventDefault();
                     if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {
