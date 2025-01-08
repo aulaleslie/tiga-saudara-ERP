@@ -490,8 +490,10 @@
                                         <div class="card-header">
                                             Peran dan Ijin
                                             <div class="custom-control custom-checkbox float-right">
-                                                <input type="checkbox" class="custom-control-input" id="select-all-ijin">
-                                                <label class="custom-control-label" for="select-all-ijin">Pilih Semua</label>
+                                                <input type="checkbox" class="custom-control-input"
+                                                       id="select-all-ijin">
+                                                <label class="custom-control-label" for="select-all-ijin">Pilih
+                                                    Semua</label>
                                             </div>
                                         </div>
                                         <div id="ijin" class="card-body">
@@ -501,10 +503,9 @@
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="role.access" name="permissions[]"
                                                                value="role.access" {{ old('role.access') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="role.accces">Hak Akses</label>
+                                                        <label class="custom-control-label" for="role.access">Hak Akses</label>
                                                     </div>
                                                 </div>
-
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
@@ -513,7 +514,6 @@
                                                         <label class="custom-control-label" for="role.create">Buat</label>
                                                     </div>
                                                 </div>
-
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
@@ -530,6 +530,7 @@
                                                         <label class="custom-control-label" for="role.delete">Hapus</label>
                                                     </div>
                                                 </div>
+
                                             </div>
                                         </div>
                                     </div>
@@ -965,6 +966,57 @@
                                                                id="location.delete" name="permissions[]"
                                                                value="location.delete" {{ old('location.delete') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="location.delete">Hapus</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Term Pembayaran -->
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Term Pembayaran
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-payment-term">
+                                                <label class="custom-control-label" for="select-all-payment-term">Pilih Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="paymentTerm" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_term.access" name="permissions[]"
+                                                               value="payment_term.access" {{ old('payment_term.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.access">Hak Akses</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_term.create" name="permissions[]"
+                                                               value="payment_term.create" {{ old('payment_term.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.create">Buat</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_term.update" name="permissions[]"
+                                                               value="payment_term.update" {{ old('payment_term.update') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.update">Ubah</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_term.delete" name="permissions[]"
+                                                               value="payment_term.delete" {{ old('payment_term.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1757,6 +1809,12 @@
             $('#select-all-tax').click(function() {
                 var checked = this.checked;
                 $('#tax input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-payment-term').click(function() {
+                var checked = this.checked;
+                $('#paymentTerm input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });

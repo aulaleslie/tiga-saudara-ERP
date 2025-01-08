@@ -327,6 +327,14 @@
                     </a>
                 </li>
             @endcan
+            @can("payment_term.access")
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('payment-terms*') ? 'c-active' : '' }}"
+                       href="{{ route('payment-terms.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Term Pembayaran
+                    </a>
+                </li>
+            @endcan
             @can('access_account')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('chart-of-account*') ? 'c-active' : '' }}"
