@@ -1036,7 +1036,7 @@
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="payment_term.create" name="permissions[]"
-                                                               value="payment_term.create" {{ $role->hasPermissionTo('payment_term.access') ? 'checked' : '' }}>
+                                                               value="payment_term.create" {{ $role->hasPermissionTo('payment_term.create') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="payment_term.create">Buat</label>
                                                     </div>
                                                 </div>
@@ -1045,7 +1045,7 @@
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="payment_term.update" name="permissions[]"
-                                                               value="payment_term.update" {{ $role->hasPermissionTo('payment_term.access') ? 'checked' : '' }}>
+                                                               value="payment_term.update" {{ $role->hasPermissionTo('payment_term.update') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="payment_term.update">Ubah</label>
                                                     </div>
                                                 </div>
@@ -1053,7 +1053,7 @@
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="payment_term.delete" name="permissions[]"
-                                                               value="payment_term.delete" {{ $role->hasPermissionTo('payment_term.access') ? 'checked' : '' }}>
+                                                               value="payment_term.delete" {{ $role->hasPermissionTo('payment_term.delete') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="payment_term.delete">Hapus</label>
                                                     </div>
                                                 </div>
@@ -1078,7 +1078,7 @@
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="access_account" name="permissions[]"
-                                                               value="access_account" {{ old('access_account') ? 'checked' : '' }}>
+                                                               value="access_account" {{ $role->hasPermissionTo('access_account') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="access_account">Hak Akses</label>
                                                     </div>
                                                 </div>
@@ -1087,7 +1087,7 @@
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="create_account" name="permissions[]"
-                                                               value="create_account" {{ old('create_account') ? 'checked' : '' }}>
+                                                               value="create_account" {{ $role->hasPermissionTo('create_account') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="create_account">Buat</label>
                                                     </div>
                                                 </div>
@@ -1096,7 +1096,7 @@
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="edit_account" name="permissions[]"
-                                                               value="edit_account" {{ old('edit_account') ? 'checked' : '' }}>
+                                                               value="edit_account" {{ $role->hasPermissionTo('edit_account') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="edit_account">Ubah</label>
                                                     </div>
                                                 </div>
@@ -1104,7 +1104,7 @@
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="delete_account" name="permissions[]"
-                                                               value="delete_account" {{ old('delete_account') ? 'checked' : '' }}>
+                                                               value="delete_account" {{ $role->hasPermissionTo('delete_account') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="delete_account">Hapus</label>
                                                     </div>
                                                 </div>
