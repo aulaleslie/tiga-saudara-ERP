@@ -36,14 +36,14 @@
                                     <div class="form-group">
                                         <label for="company_email">Email Perusahaan <span
                                                 class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="company_email"
+                                        <input type="email" class="form-control" name="company_email"
                                                value="{{ $settings->company_email }}" required>
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
                                         <label for="company_phone">Telepon Perusahaan <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="company_phone"
+                                        <input type="number" class="form-control" name="company_phone"
                                                value="{{ $settings->company_phone }}" required>
                                     </div>
                                 </div>
