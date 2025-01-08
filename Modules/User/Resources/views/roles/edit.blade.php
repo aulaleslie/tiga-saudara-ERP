@@ -1011,6 +1011,57 @@
                                     </div>
                                 </div>
 
+                                <!-- Term Pembayaran -->
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Term Pembayaran
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-payment-term">
+                                                <label class="custom-control-label" for="select-all-payment-term">Pilih Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="paymentTerm" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_term.access" name="permissions[]"
+                                                               value="payment_term.access" {{ $role->hasPermissionTo('payment_term.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.access">Hak Akses</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_term.create" name="permissions[]"
+                                                               value="payment_term.create" {{ $role->hasPermissionTo('payment_term.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.create">Buat</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_term.update" name="permissions[]"
+                                                               value="payment_term.update" {{ $role->hasPermissionTo('payment_term.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.update">Ubah</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_term.delete" name="permissions[]"
+                                                               value="payment_term.delete" {{ $role->hasPermissionTo('payment_term.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.delete">Hapus</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- Nomor Akun -->
                                 <div class="col-lg-4 col-md-6 mb-3">
                                     <div class="card h-100 border-0 shadow">
@@ -1796,6 +1847,12 @@
             $('#select-all-account').click(function () {
                 var checked = this.checked;
                 $('#account input[type="checkbox"]').each(function () {
+                    this.checked = checked;
+                });
+            });
+            $('#select-all-payment-term').click(function() {
+                var checked = this.checked;
+                $('#paymentTerm input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });
