@@ -34,14 +34,14 @@
                                     <div class="form-group">
                                         <label for="company_email">Email Bisnis <span
                                                 class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="company_email" required>
+                                        <input type="email" class="form-control" name="company_email" required>
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
                                         <label for="company_phone">Telepon Bisnis <span
                                                 class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="company_phone" required>
+                                        <input type="number" class="form-control" name="company_phone" required>
                                     </div>
                                 </div>
                             </div>
