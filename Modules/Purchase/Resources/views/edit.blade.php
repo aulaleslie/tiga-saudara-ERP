@@ -133,6 +133,7 @@
                                     Update Pembelian <i class="bi bi-check"></i>
                                 </button>
                                 @endcanany
+                                    <a href="{{ route('purchases.index') }}" class="btn btn-secondary">Kembali</a>
                             </div>
                         </form>
                         <!-- Purchase Form End -->
