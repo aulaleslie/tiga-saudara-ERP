@@ -46,7 +46,7 @@ class ProductTable extends Component
         $this->barcodes = [];
 
         for ($i = 1; $i <= $quantity; $i++) {
-            $barcode = DNS1DFacade::getBarCodeSVG($product->barcode, 'EAN13', 2, 60, 'black', false);
+            $barcode = DNS1DFacade::getBarCodeSVG($product->barcode, 'C128', 2, 60, 'black', false);
             array_push($this->barcodes, $barcode);
         }
     }
