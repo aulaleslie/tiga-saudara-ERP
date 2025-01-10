@@ -219,6 +219,10 @@
                         @endforelse
                         </tbody>
                     </table>
+                    <div class="mt-3">
+                        <a href="{{ route('products.index') }}" class="btn btn-secondary">Kembali</a>
+                    </div>
+
                 </div>
             </div>
         </div>

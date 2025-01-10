@@ -111,13 +111,12 @@
 
                             <!-- Submit Button -->
                             <div class="mt-3">
-
                                 @canany('purchase.create')
                                 <button type="submit" class="btn btn-primary">
                                     Buat Pembelian <i class="bi bi-check"></i>
                                 </button>
                                 @endcanany
-
+                                        <a href="{{ route('purchases.index') }}" class="btn btn-secondary">Kembali</a>
                             </div>
                         </form>
                         <!-- Purchase Form End -->

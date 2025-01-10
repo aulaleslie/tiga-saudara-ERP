@@ -107,6 +107,7 @@
                                     Buat Retur Pembelian <i class="bi bi-check"></i>
                                 </button>
                                 @endcanany
+                                    <a href="{{ route('purchase-returns.index') }}" class="btn btn-secondary">Kembali</a>
                             </div>
                         </form>
                     </div>
