@@ -55,6 +55,10 @@
                                     <td>{{ $customer->shipping_address ?? '-' }}</td>
                                 </tr>
                                 <tr>
+                                    <th>Syarat Pembayaran</th>
+                                    <td>{{ $customer->paymentTerm->name ?? '-' }}</td>
+                                </tr>
+                                <tr>
                                     <th>Info Lainnya</th>
                                     <td>{{ $customer->additional_info ?? '-' }}</td>
                                 </tr>

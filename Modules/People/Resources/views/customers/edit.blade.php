@@ -79,8 +79,25 @@
                             </div>
 
                             <div class="form-row">
+
+                            </div>
+
+                            <div class="form-row">
                                 <div class="col-lg-6">
                                     <x-input label="Alamat Pengiriman" name="shipping_address" value="{{ old('shipping_address', $customer->shipping_address) }}"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <label for="payment_term_id">Syarat Pembayaran</label>
+                                    <select class="form-control" name="payment_term_id" id="payment_term_id">
+                                        <option value="" {{ old('payment_term_id', $customer->payment_term_id ?? '') == '' ? 'selected' : '' }}>
+                                            -- Pilih Syarat Pembayaran --
+                                        </option>
+                                        @foreach($paymentTerms as $paymentTerm)
+                                            <option value="{{ $paymentTerm->id }}" {{ old('payment_term_id', $customer->payment_term_id ?? '') == $paymentTerm->id ? 'selected' : '' }}>
+                                                {{ $paymentTerm->name }}
+                                            </option>
+                                        @endforeach
+                                    </select>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
