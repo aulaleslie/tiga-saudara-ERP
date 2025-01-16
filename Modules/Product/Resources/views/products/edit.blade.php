@@ -146,17 +146,23 @@
                             </div>
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <x-select label="Unit Utama" name="base_unit_id_display"
-                                              :options="$units->pluck('name', 'id')"
-                                              selected="{{ old('base_unit_id', $product->base_unit_id) }}" disabled/>
-                                    <!-- Hidden field to actually submit the base_unit_id -->
-                                    <input type="hidden" name="base_unit_id"
-                                           value="{{ old('base_unit_id', $product->base_unit_id) }}">
+                                    <input type="hidden" name="base_unit_id" value="{{$product->base_unit_id}}" />
+                                    <x-select
+                                        label="Unit Utama"
+                                        name="base_unit_id"
+                                        :options="$units->pluck('name', 'id')"
+                                        selected="{{ old('base_unit_id', $product->base_unit_id) }}"
+                                        :disabled="$product->stock_managed"
+                                        id="base_unit_id"
+                                    />
                                 </div>
 
                                 <div class="col-md-6">
-                                    <x-input label="Barcode Unit Utama" name="barcode"
-                                             value="{{ old('barcode', $product->barcode) }}"/>
+                                    <x-input
+                                        label="Barcode Unit Utama"
+                                        name="barcode"
+                                        value="{{ old('barcode', $product->barcode) }}"
+                                    />
                                 </div>
                             </div>
 

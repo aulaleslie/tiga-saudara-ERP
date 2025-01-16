@@ -41,6 +41,7 @@ class UpdateProductRequest extends FormRequest
             'category_id' => ['nullable', 'integer'],
             'brand_id' => ['nullable', 'integer'],
             'stock_managed' => ['nullable', 'boolean'],
+            'serial_number_required' => ['nullable', 'boolean'],
             'barcode' => [
                 'nullable',
                 'digits:13',
