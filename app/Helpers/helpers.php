@@ -1,6 +1,9 @@
 <?php
 
+use GuzzleHttp\Exception\GuzzleException;
+use Illuminate\Support\Facades\Log;
 use Modules\Setting\Entities\Setting;
+use Pusher\PusherException;
 
 if (!function_exists('settings')) {
     function settings() {
@@ -72,5 +75,31 @@ if (!function_exists('array_merge_numeric_values')) {
         }
 
         return $merged;
+    }
+}
+
+if (!function_exists('trigger_pusher_event')) {
+    /**
+     * @throws PusherException
+     * @throws GuzzleException
+     */
+    function trigger_pusher_event(string $channel, string $event, array $data = []): void
+    {
+        $pusher = new Pusher\Pusher(
+            env('PUSHER_APP_KEY'),
+            env('PUSHER_APP_SECRET'),
+            env('PUSHER_APP_ID'),
+            [
+                'useTLS' => env('PUSHER_APP_USETLS', false),
+                'cluster' => env('PUSHER_APP_CLUSTER'),
+            ]
+        );
+
+        try {
+            $pusher->trigger($channel, $event, $data);
+        } catch (Exception $e) {
+            // Log the error for debugging purposes
+            Log::error("Failed to trigger Pusher event: " . $e->getMessage());
+        }
     }
 }

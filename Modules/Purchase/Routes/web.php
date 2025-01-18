@@ -11,6 +11,8 @@
 |
 */
 
+use App\Events\PrintJobEvent;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\Purchase;
@@ -24,6 +26,14 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         $purchase = Purchase::findOrFail($id);
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 
+        Log::info("Caller: ", ["htmlContent" => "test"]);
+        Log::info("Caller: ", ["type" => "a4"]);
+        Log::info("Caller: ", ["userId", auth()->id()]);
+
+        trigger_pusher_event('print-jobs.' . auth()->id(), 'PrintJobDispatched', [
+            'type' => 'a4',
+            'content' => 'Test'
+        ]);
         $pdf = \PDF::loadView('purchase::print', [
             'purchase' => $purchase,
             'supplier' => $supplier,
