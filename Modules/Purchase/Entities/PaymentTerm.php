@@ -37,4 +37,13 @@ class PaymentTerm extends Model
     {
         return $this->belongsTo(Setting::class, 'setting_id', 'id');
     }
+    public function customers(): HasMany
+    {
+        return $this->hasMany(Customer::class, 'payment_term_id', 'id');
+    }
+
+    public function suppliers(): HasMany
+    {
+        return $this->hasMany(Supplier::class, 'payment_term_id', 'id');
+    }
 }

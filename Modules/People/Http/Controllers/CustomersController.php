@@ -28,8 +28,10 @@ class CustomersController extends Controller
     {
         abort_if(Gate::denies('customer.create'), 403);
 
-        return view('people::customers.create');
+        $paymentTerms = \Modules\Purchase\Entities\PaymentTerm::all(); // Ambil semua PaymentTerm
+        return view('people::customers.create', compact('paymentTerms'));
     }
+
 
 
     public function store(Request $request): RedirectResponse
@@ -40,6 +42,7 @@ class CustomersController extends Controller
         $request->validate([
             'contact_name' => 'required|string|max:255',
             'customer_phone' => 'required|string|max:255',
+            'payment_term_id' => 'nullable|exists:payment_terms,id', // Validasi PaymentTerm
 
             // Bank fields validation, mandatory only if one is filled
             'bank_name' => 'nullable|required_with:bank_branch,account_number,account_holder|string|max:255',
@@ -73,6 +76,7 @@ class CustomersController extends Controller
         // Create the customer
         Customer::create([
             'setting_id' => $settingId,
+            'payment_term_id' => $request->payment_term_id, // Menyimpan payment_term_id
             'contact_name' => $request->contact_name,
             'customer_name' => $request->customer_name ?? '',
             'customer_phone' => $request->customer_phone,
@@ -103,7 +107,7 @@ class CustomersController extends Controller
     public function show(Customer $customer): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('show_customers'), 403);
-
+        $customer->load('paymentTerm');
         return view('people::customers.show', compact('customer'));
     }
 
@@ -112,7 +116,8 @@ class CustomersController extends Controller
     {
         abort_if(Gate::denies('edit_customers'), 403);
 
-        return view('people::customers.edit', compact('customer'));
+        $paymentTerms = \Modules\Purchase\Entities\PaymentTerm::all(); // Ambil semua PaymentTerm
+        return view('people::customers.edit', compact('customer', 'paymentTerms'));
     }
 
 
@@ -123,6 +128,7 @@ class CustomersController extends Controller
         $request->validate([
             'contact_name' => 'required|string|max:255',
             'customer_phone' => 'required|max:255',
+            'payment_term_id' => 'nullable|exists:payment_terms,id', // Validasi PaymentTerm
             'customer_email' => 'required|email|max:255',
             'identity' => 'nullable|string|max:50',
             'identity_number' => 'nullable|string|max:100',
@@ -139,6 +145,7 @@ class CustomersController extends Controller
         $customer->update([
             'contact_name' => $request->contact_name,
             'customer_phone' => $request->customer_phone,
+            'payment_term_id' => $request->payment_term_id, // Menyimpan payment_term_id
             'customer_email' => $request->customer_email,
             'identity' => $request->identity,
             'identity_number' => $request->identity_number,

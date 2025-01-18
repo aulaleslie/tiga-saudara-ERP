@@ -24,7 +24,10 @@ class SuppliersController extends Controller
     {
         abort_if(Gate::denies('supplier.create'), 403);
 
-        return view('people::suppliers.create');
+        // Ambil data PaymentTerm untuk dropdown
+        $paymentTerms = \Modules\Purchase\Entities\PaymentTerm::all();
+
+        return view('people::suppliers.create', compact('paymentTerms'));
     }
 
 
@@ -38,6 +41,7 @@ class SuppliersController extends Controller
             'supplier_name' => 'required|string|max:255',
             'identity' => 'nullable|string|max:50',
             'identity_number' => 'nullable|required_if:identity,KTP,SIM,Passport|string|max:100',  // Required if identity is selected
+            'payment_term_id' => 'nullable|exists:payment_terms,id', // Validasi PaymentTerm
 
             // Bank fields validation, mandatory only if one is filled
             'bank_name' => 'nullable|required_with:bank_branch,account_number,account_holder|string|max:255',
@@ -60,6 +64,7 @@ class SuppliersController extends Controller
         // Create the supplier
         Supplier::create([
             'setting_id' => $settingId,
+            'payment_term_id' => $request->payment_term_id,
             'contact_name' => $request->contact_name,
             'supplier_name' => $request->supplier_name,
             'supplier_phone' => $request->supplier_phone ?? "",
@@ -99,8 +104,12 @@ class SuppliersController extends Controller
     {
         abort_if(Gate::denies('supplier.edit'), 403);
 
-        return view('people::suppliers.edit', compact('supplier'));
+        // Ambil data PaymentTerm untuk dropdown
+        $paymentTerms = \Modules\Purchase\Entities\PaymentTerm::all();
+
+        return view('people::suppliers.edit', compact('supplier', 'paymentTerms'));
     }
+
 
 
     public function update(Request $request, Supplier $supplier)
@@ -111,6 +120,7 @@ class SuppliersController extends Controller
         $request->validate([
             'contact_name' => 'required|string|max:255',
             'supplier_name' => 'required|string|max:255',
+            'payment_term_id' => 'nullable|exists:payment_terms,id', // Validasi PaymentTerm
             'supplier_phone' => 'nullable|string|max:255',
             'identity' => 'nullable|string|max:50',
             'identity_number' => 'nullable|required_if:identity,KTP,SIM,Passport|string|max:100',  // Required if identity is selected
@@ -138,6 +148,7 @@ class SuppliersController extends Controller
 
         // Update the supplier
         $supplier->update([
+            'payment_term_id' => $request->payment_term_id, // Update PaymentTerm ID
             'contact_name' => $request->contact_name,
             'supplier_name' => $request->supplier_name,
             'supplier_phone' => $request->supplier_phone ?? "",
