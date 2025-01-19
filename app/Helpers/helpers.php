@@ -92,12 +92,12 @@ if (!function_exists('trigger_pusher_event')) {
         ]);
 
         $pusher = new Pusher\Pusher(
-            env('PUSHER_APP_KEY', 'local'),
-            env('PUSHER_APP_SECRET', 'secret'),
-            env('PUSHER_APP_ID', 'id'),
+            env('PUSHER_APP_KEY', '6708cf03d8d7ea319989'),
+            env('PUSHER_APP_SECRET', 'e73a192d371f566811cc'),
+            env('PUSHER_APP_ID', '1927651'),
             [
                 'useTLS' => env('PUSHER_APP_USETLS', false),
-                'cluster' => env('PUSHER_APP_CLUSTER', 'cluster'),
+                'cluster' => env('PUSHER_APP_CLUSTER', 'ap1'),
             ]
         );
 
