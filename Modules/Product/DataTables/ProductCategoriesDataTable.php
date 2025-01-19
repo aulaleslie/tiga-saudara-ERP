@@ -36,7 +36,9 @@ class ProductCategoriesDataTable extends DataTable
             if (request()->has('search') && request('search')['value']) {
                 $searchValue = strtolower(request('search')['value']);
                 $query->where(function ($query) use ($searchValue) {
+                    // Add conditions for searching by category_name and category_code
                     $query->whereRaw('LOWER(category_name) LIKE ?', ["%{$searchValue}%"])
+                        ->orWhereRaw('LOWER(category_code) LIKE ?', ["%{$searchValue}%"]) // Search by category_code
                         ->orWhereHas('parent', function ($query) use ($searchValue) {
                             $query->whereRaw('LOWER(category_name) LIKE ?', ["%{$searchValue}%"]);
                         });
