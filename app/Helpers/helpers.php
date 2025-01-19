@@ -85,6 +85,10 @@ if (!function_exists('trigger_pusher_event')) {
      */
     function trigger_pusher_event(string $channel, string $event, array $data = []): void
     {
+        if (!env('PUSHER_APP_KEY') || !env('PUSHER_APP_SECRET') || !env('PUSHER_APP_ID')) {
+            Log::warning("Missing Pusher environment variables. Please check your .env file.");
+        }
+
         $pusher = new Pusher\Pusher(
             env('PUSHER_APP_KEY'),
             env('PUSHER_APP_SECRET'),
