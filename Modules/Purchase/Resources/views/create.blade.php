@@ -76,7 +76,7 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="due_date">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
-                                        <input type="date" class="form-control @error('due_date') is-invalid @enderror" name="due_date" id="due_date" required value="{{ now()->addDays(30)->format('Y-m-d') }}">
+                                        <input type="date" class="form-control @error('due_date') is-invalid @enderror" name="due_date" id="due_date" required value="{{ now()->format('Y-m-d') }}">
                                         @error('due_date')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror

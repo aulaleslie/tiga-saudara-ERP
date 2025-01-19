@@ -27,16 +27,23 @@ class BrandDataTable extends DataTable
             })
             ->addColumn('description', function ($data) {
                 return $data->description;
+            })
+            ->filterColumn('name', function ($query, $keyword) {
+                $query->where('name', 'LIKE', "%{$keyword}%");
+            })
+            ->filterColumn('description', function ($query, $keyword) {
+                $query->where('description', 'LIKE', "%{$keyword}%");
             });
     }
 
     public function query(Brand $model): Builder
     {
-        // Get the current setting ID from the session
         $currentSettingId = session('setting_id');
 
-        // Filter the query by the current setting ID
-        return $model->newQuery()->where('setting_id', $currentSettingId);
+        // Build a query to include name and description for searching
+        return $model->newQuery()
+            ->where('setting_id', $currentSettingId)
+            ->select('id', 'name', 'description'); // Include these fields for searching
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
