@@ -50,9 +50,10 @@ class PurchaseController extends Controller
 
         // Filter PaymentTerms by the setting_id
         $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
+        $suppliers = Supplier::where('setting_id', $setting_id)->get();
 
         // Pass the filtered terms to the view
-        return view('purchase::create', compact('paymentTerms'));
+        return view('purchase::create', compact('paymentTerms','suppliers'));
     }
 
 

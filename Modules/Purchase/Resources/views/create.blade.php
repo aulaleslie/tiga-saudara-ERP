@@ -48,10 +48,12 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="supplier_id">Pemasok <span class="text-danger">*</span></label>
-                                        <select class="form-control @error('supplier_id') is-invalid @enderror" name="supplier_id" id="supplier_id" required>
+                                        <select id="supplier_id" class="form-control @error('supplier_id') is-invalid @enderror" name="supplier_id" id="supplier_id" required>
                                             <option value="">Pilih Pemasok</option>
-                                            @foreach(\Modules\People\Entities\Supplier::all() as $supplier)
-                                                <option value="{{ $supplier->id }}">{{ $supplier->supplier_name }}</option>
+                                            @foreach($suppliers as $supplier)
+                                                <option value="{{ $supplier->id }}" data-payment-term="{{ $supplier->payment_term_id }}">
+                                                    {{ $supplier->supplier_name }}
+                                                </option>
                                             @endforeach
                                         </select>
                                         @error('supplier_id')
@@ -84,10 +86,10 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="payment_term">Term Pembayaran <span class="text-danger">*</span></label>
-                                        <select class="form-control @error('payment_term') is-invalid @enderror" name="payment_term" id="payment_term" required data-terms='@json($paymentTerms)'>
+                                        <select id="payment_term" class="form-control @error('payment_term') is-invalid @enderror" name="payment_term" id="payment_term" required data-terms='@json($paymentTerms)'>
                                             <option value="">Pilih Term Pembayaran</option>
                                             @foreach($paymentTerms as $term)
-                                                <option value="{{ $term->id }}" data-longevity="{{ $term->longevity }}">{{ $term->name }}</option>
+                                                <option value="{{ $term->id }}">{{ $term->name }}</option>
                                             @endforeach
                                         </select>
                                         @error('payment_term')
@@ -140,6 +142,25 @@
                     const baseDate = new Date(document.getElementById('date').value);
                     baseDate.setDate(baseDate.getDate() + parseInt(longevity));
                     dueDateInput.value = baseDate.toISOString().split('T')[0];
+                }
+            });
+        });
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const supplierDropdown = document.getElementById('supplier_id');
+            const paymentTermDropdown = document.getElementById('payment_term');
+
+            // Listen for changes in the supplier dropdown
+            supplierDropdown.addEventListener('change', function () {
+                const selectedOption = this.options[this.selectedIndex];
+                const paymentTermId = selectedOption.getAttribute('data-payment-term'); // Get the associated payment term ID
+
+                // Reset the payment term dropdown
+                paymentTermDropdown.value = ''; // Clear the selection
+
+                // If a payment term is associated with the supplier, preselect it
+                if (paymentTermId) {
+                    paymentTermDropdown.value = paymentTermId;
                 }
             });
         });
