@@ -85,17 +85,19 @@ if (!function_exists('trigger_pusher_event')) {
      */
     function trigger_pusher_event(string $channel, string $event, array $data = []): void
     {
-        if (!env('PUSHER_APP_KEY') || !env('PUSHER_APP_SECRET') || !env('PUSHER_APP_ID')) {
-            Log::warning("Missing Pusher environment variables. Please check your .env file.");
-        }
+        Log::info('ENV', [
+            'key' => env('PUSHER_APP_KEY', 'local'),
+            'secret' => env('PUSHER_APP_SECRET', 'secret'),
+            'app_id' => env('PUSHER_APP_ID', 'id'),
+        ]);
 
         $pusher = new Pusher\Pusher(
-            env('PUSHER_APP_KEY'),
-            env('PUSHER_APP_SECRET'),
-            env('PUSHER_APP_ID'),
+            env('PUSHER_APP_KEY', 'local'),
+            env('PUSHER_APP_SECRET', 'secret'),
+            env('PUSHER_APP_ID', 'id'),
             [
                 'useTLS' => env('PUSHER_APP_USETLS', false),
-                'cluster' => env('PUSHER_APP_CLUSTER'),
+                'cluster' => env('PUSHER_APP_CLUSTER', 'cluster'),
             ]
         );
 
