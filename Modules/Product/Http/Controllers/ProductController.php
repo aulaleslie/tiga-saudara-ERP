@@ -266,9 +266,21 @@ class ProductController extends Controller
             $product->update($validatedData);
 
             // Handle document uploads if new files are provided
-            if ($request->hasFile('document')) {
-                foreach ($request->file('document') as $file) {
-                    $product->addMedia($file)->toMediaCollection('images');
+            if ($request->has('document')) {
+                if (count($product->getMedia('images')) > 0) {
+                    foreach ($product->getMedia('images') as $media) {
+                        if (!in_array($media->file_name, $request->input('document', []))) {
+                            $media->delete();
+                        }
+                    }
+                }
+
+                $media = $product->getMedia('images')->pluck('file_name')->toArray();
+
+                foreach ($request->input('document', []) as $file) {
+                    if (count($media) === 0 || !in_array($file, $media)) {
+                        $product->addMedia(Storage::path('temp/dropzone/' . $file))->toMediaCollection('images');
+                    }
                 }
             }
 
