@@ -88,7 +88,8 @@ class PurchaseController extends Controller
             // Iterate over cart items
             foreach (Cart::instance('purchase')->content() as $cart_item) {
                 // Map cart item to purchase details
-                $product_tax_amount = $cart_item->options['sub_total'] - $cart_item->options['sub_total_before_tax'];
+                $product_tax_amount = $cart_item->options['sub_total'] -
+                    ($cart_item->options['sub_total_before_tax'] ?? 0);
 
                 PurchaseDetail::create([
                     'purchase_id' => $purchase->id, // FK reference
