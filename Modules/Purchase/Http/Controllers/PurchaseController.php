@@ -26,6 +26,7 @@ use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Tax;
 
 class PurchaseController extends Controller
 {
@@ -153,6 +154,27 @@ class PurchaseController extends Controller
         Cart::instance('purchase')->destroy();
         $cart = Cart::instance('purchase');
         foreach ($purchase_details as $purchase_detail) {
+            $subtotal_before_tax = $purchase_detail->price * $purchase_detail->quantity;
+
+            if ($purchase->is_tax_included) {
+                // Case: Tax is included in the price
+                if ($purchase_detail->tax_id) {
+                    $tax = Tax::find($purchase_detail->tax_id);
+                    if ($tax) {
+                        // Calculate price excluding tax
+                        $price_ex_tax = $purchase_detail->price / (1 + $tax->value / 100);
+//                        $tax_amount_per_unit = $purchase_detail->price - $price_ex_tax;
+//                        $tax_amount = $tax_amount_per_unit * $purchase_detail->quantity;
+                        $subtotal_before_tax = $price_ex_tax * $purchase_detail->quantity;
+                    } else {
+                        $subtotal_before_tax = $purchase_detail->price * $purchase_detail->quantity;
+                    }
+                } else {
+                    // No tax applied
+                    $subtotal_before_tax = $purchase_detail->price * $purchase_detail->quantity;
+                }
+            }
+
             $cart->add([
                 'id' => $purchase_detail->product_id,
                 'name' => $purchase_detail->product_name,
@@ -166,7 +188,8 @@ class PurchaseController extends Controller
                     'code' => $purchase_detail->product_code,
                     'stock' => Product::findOrFail($purchase_detail->product_id)->product_quantity,
                     'product_tax' => $purchase_detail->tax_id,
-                    'unit_price' => $purchase_detail->unit_price
+                    'unit_price' => $purchase_detail->unit_price,
+                    'sub_total_before_tax' => $subtotal_before_tax
                 ]
             ]);
         }
