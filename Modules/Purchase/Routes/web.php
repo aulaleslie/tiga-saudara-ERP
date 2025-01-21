@@ -31,13 +31,13 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Log::info("Caller: ", ["userId", auth()->id()]);
 
         trigger_pusher_event('print-jobs.' . auth()->id(), 'PrintJobDispatched', [
-            'type' => 'a4',
+            'type' => 'thermal',
             'content' => 'Test'
         ]);
         $pdf = \PDF::loadView('purchase::print', [
             'purchase' => $purchase,
             'supplier' => $supplier,
-        ])->setPaper('thermal');
+        ])->setPaper('a4');
 
         return $pdf->stream('purchase-'. $purchase->reference .'.pdf');
     })->name('purchases.pdf');
