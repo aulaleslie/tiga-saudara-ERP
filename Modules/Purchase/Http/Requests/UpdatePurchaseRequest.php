@@ -15,16 +15,16 @@ class UpdatePurchaseRequest extends FormRequest
     public function rules()
     {
         return [
-            'supplier_id' => 'required|numeric',
+            'supplier_id' => 'required|integer|exists:suppliers,id',
             'reference' => 'required|string|max:255',
-            'tax_percentage' => 'required|integer|min:0|max:100',
+            'date' => 'required|date',
+            'due_date' => 'required|date|after_or_equal:date',
+            'tax_id' => 'nullable|integer|exists:taxes,id',
             'discount_percentage' => 'required|integer|min:0|max:100',
             'shipping_amount' => 'required|numeric',
-            'total_amount' => 'required|numeric',
-            'paid_amount' => 'required|numeric|max:' . $this->purchase->total_amount,
-            'status' => 'required|string|max:255',
-            'payment_method' => 'required|string|max:255',
-            'note' => 'nullable|string|max:1000'
+            'total_amount' => 'required|numeric|min:0', // Ensure total amount is a valid number
+            'payment_term' => 'required|integer|exists:payment_terms,id', // New field for payment term
+            'note' => 'nullable|string|max:1000',
         ];
     }
 

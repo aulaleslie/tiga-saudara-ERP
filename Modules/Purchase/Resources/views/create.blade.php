@@ -37,7 +37,8 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="reference">Keterangan <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="reference" id="reference" required readonly value="PR">
+                                        <input type="text" class="form-control" name="reference" id="reference" required
+                                               readonly value="PR">
                                         @error('reference')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
@@ -48,7 +49,7 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="supplier_id">Pemasok <span class="text-danger">*</span></label>
-                                        <select id="supplier_id" class="form-control @error('supplier_id') is-invalid @enderror" name="supplier_id" id="supplier_id" required>
+                                        <select id="supplier_id" class="form-control @error('supplier_id') is-invalid @enderror" name="supplier_id" required>
                                             <option value="">Pilih Pemasok</option>
                                             @foreach($suppliers as $supplier)
                                                 <option value="{{ $supplier->id }}" data-payment-term="{{ $supplier->payment_term_id }}">
@@ -66,7 +67,8 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="date">Tanggal <span class="text-danger">*</span></label>
-                                        <input type="date" class="form-control @error('date') is-invalid @enderror" name="date" id="date" required value="{{ now()->format('Y-m-d') }}">
+                                        <input type="date" class="form-control @error('date') is-invalid @enderror"
+                                               name="date" id="date" required value="{{ now()->format('Y-m-d') }}">
                                         @error('date')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
@@ -75,8 +77,11 @@
 
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="due_date">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
-                                        <input type="date" class="form-control @error('due_date') is-invalid @enderror" name="due_date" id="due_date" required value="{{ now()->format('Y-m-d') }}">
+                                        <label for="due_date">Tanggal Jatuh Tempo <span
+                                                class="text-danger">*</span></label>
+                                        <input type="date" class="form-control @error('due_date') is-invalid @enderror"
+                                               name="due_date" id="due_date" required
+                                               value="{{ now()->format('Y-m-d') }}">
                                         @error('due_date')
                                         <div class="invalid-feedback">{{ $message }}</div>
                                         @enderror
@@ -85,11 +90,14 @@
 
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="payment_term">Term Pembayaran <span class="text-danger">*</span></label>
-                                        <select id="payment_term" class="form-control @error('payment_term') is-invalid @enderror" name="payment_term" id="payment_term" required data-terms='@json($paymentTerms)'>
+                                        <label for="payment_term">Term Pembayaran <span
+                                                class="text-danger">*</span></label>
+                                        <select id="payment_term" class="form-control @error('payment_term') is-invalid @enderror" name="payment_term" required>
                                             <option value="">Pilih Term Pembayaran</option>
                                             @foreach($paymentTerms as $term)
-                                                <option value="{{ $term->id }}">{{ $term->name }}</option>
+                                                <option value="{{ $term->id }}" data-longevity="{{ $term->longevity }}">
+                                                    {{ $term->name }}
+                                                </option>
                                             @endforeach
                                         </select>
                                         @error('payment_term')
@@ -105,7 +113,8 @@
                             <!-- Catatan -->
                             <div class="form-group mt-4">
                                 <label for="note">Catatan (Jika Diperlukan)</label>
-                                <textarea name="note" id="note" rows="5" class="form-control @error('note') is-invalid @enderror">{{ old('note') }}</textarea>
+                                <textarea name="note" id="note" rows="5"
+                                          class="form-control @error('note') is-invalid @enderror">{{ old('note') }}</textarea>
                                 @error('note')
                                 <div class="invalid-feedback">{{ $message }}</div>
                                 @enderror
@@ -114,11 +123,11 @@
                             <!-- Submit Button -->
                             <div class="mt-3">
                                 @canany('purchase.create')
-                                <button type="submit" class="btn btn-primary">
-                                    Buat Pembelian <i class="bi bi-check"></i>
-                                </button>
+                                    <button type="submit" class="btn btn-primary">
+                                        Buat Pembelian <i class="bi bi-check"></i>
+                                    </button>
                                 @endcanany
-                                        <a href="{{ route('purchases.index') }}" class="btn btn-secondary">Kembali</a>
+                                <a href="{{ route('purchases.index') }}" class="btn btn-secondary">Kembali</a>
                             </div>
                         </form>
                         <!-- Purchase Form End -->
@@ -134,33 +143,49 @@
         document.addEventListener('DOMContentLoaded', () => {
             const paymentTermSelect = document.getElementById('payment_term');
             const dueDateInput = document.getElementById('due_date');
+            const supplierDropdown = document.getElementById('supplier_id');
+            const paymentTermDropdown = document.getElementById('payment_term');
 
+            // Update due date based on selected payment term
             paymentTermSelect.addEventListener('change', function () {
                 const selectedOption = this.options[this.selectedIndex];
                 const longevity = selectedOption.dataset.longevity;
+
                 if (longevity) {
                     const baseDate = new Date(document.getElementById('date').value);
                     baseDate.setDate(baseDate.getDate() + parseInt(longevity));
                     dueDateInput.value = baseDate.toISOString().split('T')[0];
+                } else {
+                    console.error("Longevity not defined for the selected payment term.");
                 }
             });
-        });
 
-        document.addEventListener('DOMContentLoaded', function () {
-            const supplierDropdown = document.getElementById('supplier_id');
-            const paymentTermDropdown = document.getElementById('payment_term');
-
-            // Listen for changes in the supplier dropdown
+            // Update payment term based on selected supplier
             supplierDropdown.addEventListener('change', function () {
                 const selectedOption = this.options[this.selectedIndex];
-                const paymentTermId = selectedOption.getAttribute('data-payment-term'); // Get the associated payment term ID
+                const paymentTermId = selectedOption.getAttribute('data-payment-term');
 
                 // Reset the payment term dropdown
-                paymentTermDropdown.value = ''; // Clear the selection
+                paymentTermDropdown.value = '';
 
                 // If a payment term is associated with the supplier, preselect it
                 if (paymentTermId) {
                     paymentTermDropdown.value = paymentTermId;
+
+                    // Update the due date based on the selected payment term
+                    const selectedPaymentTermOption = paymentTermDropdown.options[paymentTermDropdown.selectedIndex];
+                    const longevity = selectedPaymentTermOption?.dataset?.longevity;
+
+                    if (longevity) {
+                        const baseDate = new Date(document.getElementById('date').value);
+                        baseDate.setDate(baseDate.getDate() + parseInt(longevity));
+                        dueDateInput.value = baseDate.toISOString().split('T')[0];
+                    } else {
+                        console.warn("Longevity not defined for the selected payment term.");
+                    }
+                } else {
+                    paymentTermDropdown.disabled = true;
+                    console.warn("No associated payment term for the selected supplier.");
                 }
             });
         });

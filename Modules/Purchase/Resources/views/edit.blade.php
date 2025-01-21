@@ -51,12 +51,10 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="supplier_id">Pemasok <span class="text-danger">*</span></label>
-                                        <select class="form-control @error('supplier_id') is-invalid @enderror"
-                                                name="supplier_id" id="supplier_id" required>
+                                        <select id="supplier_id" class="form-control @error('supplier_id') is-invalid @enderror" name="supplier_id" required>
                                             <option value="">Pilih Pemasok</option>
-                                            @foreach(Supplier::where('setting_id', session('setting_id'))->get() as $supplier)
-                                                <option
-                                                    value="{{ $supplier->id }}" {{ $supplier->id == $purchase->supplier_id ? 'selected' : '' }}>
+                                            @foreach($suppliers as $supplier)
+                                                <option value="{{ $supplier->id }}" data-payment-term="{{ $supplier->payment_term_id }} {{ $supplier->id == $purchase->supplier_id ? 'selected' : '' }}">
                                                     {{ $supplier->supplier_name }}
                                                 </option>
                                             @endforeach
@@ -96,12 +94,10 @@
                                     <div class="form-group">
                                         <label for="payment_term">Term Pembayaran <span
                                                 class="text-danger">*</span></label>
-                                        <select class="form-control @error('payment_term') is-invalid @enderror"
-                                                name="payment_term" id="payment_term" required>
+                                        <select id="payment_term" class="form-control @error('payment_term') is-invalid @enderror" name="payment_term" required>
                                             <option value="">Pilih Term Pembayaran</option>
                                             @foreach($paymentTerms as $term)
-                                                <option value="{{ $term->id }}"
-                                                        data-longevity="{{ $term->longevity }}" {{ $term->id == $purchase->payment_term_id ? 'selected' : '' }}>
+                                                <option value="{{ $term->id }}" data-longevity="{{ $term->longevity }}" {{ $term->id == $purchase->payment_term_id ? 'selected' : '' }}>
                                                     {{ $term->name }}
                                                 </option>
                                             @endforeach
@@ -149,14 +145,49 @@
         document.addEventListener('DOMContentLoaded', () => {
             const paymentTermSelect = document.getElementById('payment_term');
             const dueDateInput = document.getElementById('due_date');
+            const supplierDropdown = document.getElementById('supplier_id');
+            const paymentTermDropdown = document.getElementById('payment_term');
 
+            // Update due date based on selected payment term
             paymentTermSelect.addEventListener('change', function () {
                 const selectedOption = this.options[this.selectedIndex];
                 const longevity = selectedOption.dataset.longevity;
+
                 if (longevity) {
                     const baseDate = new Date(document.getElementById('date').value);
                     baseDate.setDate(baseDate.getDate() + parseInt(longevity));
                     dueDateInput.value = baseDate.toISOString().split('T')[0];
+                } else {
+                    console.error("Longevity not defined for the selected payment term.");
+                }
+            });
+
+            // Update payment term based on selected supplier
+            supplierDropdown.addEventListener('change', function () {
+                const selectedOption = this.options[this.selectedIndex];
+                const paymentTermId = selectedOption.getAttribute('data-payment-term');
+
+                // Reset the payment term dropdown
+                paymentTermDropdown.value = '';
+
+                // If a payment term is associated with the supplier, preselect it
+                if (paymentTermId) {
+                    paymentTermDropdown.value = paymentTermId;
+
+                    // Update the due date based on the selected payment term
+                    const selectedPaymentTermOption = paymentTermDropdown.options[paymentTermDropdown.selectedIndex];
+                    const longevity = selectedPaymentTermOption?.dataset?.longevity;
+
+                    if (longevity) {
+                        const baseDate = new Date(document.getElementById('date').value);
+                        baseDate.setDate(baseDate.getDate() + parseInt(longevity));
+                        dueDateInput.value = baseDate.toISOString().split('T')[0];
+                    } else {
+                        console.warn("Longevity not defined for the selected payment term.");
+                    }
+                } else {
+                    paymentTermDropdown.disabled = true;
+                    console.warn("No associated payment term for the selected supplier.");
                 }
             });
         });

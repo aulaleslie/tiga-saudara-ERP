@@ -282,6 +282,14 @@
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
+                                                               id="purchase.view" name="permissions[]"
+                                                               value="purchase.view" {{ $role->hasPermissionTo('purchase.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="purchase.view">Lihat</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
                                                                id="purchase.edit" name="permissions[]"
                                                                value="purchase.edit" {{ $role->hasPermissionTo('purchase.edit') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="purchase.edit">Ubah</label>

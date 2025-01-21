@@ -37,7 +37,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         $pdf = \PDF::loadView('purchase::print', [
             'purchase' => $purchase,
             'supplier' => $supplier,
-        ])->setPaper('a4');
+        ])->setPaper('thermal');
 
         return $pdf->stream('purchase-'. $purchase->reference .'.pdf');
     })->name('purchases.pdf');

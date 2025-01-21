@@ -110,6 +110,7 @@ class PurchaseDataTable extends DataTable
 
             Column::make('created_at')
                 ->visible(false)
+                ->searchable(false)
         ];
     }
 

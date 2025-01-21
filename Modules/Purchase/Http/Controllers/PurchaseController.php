@@ -129,7 +129,7 @@ class PurchaseController extends Controller
 
     public function show(Purchase $purchase)
     {
-        abort_if(Gate::denies('show_purchases'), 403);
+        abort_if(Gate::denies('purchase.view'), 403);
 
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 

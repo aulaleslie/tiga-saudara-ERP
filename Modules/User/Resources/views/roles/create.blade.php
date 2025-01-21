@@ -277,6 +277,14 @@
                                                         <label class="custom-control-label" for="purchase.delete">Hapus</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="purchase.view" name="permissions[]"
+                                                               value="purchase.view" {{ old('purchase.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="purchase.view">Lihat</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
