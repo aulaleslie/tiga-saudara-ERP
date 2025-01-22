@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::table('chart_of_accounts', function (Blueprint $table) {
             // Add the setting_id column
-            $table->unsignedBigInteger('setting_id')->after('id');
+            $table->unsignedBigInteger('setting_id')->default(1)->after('id');
 
             // Add a foreign key constraint to the settings table (if applicable)
             $table->foreign('setting_id')->references('id')->on('settings')->onDelete('cascade');
