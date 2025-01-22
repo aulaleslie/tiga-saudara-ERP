@@ -3,13 +3,13 @@
         <i class="bi bi-three-dots-vertical"></i>
     </button>
     <div class="dropdown-menu">
-        @can('access_purchase_payments')
+        @can('purchase.create')
             <a href="{{ route('purchase-payments.index', $data->id) }}" class="dropdown-item">
                 <i class="bi bi-cash-coin mr-2 text-warning" style="line-height: 1;"></i> Show Payments
             </a>
         @endcan
 
-        @can('access_purchase_payments')
+        @can('purchase.create')
             @if($data->due_amount > 0)
                 <a href="{{ route('purchase-payments.create', $data->id) }}" class="dropdown-item">
                     <i class="bi bi-plus-circle-dotted mr-2 text-success" style="line-height: 1;"></i> Add Payment
@@ -17,7 +17,7 @@
             @endif
         @endcan
 
-        @can('edit_purchases')
+        @can('purchase.edit')
             @if($data->status === 'DRAFTED')
                 <a href="{{ route('purchases.edit', $data->id) }}" class="dropdown-item">
                     <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Edit
@@ -25,13 +25,13 @@
             @endif
         @endcan
 
-        @can('show_purchases')
+        @can('purchase.view')
             <a href="{{ route('purchases.show', $data->id) }}" class="dropdown-item">
                 <i class="bi bi-eye mr-2 text-info" style="line-height: 1;"></i> Details
             </a>
         @endcan
 
-        @can('delete_purchases')
+        @can('purchase.delete')
             @if($data->status === 'DRAFTED')
                 <button id="delete" class="dropdown-item" onclick="
                     event.preventDefault();
