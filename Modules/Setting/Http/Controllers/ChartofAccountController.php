@@ -28,7 +28,7 @@ class ChartofAccountController extends Controller
         return view('setting::coa.create', [
             'parent_accounts' => ChartOfAccount::whereNull('parent_account_id')->get(),
             'taxes' => \Modules\Setting\Entities\Tax::all(),
-        ]);    
+        ]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -44,7 +44,9 @@ class ChartofAccountController extends Controller
             'description' => 'nullable|string',
         ]);
 
-        ChartOfAccount::create($request->all()); // Store the account
+        $data = $request->all();
+        $data['setting_id'] = session('setting_id');
+        ChartOfAccount::create($data); // Store the account
         toast('Akun Berhasil Ditambahkan!', 'success');
 
         return redirect()->route('chart-of-account.index'); // Redirect to index

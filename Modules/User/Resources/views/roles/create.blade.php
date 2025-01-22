@@ -1083,6 +1083,65 @@
                                     </div>
                                 </div>
 
+                                <!-- Metode Pembayaran -->
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card h-100 border-0 shadow">
+                                        <div class="card-header">
+                                            Metode Pembayaran
+                                            <div class="custom-control custom-checkbox float-right">
+                                                <input type="checkbox" class="custom-control-input" id="select-all-payment-method">
+                                                <label class="custom-control-label" for="select-all-payment-method">Pilih Semua</label>
+                                            </div>
+                                        </div>
+                                        <div id="payment-method" class="card-body">
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_method.access" name="permissions[]"
+                                                               value="payment_method.access" {{ old('payment_method.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_method.access">Hak Akses</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_method.view" name="permissions[]"
+                                                               value="payment_method.view" {{ old('payment_method.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_method.view">Lihat</label>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_method.create" name="permissions[]"
+                                                               value="payment_method.create" {{ old('payment_method.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_method.create">Buat</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_method.edit" name="permissions[]"
+                                                               value="payment_method.edit" {{ old('payment_method.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_method.edit">Ubah</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_method.delete" name="permissions[]"
+                                                               value="payment_method.delete" {{ old('payment_method.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_method.delete">Ubah</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
 
                                 <!-- Adjustments Permission -->
 {{--                                <div class="col-lg-4 col-md-6 mb-3">--}}
@@ -1823,6 +1882,13 @@
             $('#select-all-payment-term').click(function() {
                 var checked = this.checked;
                 $('#paymentTerm input[type="checkbox"]').each(function() {
+                    this.checked = checked;
+                });
+            });
+
+            $('#select-all-payment-method').click(function() {
+                var checked = this.checked;
+                $('#payment-method input[type="checkbox"]').each(function() {
                     this.checked = checked;
                 });
             });

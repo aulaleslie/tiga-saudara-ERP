@@ -15,23 +15,24 @@ class ChartOfAccount extends Model
         'category',
         'parent_account_id',
         'tax_id',
-        'description'
+        'description',
+        'setting_id'
     ];
 
     public function tax()
     {
         return $this->belongsTo(Tax::class, 'tax_id');
     }
-    
+
     public function parentAccount()
     {
         return $this->belongsTo(ChartOfAccount::class, 'parent_account_id');
     }
-    
+
     public function childAccounts()
     {
         return $this->hasMany(ChartOfAccount::class, 'parent_account_id');
     }
 
-    
+
 }

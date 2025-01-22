@@ -14,6 +14,7 @@
 use App\Http\Controllers\PrintController;
 use Illuminate\Support\Facades\Route;
 use Modules\Setting\Http\Controllers\BusinessController;
+use Modules\Setting\Http\Controllers\PaymentMethodController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
@@ -49,5 +50,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
         return $pdf->stream('sales.pdf');
     })->name('print.salesDocument');
+
+    Route::resource('payment-methods', PaymentMethodController::class)
+        ->except('show');
 
 });

@@ -290,7 +290,7 @@
 
 <li class="c-sidebar-nav-divider"></li>
 
-@canany(['access_settings','access_account','tax.access'])
+@canany(['access_settings','access_account','tax.access','payment_method.access'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-wrench-adjustable" style="line-height: 1;"></i> Pengaturan
@@ -332,6 +332,14 @@
                     <a class="c-sidebar-nav-link {{ request()->routeIs('payment-terms*') ? 'c-active' : '' }}"
                        href="{{ route('payment-terms.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Term Pembayaran
+                    </a>
+                </li>
+            @endcan
+            @can("payment_method.access")
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('payment-methods*') ? 'c-active' : '' }}"
+                       href="{{ route('payment-methods.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Metode Pembayaran
                     </a>
                 </li>
             @endcan
