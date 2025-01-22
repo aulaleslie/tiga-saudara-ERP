@@ -51,7 +51,7 @@ class ProductCart extends Component
 
         if ($data) {
             $this->data = $data;
-            $this->global_discount = $data->discount_percentage;
+            $this->global_discount = $data->discount_percentage ?? 0;
             $this->shipping = $data->shipping_amount;
             $this->is_tax_included = $data->is_tax_included;
 

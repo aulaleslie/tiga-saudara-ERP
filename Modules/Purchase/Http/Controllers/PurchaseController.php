@@ -146,6 +146,7 @@ class PurchaseController extends Controller
 
         // Filter PaymentTerms by the setting_id
         $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
+        $suppliers = Supplier::where('setting_id', $setting_id)->get();
 
         // Retrieve purchase details
         $purchase_details = $purchase->purchaseDetails;
@@ -195,81 +196,64 @@ class PurchaseController extends Controller
         }
 
         // Pass $paymentTerms to the view
-        return view('purchase::edit', compact('purchase', 'paymentTerms'));
+        return view('purchase::edit', compact('purchase', 'paymentTerms', 'suppliers'));
     }
 
 
     public function update(UpdatePurchaseRequest $request, Purchase $purchase)
     {
         DB::transaction(function () use ($request, $purchase) {
-            $due_amount = $request->total_amount - $request->paid_amount;
-            if ($due_amount == $request->total_amount) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
+            // Fields to update, only if new values are passed in the request
+            $updateData = array_filter([
+                'date' => $request->filled('date') && $request->date !== $purchase->date ? $request->date : null,
+                'due_date' => $request->filled('due_date') && $request->due_date !== $purchase->due_date ? $request->due_date : null,
+                'supplier_id' => $request->filled('supplier_id') && $request->supplier_id !== $purchase->supplier_id ? $request->supplier_id : null,
+                'tax_percentage' => $request->filled('tax_percentage') && $request->tax_percentage !== $purchase->tax_percentage ? $request->tax_percentage : null,
+                'discount_percentage' => $request->filled('discount_percentage') && $request->discount_percentage !== $purchase->discount_percentage ? $request->discount_percentage : null,
+                'shipping_amount' => $request->filled('shipping_amount') && $request->shipping_amount != $purchase->shipping_amount ? $request->shipping_amount : null,
+                'paid_amount' => $request->filled('paid_amount') && $request->paid_amount != $purchase->paid_amount ? $request->paid_amount : null,
+                'total_amount' => $request->filled('total_amount') && $request->total_amount != $purchase->total_amount ? $request->total_amount : null,
+                'status' => $request->filled('status') && $request->status !== $purchase->status ? $request->status : null,
+                'payment_method' => $request->filled('payment_method') && $request->payment_method !== $purchase->payment_method ? $request->payment_method : null,
+                'note' => $request->filled('note') && $request->note !== $purchase->note ? $request->note : null,
+            ], function ($value) {
+                return $value !== null;
+            });
+
+            if (!empty($updateData)) {
+                // Update the purchase record
+                $purchase->update($updateData);
             }
 
-            foreach ($purchase->purchaseDetails as $purchase_detail) {
-                if ($purchase->status == 'Completed') {
-                    $product = Product::findOrFail($purchase_detail->product_id);
-                    $product->update([
-                        'product_quantity' => $product->product_quantity - $purchase_detail->quantity
-                    ]);
-                }
-                $purchase_detail->delete();
-            }
+            // Clear existing purchase details
+            $purchase->purchaseDetails()->delete();
 
-            $purchase->update([
-                'date' => $request->date,
-                'reference' => $request->reference,
-                'supplier_id' => $request->supplier_id,
-                'supplier_name' => Supplier::findOrFail($request->supplier_id)->supplier_name,
-                'tax_percentage' => $request->tax_percentage,
-                'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => $request->shipping_amount * 100,
-                'paid_amount' => $request->paid_amount * 100,
-                'total_amount' => $request->total_amount * 100,
-                'due_amount' => $due_amount * 100,
-                'status' => $request->status,
-                'payment_status' => $payment_status,
-                'payment_method' => $request->payment_method,
-                'note' => $request->note,
-                'tax_amount' => Cart::instance('purchase')->tax() * 100,
-                'discount_amount' => Cart::instance('purchase')->discount() * 100,
-            ]);
-
+            // Re-add updated cart items
             foreach (Cart::instance('purchase')->content() as $cart_item) {
                 PurchaseDetail::create([
                     'purchase_id' => $purchase->id,
                     'product_id' => $cart_item->id,
                     'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options->code,
+                    'product_code' => $cart_item->options['code'],
                     'quantity' => $cart_item->qty,
-                    'price' => $cart_item->price * 100,
-                    'unit_price' => $cart_item->options->unit_price * 100,
-                    'sub_total' => $cart_item->options->sub_total * 100,
-                    'product_discount_amount' => $cart_item->options->product_discount * 100,
-                    'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => $cart_item->options->product_tax * 100,
+                    'unit_price' => $cart_item->options['unit_price'],
+                    'price' => $cart_item->price,
+                    'product_discount_type' => $cart_item->options['product_discount_type'],
+                    'product_discount_amount' => $cart_item->options['product_discount'],
+                    'sub_total' => $cart_item->options['sub_total'],
+                    'product_tax_amount' => $cart_item->options['sub_total'] -
+                        ($cart_item->options['sub_total_before_tax'] ?? 0),
+                    'tax_id' => $cart_item->options['product_tax'],
                 ]);
-
-                if ($request->status == 'Completed') {
-                    $product = Product::findOrFail($cart_item->id);
-                    $product->update([
-                        'product_quantity' => $product->product_quantity + $cart_item->qty
-                    ]);
-                }
             }
 
             Cart::instance('purchase')->destroy();
         });
 
         toast('Pembelian Diperbaharui!', 'info');
-
         return redirect()->route('purchases.index');
     }
+
 
 
     public function destroy(Purchase $purchase)

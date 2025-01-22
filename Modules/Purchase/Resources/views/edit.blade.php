@@ -54,7 +54,7 @@
                                         <select id="supplier_id" class="form-control @error('supplier_id') is-invalid @enderror" name="supplier_id" required>
                                             <option value="">Pilih Pemasok</option>
                                             @foreach($suppliers as $supplier)
-                                                <option value="{{ $supplier->id }}" data-payment-term="{{ $supplier->payment_term_id }} {{ $supplier->id == $purchase->supplier_id ? 'selected' : '' }}">
+                                                <option value="{{ $supplier->id }}" data-payment-term="{{ $supplier->payment_term_id }}" {{ $supplier->id == $purchase->supplier_id ? 'selected' : '' }}>
                                                     {{ $supplier->supplier_name }}
                                                 </option>
                                             @endforeach
@@ -170,11 +170,9 @@
                 // Reset the payment term dropdown
                 paymentTermDropdown.value = '';
 
-                // If a payment term is associated with the supplier, preselect it
                 if (paymentTermId) {
                     paymentTermDropdown.value = paymentTermId;
 
-                    // Update the due date based on the selected payment term
                     const selectedPaymentTermOption = paymentTermDropdown.options[paymentTermDropdown.selectedIndex];
                     const longevity = selectedPaymentTermOption?.dataset?.longevity;
 
