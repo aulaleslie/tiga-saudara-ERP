@@ -5,8 +5,6 @@ namespace Modules\Purchase\DataTables;
 use Modules\Purchase\Entities\PurchasePayment;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class PurchasePaymentsDataTable extends DataTable
@@ -16,6 +14,18 @@ class PurchasePaymentsDataTable extends DataTable
             ->eloquent($query)
             ->addColumn('amount', function ($data) {
                 return format_currency($data->amount);
+            })
+            ->addColumn('payment_method', function ($data) {
+                // Display the payment method name
+                return $data->paymentMethod ? $data->paymentMethod->name : 'N/A';
+            })
+            ->addColumn('attachment', function ($data) {
+                // Check if there is a file attached
+                if ($data->getMedia('attachments')->isNotEmpty()) {
+                    $media = $data->getFirstMediaUrl('attachments');
+                    return '<a href="' . $media . '" target="_blank">View Attachment</a>';
+                }
+                return 'No Attachment';
             })
             ->addColumn('action', function ($data) {
                 return view('purchase::payments.partials.actions', compact('data'));
@@ -50,15 +60,26 @@ class PurchasePaymentsDataTable extends DataTable
     protected function getColumns() {
         return [
             Column::make('date')
+                ->title('Tanggal')
                 ->className('align-middle text-center'),
 
             Column::make('reference')
+                ->title('Referensi')
                 ->className('align-middle text-center'),
 
             Column::computed('amount')
+                ->title('Jumlah Pembayaran')
                 ->className('align-middle text-center'),
 
             Column::make('payment_method')
+                ->data('payment_method')
+                ->title('Metode Pembayaran')
+                ->className('align-middle text-center'),
+
+            Column::computed('attachment')
+                ->title('Lampiran')
+                ->exportable(false)
+                ->printable(false)
                 ->className('align-middle text-center'),
 
             Column::computed('action')

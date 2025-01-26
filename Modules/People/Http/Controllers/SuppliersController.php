@@ -8,6 +8,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\DataTables\PurchaseDataTable;
+use Modules\Purchase\Entities\PaymentTerm;
 
 class SuppliersController extends Controller
 {
@@ -25,7 +26,7 @@ class SuppliersController extends Controller
         abort_if(Gate::denies('supplier.create'), 403);
 
         // Ambil data PaymentTerm untuk dropdown
-        $paymentTerms = \Modules\Purchase\Entities\PaymentTerm::all();
+        $paymentTerms = PaymentTerm::all();
 
         return view('people::suppliers.create', compact('paymentTerms'));
     }
@@ -105,7 +106,7 @@ class SuppliersController extends Controller
         abort_if(Gate::denies('supplier.edit'), 403);
 
         // Ambil data PaymentTerm untuk dropdown
-        $paymentTerms = \Modules\Purchase\Entities\PaymentTerm::all();
+        $paymentTerms = PaymentTerm::all();
 
         return view('people::suppliers.edit', compact('supplier', 'paymentTerms'));
     }

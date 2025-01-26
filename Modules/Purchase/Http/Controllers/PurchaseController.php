@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
+use Modules\Purchase\DataTables\PurchaseDetailPaymentsDataTable;
+use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
@@ -127,13 +129,14 @@ class PurchaseController extends Controller
     }
 
 
-    public function show(Purchase $purchase)
+    public function show(Purchase $purchase, PurchasePaymentsDataTable $dataTable)
     {
         abort_if(Gate::denies('purchase.view'), 403);
 
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 
-        return view('purchase::show', compact('purchase', 'supplier'));
+        return $dataTable->with(['purchase_id' => $purchase->id])
+            ->render('purchase::show', compact('purchase', 'supplier'));
     }
 
 
@@ -213,6 +216,7 @@ class PurchaseController extends Controller
                 'shipping_amount' => $request->filled('shipping_amount') && $request->shipping_amount != $purchase->shipping_amount ? $request->shipping_amount : null,
                 'paid_amount' => $request->filled('paid_amount') && $request->paid_amount != $purchase->paid_amount ? $request->paid_amount : null,
                 'total_amount' => $request->filled('total_amount') && $request->total_amount != $purchase->total_amount ? $request->total_amount : null,
+                'due_amount' => $request->filled('total_amount') && $request->total_amount != $purchase->total_amount ? $request->total_amount : null,
                 'status' => $request->filled('status') && $request->status !== $purchase->status ? $request->status : null,
                 'payment_method' => $request->filled('payment_method') && $request->payment_method !== $purchase->payment_method ? $request->payment_method : null,
                 'note' => $request->filled('note') && $request->note !== $purchase->note ? $request->note : null,

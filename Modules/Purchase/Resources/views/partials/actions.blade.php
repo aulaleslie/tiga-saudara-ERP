@@ -4,16 +4,20 @@
     </button>
     <div class="dropdown-menu">
         @can('purchase.create')
-            <a href="{{ route('purchase-payments.index', $data->id) }}" class="dropdown-item">
-                <i class="bi bi-cash-coin mr-2 text-warning" style="line-height: 1;"></i> Show Payments
-            </a>
+            @if($data->status === 'RECEIVED')
+                <a href="{{ route('purchase-payments.index', $data->id) }}" class="dropdown-item">
+                    <i class="bi bi-cash-coin mr-2 text-warning" style="line-height: 1;"></i> Show Payments
+                </a>
+            @endif
         @endcan
 
         @can('purchase.create')
-            @if($data->due_amount > 0)
-                <a href="{{ route('purchase-payments.create', $data->id) }}" class="dropdown-item">
-                    <i class="bi bi-plus-circle-dotted mr-2 text-success" style="line-height: 1;"></i> Add Payment
-                </a>
+            @if($data->status === 'RECEIVED')
+                @if($data->due_amount > 0)
+                    <a href="{{ route('purchase-payments.create', $data->id) }}" class="dropdown-item">
+                        <i class="bi bi-plus-circle-dotted mr-2 text-success" style="line-height: 1;"></i> Add Payment
+                    </a>
+                @endif
             @endif
         @endcan
 
