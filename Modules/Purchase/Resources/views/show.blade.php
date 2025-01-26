@@ -221,11 +221,11 @@
                     { data: 'amount', name: 'amount', title: 'Jumlah Pembayaran' },
                     { data: 'payment_method', name: 'payment_method', title: 'Metode Pembayaran' },
                     {
-                        data: 'attachments',
-                        name: 'attachments',
+                        data: 'attachment',
+                        name: 'attachment',
                         title: 'Lampiran',
                         render: function(data) {
-                            return data ? `<a href="${data}" target="_blank">Lihat Lampiran</a>` : 'Tidak ada';
+                            return data ? data : 'Tidak ada';
                         }
                     },
                     {

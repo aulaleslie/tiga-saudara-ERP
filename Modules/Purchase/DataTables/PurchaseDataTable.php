@@ -14,7 +14,7 @@ class PurchaseDataTable extends DataTable
         return datatables()
             ->eloquent($query)
             ->addColumn('reference_hyperlink', function ($data) {
-                return '<a href="' . route('purchases.show', $data->id) . '" class="text-primary">' . $data->reference . '</a>';
+                return '<a href="' . route('purchases.show', $data->id) . '" class="text-primary">' . $data->reference . '</a><p>'. $data->note .'</p>';
             })
             ->addColumn('total_amount', function ($data) {
                 return format_currency($data->total_amount);

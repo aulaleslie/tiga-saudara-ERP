@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\DataTables;
 
+use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Entities\PurchasePayment;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
@@ -9,7 +10,8 @@ use Yajra\DataTables\Services\DataTable;
 
 class PurchasePaymentsDataTable extends DataTable
 {
-    public function dataTable($query) {
+    public function dataTable($query)
+    {
         return datatables()
             ->eloquent($query)
             ->addColumn('amount', function ($data) {
@@ -23,13 +25,21 @@ class PurchasePaymentsDataTable extends DataTable
                 // Check if there is a file attached
                 if ($data->getMedia('attachments')->isNotEmpty()) {
                     $media = $data->getFirstMediaUrl('attachments');
-                    return '<a href="' . $media . '" target="_blank">View Attachment</a>';
+
+                    Log::info('Attachment found for PurchasePayment', [
+                        'purchase_payment_id' => $data->id,
+                        'media_url' => $media,
+                    ]);
+
+                    // Return the HTML link with the full URL
+                    return '<a href="' . $media . '" class="text-primary" target="_blank">Lihat Lampiran</a>';
                 }
                 return 'No Attachment';
             })
             ->addColumn('action', function ($data) {
                 return view('purchase::payments.partials.actions', compact('data'));
-            });
+            })
+            ->rawColumns(['attachment', 'action']); // Allow raw HTML for the "attachment" and "action" columns
     }
 
     public function query(PurchasePayment $model) {
