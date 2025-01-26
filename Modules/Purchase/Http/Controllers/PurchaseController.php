@@ -18,7 +18,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
-use Modules\Purchase\DataTables\PurchaseDetailPaymentsDataTable;
 use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
@@ -41,7 +40,7 @@ class PurchaseController extends Controller
     }
 
 
-    public function create()
+    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('purchase.create'), 403);
 
