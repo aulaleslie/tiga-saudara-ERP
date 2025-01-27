@@ -20,11 +20,19 @@ class PurchaseDataTable extends DataTable
                 if (!empty($data->note)) {
                     $note = nl2br(e($data->note)); // Convert newlines to <br> tags
 
-                    // HTML structure for collapsible behavior
-                    $noteHtml = '<div class="note-wrapper" style="max-height: 40px; overflow: hidden; transition: max-height 0.3s;">
-                        <p class="note-content mb-0">' . $note . '</p>
-                     </div>
-                     <a href="javascript:void(0);" class="toggle-note" style="color: blue; text-decoration: underline; cursor: pointer;">Lihat selengkapnya</a>';
+                    // Count the number of lines in the note
+                    $lineCount = substr_count($data->note, "\n") + 1; // Lines are determined by newline characters
+
+                    if ($lineCount > 1) {
+                        // HTML structure for collapsible behavior
+                        $noteHtml = '<div class="note-wrapper" style="max-height: 40px; overflow: hidden; transition: max-height 0.3s;">
+                            <p class="note-content mb-0">' . $note . '</p>
+                         </div>
+                         <a href="javascript:void(0);" class="toggle-note" style="color: blue; text-decoration: underline; cursor: pointer;">Lihat selengkapnya</a>';
+                    } else {
+                        // Show the note as is if it only has one line
+                        $noteHtml = '<p class="note-content mb-0">' . $note . '</p>';
+                    }
 
                     return $reference . '<br>' . $noteHtml;
                 }
