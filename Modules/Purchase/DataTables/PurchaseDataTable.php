@@ -22,8 +22,9 @@ class PurchaseDataTable extends DataTable
 
                     // Count the number of lines in the note
                     $lineCount = substr_count($data->note, "\n") + 1; // Lines are determined by newline characters
+                    $characterCount = strlen($data->note);
 
-                    if ($lineCount > 1) {
+                    if ($lineCount > 1 || $characterCount > 10) {
                         // HTML structure for collapsible behavior
                         $noteHtml = '<div class="note-wrapper" style="max-height: 40px; overflow: hidden; transition: max-height 0.3s;">
                             <p class="note-content mb-0">' . $note . '</p>
