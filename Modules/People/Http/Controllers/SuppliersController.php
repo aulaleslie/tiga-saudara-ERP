@@ -33,7 +33,7 @@ class SuppliersController extends Controller
 
     public function store(Request $request)
     {
-        abort_if(Gate::denies('create_suppliers'), 403);
+        abort_if(Gate::denies('supplier.create'), 403);
 
         // Validate the request data
         $request->validate([
@@ -93,7 +93,7 @@ class SuppliersController extends Controller
 
     public function show(Supplier $supplier, PurchaseDataTable $dataTable)
     {
-        abort_if(Gate::denies('show_suppliers'), 403);
+        abort_if(Gate::denies('supplier.create'), 403);
 
         // Pass the supplier_id to the DataTable
         return $dataTable->with(['supplier_id' => $supplier->id])->render('people::suppliers.show', compact('supplier'));
@@ -114,7 +114,7 @@ class SuppliersController extends Controller
 
     public function update(Request $request, Supplier $supplier)
     {
-        abort_if(Gate::denies('edit_suppliers'), 403);
+        abort_if(Gate::denies('supplier.edit'), 403);
 
         // Validate the request data
         $request->validate([

@@ -36,7 +36,7 @@ class CustomersController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        abort_if(Gate::denies('create_customers'), 403);
+        abort_if(Gate::denies('customer.create'), 403);
 
         // Validate the request data
         $request->validate([
@@ -106,7 +106,7 @@ class CustomersController extends Controller
 
     public function show(Customer $customer): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('show_customers'), 403);
+        abort_if(Gate::denies('customer.view'), 403);
         $customer->load('paymentTerm');
         return view('people::customers.show', compact('customer'));
     }
@@ -114,7 +114,7 @@ class CustomersController extends Controller
 
     public function edit(Customer $customer): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('edit_customers'), 403);
+        abort_if(Gate::denies('customer.edit'), 403);
 
         $paymentTerms = \Modules\Purchase\Entities\PaymentTerm::all(); // Ambil semua PaymentTerm
         return view('people::customers.edit', compact('customer', 'paymentTerms'));
