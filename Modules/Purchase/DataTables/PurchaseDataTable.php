@@ -14,7 +14,23 @@ class PurchaseDataTable extends DataTable
         return datatables()
             ->eloquent($query)
             ->addColumn('reference_hyperlink', function ($data) {
-                return '<a href="' . route('purchases.show', $data->id) . '" class="text-primary">' . $data->reference . '</a><p>'. $data->note .'</p>';
+                $reference = '<a href="' . route('purchases.show', $data->id) . '" class="text-primary">' . $data->reference . '</a>';
+
+                // Check if the note exists
+                if (!empty($data->note)) {
+                    $note = nl2br(e($data->note)); // Convert newlines to <br> tags
+
+                    // HTML structure for collapsible behavior
+                    $noteHtml = '<div class="note-wrapper" style="max-height: 40px; overflow: hidden; transition: max-height 0.3s;">
+                        <p class="note-content mb-0">' . $note . '</p>
+                     </div>
+                     <a href="javascript:void(0);" class="toggle-note" style="color: blue; text-decoration: underline; cursor: pointer;">Lihat selengkapnya</a>';
+
+                    return $reference . '<br>' . $noteHtml;
+                }
+
+                // If no note, just return the reference
+                return $reference;
             })
             ->addColumn('total_amount', function ($data) {
                 return format_currency($data->total_amount);
@@ -56,7 +72,7 @@ class PurchaseDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(9)
+            ->orderBy(10)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -72,6 +88,9 @@ class PurchaseDataTable extends DataTable
     protected function getColumns() {
         return [
             Column::make('reference')
+                ->visible(false),
+
+            Column::make('note')
                 ->visible(false),
 
             Column::make('reference_hyperlink')
