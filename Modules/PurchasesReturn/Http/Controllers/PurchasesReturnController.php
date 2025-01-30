@@ -107,7 +107,7 @@ class PurchasesReturnController extends Controller
 
 
     public function show(PurchaseReturn $purchase_return) {
-        abort_if(Gate::denies('show_purchase_returns'), 403);
+        abort_if(Gate::denies('rpurchase.view'), 403);
 
         $supplier = Supplier::findOrFail($purchase_return->supplier_id);
 

@@ -107,7 +107,7 @@ class SalesReturnController extends Controller
 
 
     public function show(SaleReturn $sale_return) {
-        abort_if(Gate::denies('show_sale_returns'), 403);
+        abort_if(Gate::denies('rsale.view'), 403);
 
         $customer = Customer::findOrFail($sale_return->customer_id);
 
