@@ -690,9 +690,9 @@
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="access_product_categories" name="permissions[]"
-                                                               value="access_product_categories" {{ $role->hasPermissionTo('access_product_categories') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="access_product_categories">Daftar Kategori</label>
+                                                               id="cproduct.access" name="permissions[]"
+                                                               value="cproduct.access" {{ $role->hasPermissionTo('cproduct.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="cproduct.access">Daftar Kategori</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-12">
