@@ -272,7 +272,7 @@ class PurchaseController extends Controller
 
     public function updateStatus(Request $request, Purchase $purchase)
     {
-        abort_if(Gate::denies('update_purchase_status'), 403);
+        abort_if(Gate::denies('purchase.status'), 403);
 
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
