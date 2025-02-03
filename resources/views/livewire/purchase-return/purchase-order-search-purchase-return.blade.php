@@ -7,6 +7,7 @@
                    type="text"
                    class="form-control"
                    wire:focus="$set('isFocused', true)"
+                   wire:blur="$set('isFocused', false)"
                    placeholder="Ketik nomor purchase order....">
         </div>
     </div>
