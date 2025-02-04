@@ -290,7 +290,8 @@ class PurchaseController extends Controller
             toast('Failed to update purchase status.', 'error');
         }
 
-        return redirect()->route('purchases.show', $purchase->id);
+        // Redirect back to the referring page
+        return redirect()->to(url()->previous());
     }
 
     public function datatable(PurchaseDataTable $dataTable, Request $request)
@@ -362,7 +363,7 @@ class PurchaseController extends Controller
                     $newReceivedQuantities[$detail->id] = ($newReceivedQuantities[$detail->id] ?? 0) + $receivedQuantity;
 
                     // Create ReceivedNoteDetail
-                    ReceivedNoteDetail::create([
+                    $receivedNoteDetail = ReceivedNoteDetail::create([
                         'received_note_id' => $receivedNote->id,
                         'quantity_received' => $receivedQuantity,
                         'po_detail_id' => $detail->id,
@@ -376,6 +377,7 @@ class PurchaseController extends Controller
                                 'location_id' => $data['location_id'], // Use selected location ID
                                 'serial_number' => $serialNumber,
                                 'tax_id' => $detail->tax_id,
+                                'received_note_detail_id' => $receivedNoteDetail->id,
                             ]);
                         }
                     }

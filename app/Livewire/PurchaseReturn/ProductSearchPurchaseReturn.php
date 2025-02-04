@@ -2,6 +2,9 @@
 
 namespace App\Livewire\PurchaseReturn;
 
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
@@ -26,7 +29,7 @@ class ProductSearchPurchaseReturn extends Component
         ]);
     }
 
-    public function updatedQuery()
+    public function updatedQuery(): void
     {
         if ($this->isFocused) {
             $this->searchProducts();
@@ -35,39 +38,28 @@ class ProductSearchPurchaseReturn extends Component
         }
     }
 
-    public function searchProducts()
+    public function searchProducts(): void
     {
         if ($this->query && $this->supplier_id) {
-            $this->query_count = Product::whereIn('id', function ($query) {
+            $product_query = Product::whereIn('id', function ($query) {
                 $query->select('pd.product_id')
                     ->from('purchases as p')
                     ->leftJoin('purchase_details as pd', 'p.id', '=', 'pd.purchase_id')
                     ->where('p.supplier_id', $this->supplier_id)
-                    ->where('p.payment_status', 'paid');
+                    ->whereIn('p.status', ['RECEIVED PARTIALLY', 'RECEIVED']);
             })
                 ->where(function ($query) {
                     $query->where('product_name', 'like', '%' . $this->query . '%')
                         ->orWhere('product_code', 'like', '%' . $this->query . '%');
-                })
-                ->count();
+                });
+            $this->query_count = $product_query->count();
 
-            $this->search_results = Product::whereIn('id', function ($query) {
-                $query->select('pd.product_id')
-                    ->from('purchases as p')
-                    ->leftJoin('purchase_details as pd', 'p.id', '=', 'pd.purchase_id')
-                    ->where('p.supplier_id', $this->supplier_id)
-                    ->where('p.payment_status', 'paid');
-            })
-                ->where(function ($query) {
-                    $query->where('product_name', 'like', '%' . $this->query . '%')
-                        ->orWhere('product_code', 'like', '%' . $this->query . '%');
-                })
-                ->limit($this->how_many)
+            $this->search_results = $product_query->limit($this->how_many)
                 ->get();
         }
     }
 
-    public function selectProduct($productId)
+    public function selectProduct($productId): void
     {
         $product = Product::find($productId);
         if ($product) {
@@ -82,18 +74,18 @@ class ProductSearchPurchaseReturn extends Component
         }
     }
 
-    public function loadMore()
+    public function loadMore(): void
     {
         $this->how_many += 10; // Load more results
         $this->searchProducts();
     }
 
-    public function resetQuery()
+    public function resetQuery(): void
     {
         $this->search_results = [];
     }
 
-    public function render()
+    public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         return view('livewire.purchase-return.product-search-purchase-return');
     }

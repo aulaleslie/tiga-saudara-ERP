@@ -65,7 +65,7 @@ class PurchaseOrderSearchPurchaseReturn extends Component
         }
     }
 
-    public function selectPurchaseOrder($purchaseOrderId)
+    public function selectPurchaseOrder($purchaseOrderId): void
     {
         $purchaseOrder = Purchase::find($purchaseOrderId);
         if ($purchaseOrder) {
