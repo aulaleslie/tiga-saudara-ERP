@@ -35,6 +35,6 @@ class StorePurchaseReturnRequest extends FormRequest
      */
     public function authorize()
     {
-        return Gate::allows('create_purchase_returns');
+        return Gate::allows('rpurchase.create');
     }
 }

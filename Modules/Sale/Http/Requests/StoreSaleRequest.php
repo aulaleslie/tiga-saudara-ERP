@@ -35,6 +35,6 @@ class StoreSaleRequest extends FormRequest
      */
     public function authorize()
     {
-        return Gate::allows('create_sales');
+        return Gate::allows('sale.create');
     }
 }
