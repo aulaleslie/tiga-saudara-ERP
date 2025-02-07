@@ -23,7 +23,7 @@ class AdjustmentController extends Controller
 
     public function index(AdjustmentsDataTable $dataTable)
     {
-        abort_if(Gate::denies('access_adjustments'), 403);
+        abort_if(Gate::denies('adjustment.access'), 403);
 
         return $dataTable->render('adjustment::index');
     }
@@ -31,7 +31,7 @@ class AdjustmentController extends Controller
 
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('create_adjustments'), 403);
+        abort_if(Gate::denies('adjustment.create'), 403);
 
         $currentSettingId = session('setting_id');
 
@@ -56,7 +56,7 @@ class AdjustmentController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        abort_if(Gate::denies('create_adjustments'), 403);
+        abort_if(Gate::denies('adjustment.create'), 403);
 
         $request->validate([
             'reference' => 'required|string|max:255',
@@ -132,7 +132,7 @@ class AdjustmentController extends Controller
 
     public function show(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('show_adjustments'), 403);
+        abort_if(Gate::denies('adjustment.view'), 403);
 
         return view('adjustment::show', compact('adjustment'));
     }
@@ -140,7 +140,7 @@ class AdjustmentController extends Controller
 
     public function edit(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('edit_adjustments'), 403);
+        abort_if(Gate::denies('adjustment.edit'), 403);
 
         return view('adjustment::edit', compact('adjustment'));
     }
@@ -148,7 +148,7 @@ class AdjustmentController extends Controller
 
     public function update(Request $request, Adjustment $adjustment): RedirectResponse
     {
-        abort_if(Gate::denies('edit_adjustments'), 403);
+        abort_if(Gate::denies('adjustment.edit'), 403);
 
         $request->validate([
             'reference' => 'required|string|max:255',
@@ -234,7 +234,7 @@ class AdjustmentController extends Controller
 
     public function destroy(Adjustment $adjustment)
     {
-        abort_if(Gate::denies('delete_adjustments'), 403);
+        abort_if(Gate::denies('adjustment.delete'), 403);
 
         $adjustment->delete();
 

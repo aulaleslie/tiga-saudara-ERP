@@ -175,6 +175,14 @@
                                                         <label class="custom-control-label" for="sale.delete">Hapus</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="sale.view" name="permissions[]"
+                                                               value="sale.view" {{ old('sale.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="sale.view">Lihat</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -224,6 +232,14 @@
                                                                id="rsale.delete" name="permissions[]"
                                                                value="rsale.delete" {{ old('rsale.delete') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="rsale.delete">Hapus</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="rsale.view" name="permissions[]"
+                                                               value="rsale.view" {{ old('rsale.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="rsale.view">Lihat</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -336,6 +352,14 @@
                                                         <label class="custom-control-label" for="rpurchase.delete">Hapus</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="rpurchase.view" name="permissions[]"
+                                                               value="rpurchase.view" {{ old('rpurchase.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="rpurchase.view">Lihat</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -385,6 +409,14 @@
                                                                id="cost.delete" name="permissions[]"
                                                                value="cost.delete" {{ old('cost.delete') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="cost.delete">Hapus</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="cost.view" name="permissions[]"
+                                                               value="cost.view" {{ old('cost.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="cost.view">Lihat</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -437,6 +469,14 @@
                                                         <label class="custom-control-label" for="customer.delete">Hapus</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="customer.view" name="permissions[]"
+                                                               value="customer.view" {{ old('customer.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="customer.view">Lihat</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -485,6 +525,14 @@
                                                                id="supplier.delete" name="permissions[]"
                                                                value="supplier.delete" {{ old('supplier.delete') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="supplier.delete">Hapus</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="supplier.view" name="permissions[]"
+                                                               value="supplier.view" {{ old('supplier.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="supplier.view">Lihat</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -538,6 +586,14 @@
                                                         <label class="custom-control-label" for="role.delete">Hapus</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="role.view" name="permissions[]"
+                                                               value="role.view" {{ old('role.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="role.view">Lihat</label>
+                                                    </div>
+                                                </div>
 
                                             </div>
                                         </div>
@@ -559,41 +615,41 @@
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="access_products" name="permissions[]"
-                                                               value="access_products" {{ old('access_products') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="access_products">Access</label>
+                                                               id="product.access" name="permissions[]"
+                                                               value="product.access" {{ old('product.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="product.access">Hak Akses</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="show_products" name="permissions[]"
-                                                               value="show_products" {{ old('show_products') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="show_products">View</label>
+                                                               id="product.view" name="permissions[]"
+                                                               value="product.view" {{ old('product.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="product.view">Lihat</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="create_products" name="permissions[]"
-                                                               value="create_products" {{ old('create_products') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="create_products">Buat</label>
+                                                               id="product.create" name="permissions[]"
+                                                               value="product.create" {{ old('product.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="product.create">Buat</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="edit_products" name="permissions[]"
-                                                               value="edit_products" {{ old('edit_products') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="edit_products">Ubah</label>
+                                                               id="product.edit" name="permissions[]"
+                                                               value="product.edit" {{ old('product.edit') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="product.edit">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="delete_products" name="permissions[]"
-                                                               value="delete_products" {{ old('delete_products') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="delete_products">Delete</label>
+                                                               id="product.delete" name="permissions[]"
+                                                               value="product.delete" {{ old('product.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="product.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
@@ -667,8 +723,16 @@
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
                                                                id="brand.delete" name="permissions[]"
-                                                               value="delete_products" {{ old('brand.delete') ? 'checked' : '' }}>
+                                                               value="brand.delete" {{ old('brand.delete') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="brand.delete">Hapus</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="brand.view" name="permissions[]"
+                                                               value="brand.view" {{ old('brand.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="brand.view">Lihat</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -773,6 +837,14 @@
                                                         <label class="custom-control-label" for="adjustment.delete">Hapus</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="adjustment.view" name="permissions[]"
+                                                               value="adjustment.view" {{ old('adjustment.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="adjustment.view">Lihat</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -824,6 +896,14 @@
                                                         <label class="custom-control-label" for="break.delete">Hapus</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="break.view" name="permissions[]"
+                                                               value="break.view" {{ old('break.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="break.view">Lihat</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -873,6 +953,14 @@
                                                                id="users.delete" name="permissions[]"
                                                                value="users.delete" {{ old('users.delete') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="users.delete">Hapus</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="users.view" name="permissions[]"
+                                                               value="users.view" {{ old('users.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="users.view">Lihat</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -976,6 +1064,14 @@
                                                         <label class="custom-control-label" for="location.delete">Hapus</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="location.view" name="permissions[]"
+                                                               value="location.view" {{ old('location.view') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="location.view">Hapus</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1025,6 +1121,14 @@
                                                                id="payment_term.delete" name="permissions[]"
                                                                value="payment_term.delete" {{ old('payment_term.delete') ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="payment_term.delete">Hapus</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="payment_term.show" name="permissions[]"
+                                                               value="payment_term.show" {{ old('payment_term.show') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.show">Lihat</label>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1078,6 +1182,14 @@
                                                         <label class="custom-control-label" for="delete_account">Hapus</label>
                                                     </div>
                                                 </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="show_account" name="permissions[]"
+                                                               value="show_account" {{ old('show_account') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="show_account">Lihat</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1098,43 +1210,43 @@
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="payment_method.access" name="permissions[]"
-                                                               value="payment_method.access" {{ old('payment_method.access') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="payment_method.access">Hak Akses</label>
+                                                               id="payment_term.access" name="permissions[]"
+                                                               value="payment_term.access" {{ old('payment_term.access') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.access">Hak Akses</label>
                                                     </div>
                                                 </div>
 
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="payment_method.view" name="permissions[]"
-                                                               value="payment_method.view" {{ old('payment_method.view') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="payment_method.view">Lihat</label>
+                                                               id="payment_term.show" name="permissions[]"
+                                                               value="payment_term.show" {{ old('payment_term.show') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.show">Lihat</label>
                                                     </div>
                                                 </div>
 
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="payment_method.create" name="permissions[]"
-                                                               value="payment_method.create" {{ old('payment_method.create') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="payment_method.create">Buat</label>
+                                                               id="payment_term.create" name="permissions[]"
+                                                               value="payment_term.create" {{ old('payment_term.create') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.create">Buat</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="payment_method.edit" name="permissions[]"
-                                                               value="payment_method.edit" {{ old('payment_method.edit') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="payment_method.edit">Ubah</label>
+                                                               id="payment_term.update" name="permissions[]"
+                                                               value="payment_term.update" {{ old('payment_term.update') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.update">Ubah</label>
                                                     </div>
                                                 </div>
                                                 <div class="col-6">
                                                     <div class="custom-control custom-switch">
                                                         <input type="checkbox" class="custom-control-input"
-                                                               id="payment_method.delete" name="permissions[]"
-                                                               value="payment_method.delete" {{ old('payment_method.delete') ? 'checked' : '' }}>
-                                                        <label class="custom-control-label" for="payment_method.delete">Ubah</label>
+                                                               id="payment_term.delete" name="permissions[]"
+                                                               value="payment_term.delete" {{ old('payment_term.delete') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="payment_term.delete">Hapus</label>
                                                     </div>
                                                 </div>
                                             </div>

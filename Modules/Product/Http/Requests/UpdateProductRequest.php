@@ -19,7 +19,7 @@ class UpdateProductRequest extends FormRequest
     public function authorize(): bool
     {
         // Check if the user has permission to edit products
-        return Gate::allows('edit_products');
+        return Gate::allows('product_edit');
     }
 
     /**

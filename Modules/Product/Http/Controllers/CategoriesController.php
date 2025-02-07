@@ -16,7 +16,7 @@ class CategoriesController extends Controller
 {
 
     public function index(ProductCategoriesDataTable $dataTable) {
-        abort_if(Gate::denies('access_product_categories'), 403);
+        abort_if(Gate::denies('cproduct.access'), 403);
 
         return $dataTable->render('product::categories.index');
     }
@@ -24,7 +24,7 @@ class CategoriesController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        abort_if(Gate::denies('access_product_categories'), 403);
+        abort_if(Gate::denies('cproduct.access'), 403);
 
         $validatedData = $request->validate([
             'category_code' => 'required|unique:categories',
@@ -50,7 +50,7 @@ class CategoriesController extends Controller
 
     public function edit($id): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('access_product_categories'), 403);
+        abort_if(Gate::denies('cproduct.edit'), 403);
 
         $currentSettingId = session('setting_id');
 
@@ -86,7 +86,7 @@ class CategoriesController extends Controller
 
     public function destroy($id): RedirectResponse
     {
-        abort_if(Gate::denies('access_product_categories'), 403);
+        abort_if(Gate::denies('cproduct.delete'), 403);
 
         $category = Category::findOrFail($id);
 

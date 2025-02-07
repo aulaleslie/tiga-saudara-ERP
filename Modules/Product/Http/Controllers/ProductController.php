@@ -35,7 +35,7 @@ class ProductController extends Controller
 
     public function index(ProductDataTable $dataTable)
     {
-        abort_if(Gate::denies('access_products'), 403);
+        abort_if(Gate::denies('product.access'), 403);
 
         return $dataTable->render('product::products.index');
     }
@@ -43,7 +43,7 @@ class ProductController extends Controller
 
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('create_products'), 403);
+        abort_if(Gate::denies('product.create'), 403);
 
         $currentSettingId = session('setting_id');
 
@@ -187,7 +187,7 @@ class ProductController extends Controller
 
     public function show(Product $product): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('show_products'), 403);
+        abort_if(Gate::denies('product.view'), 403);
 
         $baseUnit = $product->baseUnit; // Assuming this relation exists
         $conversions = $product->conversions; // Assuming this relation exists
@@ -223,7 +223,7 @@ class ProductController extends Controller
 
     public function edit(Product $product): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('edit_products'), 403);
+        abort_if(Gate::denies('product.edit'), 403);
 
         $currentSettingId = session('setting_id');
 
@@ -309,7 +309,7 @@ class ProductController extends Controller
 
     public function destroy(Product $product): RedirectResponse
     {
-        abort_if(Gate::denies('delete_products'), 403);
+        abort_if(Gate::denies('product.delete'), 403);
 
         $product->delete();
 
