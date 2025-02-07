@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
+use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
@@ -39,7 +40,7 @@ class PurchaseController extends Controller
     }
 
 
-    public function create()
+    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('purchase.create'), 403);
 
@@ -60,6 +61,10 @@ class PurchaseController extends Controller
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
+        if (Cart::instance('purchase')->count() == 0) {
+            return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
+        }
+
         $setting_id = session('setting_id');
         DB::beginTransaction(); // Start the transaction manually
         try {
@@ -127,13 +132,14 @@ class PurchaseController extends Controller
     }
 
 
-    public function show(Purchase $purchase)
+    public function show(Purchase $purchase, PurchasePaymentsDataTable $dataTable)
     {
         abort_if(Gate::denies('purchase.view'), 403);
 
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 
-        return view('purchase::show', compact('purchase', 'supplier'));
+        return $dataTable->with(['purchase_id' => $purchase->id])
+            ->render('purchase::show', compact('purchase', 'supplier'));
     }
 
 
@@ -202,6 +208,11 @@ class PurchaseController extends Controller
 
     public function update(UpdatePurchaseRequest $request, Purchase $purchase)
     {
+        Log::info('Cart count at start of update:', ['count' => Cart::instance('purchase')->count()]);
+        if (Cart::instance('purchase')->count() == 0) {
+            return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
+        }
+
         DB::transaction(function () use ($request, $purchase) {
             // Fields to update, only if new values are passed in the request
             $updateData = array_filter([
@@ -213,6 +224,7 @@ class PurchaseController extends Controller
                 'shipping_amount' => $request->filled('shipping_amount') && $request->shipping_amount != $purchase->shipping_amount ? $request->shipping_amount : null,
                 'paid_amount' => $request->filled('paid_amount') && $request->paid_amount != $purchase->paid_amount ? $request->paid_amount : null,
                 'total_amount' => $request->filled('total_amount') && $request->total_amount != $purchase->total_amount ? $request->total_amount : null,
+                'due_amount' => $request->filled('total_amount') && $request->total_amount != $purchase->total_amount ? $request->total_amount : null,
                 'status' => $request->filled('status') && $request->status !== $purchase->status ? $request->status : null,
                 'payment_method' => $request->filled('payment_method') && $request->payment_method !== $purchase->payment_method ? $request->payment_method : null,
                 'note' => $request->filled('note') && $request->note !== $purchase->note ? $request->note : null,
@@ -269,7 +281,7 @@ class PurchaseController extends Controller
 
     public function updateStatus(Request $request, Purchase $purchase)
     {
-        abort_if(Gate::denies('update_purchase_status'), 403);
+        abort_if(Gate::denies('purchase.status'), 403);
 
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
@@ -287,7 +299,8 @@ class PurchaseController extends Controller
             toast('Failed to update purchase status.', 'error');
         }
 
-        return redirect()->route('purchases.show', $purchase->id);
+        // Redirect back to the referring page
+        return redirect()->to(url()->previous());
     }
 
     public function datatable(PurchaseDataTable $dataTable, Request $request)
@@ -359,7 +372,7 @@ class PurchaseController extends Controller
                     $newReceivedQuantities[$detail->id] = ($newReceivedQuantities[$detail->id] ?? 0) + $receivedQuantity;
 
                     // Create ReceivedNoteDetail
-                    ReceivedNoteDetail::create([
+                    $receivedNoteDetail = ReceivedNoteDetail::create([
                         'received_note_id' => $receivedNote->id,
                         'quantity_received' => $receivedQuantity,
                         'po_detail_id' => $detail->id,
@@ -373,6 +386,7 @@ class PurchaseController extends Controller
                                 'location_id' => $data['location_id'], // Use selected location ID
                                 'serial_number' => $serialNumber,
                                 'tax_id' => $detail->tax_id,
+                                'received_note_detail_id' => $receivedNoteDetail->id,
                             ]);
                         }
                     }

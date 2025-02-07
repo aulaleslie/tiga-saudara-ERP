@@ -2,24 +2,44 @@
 
 namespace Modules\Purchase\DataTables;
 
+use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Entities\PurchasePayment;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class PurchasePaymentsDataTable extends DataTable
 {
-    public function dataTable($query) {
+    public function dataTable($query)
+    {
         return datatables()
             ->eloquent($query)
             ->addColumn('amount', function ($data) {
                 return format_currency($data->amount);
             })
+            ->addColumn('payment_method', function ($data) {
+                // Display the payment method name
+                return $data->paymentMethod ? $data->paymentMethod->name : 'N/A';
+            })
+            ->addColumn('attachment', function ($data) {
+                // Check if there is a file attached
+                if ($data->getMedia('attachments')->isNotEmpty()) {
+                    $media = $data->getFirstMediaUrl('attachments');
+
+                    Log::info('Attachment found for PurchasePayment', [
+                        'purchase_payment_id' => $data->id,
+                        'media_url' => $media,
+                    ]);
+
+                    // Return the HTML link with the full URL
+                    return '<a href="' . $media . '" class="text-primary" target="_blank">Lihat Lampiran</a>';
+                }
+                return 'No Attachment';
+            })
             ->addColumn('action', function ($data) {
                 return view('purchase::payments.partials.actions', compact('data'));
-            });
+            })
+            ->rawColumns(['attachment', 'action']); // Allow raw HTML for the "attachment" and "action" columns
     }
 
     public function query(PurchasePayment $model) {
@@ -50,15 +70,26 @@ class PurchasePaymentsDataTable extends DataTable
     protected function getColumns() {
         return [
             Column::make('date')
+                ->title('Tanggal')
                 ->className('align-middle text-center'),
 
             Column::make('reference')
+                ->title('Referensi')
                 ->className('align-middle text-center'),
 
             Column::computed('amount')
+                ->title('Jumlah Pembayaran')
                 ->className('align-middle text-center'),
 
             Column::make('payment_method')
+                ->data('payment_method')
+                ->title('Metode Pembayaran')
+                ->className('align-middle text-center'),
+
+            Column::computed('attachment')
+                ->title('Lampiran')
+                ->exportable(false)
+                ->printable(false)
                 ->className('align-middle text-center'),
 
             Column::computed('action')

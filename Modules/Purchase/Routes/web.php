@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Http\Controllers\PurchaseController;
+use Modules\Purchase\Http\Controllers\PurchasePaymentsController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
@@ -49,6 +50,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::resource('purchases', 'PurchaseController');
 
     //Payments
+    Route::get('/purchase-payments/datatable/{purchase_id}', [PurchasePaymentsController::class, 'datatable'])
+        ->name('datatable.purchase_payments');
     Route::get('/purchase-payments/{purchase_id}', 'PurchasePaymentsController@index')->name('purchase-payments.index');
     Route::get('/purchase-payments/{purchase_id}/create', 'PurchasePaymentsController@create')->name('purchase-payments.create');
     Route::post('/purchase-payments/store', 'PurchasePaymentsController@store')->name('purchase-payments.store');

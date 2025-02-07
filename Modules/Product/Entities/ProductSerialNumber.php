@@ -24,6 +24,7 @@ class ProductSerialNumber extends Model
         'location_id',
         'serial_number',
         'tax_id',
+        'received_note_detail_id',
     ];
 
     /**

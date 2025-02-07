@@ -14,7 +14,32 @@ class PurchaseDataTable extends DataTable
         return datatables()
             ->eloquent($query)
             ->addColumn('reference_hyperlink', function ($data) {
-                return '<a href="' . route('purchases.show', $data->id) . '" class="text-primary">' . $data->reference . '</a>';
+                $reference = '<a href="' . route('purchases.show', $data->id) . '" class="text-primary">' . $data->reference . '</a>';
+
+                // Check if the note exists
+                if (!empty($data->note)) {
+                    $note = nl2br(e($data->note)); // Convert newlines to <br> tags
+
+                    // Count the number of lines in the note
+                    $lineCount = substr_count($data->note, "\n") + 1; // Lines are determined by newline characters
+                    $characterCount = strlen($data->note);
+
+                    if ($lineCount > 1 || $characterCount > 10) {
+                        // HTML structure for collapsible behavior
+                        $noteHtml = '<div class="note-wrapper" style="max-height: 40px; overflow: hidden; transition: max-height 0.3s;">
+                            <p class="note-content mb-0">' . $note . '</p>
+                         </div>
+                         <a href="javascript:void(0);" class="toggle-note" style="color: blue; text-decoration: underline; cursor: pointer;">Lihat selengkapnya</a>';
+                    } else {
+                        // Show the note as is if it only has one line
+                        $noteHtml = '<p class="note-content mb-0">' . $note . '</p>';
+                    }
+
+                    return $reference . '<br>' . $noteHtml;
+                }
+
+                // If no note, just return the reference
+                return $reference;
             })
             ->addColumn('total_amount', function ($data) {
                 return format_currency($data->total_amount);
@@ -56,7 +81,7 @@ class PurchaseDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(9)
+            ->orderBy(10)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -72,6 +97,9 @@ class PurchaseDataTable extends DataTable
     protected function getColumns() {
         return [
             Column::make('reference')
+                ->visible(false),
+
+            Column::make('note')
                 ->visible(false),
 
             Column::make('reference_hyperlink')

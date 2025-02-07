@@ -41,7 +41,7 @@
                                     <tr>
                                         <td class="align-middle">{{ $key + 1 }}</td>
                                         <td class="align-middle">{{ $payment_term->name }}</td>
-                                        <td class="align-middle">{{ $payment_term->value }}</td>
+                                        <td class="align-middle">{{ $payment_term->longevity }}</td>
                                         <td class="align-middle">
                                             <a href="{{ route('payment-terms.edit', $payment_term) }}" class="btn btn-info btn-sm">
                                                 <i class="bi bi-pencil"></i>

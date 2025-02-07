@@ -136,6 +136,38 @@
                             </div>
                         </div>
 
+                        <div class="row mt-4">
+                            <div class="col-sm-12">
+                                <h5 class="mb-2 border-bottom pb-2">Catatan:</h5>
+                                <p>{{ $purchase->note ?? 'Tidak ada catatan.' }}</p>
+                            </div>
+                        </div>
+
+                        <!-- Payments Table -->
+                        <div class="row mt-4">
+                            <div class="col-lg-12">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h4 class="mb-3">Pembayaran</h4>
+                                        <div class="table-responsive">
+                                            <table id="payments-table" class="table table-striped table-bordered">
+                                                <thead>
+                                                <tr>
+                                                    <th>Tanggal</th>
+                                                    <th>Referensi</th>
+                                                    <th>Jumlah Pembayaran</th>
+                                                    <th>Metode Pembayaran</th>
+                                                    <th>Lampiran</th>
+                                                    <th>Aksi</th>
+                                                </tr>
+                                                </thead>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="card-footer text-end">
                             @if ($purchase->status === Purchase::STATUS_DRAFTED)
                                 <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
@@ -173,4 +205,39 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        $(document).ready(function () {
+            $('#payments-table').DataTable({
+                processing: true,
+                serverSide: true,
+                ajax: {
+                    url: '{{ route("datatable.purchase_payments", ":purchase_id") }}'.replace(':purchase_id', '{{ $purchase->id }}'),
+                },
+                columns: [
+                    { data: 'date', name: 'date', title: 'Tanggal' },
+                    { data: 'reference', name: 'reference', title: 'Referensi' },
+                    { data: 'amount', name: 'amount', title: 'Jumlah Pembayaran' },
+                    { data: 'payment_method', name: 'payment_method', title: 'Metode Pembayaran' },
+                    {
+                        data: 'attachment',
+                        name: 'attachment',
+                        title: 'Lampiran',
+                        render: function(data) {
+                            return data ? data : 'Tidak ada';
+                        }
+                    },
+                    {
+                        data: 'action',
+                        name: 'action',
+                        orderable: false,
+                        searchable: false,
+                        title: 'Aksi'
+                    },
+                ]
+            });
+        });
+    </script>
+@endpush
 
