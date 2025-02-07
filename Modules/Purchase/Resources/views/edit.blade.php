@@ -51,10 +51,13 @@
                                 <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="supplier_id">Pemasok <span class="text-danger">*</span></label>
-                                        <select id="supplier_id" class="form-control @error('supplier_id') is-invalid @enderror" name="supplier_id" required>
+                                        <select id="supplier_id"
+                                                class="form-control @error('supplier_id') is-invalid @enderror"
+                                                name="supplier_id" required>
                                             <option value="">Pilih Pemasok</option>
                                             @foreach($suppliers as $supplier)
-                                                <option value="{{ $supplier->id }}" data-payment-term="{{ $supplier->payment_term_id }}" {{ $supplier->id == $purchase->supplier_id ? 'selected' : '' }}>
+                                                <option value="{{ $supplier->id }}"
+                                                        data-payment-term="{{ $supplier->payment_term_id }}" {{ $supplier->id == $purchase->supplier_id ? 'selected' : '' }}>
                                                     {{ $supplier->supplier_name }}
                                                 </option>
                                             @endforeach
@@ -94,10 +97,13 @@
                                     <div class="form-group">
                                         <label for="payment_term">Term Pembayaran <span
                                                 class="text-danger">*</span></label>
-                                        <select id="payment_term" class="form-control @error('payment_term') is-invalid @enderror" name="payment_term" required>
+                                        <select id="payment_term"
+                                                class="form-control @error('payment_term') is-invalid @enderror"
+                                                name="payment_term" required>
                                             <option value="">Pilih Term Pembayaran</option>
                                             @foreach($paymentTerms as $term)
-                                                <option value="{{ $term->id }}" data-longevity="{{ $term->longevity }}" {{ $term->id == $purchase->payment_term_id ? 'selected' : '' }}>
+                                                <option value="{{ $term->id }}"
+                                                        data-longevity="{{ $term->longevity }}" {{ $term->id == $purchase->payment_term_id ? 'selected' : '' }}>
                                                     {{ $term->name }}
                                                 </option>
                                             @endforeach
@@ -125,11 +131,12 @@
                             <!-- Submit Button -->
                             <div class="mt-3">
                                 @canany('purchase.edit')
-                                <button type="submit" class="btn btn-primary">
-                                    Update Pembelian <i class="bi bi-check"></i>
-                                </button>
+                                    <button type="button" class="btn btn-primary"
+                                            onclick="showConfirmationModal(() => document.getElementById('purchase-form').submit(), 'Apakah Anda yakin ingin mengubah pembelian ini?')">
+                                        Update Pembelian <i class="bi bi-check"></i>
+                                    </button>
                                 @endcanany
-                                    <a href="{{ route('purchases.index') }}" class="btn btn-secondary">Kembali</a>
+                                <a href="{{ route('purchases.index') }}" class="btn btn-secondary">Kembali</a>
                             </div>
                         </form>
                         <!-- Purchase Form End -->
@@ -138,6 +145,8 @@
             </div>
         </div>
     </div>
+
+    @include('components.confirmation-modal')
 @endsection
 
 @push('page_scripts')

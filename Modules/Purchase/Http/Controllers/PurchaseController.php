@@ -61,6 +61,10 @@ class PurchaseController extends Controller
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
+        if (Cart::instance('purchase')->count() == 0) {
+            return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
+        }
+
         $setting_id = session('setting_id');
         DB::beginTransaction(); // Start the transaction manually
         try {
@@ -204,6 +208,11 @@ class PurchaseController extends Controller
 
     public function update(UpdatePurchaseRequest $request, Purchase $purchase)
     {
+        Log::info('Cart count at start of update:', ['count' => Cart::instance('purchase')->count()]);
+        if (Cart::instance('purchase')->count() == 0) {
+            return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
+        }
+
         DB::transaction(function () use ($request, $purchase) {
             // Fields to update, only if new values are passed in the request
             $updateData = array_filter([
