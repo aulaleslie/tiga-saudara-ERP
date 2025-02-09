@@ -6,20 +6,20 @@
 @section('content')
     <div class="container-fluid">
         {{-- Alerts --}}
-        @include('utils.alerts')
+{{--        @include('utils.alerts')--}}
 
         {{-- Purchase Return Form --}}
-        <form id="purchase-return-form" action="{{ route('purchase-returns.store') }}" method="POST">
-            @csrf
+        {{--        <form id="purchase-return-form" action="{{ route('purchase-returns.store') }}" method="POST">--}}
+        {{--            @csrf--}}
 
-            {{-- Supplier & Date Inputs --}}
-            <livewire:purchase-return.purchase-return-create-form/>
+        {{-- Supplier & Date Inputs --}}
+        <livewire:purchase-return.purchase-return-create-form/>
 
-            {{-- Submit Button --}}
-{{--            <div class="mt-3">--}}
-{{--                <button type="submit" class="btn btn-primary">Proses Retur</button>--}}
-{{--                <a href="{{ route('purchase-returns.index') }}" class="btn btn-secondary">Kembali</a>--}}
-{{--            </div>--}}
-        </form>
+        {{-- Submit Button --}}
+        {{--            <div class="mt-3">--}}
+        {{--                <button type="submit" class="btn btn-primary">Proses Retur</button>--}}
+        {{--                <a href="{{ route('purchase-returns.index') }}" class="btn btn-secondary">Kembali</a>--}}
+        {{--            </div>--}}
+        {{--        </form>--}}
     </div>
 @endsection

@@ -10,7 +10,6 @@
                 <th style="width: 10%">Tanggal Purchase Order</th>
                 <th style="width: 10%">Harga Saat Beli</th>
                 <th style="width: 5%">
-                    <!-- Add Button in Header -->
                     <button type="button" class="btn btn-success btn-sm rounded-circle shadow-sm"
                             wire:click="addProductRow">
                         <i class="bi bi-plus-lg"></i>
@@ -19,45 +18,53 @@
             </tr>
             </thead>
             <tbody>
-            @foreach ($selectedProducts as $index => $selectedProduct)
+            @foreach ($rows as $index => $row)
                 <tr>
                     <td>
                         <livewire:purchase-return.product-search-purchase-return
                             :index="$index"
                             :supplier_id="$supplier_id"
                             wire:key="product-{{ $index }}"/>
+                        @if(isset($validationErrors["rows.$index.product_id"]))
+                            <span class="text-danger">{{ $validationErrors["rows.$index.product_id"][0] }}</span>
+                        @endif
                     </td>
                     <td class="text-center">
                         <span class="fw-bold text-warning">
-                            {{ $selectedProduct['product_quantity'] ?? '-' }}
+                            {{ $row['product_quantity'] ?? '-' }}
                         </span>
                     </td>
                     <td class="text-center">
                         <input type="number" class="form-control text-center rounded shadow-sm"
-                               wire:model.defer="selectedProducts.{{ $index }}.quantity"
+                               wire:model.defer="rows.{{ $index }}.quantity"
                                min="1" style="max-width: 80px;">
+                        @error("rows.".$index.".quantity")
+                        <span class="text-danger">{{ $message }}</span>
+                        @enderror
                     </td>
                     <td>
-                        @if (!empty($selectedProduct['product_id']))
+                        @if (!empty($row['product_id']))
                             <livewire:purchase-return.purchase-order-search-purchase-return
                                 :index="$index"
                                 :supplier_id="$supplier_id"
-                                :product_id="$selectedProduct['product_id']"
+                                :product_id="$row['product_id']"
                                 wire:key="po-{{ $index }}"/>
+                            @error("rows.".$index.".purchase_order_id")
+                            <span class="text-danger">{{ $message }}</span>
+                            @enderror
                         @endif
                     </td>
                     <td class="text-center">
                         <span class="text-muted">
-                            {{ $selectedProduct['purchase_order_date'] ?? '-' }}
+                            {{ $row['purchase_order_date'] ?? '-' }}
                         </span>
                     </td>
                     <td class="text-center">
                         <span class="fw-bold text-success">
-                            {{ !empty($selectedProduct['purchase_price']) ? 'Rp ' . number_format($selectedProduct['purchase_price'], 0, ',', '.') . ',-' : '-' }}
+                            {{ !empty($row['purchase_price']) ? 'Rp ' . number_format($row['purchase_price'], 0, ',', '.') . ',-' : '-' }}
                         </span>
                     </td>
                     <td class="text-center">
-                        <!-- Remove Button -->
                         <button type="button" class="btn btn-danger btn-sm rounded-circle shadow-sm"
                                 wire:click="removeProductRow({{ $index }})">
                             <i class="bi bi-trash"></i>
@@ -65,27 +72,22 @@
                     </td>
                 </tr>
 
-                <!-- Collapsible Row for Serial Numbers -->
-                @if (!empty($selectedProduct['serial_number_required']) && !empty($selectedProduct['purchase_order_id']))
+                {{-- Serial Number Section --}}
+                @if (!empty($row['serial_number_required']) && !empty($row['purchase_order_id']))
                     <tr>
                         <td colspan="7">
-                            @if (session()->has('message'))
-                                <div class="alert alert-warning alert-dismissible fade show" role="alert">
-                                    <div class="alert-body">
-                                        <span>{{ session('message') }}</span>
-                                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                                            <span aria-hidden="true">×</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            @endif
                             <div class="p-3 border rounded bg-light">
                                 <strong>Serial Numbers</strong>
                                 <livewire:purchase-return.purchase-order-serial-number-loader
                                     :index="$index"
-                                    :purchase_id="$selectedProduct['purchase_order_id']"
-                                    :product_id="$selectedProduct['product_id']"
+                                    :purchase_id="$row['purchase_order_id']"
+                                    :product_id="$row['product_id']"
                                     wire:key="serial-number-{{ $index }}" />
+
+                                {{-- Validation Error --}}
+                                @error("rows.".$index.".serial_numbers")
+                                <span class="text-danger">{{ $message }}</span>
+                                @enderror
 
                                 <table class="table table-sm mt-2">
                                     <thead>
@@ -95,7 +97,7 @@
                                     </tr>
                                     </thead>
                                     <tbody>
-                                    @foreach ($selectedProduct['serial_numbers'] ?? [] as $serialIndex => $serialNumber)
+                                    @foreach ($row['serial_numbers'] ?? [] as $serialIndex => $serialNumber)
                                         <tr>
                                             <td>{{ $serialNumber }}</td>
                                             <td class="text-center">

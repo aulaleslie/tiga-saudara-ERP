@@ -10,114 +10,96 @@ use Modules\Purchase\Entities\Purchase;
 class PurchaseReturnTable extends Component
 {
     public $supplier_id = '';
-    public $selectedProducts = [];
+    public $rows = [];
+    public $validationErrors = [];
 
     protected $listeners = [
         'supplierSelected' => 'resetTable',
         'productSelected' => 'updateProductRow',
         'purchaseOrderSelected' => 'updatePurchaseOrderRow',
         'serialNumberSelected' => 'updateSerialNumberRow',
+        'updateTableErrors' => 'handleValidationErrors',
     ];
+
+    public function mount($rows = [])
+    {
+        $this->rows = $rows; // ✅ Initialize `rows` from parent
+    }
 
     public function resetTable($supplier): void
     {
-        Log::info('supplier', [
-            'supplier' => $supplier
-        ]);
+        Log::info('supplier', ['supplier' => $supplier]);
         $this->supplier_id = $supplier['id'];
-        $this->selectedProducts = []; // Clear table when supplier changes
+        $this->rows = []; // Clear table when supplier changes
     }
 
     public function addProductRow(): void
     {
         if (!$this->supplier_id) {
-            return; // Prevent adding rows if no supplier is selected
+            return;
         }
 
-        $this->selectedProducts[] = [
+        $this->rows[] = [
             'product_id' => null,
             'product_name' => '',
-            'quantity' => 0,
+            'quantity' => 1,
             'purchase_order_id' => null,
             'purchase_order_date' => '',
-            'product_price' => null, // New dynamic column
-            'serial_numbers' => []
+            'purchase_price' => null,
+            'serial_numbers' => [],
+            'serial_number_required' => false,
         ];
+
+        $this->dispatch('updateRows', $this->rows);
     }
 
     public function updateProductRow($index, $product): void
     {
-        Log::info('update product row called', [
-            'index' => $index,
-            'product' => $product,
-            'apalah' => isset($this->selectedProducts[$index])
-        ]);
-        if (isset($this->selectedProducts[$index])) {
-//            $this->selectedProducts[$index] = $product;
-            $this->selectedProducts[$index]['product_id'] = $product['id'];
-            $this->selectedProducts[$index]['product_name'] = $product['product_name'];
-            $this->selectedProducts[$index]['purchase_price'] = $product['purchase_price'];
-            $this->selectedProducts[$index]['product_quantity'] = $product['product_quantity'];
-            $this->selectedProducts[$index]['serial_number_required'] = $product['serial_number_required'];
+        if (isset($this->rows[$index])) {
+            $this->rows[$index]['product_id'] = $product['id'];
+            $this->rows[$index]['product_name'] = $product['product_name'];
+            $this->rows[$index]['purchase_price'] = $product['purchase_price'];
+            $this->rows[$index]['product_quantity'] = $product['product_quantity'];
+            $this->rows[$index]['serial_number_required'] = $product['serial_number_required'];
         }
+
+        $this->dispatch('updateRows', $this->rows);
     }
 
     public function updatePurchaseOrderRow($index, $purchase): void
     {
-        Log::info('update purchase row called', [
-            'index' => $index,
-            'purchase' => $purchase,
-        ]);
-        if (isset($this->selectedProducts[$index])) {
-            $this->selectedProducts[$index]['purchase_order_id'] = $purchase['id'];
-            $this->selectedProducts[$index]['purchase_order_date'] = $purchase['date'];
-        }
-    }
-
-    public function updateSerialNumberRow($index, $serial_number): void
-    {
-        Log::info('update purchase row called', [
-            'index' => $index,
-            'serial_number' => $serial_number,
-        ]);
-
-        if (!isset($this->selectedProducts[$index]['serial_numbers'])) {
-            $this->selectedProducts[$index]['serial_numbers'] = [];
-            $this->selectedProducts[$index]['serial_number_ids'] = [];
+        if (isset($this->rows[$index])) {
+            $this->rows[$index]['purchase_order_id'] = $purchase['id'];
+            $this->rows[$index]['purchase_order_date'] = $purchase['date'];
         }
 
-        // Check if Serial Number Already Exists
-        if (in_array($serial_number['serial_number'], $this->selectedProducts[$index]['serial_numbers'])) {
-            // Trigger toast notification with error type
-            session()->flash('message', 'Serial Number sudah ada dimasukkan!');
-            return; // Exit the function
-        }
-
-        // If not exists, add serial number
-        $this->selectedProducts[$index]['serial_numbers'][] = $serial_number['serial_number'];
-        $this->selectedProducts[$index]['serial_number_ids'][] = $serial_number['id'];
-    }
-
-    public function removeSerialNumber($index, $serialIndex)
-    {
-        if (isset($this->selectedProducts[$index]['serial_numbers'][$serialIndex])) {
-            unset($this->selectedProducts[$index]['serial_numbers'][$serialIndex]);
-            $this->selectedProducts[$index]['serial_numbers'] = array_values($this->selectedProducts[$index]['serial_numbers']);
-            unset($this->selectedProducts[$index]['serial_number_ids'][$serialIndex]);
-            $this->selectedProducts[$index]['serial_number_ids'] = array_values($this->selectedProducts[$index]['serial_number_ids']);
-        }
+        $this->dispatch('updateRows', $this->rows);
     }
 
     public function removeProductRow($index)
     {
-        if (isset($this->selectedProducts[$index])) {
-            unset($this->selectedProducts[$index]);
-            $this->selectedProducts = array_values($this->selectedProducts); // Reindex the array
+        if (isset($this->rows[$index])) {
+            unset($this->rows[$index]);
+            $this->rows = array_values($this->rows);
         }
+
+        $this->dispatch('updateRows', $this->rows);
+    }
+
+    public function handleValidationErrors($errors)
+    {
+        $this->validationErrors = $errors;
+        Log::info("Table received errors: ", ['errors' => $errors]);
+        $this->render();
     }
 
     public function render()
     {
+        Log::info(
+            "Table render called: ", [
+                'errors' => $this->getErrorBag()->messages()
+            ]
+        );
         return view('livewire.purchase-return.purchase-return-table');
     }
 }
