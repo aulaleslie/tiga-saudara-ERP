@@ -1,3 +1,4 @@
+@php use Carbon\Carbon; @endphp
 @extends('layouts.app')
 
 @section('title', 'Penerimaan Pembelian')
@@ -33,7 +34,7 @@
                             <div class="col-sm-6">
                                 <h6>Info Invoice</h6>
                                 <div>Invoice: <strong>INV/{{ $purchase->reference }}</strong></div>
-                                <div>Tanggal: {{ \Carbon\Carbon::parse($purchase->date)->format('d M, Y') }}</div>
+                                <div>Tanggal: {{ Carbon::parse($purchase->date)->format('d M, Y') }}</div>
                                 <div>Status: <strong>{{ $purchase->status }}</strong></div>
                             </div>
                         </div>
@@ -45,16 +46,19 @@
                                 <div class="col-sm-6">
                                     <label for="location_id">Lokasi</label>
                                     <select name="location_id" id="location_id" class="form-control" required>
-                                        <option value="" selected disabled>Pilih Lokasi</option>
+                                        <option value="" disabled {{ old('location_id') === null ? 'selected' : '' }}>Pilih Lokasi</option>
                                         @foreach ($locations as $location)
-                                            <option value="{{ $location->id }}">{{ $location->name }}</option>
+                                            <option value="{{ $location->id }}" {{ old('location_id') == $location->id ? 'selected' : '' }}>
+                                                {{ $location->name }}
+                                            </option>
                                         @endforeach
                                     </select>
                                 </div>
                                 <div class="col-sm-6">
                                     <label for="external_delivery_number">Nomor Surat Jalan Supplier</label>
                                     <input type="text" name="external_delivery_number" id="external_delivery_number"
-                                           class="form-control" placeholder="Masukkan Nomor Surat Jalan">
+                                           class="form-control" placeholder="Masukkan Nomor Surat Jalan"
+                                           value="{{ old('external_delivery_number') }}">
                                 </div>
                             </div>
 
@@ -86,22 +90,35 @@
                                                        class="form-control"
                                                        min="0"
                                                        max="{{ $detail->quantity - ($detail->quantity_received ?? 0) }}"
-                                                       value="0"
+                                                       value="{{ old("received.$detail->id", 0) }}"
                                                        data-require-serial="{{ $detail->product->serial_number_required ? 'true' : 'false' }}"
                                                        data-detail-id="{{ $detail->id }}">
                                             </td>
                                             <td>
                                                 @if ($detail->product->serial_number_required)
-                                                    <div class="serial-number-container"
-                                                         id="serial-number-container-{{ $detail->id }}">
+                                                    <div class="serial-number-container" id="serial-number-container-{{ $detail->id }}">
+                                                        @if ($errors->has('serial_numbers'))
+                                                            <div class="text-danger">
+                                                                {{ $errors->first('serial_numbers') }}
+                                                            </div>
+                                                        @endif
                                                         <button type="button" class="btn btn-sm btn-secondary mb-2"
                                                                 onclick="toggleSerialFields({{ $detail->id }})">
-                                                            <i class="bi bi-chevron-down"></i> Toggle Serial Number
-                                                            Fields
+                                                            <i class="bi bi-chevron-down"></i> Toggle Serial Number Fields
                                                         </button>
-                                                        <div class="serial-fields d-none"
+                                                        <div class="serial-fields {{ old("serial_numbers.$detail->id") ? '' : 'd-none' }}"
                                                              id="serial-fields-{{ $detail->id }}">
-                                                            <!-- Serial Number Input Fields will be added dynamically -->
+                                                            @foreach (old("serial_numbers.$detail->id", []) as $serialNumber)
+                                                                <input type="text" name="serial_numbers[{{ $detail->id }}][]"
+                                                                       class="form-control mb-2"
+                                                                       placeholder="Serial Number"
+                                                                       value="{{ $serialNumber }}">
+                                                            @endforeach
+                                                            @if ($errors->has("serial_numbers.$detail->id"))
+                                                                <div class="text-danger">
+                                                                    {{ $errors->first("serial_numbers.$detail->id") }}
+                                                                </div>
+                                                            @endif
                                                         </div>
                                                     </div>
                                                 @else
@@ -110,7 +127,7 @@
                                             </td>
                                             <td>
                                                 <input type="text" name="notes[{{ $detail->id }}]" class="form-control"
-                                                       placeholder="Optional">
+                                                       placeholder="Optional" value="{{ old("notes.$detail->id") }}">
                                             </td>
                                         </tr>
                                     @endforeach

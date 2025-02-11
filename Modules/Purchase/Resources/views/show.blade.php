@@ -87,7 +87,7 @@
                                             </span>
                                         </td>
 
-                                        <td class="align-middle">{{ format_currency($item->unit_price) }}</td>
+                                        <td class="align-middle">{{ format_currency($item->price) }}</td>
 
                                         <td class="align-middle">
                                             {{ $item->quantity }}

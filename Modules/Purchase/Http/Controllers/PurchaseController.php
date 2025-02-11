@@ -327,10 +327,26 @@ class PurchaseController extends Controller
         $data = $request->validate([
             'received.*' => 'nullable|integer|min:0',
             'notes.*' => 'nullable|string|max:255',
-            'serial_numbers.*.*' => 'nullable|string|max:255',
+            'serial_numbers.*.*' => ['nullable', 'string', 'max:255'],
             'external_delivery_number' => 'nullable|string|max:255',
             'location_id' => 'required|integer|exists:locations,id',
         ]);
+
+        // Collect all serial numbers submitted by the user
+        $inputtedSerialNumbers = collect($data['serial_numbers'] ?? [])
+            ->flatten()
+            ->filter() // Remove null or empty values
+            ->unique(); // Avoid duplicate checks within the input itself
+
+        // Find duplicate serial numbers in the database
+        $existingSerialNumbers = ProductSerialNumber::whereIn('serial_number', $inputtedSerialNumbers)->pluck('serial_number')->toArray();
+
+        // If any duplicate serial numbers exist, return a validation error
+        if (!empty($existingSerialNumbers)) {
+            return redirect()->back()->withErrors([
+                'serial_numbers' => 'Serial Number berikut sudah ada: ' . implode(', ', $existingSerialNumbers),
+            ])->withInput();
+        }
 
         DB::transaction(function () use ($data, $purchase) {
             // Lock the purchase row
@@ -383,7 +399,7 @@ class PurchaseController extends Controller
                         foreach ($data['serial_numbers'][$detail->id] as $serialNumber) {
                             ProductSerialNumber::create([
                                 'product_id' => $detail->product_id,
-                                'location_id' => $data['location_id'], // Use selected location ID
+                                'location_id' => $data['location_id'],
                                 'serial_number' => $serialNumber,
                                 'tax_id' => $detail->tax_id,
                                 'received_note_detail_id' => $receivedNoteDetail->id,
