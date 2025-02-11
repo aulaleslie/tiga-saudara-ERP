@@ -92,7 +92,7 @@
                                     class="form-control"
                                     wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
                                 >
-                                    <option value="">Pilih Pajak</option>
+                                    <option value="">Non Pajak</option>
                                     @foreach($taxes as $tax)
                                         <option
                                             value="{{ $tax->id }}"

@@ -461,7 +461,7 @@ class ProductCart extends Component
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
 
         // Get the selected tax ID
-        $tax_id = $this->product_tax[$product_id] ?? null;
+        $tax_id = !empty($this->product_tax[$product_id]) ? $this->product_tax[$product_id] : null;
 
         // Initialize tax amount and validate the tax ID
         $tax_amount = 0;
@@ -503,6 +503,22 @@ class ProductCart extends Component
                 session()->flash('message', 'Invalid tax selected.');
             }
         } else {
+            $updated_cart_data = $this->calculateSubtotalAndTax(
+                $cart_item->price,
+                $cart_item->qty,
+                $cart_item->options->product_discount ?? 0,
+                $tax_id
+            );
+
+            Cart::instance($this->cart_instance)->update($row_id, [
+                'options' => array_merge($cart_item->options->toArray(), [
+                    'product_tax' => $tax_id,
+                    'sub_total' => $updated_cart_data['sub_total'],
+                    'sub_total_before_tax' => $updated_cart_data['subtotal_before_tax'],
+                ]),
+            ]);
+
+            $this->recalculateCart();
             Log::warning('No tax ID provided for product', ['product_id' => $product_id]);
         }
     }
