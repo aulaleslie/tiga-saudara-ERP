@@ -279,10 +279,8 @@ class PurchaseController extends Controller
         return redirect()->route('purchases.index');
     }
 
-    public function updateStatus(Request $request, Purchase $purchase)
+    public function updateStatus(Request $request, Purchase $purchase): RedirectResponse
     {
-        abort_if(Gate::denies('purchase.status'), 403);
-
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
                     Purchase::STATUS_WAITING_APPROVAL,

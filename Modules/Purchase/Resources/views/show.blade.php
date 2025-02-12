@@ -178,26 +178,30 @@
                                 </form>
                             @endif
 
-                            @if ($purchase->status === Purchase::STATUS_WAITING_APPROVAL)
-                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
-                                    @csrf
-                                    @method('PATCH')
-                                    <input type="hidden" name="status" value="{{ Purchase::STATUS_APPROVED }}">
-                                    <button type="submit" class="btn btn-success">Setuju</button>
-                                </form>
-                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
-                                    @csrf
-                                    @method('PATCH')
-                                    <input type="hidden" name="status" value="{{ Purchase::STATUS_REJECTED }}">
-                                    <button type="submit" class="btn btn-danger">Tolak</button>
-                                </form>
-                            @endif
+                            @can('purchase.approval')
+                                @if ($purchase->status === Purchase::STATUS_WAITING_APPROVAL)
+                                    <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="status" value="{{ Purchase::STATUS_APPROVED }}">
+                                        <button type="submit" class="btn btn-success">Setuju</button>
+                                    </form>
+                                    <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="status" value="{{ Purchase::STATUS_REJECTED }}">
+                                        <button type="submit" class="btn btn-danger">Tolak</button>
+                                    </form>
+                                @endif
+                            @endcan
 
-                            @if ($purchase->status === Purchase::STATUS_APPROVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY)
-                                <a href="{{ route('purchases.receive', $purchase->id) }}" class="btn btn-primary">
-                                    Menerima
-                                </a>
-                            @endif
+                            @can('purchase.receiving')
+                                @if ($purchase->status === Purchase::STATUS_APPROVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY)
+                                    <a href="{{ route('purchases.receive', $purchase->id) }}" class="btn btn-primary">
+                                        Menerima
+                                    </a>
+                                @endif
+                            @endcan
                         </div>
                     </div>
                 </div>

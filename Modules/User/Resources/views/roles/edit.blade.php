@@ -303,7 +303,22 @@
                                                         <label class="custom-control-label" for="purchase.delete">Hapus</label>
                                                     </div>
                                                 </div>
-
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="purchase.approval" name="permissions[]"
+                                                               value="purchase.approval" {{ $role->hasPermissionTo('purchase.approval') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="purchase.approval">Persetujuan</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="custom-control custom-switch">
+                                                        <input type="checkbox" class="custom-control-input"
+                                                               id="purchase.receiving" name="permissions[]"
+                                                               value="purchase.receiving" {{ $role->hasPermissionTo('purchase.receiving') ? 'checked' : '' }}>
+                                                        <label class="custom-control-label" for="purchase.receiving">Penerimaan</label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
