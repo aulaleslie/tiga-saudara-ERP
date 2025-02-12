@@ -21,8 +21,6 @@
                 <thead class="thead-dark">
                 <tr>
                     <th class="align-middle">Produk</th>
-                    <th class="align-middle text-center">Harga Beli Rata Rata</th>
-                    <th class="align-middle text-center">Harga Beli Terakhir</th>
                     <th class="align-middle text-center">Harga Beli</th>
                     <th class="align-middle text-center">Stok</th>
                     <th class="align-middle text-center">Jumlah</th>
@@ -42,16 +40,11 @@
                                 <span class="badge badge-success">
                                         {{ $cart_item->options->code }}
                                     </span>
-                            </td>
-
-                            <!-- Harga Beli Rata-Rata -->
-                            <td class="align-middle text-center">
-                                {{ format_currency($cart_item->options->average_purchase_price) }}
-                            </td>
-
-                            <!-- Last Purchase Price -->
-                            <td class="align-middle text-center">
+                                <br>
+                                Harga Beli Rata-Rata: {{ format_currency($cart_item->options->average_purchase_price) }}
+                                <br>
                                 {{ format_currency($cart_item->options->last_purchase_price) }}
+                                Harga Beli Terakhir:
                             </td>
 
                             <td x-data="{ open: false }" class="align-middle text-center">
@@ -82,8 +75,32 @@
                             </td>
 
                             <td class="align-middle text-center">
-                                {{ format_currency($cart_item->options->product_discount) }}
-                                @include('livewire.includes.product-cart-modal')
+                                <div class="input-group" style="max-width: 150px;">
+                                    <!-- Dropdown for Discount Type -->
+                                    <select wire:model.defer="discount_type.{{ $cart_item->id }}"
+                                            wire:change="setProductDiscount('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
+                                            class="form-select form-select-sm bg-light border border-gray-300 rounded-start">
+                                        <option value="fixed">Rp</option>
+                                        <option value="percentage">%</option>
+                                    </select>
+
+                                    <!-- Discount Input Field -->
+                                    <input type="number"
+                                           wire:model.defer="item_discount.{{ $cart_item->id }}"
+                                           wire:change="setProductDiscount('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
+                                           class="form-control form-control-sm text-center border border-gray-300 rounded-end"
+                                           style="max-width: 60px;"
+                                           min="0"
+                                           @if($discount_type[$cart_item->id] == 'percentage') max="100" @endif
+                                           placeholder="0">
+                                </div>
+
+                                <!-- Display Calculated Discount if Percentage -->
+                                @if($discount_type[$cart_item->id] == 'percentage' && !empty($item_discount[$cart_item->id]))
+                                    <div class="text-muted small mt-1">
+                                        = {{ format_currency(($cart_item->price * $cart_item->qty) * ($item_discount[$cart_item->id] / 100)) }}
+                                    </div>
+                                @endif
                             </td>
 
                             <td class="align-middle text-center">
