@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\Transaction;
 use Modules\Purchase\DataTables\PurchaseDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
@@ -419,6 +420,10 @@ class PurchaseController extends Controller
                         ]);
                     }
 
+                    // Capture the **previous stock** before updating
+                    $previous_quantity = $productStock->quantity;
+                    $previous_quantity_at_location = $productStock->where('location_id', $data['location_id'])->value('quantity');
+
                     // Increment stock quantity
                     $productStock->increment('quantity', $receivedQuantity);
 
@@ -428,9 +433,42 @@ class PurchaseController extends Controller
                         $productStock->increment('quantity_non_tax', $receivedQuantity);
                     }
 
+                    // Capture the **after stock** after updating
+                    $after_quantity = $productStock->quantity;
+                    $after_quantity_at_location = $productStock->where('location_id', $data['location_id'])->value('quantity');
+
                     // Update product quantity in the Product model
                     $product = $products->where('id', $detail->product_id)->first();
                     $product->increment('product_quantity', $receivedQuantity);
+
+                    // Update Last Purchase Price
+                    $product->update([
+                        'last_purchase_price' => $detail->price, // Update last purchase price from purchase detail
+                    ]);
+
+                    // Update Average Purchase Price
+                    $this->updateAveragePurchasePrice($product, $detail->price, $receivedQuantity);
+
+                    // **Insert Transaction Log**
+                    Transaction::create([
+                        'product_id' => $detail->product_id,
+                        'setting_id' => session('setting_id'),
+                        'quantity' => $receivedQuantity,
+                        'current_quantity' => $after_quantity,
+                        'broken_quantity' => 0,
+                        'location_id' => $data['location_id'],
+                        'user_id' => auth()->id(),
+                        'reason' => 'Received from Purchase Order #' . $purchase->reference,
+                        'type' => 'BUY', // Define the transaction type
+                        'previous_quantity' => $previous_quantity,
+                        'after_quantity' => $after_quantity,
+                        'previous_quantity_at_location' => $previous_quantity_at_location,
+                        'after_quantity_at_location' => $after_quantity_at_location,
+                        'quantity_non_tax' => $detail->tax_id ? 0 : $receivedQuantity,
+                        'quantity_tax' => $detail->tax_id ? $receivedQuantity : 0,
+                        'broken_quantity_non_tax' => 0,
+                        'broken_quantity_tax' => 0,
+                    ]);
                 }
             }
 
@@ -464,5 +502,21 @@ class PurchaseController extends Controller
         });
 
         return redirect()->route('purchases.show', $purchase->id)->with('message', 'Items successfully received.');
+    }
+
+    private function updateAveragePurchasePrice(Product $product, $newPrice, $receivedQuantity)
+    {
+        $currentTotalValue = $product->average_purchase_price * $product->product_quantity;
+        $newTotalValue = $newPrice * $receivedQuantity;
+
+        $newTotalQuantity = $product->product_quantity + $receivedQuantity;
+
+        if ($newTotalQuantity > 0) {
+            $newAveragePrice = ($currentTotalValue + $newTotalValue) / $newTotalQuantity;
+        } else {
+            $newAveragePrice = $newPrice; // Default to new price if no previous stock
+        }
+
+        $product->update(['average_purchase_price' => $newAveragePrice]);
     }
 }
