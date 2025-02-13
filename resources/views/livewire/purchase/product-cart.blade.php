@@ -10,7 +10,7 @@
                 </div>
             </div>
         @endif
-        <div class="table-responsive position-relative">
+        <div class="table position-relative">
             <div wire:loading.flex class="col-12 position-absolute justify-content-center align-items-center"
                  style="top:0;right:0;left:0;bottom:0;background-color: rgba(255,255,255,0.5);z-index: 99;">
                 <div class="spinner-border text-primary" role="status">
@@ -36,19 +36,19 @@
                     @foreach($cart_items as $cart_item)
                         <tr>
                             <td class="align-middle">
-                                {{ $cart_item->name }} <br>
-                                <span class="badge badge-success">
-                                        {{ $cart_item->options->code }}
-                                    </span>
-                                <br>
-                                Harga Beli Rata-Rata: {{ format_currency($cart_item->options->average_purchase_price) }}
-                                <br>
-                                {{ format_currency($cart_item->options->last_purchase_price) }}
-                                Harga Beli Terakhir:
+                                <strong>{{ $cart_item->name }}</strong> <br>
+                                <span class="badge badge-success">{{ $cart_item->options->code }}</span>
+
+                                <!-- Tooltip Container -->
+                                <span class="d-inline-block"
+                                      data-bs-toggle="tooltip"
+                                      data-bs-placement="top"
+                                      title="Harga Beli Rata-Rata: {{ format_currency($cart_item->options->average_purchase_price) }} | Harga Beli Terakhir: {{ format_currency($cart_item->options->last_purchase_price) }}">
+                                    <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
+                                </span>
                             </td>
 
-                            <td x-data="{ open: false }" class="align-middle text-center">
-                                <!-- Display formatted price when not editing -->
+                            <td x-data="{ open: false }" class="align-middle text-right">
                                 <span x-show="!open"
                                       @click="open = true">{{ format_currency($cart_item->price) }}</span>
 
@@ -58,38 +58,55 @@
                                         wire:model.defer="unit_price.{{ $cart_item->id }}"
                                         style="min-width: 40px; max-width: 90px;"
                                         type="text"
-                                        class="form-control text-center"
+                                        class="form-control text-right"
                                         @keydown.enter="open = false"
                                         wire:blur="updatePrice('{{ $cart_item->rowId }}', {{ $cart_item->id }})"
                                     >
                                 </div>
                             </td>
 
-                            <td class="align-middle text-center text-center">
-                                <span
-                                    class="badge badge-info">{{ $cart_item->options->stock . ' ' . $cart_item->options->unit }}</span>
+                            <td class="align-middle text-right">
+                                <span class="badge badge-info">
+                                    {{ $cart_item->options->stock . ' ' . $cart_item->options->unit }}
+                                </span>
                             </td>
 
-                            <td class="align-middle text-center">
+                            <td class="align-middle text-right">
                                 @include('livewire.includes.product-cart-quantity')
                             </td>
 
-                            <td class="align-middle text-center">
-                                <div class="input-group" style="max-width: 150px;">
-                                    <!-- Dropdown for Discount Type -->
-                                    <select wire:model.defer="discount_type.{{ $cart_item->id }}"
-                                            wire:change="setProductDiscount('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
-                                            class="form-select form-select-sm bg-light border border-gray-300 rounded-start">
-                                        <option value="fixed">Rp</option>
-                                        <option value="percentage">%</option>
-                                    </select>
+                            <td class="align-middle text-center position-relative">
+                                <div class="input-group input-group-sm" style="max-width: 180px;">
+                                    <!-- Discount Type Dropdown Inside Input Box -->
+                                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle px-3" type="button"
+                                            data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false"
+                                            style="font-size: 0.875rem; min-width: 50px;">
+                                        {{ $discount_type[$cart_item->id] == 'percentage' ? '%' : 'Rp' }}
+                                    </button>
 
-                                    <!-- Discount Input Field -->
+                                    <!-- The dropdown menu is now positioned outside the table -->
+                                    <ul class="dropdown-menu"
+                                        style="color: black; font-size: 0.9rem; position: absolute; left: 0; top: 100%; z-index: 1050;">
+                                        <li>
+                                            <a class="dropdown-item text-center text-dark" href="#"
+                                               wire:click.prevent="setDiscountType('{{ $cart_item->rowId }}', '{{ $cart_item->id }}', 'fixed')">
+                                                Rp
+                                            </a>
+                                        </li>
+                                        <li>
+                                            <a class="dropdown-item text-center text-dark" href="#"
+                                               wire:click.prevent="setDiscountType('{{ $cart_item->rowId }}', '{{ $cart_item->id }}', 'percentage')">
+                                                %
+                                            </a>
+                                        </li>
+                                    </ul>
+
+                                    <!-- Discount Input -->
                                     <input type="number"
                                            wire:model.defer="item_discount.{{ $cart_item->id }}"
                                            wire:change="setProductDiscount('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
-                                           class="form-control form-control-sm text-center border border-gray-300 rounded-end"
-                                           style="max-width: 60px;"
+                                           class="form-control form-control-sm text-right"
+                                           style="font-size: 0.875rem; min-width: 70px;"
                                            min="0"
                                            @if($discount_type[$cart_item->id] == 'percentage') max="100" @endif
                                            placeholder="0">
@@ -98,7 +115,7 @@
                                 <!-- Display Calculated Discount if Percentage -->
                                 @if($discount_type[$cart_item->id] == 'percentage' && !empty($item_discount[$cart_item->id]))
                                     <div class="text-muted small mt-1">
-                                        = {{ format_currency(($cart_item->price * $cart_item->qty) * ($item_discount[$cart_item->id] / 100)) }}
+                                        = {{ format_currency($cart_item->price * ($item_discount[$cart_item->id] / 100) * $cart_item->qty) }}
                                     </div>
                                 @endif
                             </td>
@@ -140,10 +157,8 @@
                     @endforeach
                 @else
                     <tr>
-                        <td colspan="11" class="text-center">
-                        <span class="text-danger">
-                            Please search & select products!
-                        </span>
+                        <td colspan="9" class="text-center">
+                            <span class="text-danger">Please search & select products!</span>
                         </td>
                     </tr>
                 @endif
@@ -204,20 +219,54 @@
     </div>
 
     <input type="hidden" name="total_amount" value="{{ $grand_total }}">
-    <input type="hidden" name="discount_amount" value="{{ $global_discount_amount }}">
+    @if($global_discount_type == 'percentage')
+        <input type="hidden" name="discount_percentage" value="{{ $global_discount }}">
+    @else
+        <input type="hidden" name="discount_amount" value="{{ $global_discount }}">
+    @endif
 
     <div class="form-row">
         <div class="col-lg-4">
             <div class="form-group">
-                <label for="discount_percentage">Diskon (%)</label>
-                <input wire:model.blur="global_discount" type="number" class="form-control" name="discount_percentage"
-                       min="0" max="100" value="{{ $global_discount }}" required>
+                <label for="discount_percentage">Diskon Global</label>
+                <div class="input-group input-group-sm">
+                    <button class="btn btn-outline-secondary dropdown-toggle px-3 h-100"
+                            type="button"
+                            data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false"
+                            style="font-size: 0.875rem; min-width: 50px; min-height: 31px; padding-top: 0.25rem; padding-bottom: 0.25rem;">
+                        {{ $global_discount_type == 'percentage' ? '%' : 'Rp' }}
+                    </button>
+
+                    <ul class="dropdown-menu" style="color: black; font-size: 0.9rem; position: absolute; left: 0; top: 100%; z-index: 1050;">
+                        <li>
+                            <a class="dropdown-item text-left text-dark" href="#"
+                               wire:click.prevent="setGlobalDiscountType('fixed')">
+                                Rp
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item text-left text-dark" href="#"
+                               wire:click.prevent="setGlobalDiscountType('percentage')">
+                                %
+                            </a>
+                        </li>
+                    </ul>
+
+                    <input type="number"
+                           wire:model.defer="global_discount"
+                           wire:change="updateGlobalDiscount"
+                           class="form-control form-control-sm text-right"
+                           style="font-size: 0.875rem; min-width: 70px; min-height: 31px;"
+                           min="0"
+                           @if($global_discount_type == 'percentage') max="100" @endif
+                           placeholder="0">
+                </div>
             </div>
         </div>
         <div class="col-lg-4">
             <div class="form-group">
                 <label for="shipping_amount">Ongkos Kirim</label>
-                <input wire:model.blur="shipping" type="number" class="form-control" name="shipping_amount" min="0"
+                <input wire:model.blur="shipping" type="number" class="form-control text-right" name="shipping_amount" min="0"
                        value="0" required step="0.01">
             </div>
         </div>

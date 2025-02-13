@@ -76,8 +76,8 @@ class PurchaseController extends Controller
                 'tax_id' => $request->tax_id,
                 'tax_percentage' => 0, // Example
                 'tax_amount' => 0, // Example
-                'discount_percentage' => $request->discount_percentage,
-                'discount_amount' => $request->discount_amount,
+                'discount_percentage' => $request->discount_percentage ?? 0,
+                'discount_amount' => $request->discount_amount ?? 0,
                 'shipping_amount' => $request->shipping_amount,
                 'total_amount' => $request->total_amount,
                 'due_amount' => $request->total_amount,
@@ -205,7 +205,6 @@ class PurchaseController extends Controller
         return view('purchase::edit', compact('purchase', 'paymentTerms', 'suppliers'));
     }
 
-
     public function update(UpdatePurchaseRequest $request, Purchase $purchase)
     {
         Log::info('Cart count at start of update:', ['count' => Cart::instance('purchase')->count()]);
@@ -265,8 +264,6 @@ class PurchaseController extends Controller
         toast('Pembelian Diperbaharui!', 'info');
         return redirect()->route('purchases.index');
     }
-
-
 
     public function destroy(Purchase $purchase)
     {

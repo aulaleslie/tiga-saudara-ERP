@@ -20,7 +20,8 @@ class StorePurchaseRequest extends FormRequest
             'date' => 'required|date',
             'due_date' => 'required|date|after_or_equal:date',
             'tax_id' => 'nullable|integer|exists:taxes,id',
-            'discount_percentage' => 'required|numeric|min:0|max:100',
+            'discount_percentage' => 'nullable|numeric|min:0|max:100|required_without:discount_amount',
+            'discount_amount' => 'nullable|numeric|min:0|required_without:discount_percentage',
             'shipping_amount' => 'required|numeric',
             'total_amount' => 'required|numeric|min:0', // Ensure total amount is a valid number
             'payment_term' => 'required|integer|exists:payment_terms,id', // New field for payment term

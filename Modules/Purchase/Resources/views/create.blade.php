@@ -190,7 +190,6 @@
                         console.warn("Longevity not defined for the selected payment term.");
                     }
                 } else {
-                    paymentTermDropdown.disabled = true;
                     console.warn("No associated payment term for the selected supplier.");
                 }
             });

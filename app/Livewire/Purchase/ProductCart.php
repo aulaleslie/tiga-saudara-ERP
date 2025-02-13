@@ -33,6 +33,8 @@ class ProductCart extends Component
     public $is_tax_included = false;
     private $product;
 
+    public $global_discount_type = 'percentage';
+
     protected $rules = [
         'unit_price.*' => 'required|numeric|min:0', // Unit price per row.
         'quantity.*' => 'required|integer|min:1', // Quantity must be at least 1.
@@ -43,7 +45,7 @@ class ProductCart extends Component
         'is_tax_included' => 'nullable|boolean', // Boolean flag for tax inclusion.
     ];
 
-    public function mount($cartInstance, $data = null)
+    public function mount($cartInstance, $data = null): void
     {
         $this->cart_instance = $cartInstance;
         $this->setting_id = session('setting_id');
@@ -51,6 +53,13 @@ class ProductCart extends Component
 
         if ($data) {
             $this->data = $data;
+
+            if ($data->discount_percentage > 0) {
+                $this->global_discount_type = 'percentage';
+            } else if ($data->discount_amount > 0) {
+                $this->global_discount_type = 'fixed';
+            }
+
             $this->global_discount = $data->discount_percentage ?? 0;
             $this->shipping = $data->shipping_amount;
             $this->is_tax_included = $data->is_tax_included;
@@ -102,9 +111,10 @@ class ProductCart extends Component
         }
 
         // Calculate global discount amount
-        $global_discount_amount = 0;
-        if ($this->global_discount > 0) {
-            $global_discount_amount = $total_sub_total * ($this->global_discount / 100);
+        if ($this->global_discount_type == 'percentage') {
+            $global_discount_amount = $total_sub_total * ($this->global_discount/100);
+        } else {
+            $global_discount_amount = $this->global_discount;
         }
 
         // Apply discount and shipping to calculate grand total
@@ -309,7 +319,13 @@ class ProductCart extends Component
         $this->updateQuantity($row_id, $product_id);
     }
 
-    public function setProductDiscount($row_id, $product_id)
+    public function setDiscountType($row_id, $product_id, $discount_type): void
+    {
+        $this->discount_type[$product_id] = $discount_type;
+        $this->setProductDiscount($row_id, $product_id);
+    }
+
+    public function setProductDiscount($row_id, $product_id): void
     {
         // Fetch cart item
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
@@ -395,11 +411,19 @@ class ProductCart extends Component
         // Validate and set new price
         $new_price = $this->unit_price[$product_id] ?? $cart_item->price;
 
+        // if percentage, recalculate discount amount
+        $discount_amount = $cart_item->options->product_discount;
+        $raw_discount_input = $this->item_discount[$product_id] ?? 0;
+        $sanitized_discount_input = is_numeric($raw_discount_input) ? (float) $raw_discount_input : 0;
+        if ($this->discount_type[$product_id] == 'percentage') {
+            $discount_amount = $new_price * ($sanitized_discount_input / 100);
+        }
+
         // Use calculateSubtotalAndTax function to calculate
         $calculated = $this->calculateSubtotalAndTax(
             $new_price,
             $cart_item->qty,
-            $cart_item->options->product_discount ?? 0,
+            $discount_amount ?? 0,
             $this->product_tax[$product_id] ?? null
         );
 
@@ -411,6 +435,7 @@ class ProductCart extends Component
                 'sub_total' => $calculated['sub_total'],
                 'sub_total_before_tax' => $calculated['subtotal_before_tax'],
                 'tax_amount' => $calculated['tax_amount'],
+                'product_discount' => $discount_amount,
             ]),
         ]);
 
@@ -559,6 +584,17 @@ class ProductCart extends Component
         }
 
         // Recalculate cart totals
+        $this->recalculateCart();
+    }
+
+    public function setGlobalDiscountType($type): void
+    {
+        $this->global_discount_type = $type;
+        $this->updateGlobalDiscount(); // Ensure recalculation happens
+    }
+
+    public function updateGlobalDiscount(): void
+    {
         $this->recalculateCart();
     }
 }
