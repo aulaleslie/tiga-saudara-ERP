@@ -44,23 +44,33 @@ class PurchaseOrderSerialNumberLoader extends Component
 
     public function searchSerialNumbers(): void
     {
-        if ($this->query && $this->product_id && $this->purchase_id) {
-            $serial_number_query = ProductSerialNumber::whereIn('product_id', function ($query) {
-                $query->select('pd.product_id')
-                    ->from('purchase_details as pd')
-                    ->leftJoin('received_note_details as rnd', 'pd.id', '=', 'rnd.po_detail_id')
-                    ->leftJoin('product_serial_numbers as psn', 'rnd.id', '=', 'psn.received_note_detail_id')
-                    ->where('pd.purchase_id', $this->purchase_id);
-            })
+        if ($this->query && $this->product_id) {
+            $serial_number_query = ProductSerialNumber::query();
+
+            if ($this->purchase_id) {
+                $serial_number_query->whereIn('product_id', function ($query) {
+                    $query->select('pd.product_id')
+                        ->from('purchase_details as pd')
+                        ->leftJoin('received_note_details as rnd', 'pd.id', '=', 'rnd.po_detail_id')
+                        ->leftJoin('product_serial_numbers as psn', 'rnd.id', '=', 'psn.received_note_detail_id')
+                        ->where('pd.purchase_id', $this->purchase_id);
+                });
+            }
+
+            $serial_number_query
                 ->where('product_id', $this->product_id)
                 ->where('serial_number', 'like', '%' . $this->query . '%');
 
             $this->query_count = $serial_number_query->count();
-
             $this->search_results = $serial_number_query->limit($this->how_many)->get();
         }
     }
 
+    public function resetQueryAfterDelay(): void
+    {
+        sleep(1); // Small delay before closing
+        $this->isFocused = false;
+    }
 
     public function selectSerialNumber($serial_number_id): void
     {

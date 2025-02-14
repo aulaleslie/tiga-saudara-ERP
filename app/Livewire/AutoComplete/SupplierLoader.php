@@ -26,6 +26,12 @@ class SupplierLoader extends Component
         }
     }
 
+    public function resetQueryAfterDelay(): void
+    {
+        sleep(1); // Small delay before closing
+        $this->isFocused = false;
+    }
+
     public function searchSuppliers(): void
     {
         if ($this->query) {

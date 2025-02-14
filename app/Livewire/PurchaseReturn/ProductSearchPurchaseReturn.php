@@ -59,6 +59,12 @@ class ProductSearchPurchaseReturn extends Component
         }
     }
 
+    public function resetQueryAfterDelay(): void
+    {
+        sleep(1); // Small delay before closing
+        $this->isFocused = false;
+    }
+
     public function selectProduct($productId): void
     {
         $product = Product::find($productId);

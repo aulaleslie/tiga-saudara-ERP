@@ -73,7 +73,7 @@
                 </tr>
 
                 {{-- Serial Number Section --}}
-                @if (!empty($row['serial_number_required']) && !empty($row['purchase_order_id']))
+                @if (!empty($row['serial_number_required']))
                     <tr>
                         <td colspan="7">
                             <div class="p-3 border rounded bg-light">

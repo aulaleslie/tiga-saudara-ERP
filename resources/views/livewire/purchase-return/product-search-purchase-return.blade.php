@@ -7,7 +7,7 @@
                    type="text"
                    class="form-control"
                    wire:focus="$set('isFocused', true)"
-                   wire:blur="$set('isFocused', false)"
+                   wire:blur="resetQueryAfterDelay"
                    placeholder="Ketik nama produk atau kode produk....">
         </div>
     </div>
