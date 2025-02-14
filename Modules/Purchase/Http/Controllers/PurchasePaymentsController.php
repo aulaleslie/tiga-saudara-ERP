@@ -3,7 +3,6 @@
 namespace Modules\Purchase\Http\Controllers;
 
 use Illuminate\Support\Facades\Storage;
-use Modules\Purchase\DataTables\PurchaseDataTable;
 use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;

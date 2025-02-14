@@ -143,6 +143,56 @@
                             </div>
                         </div>
 
+                        <div class="row mt-4">
+                            <div class="col-lg-12">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h4 class="mb-3">Penerimaan Barang</h4>
+                                        <div class="table-responsive">
+                                            <table id="purchase-receivings-table" class="table table-striped table-bordered">
+                                                <thead>
+                                                <tr>
+                                                    <th></th> <!-- Expand Button -->
+                                                    <th>No. Delivery</th>
+                                                    <th>No. Invoice</th>
+                                                    <th>Tanggal</th>
+                                                    <th>Total Diterima</th>
+                                                </tr>
+                                                </thead>
+                                                <tbody>
+                                                @foreach($receivedNotes as $receivedNote)
+                                                    <!-- Main Row -->
+                                                    <tr>
+                                                        <td class="text-center">
+                                                            <button class="btn btn-sm btn-outline-primary toggle-details"
+                                                                    data-bs-toggle="collapse"
+                                                                    data-bs-target="#details-{{ $receivedNote->id }}"
+                                                                    aria-expanded="false"
+                                                                    aria-controls="details-{{ $receivedNote->id }}">
+                                                                <i class="bi bi-plus-circle"></i>
+                                                            </button>
+                                                        </td>
+                                                        <td>{{ $receivedNote->external_delivery_number ?? '-' }}</td>
+                                                        <td>{{ $receivedNote->purchase->reference ?? '-' }}</td>
+                                                        <td>{{ optional($receivedNote->created_at)->format('Y-m-d') }}</td>
+                                                        <td>{{ $receivedNote->receivedNoteDetails->sum('quantity_received') }}</td>
+                                                    </tr>
+
+                                                    <!-- Expandable Details Row -->
+                                                    <tr id="details-{{ $receivedNote->id }}" class="collapse">
+                                                        <td colspan="5">
+                                                            @include('purchase::receivings.receiving-details', ['data' => $receivedNote])
+                                                        </td>
+                                                    </tr>
+                                                @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Payments Table -->
                         <div class="row mt-4">
                             <div class="col-lg-12">
@@ -240,6 +290,28 @@
                         title: 'Aksi'
                     },
                 ]
+            });
+        });
+    </script>
+
+    <script>
+        $(document).ready(function () {
+            $('#purchase-receivings-table tbody').on('click', 'button.toggle-details', function () {
+                let icon = $(this).find('i');
+                let rowId = $(this).attr('data-bs-target');
+
+                $(rowId).collapse('toggle');
+
+                if ($(rowId).hasClass('show')) {
+                    icon.removeClass('bi-dash-circle').addClass('bi-plus-circle'); // Change to plus
+                } else {
+                    icon.removeClass('bi-plus-circle').addClass('bi-dash-circle'); // Change to minus
+                }
+            });
+
+            // Ensure collapsed rows stay open when searching
+            $('#purchase-receivings-table').on('search.dt', function () {
+                $('.collapse').collapse('hide'); // Collapse all details when searching
             });
         });
     </script>

@@ -28,12 +28,12 @@ class ReceivedNote extends Model
         return $this->belongsTo(Purchase::class, 'po_id');
     }
 
-    /**
-     * Relationship with ReceivedNoteDetail
-     * A ReceivedNote has many ReceivedNoteDetails.
-     */
-    public function details(): HasMany
+    public function receivedNoteDetails(): HasMany
     {
         return $this->hasMany(ReceivedNoteDetail::class);
+    }
+
+    public function scopeByPurchase($query) {
+        return $query->where('po_id', request()->route('purchase_id'));
     }
 }

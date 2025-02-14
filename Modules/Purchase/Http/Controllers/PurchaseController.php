@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
+use Modules\Purchase\DataTables\PurchaseReceivingsDataTable;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
@@ -139,8 +140,16 @@ class PurchaseController extends Controller
 
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 
+        $receivedNotes = ReceivedNote::where('po_id', $purchase->id)
+            ->with([
+                'purchase',
+                'receivedNoteDetails.purchaseDetail',
+                'receivedNoteDetails.productSerialNumbers'
+            ])
+            ->get();
+
         return $dataTable->with(['purchase_id' => $purchase->id])
-            ->render('purchase::show', compact('purchase', 'supplier'));
+            ->render('purchase::show', compact('purchase', 'supplier', 'receivedNotes'));
     }
 
 
@@ -518,5 +527,11 @@ class PurchaseController extends Controller
         }
 
         $product->update(['average_purchase_price' => $newAveragePrice]);
+    }
+
+    public function showReceivings($purchase_id, PurchaseReceivingsDataTable $dataTable)
+    {
+        $purchase = Purchase::findOrFail($purchase_id);
+        return $dataTable->render('purchase::receivings.index', compact('purchase'));
     }
 }
