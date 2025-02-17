@@ -24,7 +24,6 @@ class SettingDatabaseSeeder extends Seeder
             'footer_text' => 'Tiga Saudara ERP © 2021',
             'company_address' => 'Bima, NTB'
         ]);
-        $this->call(ChartOfAccountPermissionsSeederTableSeeder::class);
         $this->call(PaymentMethodPermissionsSeeder::class);
     }
 }
