@@ -3,7 +3,6 @@
 namespace Modules\Setting\Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Illuminate\Database\Eloquent\Model;
 use Modules\Setting\Entities\Setting;
 
 class SettingDatabaseSeeder extends Seeder
@@ -25,5 +24,7 @@ class SettingDatabaseSeeder extends Seeder
             'footer_text' => 'Tiga Saudara ERP © 2021',
             'company_address' => 'Bima, NTB'
         ]);
+        $this->call(ChartOfAccountPermissionsSeederTableSeeder::class);
+        $this->call(PaymentMethodPermissionsSeeder::class);
     }
 }
