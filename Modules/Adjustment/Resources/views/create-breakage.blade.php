@@ -64,7 +64,11 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <livewire:adjustment.breakage-product-table :type="'sub'" :locationId="old('location_id')"/>
+                                        <livewire:adjustment.breakage-product-table
+                                            :type="'sub'"
+                                            :locationId="old('location_id')"
+                                            :serial_numbers="old('serial_numbers')"
+                                            :is_taxables="old('is_taxables')"/>
                                         <div class="form-group">
                                             <label for="note">Catatan (Jika Dibutuhkan)</label>
                                             <textarea name="note" id="note" rows="5" class="form-control"></textarea>

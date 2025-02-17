@@ -61,6 +61,7 @@ class PurchaseReturnTable extends Component
             $this->rows[$index]['purchase_price'] = $product['purchase_price'];
             $this->rows[$index]['product_quantity'] = $product['product_quantity'];
             $this->rows[$index]['serial_number_required'] = $product['serial_number_required'];
+            $this->rows[$index]['serial_numbers'] = [];
         }
 
         $this->dispatch('updateRows', $this->rows);
@@ -91,6 +92,34 @@ class PurchaseReturnTable extends Component
         $this->validationErrors = $errors;
         Log::info("Table received errors: ", ['errors' => $errors]);
         $this->render();
+    }
+
+    public function updateSerialNumberRow($index, $serialNumber): void
+    {
+        if (isset($this->rows[$index]) && $this->rows[$index]['serial_number_required']) {
+            if (in_array($serialNumber, $this->rows[$index]['serial_numbers'])) {
+                session()->flash('message', "Serial number '{$serialNumber}' is already added for this product.");
+                return;
+            }
+
+            $this->rows[$index]['serial_numbers'][] = $serialNumber;
+            Log::info("Serial number added for row {$index}", ['serial_number' => $serialNumber]);
+        }
+
+        $this->dispatch('updateRows', $this->rows);
+    }
+
+    public function removeSerialNumber($index, $serialIndex): void
+    {
+        if (isset($this->rows[$index]['serial_numbers'][$serialIndex])) {
+            unset($this->rows[$index]['serial_numbers'][$serialIndex]);
+            // Re-index array to avoid gaps
+            $this->rows[$index]['serial_numbers'] = array_values($this->rows[$index]['serial_numbers']);
+
+            Log::info("Removed serial number at index {$serialIndex} for row {$index}");
+        }
+
+        $this->dispatch('updateRows', $this->rows);
     }
 
     public function render()

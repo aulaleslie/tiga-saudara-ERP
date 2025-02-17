@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Gate;
 use Modules\Adjustment\Entities\AdjustedProduct;
 use Modules\Adjustment\Entities\Adjustment;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\Setting\Entities\Location;
 
@@ -100,9 +102,14 @@ class AdjustmentController extends Controller
             'reference' => 'required|string|max:255',
             'date' => 'required|date',
             'note' => 'nullable|string|max:1000',
-            'product_ids' => 'required',
-            'quantities' => 'required',
-            'location_id' => 'required|exists:locations,id', // Ensure location_id is provided and valid
+            'product_ids' => 'required|array',
+            'quantities' => 'required|array',
+            'serial_numbers' => 'nullable|array',
+            'serial_numbers.*' => 'array', // Ensure each product's serials are arrays
+            'serial_numbers.*.*' => 'integer|exists:product_serial_numbers,id', // Validate each serial number ID
+            'is_taxables' => 'nullable|array', // Ensure it's an array
+            'is_taxables.*' => 'boolean', // Ensure each value is a boolean
+            'location_id' => 'required|exists:locations,id', // Ensure location_id is valid
         ]);
 
         DB::transaction(function () use ($request) {
@@ -115,11 +122,20 @@ class AdjustmentController extends Controller
             ]);
 
             foreach ($request->product_ids as $key => $id) {
+                // Convert serial_numbers array to JSON (ensuring it's an array)
+                $serialNumbersJson = isset($request->serial_numbers[$key])
+                    ? json_encode($request->serial_numbers[$key])
+                    : json_encode([]);
+
+                $isTaxable = isset($request->is_taxables[$key]) && $request->is_taxables[$key];
+
                 AdjustedProduct::create([
                     'adjustment_id' => $adjustment->id,
                     'product_id' => $id,
                     'quantity' => $request->quantities[$key],
-                    'type' => 'sub'
+                    'type' => 'sub',
+                    'serial_numbers' => $serialNumbersJson, // Store as JSON array
+                    'is_taxable' => $isTaxable,
                 ]);
             }
         });
@@ -133,6 +149,25 @@ class AdjustmentController extends Controller
     public function show(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('show_adjustments'), 403);
+
+        $adjustment->load(['adjustedProducts.product']);
+
+        foreach ($adjustment->adjustedProducts as $adjustedProduct) {
+            // Process Serial Numbers
+            if (!empty($adjustedProduct->serial_numbers)) {
+                $serialNumberIds = json_decode($adjustedProduct->serial_numbers, true);
+
+                if (is_array($serialNumberIds)) {
+                    $adjustedProduct->serialNumbers = ProductSerialNumber::whereIn('id', $serialNumberIds)
+                        ->pluck('serial_number')
+                        ->toArray();
+                } else {
+                    $adjustedProduct->serialNumbers = [];
+                }
+            } else {
+                $adjustedProduct->serialNumbers = [];
+            }
+        }
 
         return view('adjustment::show', compact('adjustment'));
     }
@@ -159,6 +194,7 @@ class AdjustmentController extends Controller
             'types' => 'required'
         ]);
 
+
         DB::transaction(function () use ($request, $adjustment) {
             $adjustment->update([
                 'reference' => $request->reference,
@@ -171,11 +207,17 @@ class AdjustmentController extends Controller
             }
 
             foreach ($request->product_ids as $key => $id) {
+                // Convert serial_numbers array to JSON (ensuring it's an array)
+                $serialNumbersJson = isset($request->serial_numbers[$key])
+                    ? json_encode($request->serial_numbers[$key])
+                    : json_encode([]);
+
                 AdjustedProduct::create([
                     'adjustment_id' => $adjustment->id,
                     'product_id' => $id,
                     'quantity' => $request->quantities[$key],
-                    'type' => $request->types[$key]
+                    'type' => 'sub',
+                    'serial_numbers' => $serialNumbersJson, // Store as JSON array
                 ]);
             }
         });
@@ -189,6 +231,15 @@ class AdjustmentController extends Controller
     {
         abort_if(Gate::denies('break.edit'), 403);
 
+        $adjustment->load(['adjustedProducts.product']);
+
+        // Convert serial numbers from JSON to an array of IDs
+        foreach ($adjustment->adjustedProducts as $adjustedProduct) {
+            $adjustedProduct->serial_number_ids = !empty($adjustedProduct->serial_numbers)
+                ? json_decode($adjustedProduct->serial_numbers, true)
+                : [];
+        }
+
         return view('adjustment::edit-breakage', compact('adjustment'));
     }
 
@@ -198,30 +249,44 @@ class AdjustmentController extends Controller
         abort_if(Gate::denies('break.edit'), 403);
 
         $request->validate([
-            'reference' => 'required|string|max:255',
             'date' => 'required|date',
             'note' => 'nullable|string|max:1000',
-            'product_ids' => 'required',
-            'quantities' => 'required'
+            'product_ids' => 'required|array',
+            'quantities' => 'required|array',
+            'serial_numbers' => 'nullable|array',
+            'serial_numbers.*' => 'array', // Ensure each product's serials are arrays
+            'serial_numbers.*.*' => 'integer|exists:product_serial_numbers,id', // Validate each serial number ID
+            'is_taxables' => 'nullable|array', // Validate is_taxables as an array
+            'is_taxables.*' => 'boolean', // Ensure each value is a boolean (0 or 1)
         ]);
 
         DB::transaction(function () use ($request, $adjustment) {
+            // Update Adjustment Header
             $adjustment->update([
-                'reference' => $request->reference,
                 'date' => $request->date,
-                'note' => $request->note
+                'note' => $request->note,
             ]);
 
-            foreach ($adjustment->adjustedProducts as $adjustedProduct) {
-                $adjustedProduct->delete();
-            }
+            // Delete previous adjusted products
+            $adjustment->adjustedProducts()->delete();
 
+            // Insert new adjusted products
             foreach ($request->product_ids as $key => $id) {
+                // Convert serial_numbers array to JSON (ensuring it's an array)
+                $serialNumbersJson = isset($request->serial_numbers[$key])
+                    ? json_encode($request->serial_numbers[$key])
+                    : json_encode([]);
+
+                // Ensure `is_taxable` is stored as `0` (false) or `1` (true)
+                $isTaxable = isset($request->is_taxables[$key]) ? (int) $request->is_taxables[$key] : 0;
+
                 AdjustedProduct::create([
                     'adjustment_id' => $adjustment->id,
                     'product_id' => $id,
                     'quantity' => $request->quantities[$key],
-                    'type' => 'sub'
+                    'type' => 'sub',
+                    'serial_numbers' => $serialNumbersJson, // Store serial numbers as JSON
+                    'is_taxable' => $isTaxable, // Store taxable field
                 ]);
             }
         });
@@ -248,53 +313,140 @@ class AdjustmentController extends Controller
         DB::beginTransaction();
 
         try {
-            // Iterate through the adjusted products
             foreach ($adjustment->adjustedProducts as $adjustedProduct) {
                 $product = Product::findOrFail($adjustedProduct->product_id);
+                $locationId = $adjustment->location_id;
+                $quantityToAdjust = $adjustedProduct->quantity;
+
+                // Lock product stock at the specific location
+                $productStock = ProductStock::where('product_id', $product->id)
+                    ->where('location_id', $locationId)
+                    ->lockForUpdate()
+                    ->first();
+
+                // Ensure product stock exists
+                if (!$productStock) {
+                    throw new \Exception("Product stock not found for product {$product->id} at location {$locationId}");
+                }
 
                 if ($adjustment->type === 'normal') {
-                    // Determine the quantity to update and store in the transaction
-                    $quantity = $adjustedProduct->quantity;
-                    if ($adjustedProduct->type == 'sub') {
-                        $quantity = -$quantity; // Make quantity negative for subtraction
-                    }
+                    // Handle Normal Adjustment
+                    $quantityChange = $adjustedProduct->type == 'sub' ? -$quantityToAdjust : $quantityToAdjust;
 
-                    // Update product quantity for normal adjustment
-                    $product->update([
-                        'product_quantity' => $product->product_quantity + $quantity
-                    ]);
+                    // Update product quantity
+                    $product->increment('product_quantity', $quantityChange);
 
-                    // Create a transaction for the adjustment
+                    // Log transaction for normal adjustment
                     Transaction::create([
                         'product_id' => $product->id,
                         'setting_id' => session('setting_id'),
                         'type' => 'ADJ',
-                        'quantity' => $quantity,
+                        'quantity' => $quantityChange,
                         'current_quantity' => $product->product_quantity,
-                        'broken_quantity' => 0, // No change in broken quantity for normal adjustments
-                        'location_id' => $adjustment->location_id,
+                        'broken_quantity' => 0,
+                        'location_id' => $locationId,
                         'user_id' => auth()->id(),
                         'reason' => 'Adjustment approved',
                     ]);
-
                 } elseif ($adjustment->type === 'breakage') {
-                    // Update broken quantity for breakage adjustment
-                    $product->update([
-                        'broken_quantity' => $product->broken_quantity + $adjustedProduct->quantity
-                    ]);
+                    // Handle Breakage Adjustment
 
-                    // Create a transaction for the breakage adjustment
+                    // Capture previous values for logging
+                    $previous_quantity_tax = $productStock->quantity_tax;
+                    $previous_quantity_non_tax = $productStock->quantity_non_tax;
+                    $previous_broken_quantity_tax = $productStock->broken_quantity_tax;
+                    $previous_broken_quantity_non_tax = $productStock->broken_quantity_non_tax;
+
+                    if ($product->serial_number_required) {
+                        // Handle Serial Numbered Product
+                        $serialNumberIds = json_decode($adjustedProduct->serial_numbers, true) ?? [];
+                        $taxableSerialCount = ProductSerialNumber::whereIn('id', $serialNumberIds)
+                            ->whereNotNull('tax_id') // Count taxable serials
+                            ->count();
+
+                        $nonTaxableSerialCount = count($serialNumberIds) - $taxableSerialCount;
+
+                        // Mark serial numbers as broken
+                        ProductSerialNumber::whereIn('id', $serialNumberIds)
+                            ->update(['is_broken' => true]);
+
+                        // Reduce stock accordingly
+                        $productStock->decrement('quantity_tax', $taxableSerialCount);
+                        $productStock->increment('broken_quantity_tax', $taxableSerialCount);
+
+                        $productStock->decrement('quantity_non_tax', $nonTaxableSerialCount);
+                        $productStock->increment('broken_quantity_non_tax', $nonTaxableSerialCount);
+                    } else {
+                        // Handle Non-Serial Numbered Product using is_taxable flag
+                        if ($adjustedProduct->is_taxable) {
+                            // Deduct from tax-tracked stock
+                            if ($quantityToAdjust <= $productStock->quantity_tax) {
+                                $productStock->decrement('quantity_tax', $quantityToAdjust);
+                                $productStock->increment('broken_quantity_tax', $quantityToAdjust);
+                            } else {
+                                // Deduct from tax-tracked stock first, then non-tax
+                                $remainingBreakage = $quantityToAdjust - $productStock->quantity_tax;
+                                $productStock->increment('broken_quantity_tax', $productStock->quantity_tax);
+                                $productStock->decrement('quantity_tax', $productStock->quantity_tax);
+
+                                $productStock->increment('broken_quantity_non_tax', $remainingBreakage);
+                                $productStock->decrement('quantity_non_tax', $remainingBreakage);
+                            }
+                        } else {
+                            // Deduct only from non-taxable stock
+                            if ($quantityToAdjust <= $productStock->quantity_non_tax) {
+                                $productStock->decrement('quantity_non_tax', $quantityToAdjust);
+                                $productStock->increment('broken_quantity_non_tax', $quantityToAdjust);
+                            } else {
+                                throw new \Exception("Insufficient non-taxable stock for product {$product->id} at location {$locationId}");
+                            }
+                        }
+                    }
+
+                    // Capture after values for logging
+                    $after_quantity_tax = $productStock->quantity_tax;
+                    $after_quantity_non_tax = $productStock->quantity_non_tax;
+                    $after_broken_quantity_tax = $productStock->broken_quantity_tax;
+                    $after_broken_quantity_non_tax = $productStock->broken_quantity_non_tax;
+
+                    // Log breakage transaction
                     Transaction::create([
                         'product_id' => $product->id,
                         'setting_id' => session('setting_id'),
                         'type' => 'ADJ',
-                        'quantity' => 0,
-                        'current_quantity' => $product->product_quantity, // No change in current quantity for breakage
-                        'broken_quantity' => $product->broken_quantity, // Update broken quantity
-                        'location_id' => $adjustment->location_id,
+                        'quantity' => $quantityToAdjust,
+
+                        // 📌 Capture previous values
+                        'previous_quantity' => $previous_quantity_tax + $previous_quantity_non_tax, // ✅ Total quantity before
+                        'after_quantity' => $after_quantity_tax + $after_quantity_non_tax, // ✅ Total quantity after
+                        'previous_quantity_at_location' => $productStock->quantity, // ✅ Stock before at location
+                        'after_quantity_at_location' => $productStock->quantity, // ✅ Stock after at location (unchanged)
+
+                        // 📌 Stock quantities after the breakage update
+                        'current_quantity' => $productStock->quantity, // ✅ Unchanged global stock
+                        'broken_quantity' => $productStock->broken_quantity_tax + $productStock->broken_quantity_non_tax, // ✅ Total broken
+
+                        // 📌 New breakage adjustments
+                        'broken_quantity_tax' => $productStock->broken_quantity_tax, // ✅ Broken taxable quantity
+                        'broken_quantity_non_tax' => $productStock->broken_quantity_non_tax, // ✅ Broken non-taxable quantity
+                        'quantity_non_tax' => $after_quantity_non_tax, // ✅ Remaining non-tax stock
+                        'quantity_tax' => $after_quantity_tax, // ✅ Remaining tax stock
+
+                        'location_id' => $locationId,
                         'user_id' => auth()->id(),
                         'reason' => 'Breakage adjustment approved',
+
+                        // 📌 Capture previous and after values for integrity checking
+                        'previous_quantity_tax' => $previous_quantity_tax,
+                        'after_quantity_tax' => $after_quantity_tax,
+                        'previous_quantity_non_tax' => $previous_quantity_non_tax,
+                        'after_quantity_non_tax' => $after_quantity_non_tax,
+                        'previous_broken_quantity_tax' => $previous_broken_quantity_tax,
+                        'after_broken_quantity_tax' => $after_broken_quantity_tax,
+                        'previous_broken_quantity_non_tax' => $previous_broken_quantity_non_tax,
+                        'after_broken_quantity_non_tax' => $after_broken_quantity_non_tax,
                     ]);
+
                 }
             }
 
@@ -302,13 +454,13 @@ class AdjustmentController extends Controller
             $adjustment->update(['status' => 'approved']);
 
             DB::commit();
-            toast('Penyesuain Disetujui!', 'warning');
+            toast('Adjustment Approved!', 'success');
 
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Adjustment approval failed', ['error' => $e->getMessage()]);
-            session()->flash('error', 'Gagal menyetujui penyesuaian. Silakan coba lagi.');
-            toast('Kesalahan saat Menyetujui Penyesuaian!', 'error');
+            session()->flash('error', 'Failed to approve adjustment. Please try again.');
+            toast('Error Approving Adjustment!', 'error');
         }
 
         return redirect()->route('adjustments.index');

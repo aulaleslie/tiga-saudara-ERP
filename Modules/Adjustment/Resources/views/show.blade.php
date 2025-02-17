@@ -87,6 +87,8 @@
                                     <th>Kode Produk</th>
                                     <th>Kuantitas</th>
                                     <th>Jenis</th>
+                                    <th>Serial Numbers</th>
+                                    <th>Kena Pajak</th> <!-- Only if serial_number_required = false -->
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -99,8 +101,29 @@
                                             @if($adjustedProduct->type == 'add')
                                                 (+) Penambahan
                                             @else
-                                                (-)
-                                                Pengurangan
+                                                (-) Pengurangan
+                                            @endif
+                                        </td>
+                                        <td>
+                                            @if(!empty($adjustedProduct->serialNumbers))
+                                                <ul class="mb-0">
+                                                    @foreach($adjustedProduct->serialNumbers as $serial)
+                                                        <li>{{ $serial }}</li>
+                                                    @endforeach
+                                                </ul>
+                                            @else
+                                                <span class="text-muted">N/A</span>
+                                            @endif
+                                        </td>
+                                        <td class="text-center">
+                                            @if(empty($adjustedProduct->serialNumbers))
+                                                @if($adjustedProduct->is_taxable)
+                                                    <span class="badge badge-success">Ya</span>
+                                                @else
+                                                    <span class="badge badge-secondary">Tidak</span>
+                                                @endif
+                                            @else
+                                                <span class="text-muted">N/A</span>
                                             @endif
                                         </td>
                                     </tr>

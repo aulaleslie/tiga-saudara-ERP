@@ -47,7 +47,9 @@
                                     </div>
                                 </div>
                             </div>
-                            <livewire:adjustment.breakage-product-table :adjustedProducts="$adjustment->adjustedProducts->toArray()" :locationId="$adjustment->location_id"/>
+                            <livewire:adjustment.breakage-product-table
+                                :adjustedProducts="$adjustment->adjustedProducts->toArray()"
+                                :locationId="$adjustment->location_id"/>
                             <div class="form-group">
                                 <label for="note">Catatan (Jika Dibutuhkan)</label>
                                 <textarea name="note" id="note" rows="5" class="form-control">{{ $adjustment->note }}</textarea>

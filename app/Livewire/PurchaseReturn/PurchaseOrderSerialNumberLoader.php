@@ -20,7 +20,7 @@ class PurchaseOrderSerialNumberLoader extends Component
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
 
-    public function mount($index, $product_id, $purchase_id): void
+    public function mount($index, $product_id, $purchase_id = null): void
     {
         $this->product_id = $product_id;
         $this->purchase_id = $purchase_id;
@@ -47,6 +47,7 @@ class PurchaseOrderSerialNumberLoader extends Component
         if ($this->query && $this->product_id) {
             $serial_number_query = ProductSerialNumber::query();
 
+            // tambah filter broken product
             if ($this->purchase_id) {
                 $serial_number_query->whereIn('product_id', function ($query) {
                     $query->select('pd.product_id')

@@ -412,8 +412,12 @@ class PurchaseController extends Controller
                         }
                     }
 
+                    $product = $products->where('id', $detail->product_id)->first();
+
                     // Update product stock
-                    $productStock = $productStocks->where('product_id', $detail->product_id)->first();
+                    $productStock = $productStocks->where('product_id', $detail->product_id)
+                        ->where('location_id', $data['location_id'])
+                        ->first();
 
                     if (!$productStock) {
                         // If no ProductStock exists, create one and lock it
@@ -430,8 +434,8 @@ class PurchaseController extends Controller
                     }
 
                     // Capture the **previous stock** before updating
-                    $previous_quantity = $productStock->quantity;
-                    $previous_quantity_at_location = $productStock->where('location_id', $data['location_id'])->value('quantity');
+                    $previous_quantity = $product->product_quantity;
+                    $previous_quantity_at_location = $productStock->quantity;
 
                     // Increment stock quantity
                     $productStock->increment('quantity', $receivedQuantity);
@@ -442,13 +446,12 @@ class PurchaseController extends Controller
                         $productStock->increment('quantity_non_tax', $receivedQuantity);
                     }
 
-                    // Capture the **after stock** after updating
-                    $after_quantity = $productStock->quantity;
-                    $after_quantity_at_location = $productStock->where('location_id', $data['location_id'])->value('quantity');
-
                     // Update product quantity in the Product model
-                    $product = $products->where('id', $detail->product_id)->first();
                     $product->increment('product_quantity', $receivedQuantity);
+
+                    // Capture the **after stock** after updating
+                    $after_quantity = $product->product_quantity;
+                    $after_quantity_at_location = $productStock->quantity;
 
                     // Update Last Purchase Price
                     $product->update([
