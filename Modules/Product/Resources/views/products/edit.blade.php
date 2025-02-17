@@ -62,7 +62,7 @@
                                                 </div>
                                                 <div class="col-md-6">
                                                     <x-select label="Pajak Beli" name="purchase_tax"
-                                                              :options="['1' => 'PPN 11%']"
+                                                              :options="$taxes->pluck('name', 'id')"
                                                               selected="{{ old('purchase_tax', $product->purchase_tax) }}"/>
                                                 </div>
                                             </div>
@@ -87,7 +87,7 @@
                                                 </div>
                                                 <div class="col-md-6">
                                                     <x-select label="Pajak Jual" name="sale_tax"
-                                                              :options="['1' => 'PPN 11%']"
+                                                              :options="$taxes->pluck('name', 'id')"
                                                               selected="{{ old('sale_tax', $product->sale_tax) }}"/>
                                                 </div>
                                             </div>

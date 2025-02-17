@@ -232,6 +232,7 @@ class ProductController extends Controller
         $brands = Brand::where('setting_id', $currentSettingId)->get();
         $categories = Category::where('setting_id', $currentSettingId)->with('parent')->get();
         $locations = Location::where('setting_id', $currentSettingId)->get();
+        $taxes = Tax::where('setting_id', $currentSettingId)->get();
 
         // Format categories with parent category
         $formattedCategories = $categories->mapWithKeys(function ($category) {
@@ -239,7 +240,7 @@ class ProductController extends Controller
             return [$category->id => $formattedName];
         })->sortBy('name')->toArray();
 
-        return view('product::products.edit', compact('product', 'units', 'brands', 'formattedCategories', 'locations'));
+        return view('product::products.edit', compact('product', 'units', 'taxes', 'brands', 'formattedCategories', 'locations'));
     }
 
 
