@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
 
 class PurchaseReturnTable extends Component
 {
@@ -58,8 +59,8 @@ class PurchaseReturnTable extends Component
         if (isset($this->rows[$index])) {
             $this->rows[$index]['product_id'] = $product['id'];
             $this->rows[$index]['product_name'] = $product['product_name'];
-            $this->rows[$index]['purchase_price'] = $product['purchase_price'];
-            $this->rows[$index]['product_quantity'] = $product['product_quantity'];
+            $this->rows[$index]['purchase_price'] = $product['last_purchase_price'];
+            $this->rows[$index]['product_quantity'] = $product['broken_quantity'];
             $this->rows[$index]['serial_number_required'] = $product['serial_number_required'];
             $this->rows[$index]['serial_numbers'] = [];
         }
@@ -72,6 +73,9 @@ class PurchaseReturnTable extends Component
         if (isset($this->rows[$index])) {
             $this->rows[$index]['purchase_order_id'] = $purchase['id'];
             $this->rows[$index]['purchase_order_date'] = $purchase['date'];
+
+            $purchase_detail = PurchaseDetail::where('purchase_id', $purchase['id'])->where('product_id', $this->rows[$index]['product_id'])->first();
+            $this->rows[$index]['purchase_price'] = $purchase_detail['price'];
         }
 
         $this->dispatch('updateRows', $this->rows);

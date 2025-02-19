@@ -447,6 +447,7 @@ class AdjustmentController extends Controller
                         'after_broken_quantity_non_tax' => $after_broken_quantity_non_tax,
                     ]);
 
+                    $product->increment('broken_quantity', $quantityToAdjust);
                 }
             }
 

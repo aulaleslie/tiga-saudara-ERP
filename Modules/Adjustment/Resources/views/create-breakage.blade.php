@@ -20,14 +20,22 @@
                         <form id="location-form">
                             <div class="form-group">
                                 <label for="location_id">Pilih Lokasi <span class="text-danger">*</span></label>
-                                <select name="location_id" id="location_id" class="form-control" required>
-                                    <option value="" disabled selected>Pilih Lokasi</option>
+                                <select name="location_id" id="location_id" class="form-control" required {{ old('location_id') ? 'disabled' : '' }}>
+                                    <option value="" disabled {{ old('location_id') ? '' : 'selected' }}>Pilih Lokasi</option>
                                     @foreach($locations as $location)
-                                        <option value="{{ $location->id }}">{{ $location->name }}</option>
+                                        <option value="{{ $location->id }}" {{ old('location_id') == $location->id ? 'selected' : '' }}>
+                                            {{ $location->name }}
+                                        </option>
                                     @endforeach
                                 </select>
+                                @error('location_id')
+                                <div class="text-danger">{{ $message }}</div>
+                                @enderror
                             </div>
-                            <button type="button" id="select-location" class="btn btn-primary">
+
+                            <!-- Hidden Input to Preserve Location -->
+                            <input type="hidden" name="location_id" id="location_id_hidden" value="{{ old('location_id') }}">
+                            <button type="button" id="select-location" class="btn btn-primary" {{ old('location_id') ? 'hidden' : '' }}>
                                 Pilih Lokasi
                             </button>
                         </form>
@@ -37,7 +45,7 @@
 
             <!-- Product Search and Adjustment Form -->
             <div class="col-12">
-                <div id="adjustment-form" class="d-none">
+                <div id="adjustment-form" class="{{ old('location_id') ? '' : 'd-none' }}">
                     <livewire:search-product :locationId="old('location_id')"/>
 
                     <div class="row mt-4">
@@ -47,40 +55,45 @@
                                     @include('utils.alerts')
                                     <form action="{{ route('adjustments.storeBreakage') }}" method="POST">
                                         @csrf
-                                        <input type="hidden" name="location_id" id="location_id_hidden">
+
+                                        <!-- Hidden input for location_id -->
+                                        <input type="hidden" name="location_id" id="location_id_hidden_form" value="{{ old('location_id') }}">
+
                                         <div class="form-row">
                                             <div class="col-lg-6">
                                                 <div class="form-group">
                                                     <label for="reference">Keterangan <span class="text-danger">*</span></label>
-                                                    <input type="text" class="form-control" name="reference" required
-                                                           readonly value="BRK">
+                                                    <input type="text" class="form-control" name="reference" required readonly value="BRK">
                                                 </div>
                                             </div>
                                             <div class="col-lg-6">
                                                 <div class="form-group">
                                                     <label for="date">Tanggal <span class="text-danger">*</span></label>
-                                                    <input type="date" class="form-control" name="date" required
-                                                           value="{{ now()->format('Y-m-d') }}">
+                                                    <input type="date" class="form-control" name="date" required value="{{ old('date', now()->format('Y-m-d')) }}">
                                                 </div>
                                             </div>
                                         </div>
+
+                                        <!-- Livewire Component for Products -->
                                         <livewire:adjustment.breakage-product-table
                                             :type="'sub'"
                                             :locationId="old('location_id')"
                                             :serial_numbers="old('serial_numbers')"
                                             :is_taxables="old('is_taxables')"/>
+
                                         <div class="form-group">
                                             <label for="note">Catatan (Jika Dibutuhkan)</label>
-                                            <textarea name="note" id="note" rows="5" class="form-control"></textarea>
+                                            <textarea name="note" id="note" rows="5" class="form-control">{{ old('note') }}</textarea>
                                         </div>
+
                                         <div class="mt-3">
                                             <a href="{{ route('adjustments.index') }}" class="btn btn-secondary mr-2">
                                                 Kembali
                                             </a>
                                             @canany('break.create')
-                                            <button type="submit" class="btn btn-primary">
-                                                Buat Penyesuaian Barang Rusak <i class="bi bi-check"></i>
-                                            </button>
+                                                <button type="submit" class="btn btn-primary">
+                                                    Buat Penyesuaian Barang Rusak <i class="bi bi-check"></i>
+                                                </button>
                                             @endcanany
                                         </div>
                                     </form>
@@ -88,7 +101,7 @@
                             </div>
                         </div>
                     </div>
-                </div>
+                </div> <!-- End Adjustment Form -->
             </div>
         </div>
     </div>
@@ -96,14 +109,29 @@
 
 @section('third_party_scripts')
     <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            var locationId = document.getElementById('location_id_hidden').value;
+
+            if (locationId) {
+                document.getElementById('adjustment-form').classList.remove('d-none');
+                document.getElementById('location_id').setAttribute('disabled', 'disabled');
+                document.getElementById('select-location').classList.add('d-none');
+
+                // Ensure hidden field in the adjustment form is updated
+                document.getElementById('location_id_hidden_form').value = locationId;
+
+                // Trigger Livewire update
+                Livewire.dispatch('locationSelected', {locationId: locationId});
+            }
+        });
+
         document.getElementById('select-location').addEventListener('click', function () {
             var locationId = document.getElementById('location_id').value;
+
             if (locationId) {
-                // Show the adjustment form and pass the location ID
                 document.getElementById('adjustment-form').classList.remove('d-none');
                 document.getElementById('location_id_hidden').value = locationId;
-
-                // Disable the location dropdown and hide the select button
+                document.getElementById('location_id_hidden_form').value = locationId;
                 document.getElementById('location_id').setAttribute('disabled', 'disabled');
                 document.getElementById('select-location').classList.add('d-none');
 

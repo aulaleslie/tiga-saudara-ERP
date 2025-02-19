@@ -4,11 +4,11 @@
             <thead class="table-primary">
             <tr class="text-center">
                 <th style="width: 20%">Produk</th>
-                <th style="width: 10%">Stok</th>
+                <th style="width: 10%">Stok Rusak</th>
                 <th style="width: 10%">Jumlah</th>
                 <th style="width: 20%">Nomor Purchase Order</th>
                 <th style="width: 10%">Tanggal Purchase Order</th>
-                <th style="width: 10%">Harga Saat Beli</th>
+                <th style="width: 10%">Harga Saat Beli/Harga Beli Terakhir</th>
                 <th style="width: 5%">
                     <button type="button" class="btn btn-success btn-sm rounded-circle shadow-sm"
                             wire:click="addProductRow">
@@ -71,49 +71,6 @@
                         </button>
                     </td>
                 </tr>
-
-                {{-- Serial Number Section --}}
-                @if (!empty($row['serial_number_required']))
-                    <tr>
-                        <td colspan="7">
-                            <div class="p-3 border rounded bg-light">
-                                <strong>Serial Numbers</strong>
-                                <livewire:purchase-return.purchase-order-serial-number-loader
-                                    :index="$index"
-                                    :purchase_id="$row['purchase_order_id']"
-                                    :product_id="$row['product_id']"
-                                    wire:key="serial-number-{{ $index }}" />
-
-                                {{-- Validation Error --}}
-                                @error("rows.".$index.".serial_numbers")
-                                <span class="text-danger">{{ $message }}</span>
-                                @enderror
-
-                                <table class="table table-sm mt-2">
-                                    <thead>
-                                    <tr>
-                                        <th>Serial Number</th>
-                                        <th class="text-center" style="width: 5%;">Remove</th>
-                                    </tr>
-                                    </thead>
-                                    <tbody>
-                                    @foreach ($row['serial_numbers'] ?? [] as $serialIndex => $serialNumber)
-                                        <tr>
-                                            <td>{{ $serialNumber }}</td>
-                                            <td class="text-center">
-                                                <button type="button" class="btn btn-danger btn-sm rounded-circle"
-                                                        wire:click="removeSerialNumber({{ $index }}, {{ $serialIndex }})">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                    </tbody>
-                                </table>
-                            </div>
-                        </td>
-                    </tr>
-                @endif
             @endforeach
             </tbody>
         </table>

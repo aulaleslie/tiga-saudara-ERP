@@ -8,6 +8,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Purchase\Entities\PurchaseDetail;
 
 class PurchaseOrderSerialNumberLoader extends Component
 {
@@ -19,6 +20,10 @@ class PurchaseOrderSerialNumberLoader extends Component
     public $isFocused = false;
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
+
+    protected $listeners = [
+        'purchaseOrderSelected' => 'updatePurchaseOrderRow',
+    ];
 
     public function mount($index, $product_id, $purchase_id = null): void
     {
@@ -42,18 +47,22 @@ class PurchaseOrderSerialNumberLoader extends Component
         }
     }
 
+    public function updatePurchaseOrderRow($index, $purchase): void
+    {
+        $this->purchase_id = $purchase['id'];
+    }
+
     public function searchSerialNumbers(): void
     {
         if ($this->query && $this->product_id) {
             $serial_number_query = ProductSerialNumber::query();
 
-            // tambah filter broken product
+            // Filter for specific purchase_id (exclude broken products)
             if ($this->purchase_id) {
-                $serial_number_query->whereIn('product_id', function ($query) {
-                    $query->select('pd.product_id')
-                        ->from('purchase_details as pd')
-                        ->leftJoin('received_note_details as rnd', 'pd.id', '=', 'rnd.po_detail_id')
-                        ->leftJoin('product_serial_numbers as psn', 'rnd.id', '=', 'psn.received_note_detail_id')
+                $serial_number_query->whereIn('received_note_detail_id', function ($query) {
+                    $query->select('rnd.id')
+                        ->from('received_note_details as rnd')
+                        ->join('purchase_details as pd', 'rnd.po_detail_id', '=', 'pd.id')
                         ->where('pd.purchase_id', $this->purchase_id);
                 });
             }

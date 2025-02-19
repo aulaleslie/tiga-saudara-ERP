@@ -5,14 +5,18 @@ namespace App\Livewire\PurchaseReturn;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\PurchasesReturn\Entities\PurchaseReturn;
+use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 
 class PurchaseReturnCreateForm extends Component
 {
     public $supplier_id = '';
     public $date;
     public $rows = []; // Centralized rows state
+    public $note;
 
     protected $listeners = [
         'supplierSelected' => 'supplierUpdated',
@@ -24,7 +28,6 @@ class PurchaseReturnCreateForm extends Component
         $this->date = now()->format('Y-m-d');
     }
 
-    // ✅ Update supplier ID when a supplier is selected
     public function supplierUpdated($supplier): void
     {
         $this->supplier_id = $supplier['id'];
@@ -32,15 +35,13 @@ class PurchaseReturnCreateForm extends Component
         Log::info("Supplier updated: ", ["supplier_id" => $this->supplier_id]);
     }
 
-    // ✅ Handle row updates from `PurchaseReturnTable`
     public function handleUpdatedRows($updatedRows): void
     {
         $this->rows = $updatedRows;
         Log::info("Rows updated: ", $this->rows);
     }
 
-    // ✅ Validation Rules
-    public function rules()
+    public function rules(): array
     {
         return [
             'supplier_id' => 'required|exists:suppliers,id',
@@ -48,11 +49,11 @@ class PurchaseReturnCreateForm extends Component
             'rows' => 'required|array|min:1',
             'rows.*.product_id' => 'required|exists:products,id',
             'rows.*.quantity' => 'required|integer|min:1',
-            'rows.*.purchase_order_id' => 'required|exists:purchases,id',
+            'rows.*.purchase_order_id' => 'nullable|exists:purchases,id',
         ];
     }
 
-    public function messages()
+    public function messages(): array
     {
         return [
             'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
@@ -71,31 +72,12 @@ class PurchaseReturnCreateForm extends Component
             'rows.*.quantity.integer' => 'Jumlah produk harus berupa angka.',
             'rows.*.quantity.min' => 'Jumlah produk minimal 1.',
 
-            'rows.*.purchase_order_id.required' => 'Nomor purchase order harus dipilih.',
             'rows.*.purchase_order_id.exists' => 'Nomor purchase order tidak valid.',
-
-            'rows.*.serial_numbers.required' => 'Serial number diperlukan untuk produk ini.',
-            'rows.*.serial_numbers.array' => 'Format serial number tidak valid.',
         ];
     }
 
-    // ✅ Ensure serial numbers match the quantity for serialized products
-    public function validateSerialNumbers()
-    {
-        foreach ($this->rows as $index => $row) {
-            if (!empty($row['serial_number_required']) && $row['quantity'] > 0) {
-                $serialCount = count($row['serial_numbers'] ?? []);
-                if ($serialCount !== (int) $row['quantity']) {
-                    $this->addError("rows.$index.serial_numbers", "Jumlah serial number harus sesuai dengan jumlah yang dikembalikan.");
-                }
-            }
-        }
-    }
-
-    // ✅ Submit the form
     public function submit()
     {
-        // ✅ Log Before Validation
         Log::info("Before Validation: ", [
             'supplier_id' => $this->supplier_id,
             'date' => $this->date,
@@ -104,37 +86,67 @@ class PurchaseReturnCreateForm extends Component
 
         $this->validate();
 
+        // Ensure no duplicate products
         $productIds = array_column($this->rows, 'product_id');
         if (count($productIds) !== count(array_unique($productIds))) {
             $this->addError('rows', 'Tidak boleh ada produk yang sama dalam daftar retur.');
             return;
         }
 
-        $this->validateSerialNumbers();
+        try {
+            DB::beginTransaction();
 
-        // ✅ Log Validation Passed
-        Log::info("Validation Passed: ", [
-            'supplier_id' => $this->supplier_id,
-            'date' => $this->date,
-            'rows' => $this->rows
-        ]);
+            // Create the Purchase Return Record
+            $purchaseReturn = PurchaseReturn::create([
+                'date' => $this->date,
+                'supplier_id' => $this->supplier_id,
+                'supplier_name'=> '',
+                'status' => 'DRAFT', // Default document status
+                'total_amount' => 0,
+                'paid_amount' => 0,
+                'due_amount' => 0,
+                'payment_method' => '',
+                'payment_status' => '',
+                'note' => $this->note,
+            ]);
 
-        session()->flash('message', 'Purchase return successfully validated!');
+            foreach ($this->rows as $row) {
+                if (empty($row['product_id']) || empty($row['quantity']) || empty($row['purchase_order_id'])) {
+                    continue;
+                }
+
+                PurchaseReturnDetail::create([
+                    'purchase_return_id' => $purchaseReturn->id,
+                    'product_id' => $row['product_id'],
+                    'po_id' => $row['purchase_order_id'],
+                ]);
+            }
+
+            DB::commit();
+
+            session()->flash('message', 'Purchase return successfully saved as draft!');
+            redirect()->route('purchase-returns.index');
+            return;
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error saving purchase return: ', ['error' => $e->getMessage()]);
+            $this->addError('form', 'Terjadi kesalahan saat menyimpan retur pembelian.');
+            return;
+        }
     }
-
 
     public function render(): Factory|Application|View
     {
         $errors = $this->getErrorBag()->messages();
         Log::info("Form render called: ", ['errors' => $errors]);
 
-        // ✅ If there are validation errors, dispatch an event to refresh the table
         if (!empty($errors)) {
             $this->dispatch('updateTableErrors', $errors);
         }
 
         return view('livewire.purchase-return.purchase-return-create-form', [
-            'rows' => $this->rows, // ✅ Pass `rows` explicitly
+            'rows' => $this->rows,
         ]);
     }
 }
