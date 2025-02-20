@@ -23,6 +23,10 @@
                             Tambahkan Penyesuaian <i class="bi bi-plus"></i>
                         </a>
 
+                        <a href="{{ route('adjustments.createBreakage') }}" class="btn btn-primary">
+                            Tambahkan Penyesuaian Barang Rusak <i class="bi bi-plus"></i>
+                        </a>
+
                         <hr>
 
                         <div class="table-responsive">

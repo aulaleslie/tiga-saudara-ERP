@@ -104,25 +104,57 @@ class AdjustmentController extends Controller
             'note' => 'nullable|string|max:1000',
             'product_ids' => 'required|array',
             'quantities' => 'required|array',
+            'quantities.*' => 'integer|min:1', // Ensure each quantity is at least 1
             'serial_numbers' => 'nullable|array',
             'serial_numbers.*' => 'array', // Ensure each product's serials are arrays
             'serial_numbers.*.*' => 'integer|exists:product_serial_numbers,id', // Validate each serial number ID
             'is_taxables' => 'nullable|array', // Ensure it's an array
             'is_taxables.*' => 'boolean', // Ensure each value is a boolean
             'location_id' => 'required|exists:locations,id', // Ensure location_id is valid
+        ], [
+            'location_id.required' => 'Lokasi wajib diisi.',
+            'serial_numbers.*.count' => 'Jumlah serial number harus sesuai dengan kuantitas produk yang dipilih.'
         ]);
+
+        // Custom validation for serial numbers count matching quantity
+        foreach ($request->product_ids as $key => $id) {
+            // Retrieve product details
+            $product = Product::find($id);
+
+            if ($product && $product->serial_number_required) {
+                // Ensure serial numbers exist
+                if (empty($request->serial_numbers[$key])) {
+                    return back()
+                        ->withErrors([
+                            "serial_numbers.$key" => "Produk {$product->product_name} memerlukan serial number."
+                        ])
+                        ->withInput();
+                }
+
+                // Ensure serial numbers count matches quantity
+                $serialCount = count($request->serial_numbers[$key]);
+                $quantity = (int) $request->quantities[$key];
+
+                if ($serialCount !== $quantity) {
+                    return back()
+                        ->withErrors([
+                            "serial_numbers.$key" => "Jumlah serial number untuk produk {$product->product_name} harus sama dengan kuantitas ($quantity)."
+                        ])
+                        ->withInput();
+                }
+            }
+        }
 
         DB::transaction(function () use ($request) {
             $adjustment = Adjustment::create([
                 'date' => $request->date,
                 'note' => $request->note,
-                'type' => 'breakage',  // Save the adjustment type
-                'status' => 'pending',  // Set status to pending
-                'location_id' => $request->location_id,  // Record the location_id
+                'type' => 'breakage',
+                'status' => 'pending',
+                'location_id' => $request->location_id,
             ]);
 
             foreach ($request->product_ids as $key => $id) {
-                // Convert serial_numbers array to JSON (ensuring it's an array)
                 $serialNumbersJson = isset($request->serial_numbers[$key])
                     ? json_encode($request->serial_numbers[$key])
                     : json_encode([]);
@@ -134,7 +166,7 @@ class AdjustmentController extends Controller
                     'product_id' => $id,
                     'quantity' => $request->quantities[$key],
                     'type' => 'sub',
-                    'serial_numbers' => $serialNumbersJson, // Store as JSON array
+                    'serial_numbers' => $serialNumbersJson,
                     'is_taxable' => $isTaxable,
                 ]);
             }

@@ -9,12 +9,17 @@
             </div>
         </div>
     @endif
+
     <div class="table-responsive">
         <div wire:loading.flex class="col-12 position-absolute justify-content-center align-items-center" style="top:0;right:0;left:0;bottom:0;background-color: rgba(255,255,255,0.5);z-index: 99;">
             <div class="spinner-border text-primary" role="status">
                 <span class="sr-only">Memuat...</span>
             </div>
         </div>
+
+        <!-- Hidden input for location_id -->
+        <input type="hidden" name="location_id" value="{{ $locationId }}">
+
         <table class="table table-bordered">
             <thead>
             <tr class="align-middle">
@@ -34,34 +39,29 @@
                         <td class="align-middle">{{ $product['product_name'] ?? $product['product']['product_name'] }}</td>
                         <td class="align-middle">{{ $product['product_code'] ?? $product['product']['product_code'] }}</td>
                         <td class="align-middle text-center">
-                            <span class="badge badge-info">
-                                {{ $product['quantity_tax'] + $product['quantity_non_tax'] }} {{ $product['unit'] }}
-                            </span>
-                            <!-- Tooltip Container -->
+                                <span class="badge badge-info">
+                                    {{ $product['quantity_tax'] + $product['quantity_non_tax'] }} {{ $product['unit'] }}
+                                </span>
                             <span class="d-inline-block"
                                   data-bs-toggle="tooltip"
                                   data-bs-placement="top"
                                   title="Stok Pajak: {{ $product['quantity_tax'] }} {{ $product['unit'] }} | Stok Non-Pajak: {{ $product['quantity_non_tax'] }} {{ $product['unit'] }} | Rusak Pajak: {{ $product['broken_quantity_tax'] }} {{ $product['unit'] }} | Rusak Non-Pajak: {{ $product['broken_quantity_non_tax'] }} {{ $product['unit'] }}">
-                                <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
-                            </span>
+                                    <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
+                                </span>
                         </td>
                         <input type="hidden" name="product_ids[]" value="{{ $product['product']['id'] ?? $product['id'] }}">
                         <td class="align-middle">
-                            <input type="number" name="quantities[]" min="1" class="form-control" value="{{ 1 }}">
-
+                            <input type="number" name="quantities[]" min="1" class="form-control"
+                                   value="{{ old("quantities.$key", $product['quantity'] ?? 1) }}">
                             @if (empty($product['serial_number_required']))
                                 <div class="form-check">
-                                    <!-- Hidden input ensures false (0) is sent when checkbox is unchecked -->
                                     <input type="hidden" name="is_taxables[{{ $key }}]" value="0">
-
-                                    <!-- Checkbox input for taxable option -->
                                     <input type="checkbox"
                                            name="is_taxables[{{ $key }}]"
                                            value="1"
                                            class="form-check-input"
                                            id="taxable-{{ $key }}"
                                         {{ old("is_taxables.{$key}", $product['is_taxable'] ?? 0) == 1 ? 'checked' : '' }}>
-
                                     <label class="form-check-label" for="taxable-{{ $key }}">Kena Pajak</label>
                                 </div>
                             @endif
@@ -96,7 +96,6 @@
                                         </tr>
                                         </thead>
                                         <tbody>
-
                                         @foreach ($product['serial_numbers'] ?? [] as $serialIndex => $serialNumber)
                                             <tr>
                                                 <td>{{ $serialNumber['serial_number'] }}</td>
@@ -119,9 +118,9 @@
             @else
                 <tr>
                     <td colspan="7" class="text-center">
-                        <span class="text-danger">
-                            Silahkan Cari & Pilih Produk!
-                        </span>
+                            <span class="text-danger">
+                                Silahkan Cari & Pilih Produk!
+                            </span>
                     </td>
                 </tr>
             @endif

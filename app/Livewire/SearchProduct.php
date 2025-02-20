@@ -18,7 +18,7 @@ class SearchProduct extends Component
     public int $how_many = 5;
     public $locationId;  // Add locationId as a public property
 
-    protected $listeners = ['locationSelected'];
+//    protected $listeners = ['locationSelected'];
 
     public function mount($locationId = null): void
     {
@@ -75,10 +75,10 @@ class SearchProduct extends Component
         $this->dispatch('productSelected', $product);
     }
 
-    public function locationSelected($locationId): void
-    {
-        Log::info("locationSelected: " . $locationId);
-        $this->locationId = $locationId;
-        $this->updatedQuery();  // Re-run the query with the new locationId
-    }
+//    public function locationSelected($locationId): void
+//    {
+//        Log::info("locationSelected: " . $locationId);
+//        $this->locationId = $locationId;
+//        $this->updatedQuery();  // Re-run the query with the new locationId
+//    }
 }
