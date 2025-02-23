@@ -120,11 +120,34 @@
     </li>
 @endcan
 
-<li class="c-sidebar-nav-item">
-    <a class="c-sidebar-nav-link" href="#">
-        <i class="c-sidebar-nav-icon bbi bi-receipt-cutoff" style="line-height: 1;"></i> Biaya
-    </a>
-</li>
+@can('access_expenses')
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('expenses.*') || request()->routeIs('expense-categories.*') ? 'c-show' : '' }}">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+            <i class="c-sidebar-nav-icon bi bi-wallet2" style="line-height: 1;"></i> Biaya
+        </a>
+        <ul class="c-sidebar-nav-dropdown-items">
+            @can('access_expense_categories')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('expense-categories.*') ? 'c-active' : '' }}" href="{{ route('expense-categories.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-collection" style="line-height: 1;"></i> Kategori Biaya
+                    </a>
+                </li>
+            @endcan
+            @can('create_expenses')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('expenses.create') ? 'c-active' : '' }}" href="{{ route('expenses.create') }}">
+                        <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Buat Biaya
+                    </a>
+                </li>
+            @endcan
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('expenses.index') ? 'c-active' : '' }}" href="{{ route('expenses.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> Semua Biaya
+                </a>
+            </li>
+        </ul>
+    </li>
+@endcan
 
 <li class="c-sidebar-nav-divider"></li>
 
@@ -419,35 +442,6 @@
 {{--            <li class="c-sidebar-nav-item">--}}
 {{--                <a class="c-sidebar-nav-link {{ request()->routeIs('quotations.index') ? 'c-active' : '' }}" href="{{ route('quotations.index') }}">--}}
 {{--                    <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> All Quotations--}}
-{{--                </a>--}}
-{{--            </li>--}}
-{{--        </ul>--}}
-{{--    </li>--}}
-{{--@endcan--}}
-
-{{--@can('access_expenses')--}}
-{{--    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('expenses.*') || request()->routeIs('expense-categories.*') ? 'c-show' : '' }}">--}}
-{{--        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">--}}
-{{--            <i class="c-sidebar-nav-icon bi bi-wallet2" style="line-height: 1;"></i> Expenses--}}
-{{--        </a>--}}
-{{--        <ul class="c-sidebar-nav-dropdown-items">--}}
-{{--            @can('access_expense_categories')--}}
-{{--                <li class="c-sidebar-nav-item">--}}
-{{--                    <a class="c-sidebar-nav-link {{ request()->routeIs('expense-categories.*') ? 'c-active' : '' }}" href="{{ route('expense-categories.index') }}">--}}
-{{--                        <i class="c-sidebar-nav-icon bi bi-collection" style="line-height: 1;"></i> Categories--}}
-{{--                    </a>--}}
-{{--                </li>--}}
-{{--            @endcan--}}
-{{--            @can('create_expenses')--}}
-{{--                <li class="c-sidebar-nav-item">--}}
-{{--                    <a class="c-sidebar-nav-link {{ request()->routeIs('expenses.create') ? 'c-active' : '' }}" href="{{ route('expenses.create') }}">--}}
-{{--                        <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Create Expense--}}
-{{--                    </a>--}}
-{{--                </li>--}}
-{{--            @endcan--}}
-{{--            <li class="c-sidebar-nav-item">--}}
-{{--                <a class="c-sidebar-nav-link {{ request()->routeIs('expenses.index') ? 'c-active' : '' }}" href="{{ route('expenses.index') }}">--}}
-{{--                    <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> All Expenses--}}
 {{--                </a>--}}
 {{--            </li>--}}
 {{--        </ul>--}}

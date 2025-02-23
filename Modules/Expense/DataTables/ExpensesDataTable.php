@@ -51,22 +51,27 @@ class ExpensesDataTable extends DataTable
     protected function getColumns() {
         return [
             Column::make('date')
+                ->title('Tanggal')
                 ->className('text-center align-middle'),
 
             Column::make('reference')
+                ->title('Referensi')
                 ->className('text-center align-middle'),
 
             Column::make('category.category_name')
-                ->title('Category')
+                ->title('Kategori')
                 ->className('text-center align-middle'),
 
             Column::computed('amount')
+                ->title('Jumlah')
                 ->className('text-center align-middle'),
 
             Column::make('details')
+                ->title('Rincian')
                 ->className('text-center align-middle'),
 
             Column::computed('action')
+                ->title('Aksi')
                 ->exportable(false)
                 ->printable(false)
                 ->className('text-center align-middle'),
