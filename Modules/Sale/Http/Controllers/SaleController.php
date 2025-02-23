@@ -2,6 +2,7 @@
 
 namespace Modules\Sale\Http\Controllers;
 
+use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Sale\DataTables\SalesDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
@@ -30,7 +31,14 @@ class SaleController extends Controller
 
         Cart::instance('sale')->destroy();
 
-        return view('sale::create');
+        // Retrieve the current setting_id from the session
+        $setting_id = session('setting_id');
+
+        // Filter PaymentTerms by the setting_id
+        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
+        $customers = Customer::where('setting_id', $setting_id)->get();
+
+        return view('sale::create', compact('paymentTerms','customers'));
     }
 
 

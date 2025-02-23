@@ -85,45 +85,52 @@
     <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
     <script>
         $(document).ready(function () {
-            // Initialize maskMoney for the numeric fields
-            function applyMask() {
-                $('#amount').maskMoney({
-                    prefix: '{{ settings()->currency->symbol }}',
-                    thousands: '{{ settings()->currency->thousand_separator }}',
-                    decimal: '{{ settings()->currency->decimal_separator }}',
-                    precision: 2,
-                    allowZero: true,
-                    allowNegative: false
+            // Get currency settings from your Blade variables
+            var currencySymbol = '{{ settings()->currency->symbol }}';
+            var thousandsSeparator = '{{ settings()->currency->thousand_separator }}';
+            var decimalSeparator = '{{ settings()->currency->decimal_separator }}';
+
+            // A helper to format a number as currency
+            function formatCurrency(num) {
+                // Use toLocaleString to get proper formatting.
+                // Adjust the locale or options as needed.
+                var formatted = parseFloat(num).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
                 });
+                return currencySymbol + formatted;
             }
 
-            applyMask();
-
-            // On focus, unmask and allow editing the raw value
+            // On focus: remove any currency formatting so the user sees a raw number.
             $('#amount').on('focus', function () {
-                $(this).maskMoney('destroy'); // Remove mask
-                $(this).val($(this).val().replace(/[^0-9.-]/g, '')); // Show raw value
-                setTimeout(() => {
-                    $(this).select(); // Select all text
-                }, 0);
+                var val = $(this).val();
+                // Remove currency symbol and thousands separators.
+                // This regex assumes the currency symbol is a fixed string.
+                var raw = val.replace(new RegExp('\\' + currencySymbol, 'g'), '')
+                    .replace(new RegExp('\\' + thousandsSeparator, 'g'), '')
+                    .trim();
+                $(this).val(raw);
+                $(this).select();
             });
 
-            // On blur, reapply the mask
+            // On blur: validate and format the number as currency.
             $('#amount').on('blur', function () {
-                const value = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
-                if (!isNaN(value)) {
-                    $(this).val(value.toFixed(2)); // Format to 2 decimal places
+                var val = $(this).val();
+                var num = parseFloat(val);
+                if (!isNaN(num)) {
+                    $(this).val(formatCurrency(num));
                 } else {
-                    $(this).val(''); // Clear invalid input
+                    $(this).val(''); // clear if invalid
                 }
-                applyMask(); // Reapply mask
-                $(this).maskMoney('mask'); // Mask the value
             });
 
-            // On form submission, unmask the value
-            $('#payment-form').submit(function () {
-                const rawValue = $('#amount').maskMoney('unmasked')[0];
-                $('#amount').val(rawValue); // Set raw value for submission
+            // On form submission, if you need to submit the raw number, you can strip formatting.
+            $('#payment-form').on('submit', function () {
+                var val = $('#amount').val();
+                var raw = val.replace(new RegExp('\\' + currencySymbol, 'g'), '')
+                    .replace(new RegExp('\\' + thousandsSeparator, 'g'), '')
+                    .trim();
+                $('#amount').val(raw);
             });
         });
     </script>

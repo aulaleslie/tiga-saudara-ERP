@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Livewire\Purchase;
+namespace App\Livewire\Sale;
 
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Contracts\View\Factory;
@@ -129,7 +129,7 @@ class ProductCart extends Component
             'shipping' => $this->shipping,
         ]);
 
-        return view('livewire.purchase.product-cart', [
+        return view('livewire.sale.product-cart', [
             'cart_items' => $cart_items,
             'grand_total' => $grand_total,
             'taxes' => $this->taxes,
@@ -169,8 +169,8 @@ class ProductCart extends Component
                 'code'                  => $product['product_code'],
                 'stock'                 => $product['product_quantity'],
                 'unit'                  => $product['product_unit'],
-                'last_purchase_price' => $product['last_purchase_price'],
-                'average_purchase_price' => $product['average_purchase_price'],
+                'last_sale_price' => $product['last_sale_price'],
+                'average_sale_price' => $product['average_sale_price'],
                 'product_tax'           => null, // Initialize as null
                 'unit_price'            => $this->calculate($product)['unit_price']
             ]
@@ -202,18 +202,14 @@ class ProductCart extends Component
 
     public function updatedGlobalDiscount()
     {
+        // Recalculate when global discount changes
+        // Ensure that the new discount is applied
         $this->render();
     }
 
     public function updateQuantity($row_id, $product_id)
     {
-        if ($this->quantity[$product_id] <= 0) {
-            $this->quantity[$product_id] = 1;
-            session()->flash('message', 'Jumlah barang dipesan minimal 1!');
-            return;
-        }
-
-        if ($this->cart_instance == 'sale' || $this->cart_instance == 'purchase_return') {
+        if ($this->cart_instance == 'purchase' || $this->cart_instance == 'purchase_return') {
             if ($this->check_quantity[$product_id] < $this->quantity[$product_id]) {
                 session()->flash('message', 'The requested quantity is not available in stock.');
                 $this->quantity[$product_id] = $this->check_quantity[$product_id];
@@ -449,7 +445,7 @@ class ProductCart extends Component
     public function calculate($product, $new_price = null)
     {
         // Determine the base price
-        $product_price = $product['last_purchase_price'] ?? 0;
+        $product_price = $product['last_sale_price'] ?? 0;
 
         $product_tax = 0;
         $sub_total = $product_price; // Start with base price as subtotal
@@ -473,8 +469,8 @@ class ProductCart extends Component
             'unit_price'            => $cart_item->options->unit_price,
             'product_discount'      => $discount_amount,
             'product_discount_type' => $this->discount_type[$product_id],
-            'last_purchase_price'   => $cart_item->options->last_purchase_price, // Preserve
-            'average_purchase_price'=> $cart_item->options->average_purchase_price, // Preserve
+            'last_sale_price'   => $cart_item->options->last_sale_price, // Preserve
+            'average_sale_price'=> $cart_item->options->average_sale_price, // Preserve
         ]]);
     }
 
