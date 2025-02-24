@@ -97,6 +97,8 @@
                                                     <x-input label="Harga Jual Partai Besar" name="tier_1_price" step="0.01"
                                                              value="{{ old('tier_1_price', $product->tier_1_price) }}"/>
                                                 </div>
+                                            </div>
+                                            <div class="form-row">
                                                 <div class="col-md-6">
                                                     <x-input label="Harga Jual Reseller" name="tier_2_price" step="0.01"
                                                              value="{{ old('tier_2_price', $product->tier_2_price ?? '') }}"/>

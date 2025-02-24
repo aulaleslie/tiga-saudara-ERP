@@ -101,6 +101,9 @@
                                                              step="0.01" :disabled="!old('is_sold')"
                                                              value="{{ old('tier_1_price', $tier_1_price ?? '') }}"/>
                                                 </div>
+                                            </div>
+
+                                            <div class="row">
                                                 <div class="col-md-6">
                                                     <x-input label="Harga Jual Reseller" name="tier_2_price"
                                                              step="0.01" :disabled="!old('is_sold')"
