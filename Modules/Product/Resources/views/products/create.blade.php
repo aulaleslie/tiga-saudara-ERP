@@ -94,10 +94,25 @@
                                                               :disabled="!old('is_sold')"/>
                                                 </div>
                                             </div>
+
+                                            <div class="row">
+                                                <div class="col-md-6">
+                                                    <x-input label="Harga Jual Partai Besar" name="tier_1_price"
+                                                             step="0.01" :disabled="!old('is_sold')"
+                                                             value="{{ old('tier_1_price', $tier_1_price ?? '') }}"/>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <x-input label="Harga Jual Reseller" name="tier_2_price"
+                                                             step="0.01" :disabled="!old('is_sold')"
+                                                             value="{{ old('tier_2_price', $tier_2_price ?? '') }}"/>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
+
+
 
                             <!-- Stock Management -->
                             <div class="form-row">
@@ -183,7 +198,7 @@
     <script>
         $(document).ready(function () {
             function applyMask() {
-                $('#purchase_price, #sale_price').maskMoney({
+                $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').maskMoney({
                     prefix: '{{ settings()->currency->symbol }}',
                     thousands: '{{ settings()->currency->thousand_separator }}',
                     decimal: '{{ settings()->currency->decimal_separator }}',
@@ -196,7 +211,7 @@
             applyMask();
 
             // On focus, unmask to show raw value for editing and select all text
-            $('#purchase_price, #sale_price').on('focus', function () {
+            $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').on('focus', function () {
                 $(this).maskMoney('destroy'); // Remove mask during focus/typing
                 $(this).val($(this).val().replace(/[^0-9.-]/g, '')); // Show raw value without formatting
                 setTimeout(() => {
@@ -205,7 +220,7 @@
             });
 
             // On blur, reapply the mask to format as currency
-            $('#purchase_price, #sale_price').on('blur', function () {
+            $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').on('blur', function () {
                 var value = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
                 if (isNaN(value)) {
                     value = 0;
@@ -219,6 +234,8 @@
             function prefillMaskedValues() {
                 let salePrice = "{{ old('sale_price') }}";
                 let purchasePrice = "{{ old('purchase_price') }}";
+                let tier1Price = "{{ old('tier_1_price') }}";
+                let tier2Price = "{{ old('tier_2_price') }}";
 
                 if (salePrice) {
                     $('#sale_price').val(parseFloat(salePrice).toFixed(2));
@@ -228,6 +245,14 @@
                     $('#purchase_price').val(parseFloat(purchasePrice).toFixed(2));
                     $('#purchase_price').maskMoney('mask');
                 }
+                if (tier1Price) {
+                    $('#tier_1_price').val(parseFloat(tier1Price).toFixed(2));
+                    $('#tier_1_price').maskMoney('mask');
+                }
+                if (tier2Price) {
+                    $('#tier_2_price').val(parseFloat(tier2Price).toFixed(2));
+                    $('#tier_2_price').maskMoney('mask');
+                }
             }
 
             prefillMaskedValues();
@@ -236,8 +261,12 @@
             $('#product-form').submit(function () {
                 var purchasePrice = $('#purchase_price').maskMoney('unmasked')[0];
                 var salePrice = $('#sale_price').maskMoney('unmasked')[0];
+                var tier1Price = $('#tier_1_price').maskMoney('unmasked')[0];
+                var tier2Price = $('#tier_2_price').maskMoney('unmasked')[0];
                 $('#purchase_price').val(purchasePrice);
                 $('#sale_price').val(salePrice);
+                $('#tier_1_price').val(tier1Price);
+                $('#tier_2_price').val(tier2Price);
             });
 
             function togglePurchaseFields() {
@@ -248,7 +277,7 @@
 
                     if (!isChecked) {
                         $('#purchase_price').val(''); // Clear purchase price
-                        $('#purchase_tax_id').val(null); // Set tax ID to null (remove it)
+                        $('#purchase_tax_id').val(null); // Reset tax ID
                     }
                 }).trigger('change'); // Trigger change to set the initial state
             }
@@ -259,9 +288,12 @@
                     $('#sale_price').prop('disabled', !isChecked).val(isChecked ? $('#sale_price').val() : '');
                     $('#sale_tax_id').prop('disabled', !isChecked);
 
+                    // Toggle tier price fields along with sale fields
+                    $('#tier_1_price, #tier_2_price').prop('disabled', !isChecked);
                     if (!isChecked) {
-                        $('#sale_price').val(''); // Clear sale price
-                        $('#sale_tax_id').val(null); // Set tax ID to null (remove it)
+                        $('#sale_price').val('');
+                        $('#sale_tax_id').val(null);
+                        $('#tier_1_price, #tier_2_price').val('');
                     }
                 }).trigger('change'); // Trigger change to set the initial state
             }
@@ -279,17 +311,17 @@
                     $('#stock-initiate-btn').hide();
                 }
 
-                // Enable Serial Number Checkbox if stock_managed is checked and quantity is greater than 0
+                // Enable Serial Number Checkbox if stock_managed is checked; otherwise disable and uncheck it
                 if (isStockManaged) {
                     $('#serial_number_required').prop('disabled', false);
                 } else {
-                    $('#serial_number_required').prop('disabled', true).prop('checked', false); // Disable and uncheck
+                    $('#serial_number_required').prop('disabled', true).prop('checked', false);
                 }
             }
 
-            // Call the function on page load and when the relevant fields change
+            // Call the function on page load and when the stock managed field changes
             $('#stock_managed').on('change keyup', toggleStockManagedFields);
-            toggleStockManagedFields(); // Initial check on page load // Trigger on page load
+            toggleStockManagedFields();
         });
     </script>
 

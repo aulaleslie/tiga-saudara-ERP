@@ -59,6 +59,9 @@ class StoreProductInfoRequest extends FormRequest
                 }
             }],
 
+            'tier_1_price' => ['nullable', 'numeric', 'min:0'],
+            'tier_2_price' => ['nullable', 'numeric', 'min:0'],
+
             // Validate conversions if provided
             'conversions' => ['nullable', 'array'],
             'conversions.*.unit_id' => [

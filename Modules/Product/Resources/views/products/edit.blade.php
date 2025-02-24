@@ -91,6 +91,17 @@
                                                               selected="{{ old('sale_tax', $product->sale_tax) }}"/>
                                                 </div>
                                             </div>
+
+                                            <div class="form-row">
+                                                <div class="col-md-6">
+                                                    <x-input label="Harga Jual Partai Besar" name="tier_1_price" step="0.01"
+                                                             value="{{ old('tier_1_price', $product->tier_1_price) }}"/>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <x-input label="Harga Jual Reseller" name="tier_2_price" step="0.01"
+                                                             value="{{ old('tier_2_price', $product->tier_2_price ?? '') }}"/>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -210,7 +221,7 @@
     <script>
         $(document).ready(function () {
             function applyMask() {
-                $('#purchase_price, #sale_price').maskMoney({
+                $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').maskMoney({
                     prefix: '{{ settings()->currency->symbol }}',
                     thousands: '{{ settings()->currency->thousand_separator }}',
                     decimal: '{{ settings()->currency->decimal_separator }}',
@@ -225,6 +236,8 @@
             function prefillMaskedValues() {
                 let salePrice = "{{ old('sale_price', $product->sale_price) }}";
                 let purchasePrice = "{{ old('purchase_price', $product->purchase_price) }}";
+                let tier1Price = "{{ old('tier_1_price', $product->tier_1_price) }}";
+                let tier2Price = "{{ old('tier_2_price', $product->tier_2_price) }}";
 
                 if (salePrice) {
                     $('#sale_price').val(parseFloat(salePrice).toFixed(2));
@@ -234,12 +247,20 @@
                     $('#purchase_price').val(parseFloat(purchasePrice).toFixed(2));
                     $('#purchase_price').maskMoney('mask'); // Apply the mask
                 }
+                if (tier1Price) {
+                    $('#tier_1_price').val(parseFloat(tier1Price).toFixed(2));
+                    $('#tier_1_price').maskMoney('mask'); // Apply the mask
+                }
+                if (tier2Price) {
+                    $('#tier_2_price').val(parseFloat(tier2Price).toFixed(2));
+                    $('#tier_2_price').maskMoney('mask'); // Apply the mask
+                }
             }
 
             prefillMaskedValues(); // Ensure the values are formatted correctly
 
             // On focus, unmask to show raw value for editing and select all text
-            $('#purchase_price, #sale_price').on('focus', function () {
+            $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').on('focus', function () {
                 $(this).maskMoney('destroy'); // Remove mask during focus/typing
                 $(this).val($(this).val().replace(/[^0-9.-]/g, '')); // Show raw value without formatting
                 setTimeout(() => {
@@ -248,7 +269,7 @@
             });
 
             // On blur, reapply the mask to format as currency
-            $('#purchase_price, #sale_price').on('blur', function () {
+            $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').on('blur', function () {
                 var value = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
                 if (isNaN(value)) {
                     value = 0;
@@ -262,22 +283,27 @@
             $('#product-form').submit(function () {
                 var purchasePrice = $('#purchase_price').maskMoney('unmasked')[0];
                 var salePrice = $('#sale_price').maskMoney('unmasked')[0];
+                var tier1Price = $('#tier_1_price').maskMoney('unmasked')[0];
+                var tier2Price = $('#tier_2_price').maskMoney('unmasked')[0];
                 $('#purchase_price').val(purchasePrice);
                 $('#sale_price').val(salePrice);
+                $('#tier_1_price').val(tier1Price);
+                $('#tier_2_price').val(tier2Price);
             });
 
             function toggleStockManagedFields() {
                 const isStockManaged = $('#stock_managed').is(':checked');
                 const isStockManagedDisabled = $('#stock_managed').prop('disabled');
-                // Enable Serial Number Checkbox if stock_managed is checked and quantity is greater than 0
+
+                // Enable Serial Number Checkbox if stock_managed is checked; otherwise disable and uncheck
                 if (isStockManaged) {
                     $('#serial_number_required').prop('disabled', false);
                 } else {
-                    $('#serial_number_required').prop('disabled', true).prop('checked', false); // Disable and uncheck
+                    $('#serial_number_required').prop('disabled', true).prop('checked', false);
                 }
 
                 if (isStockManagedDisabled) {
-                    $('#serial_number_required').prop('disabled', true)
+                    $('#serial_number_required').prop('disabled', true);
                 }
             }
 

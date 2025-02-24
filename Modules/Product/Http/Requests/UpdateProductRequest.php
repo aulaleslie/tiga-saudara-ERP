@@ -59,6 +59,9 @@ class UpdateProductRequest extends FormRequest
                 }
             ],
 
+            'tier_1_price' => ['nullable', 'numeric', 'min:0'],
+            'tier_2_price' => ['nullable', 'numeric', 'min:0'],
+
             'conversions' => ['nullable', 'array'],
 
             // Unit ID validation with custom logic for duplicates and base_unit_id conflict

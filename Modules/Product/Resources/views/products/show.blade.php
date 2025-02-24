@@ -59,6 +59,14 @@
                                     <td>{{ format_currency($product->sale_price) }}</td>
                                 </tr>
                                 <tr>
+                                    <th>Harga Jual Partai Besar</th>
+                                    <td>{{ format_currency($product->tier_1_price) }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Harga Jual Reseller</th>
+                                    <td>{{ format_currency($product->tier_2_price) }}</td>
+                                </tr>
+                                <tr>
                                     <th>Pajak Jual</th>
                                     <td>
                                         @if($product->saleTax)
