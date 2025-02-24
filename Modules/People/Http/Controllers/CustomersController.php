@@ -149,7 +149,7 @@ class CustomersController extends Controller
             'contact_name' => $request->contact_name,
             'customer_phone' => $request->customer_phone,
             'payment_term_id' => $request->payment_term_id, // Menyimpan payment_term_id
-            'customer_email' => $request->customer_email,
+            'customer_email' => $request->customer_email ?? '',
             'identity' => $request->identity,
             'identity_number' => $request->identity_number,
             'fax' => $request->fax,
