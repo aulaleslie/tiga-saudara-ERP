@@ -19,6 +19,10 @@
                         <div class="table-responsive">
                             <table class="table table-bordered">
                                 <tr>
+                                    <th>Tier</th>
+                                    <td>{{ $customer->tier ?? 'Pelanggan Normal' }}</td>
+                                </tr>
+                                <tr>
                                     <th>Nama Pelanggan</th>
                                     <td>{{ $customer->contact_name }}</td>
                                 </tr>

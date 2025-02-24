@@ -58,6 +58,7 @@ class CustomersController extends Controller
             'billing_address' => 'nullable|string|max:500',
             'shipping_address' => 'nullable|string|max:500',
             'additional_info' => 'nullable|string|max:1000',
+            'tier' => 'nullable|in:WHOLESALER,RESELLER',
         ], [
             'contact_name.required' => 'Nama kontak wajib diisi.',
             'customer_phone.required' => 'Nomor telepon wajib diisi.',
@@ -96,6 +97,7 @@ class CustomersController extends Controller
             'bank_branch' => $request->bank_branch,
             'account_number' => $request->account_number,
             'account_holder' => $request->account_holder,
+            'tier' => $request->tier,
         ]);
 
         toast('Pelanggan Ditambahkan!', 'success');
@@ -129,7 +131,7 @@ class CustomersController extends Controller
             'contact_name' => 'required|string|max:255',
             'customer_phone' => 'required|max:255',
             'payment_term_id' => 'nullable|exists:payment_terms,id', // Validasi PaymentTerm
-            'customer_email' => 'required|email|max:255',
+            'customer_email' => 'nullable|email|max:255',
             'identity' => 'nullable|string|max:50',
             'identity_number' => 'nullable|string|max:100',
             'fax' => 'nullable|string|max:100',
@@ -140,6 +142,7 @@ class CustomersController extends Controller
             'bank_branch' => 'nullable|string|max:255',
             'account_number' => 'nullable|string|max:255',
             'account_holder' => 'nullable|string|max:255',
+            'tier' => 'nullable|in:WHOLESALER,RESELLER',
         ]);
 
         $customer->update([
@@ -158,6 +161,7 @@ class CustomersController extends Controller
             'account_number' => $request->account_number,
             'account_holder' => $request->account_holder,
             'additional_info' => $request->additional_info,
+            'tier' => $request->tier,
         ]);
 
         toast('Data Pelanggan Diperbaharui!', 'info');

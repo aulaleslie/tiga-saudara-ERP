@@ -36,6 +36,18 @@
                         <div class="card-body">
                             <div class="form-row">
                                 <div class="col-lg-6">
+                                    <div class="form-group">
+                                    <label for="tier">Tier</label>
+                                        <select class="form-control" name="tier" id="tier">
+                                            <option value="" {{ old('tier', $customer->tier) == '' ? 'selected' : '' }}>-- Pelanggan Normal --</option>
+                                            <option value="WHOLESALER" {{ old('tier', $customer->tier) == 'WHOLESALER' ? 'selected' : '' }}>Grosir</option>
+                                            <option value="RESELLER" {{ old('tier', $customer->tier) == 'RESELLER' ? 'selected' : '' }}>Reseller</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="col-lg-6">
                                     <x-input label="Nama Kontak" name="contact_name" value="{{ old('contact_name', $customer->contact_name) }}"/>
                                 </div>
                                 <div class="col-lg-6">
