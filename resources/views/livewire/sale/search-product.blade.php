@@ -8,7 +8,13 @@
                             <i class="bi bi-search text-primary"></i>
                         </div>
                     </div>
-                    <input wire:keydown.escape="resetQuery" wire:model.live.debounce.500ms="query" type="text" class="form-control" placeholder="Tipe nama produk atau kode produk....">
+                    <input
+                        wire:keydown.escape="resetQuery"
+                        wire:model.live.debounce.500ms="query"
+                        wire:keydown.enter.prevent="doNothing"
+                        type="text"
+                        class="form-control"
+                        placeholder="Tipe nama produk atau kode produk....">
                 </div>
             </div>
         </div>
@@ -34,6 +40,9 @@
                             <li class="list-group-item list-group-item-action">
                                 <a wire:click="resetQuery" wire:click.prevent="selectProduct({{ $result }})" href="#">
                                     {{ $result->product_name }} | {{ $result->product_code }}
+                                    @if($result->serial_number_required && !empty($result->serial_number))
+                                        | {{ $result->serial_number }}
+                                    @endif
                                 </a>
                             </li>
                         @endforeach

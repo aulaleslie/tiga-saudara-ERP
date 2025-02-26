@@ -12,7 +12,7 @@ use Modules\Setting\Entities\Tax;
 
 class ProductCart extends Component
 {
-    public $listeners = ['productSelected', 'discountModalRefresh'];
+    public $listeners = ['productSelected', 'discountModalRefresh', 'customerSelected' => 'handleCustomerSelected'];
 
     public $cart_instance;
     public $global_discount;
@@ -25,6 +25,7 @@ class ProductCart extends Component
     public $item_discount;
     public $unit_price;
     public $data;
+    public $customerId;
 
     public $taxes; // Collection of taxes filtered by setting_id
     public $setting_id; // Current setting ID
@@ -169,8 +170,8 @@ class ProductCart extends Component
                 'code'                  => $product['product_code'],
                 'stock'                 => $product['product_quantity'],
                 'unit'                  => $product['product_unit'],
-                'last_sale_price' => $product['last_sale_price'],
-                'average_sale_price' => $product['average_sale_price'],
+                'last_sale_price' => 0,
+                'average_sale_price' => 0,
                 'product_tax'           => null, // Initialize as null
                 'unit_price'            => $this->calculate($product)['unit_price']
             ]
@@ -445,7 +446,7 @@ class ProductCart extends Component
     public function calculate($product, $new_price = null)
     {
         // Determine the base price
-        $product_price = $product['last_sale_price'] ?? 0;
+        $product_price = 0;
 
         $product_tax = 0;
         $sub_total = $product_price; // Start with base price as subtotal
@@ -585,6 +586,15 @@ class ProductCart extends Component
 
         // Recalculate cart totals
         $this->recalculateCart();
+    }
+
+    public function handleCustomerSelected($customer): void
+    {
+        if ($customer) {
+            $this->customerId = $customer['id'];
+        } else {
+            $this->customerId = null;
+        }
     }
 
     public function setGlobalDiscountType($type): void
