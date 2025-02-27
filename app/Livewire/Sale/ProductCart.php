@@ -143,45 +143,97 @@ class ProductCart extends Component
 
     public function productSelected($product): void
     {
-        Log::info('Product Selected:', $product);
         $cart = Cart::instance($this->cart_instance);
 
-        $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
-            return $cartItem->id == $product['id'];
-        });
-
-        if ($exists->isNotEmpty()) {
-            session()->flash('message', 'Produk sudah dimasukkan!');
-            return;
+        // For products that do NOT require a serial number, prevent duplicates.
+        if (empty($product['serial_number_required']) || !$product['serial_number_required']) {
+            $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
+                return $cartItem->id == $product['id'];
+            });
+            if ($exists->isNotEmpty()) {
+                session()->flash('message', 'Produk sudah dimasukkan!');
+                return;
+            }
+        } else {
+            // For products requiring a serial number, allow multiple entries if serial numbers differ.
+            // Check if the product already exists in the cart.
+            $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
+                return $cartItem->id == $product['id'];
+            });
+            if ($exists->isNotEmpty()) {
+                // Assume the new serial number comes in $product['serial_number']
+                $newSerial = $product['serial_number'] ?? null;
+                if (!$newSerial) {
+                    session()->flash('message', 'No serial number provided!');
+                    return;
+                }
+                // Get the first matching cart item.
+                $existingItem = $exists->first();
+                $currentSerials = $existingItem->options->serial_numbers ?? [];
+                if (in_array($newSerial, $currentSerials)) {
+                    session()->flash('message', 'Serial number sudah dimasukkan!');
+                    return;
+                }
+                // Append the new serial number and update quantity accordingly.
+                $currentSerials[] = $newSerial;
+                Cart::instance($this->cart_instance)->update($existingItem->rowId, [
+                    'qty' => count($currentSerials),
+                    'options' => array_merge($existingItem->options->toArray(), [
+                        'serial_numbers' => $currentSerials
+                    ])
+                ]);
+                session()->flash('message', 'Serial number berhasil ditambahkan.');
+                return;
+            }
         }
 
+        // For both cases (new product entry), add the product to the cart.
         $this->product = $product;
 
+        // Build options array.
+        $options = [
+            'product_discount'      => 0.00,
+            'product_discount_type' => 'fixed',
+            'sub_total'             => $this->calculate($product)['sub_total'],
+            'code'                  => $product['product_code'],
+            'stock'                 => $product['product_quantity'],
+            'unit'                  => $product['product_unit'],
+            'last_sale_price'       => 0,
+            'average_sale_price'    => 0,
+            'product_tax'           => null,
+            'unit_price'            => $this->calculate($product)['unit_price']
+        ];
+
+        // If the product requires a serial number, initialize serial_numbers and set quantity accordingly.
+        if (!empty($product['serial_number_required']) && $product['serial_number_required']) {
+            $newSerial = $product['serial_number'] ?? null;
+            $options['serial_numbers'] = $newSerial ? [$newSerial] : [];
+            $options['serial_number_required'] = true;
+            $qty = count($options['serial_numbers']); // This will be 1 if newSerial is provided.
+        } else {
+            $qty = 1;
+        }
+
+        // Add product to cart with appropriate quantity.
         $cart->add([
             'id'      => $product['id'],
             'name'    => $product['product_name'],
-            'qty'     => 1,
+            'qty'     => $qty,
             'price'   => $this->calculate($product)['price'],
             'weight'  => 1,
-            'options' => [
-                'product_discount'      => 0.00,
-                'product_discount_type' => 'fixed',
-                'sub_total'             => $this->calculate($product)['sub_total'],
-                'code'                  => $product['product_code'],
-                'stock'                 => $product['product_quantity'],
-                'unit'                  => $product['product_unit'],
-                'last_sale_price' => 0,
-                'average_sale_price' => 0,
-                'product_tax'           => null, // Initialize as null
-                'unit_price'            => $this->calculate($product)['unit_price']
-            ]
+            'options' => $options,
         ]);
 
+        // Update component state arrays.
         $this->check_quantity[$product['id']] = $product['product_quantity'];
-        $this->quantity[$product['id']] = 1;
+        $this->quantity[$product['id']] = $qty;
         $this->discount_type[$product['id']] = 'fixed';
         $this->item_discount[$product['id']] = 0;
-        $this->product_tax[$product['id']] = null; // Initialize per-product tax
+        $this->product_tax[$product['id']] = null;
+
+        Log::info('Cart:', [
+            'cart' => $cart->content(),
+        ]);
     }
 
     public function removeItem($row_id)
@@ -606,5 +658,43 @@ class ProductCart extends Component
     public function updateGlobalDiscount(): void
     {
         $this->recalculateCart();
+    }
+
+    public function removeSerialNumber($rowId, $serial): void
+    {
+        $cart = Cart::instance($this->cart_instance);
+        $item = $cart->get($rowId);
+        if (!$item) {
+            session()->flash('message', 'Cart item not found.');
+            return;
+        }
+
+        // Retrieve current serial numbers.
+        $serialNumbers = $item->options->serial_numbers ?? [];
+
+        // Remove the specified serial number if found.
+        if (($key = array_search($serial, $serialNumbers)) !== false) {
+            unset($serialNumbers[$key]);
+            // Re-index the array.
+            $serialNumbers = array_values($serialNumbers);
+        } else {
+            session()->flash('message', 'Serial number not found.');
+            return;
+        }
+
+        // If no serial numbers remain, remove the product row.
+        if (count($serialNumbers) === 0) {
+            $cart->remove($rowId);
+            session()->flash('message', 'Serial number removed successfully. Product removed as no serial numbers remain.');
+        } else {
+            // Otherwise, update the cart item with the new serial_numbers array and update quantity.
+            Cart::instance($this->cart_instance)->update($rowId, [
+                'qty' => count($serialNumbers),
+                'options' => array_merge($item->options->toArray(), [
+                    'serial_numbers' => $serialNumbers
+                ])
+            ]);
+            session()->flash('message', 'Serial number removed successfully.');
+        }
     }
 }

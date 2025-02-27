@@ -154,6 +154,45 @@
                                 </a>
                             </td>
                         </tr>
+                        @if($cart_item->options->serial_number_required)
+                            @php
+                                $collapseId = 'serialRow-' . md5($cart_item->rowId);
+                            @endphp
+                            <tr>
+                                <td colspan="9">
+                                    <div>
+                                        <table class="table table-bordered align-middle">
+                                            <thead class="table-primary">
+                                            <tr class="text-center">
+                                                <th style="width: 80%">Serial Number</th>
+                                                <th style="width: 20%">Aksi</th>
+                                            </tr>
+                                            </thead>
+                                            <tbody>
+                                            @if(count($cart_item->options->serial_numbers) > 0)
+                                                @foreach($cart_item->options->serial_numbers as $serial)
+                                                    <tr class="text-center">
+                                                        <td>{{ $serial }}</td>
+                                                        <td>
+                                                            <button type="button" class="btn btn-danger btn-sm rounded-circle shadow-sm"
+                                                                    wire:click.prevent="removeSerialNumber('{{ $cart_item->rowId }}', '{{ $serial }}')">
+                                                                <i class="bi bi-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                @endforeach
+                                            @else
+                                                <tr class="text-center">
+                                                    <td colspan="2" class="text-muted">Belum ada serial number dimasukkan.</td>
+                                                </tr>
+                                            @endif
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endif
+
                     @endforeach
                 @else
                     <tr>
