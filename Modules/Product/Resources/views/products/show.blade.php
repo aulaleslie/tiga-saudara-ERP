@@ -198,6 +198,61 @@
         </div>
         <!-- End Product Stocks -->
 
+        <!-- Product Bundles -->
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5>Paket Penjualan</h5>
+                @can('edit_products')
+                    <a href="{{ route('products.bundle.create', $product->id) }}" class="btn btn-secondary btn-sm">Tambah Paket</a>
+                @endcan
+            </div>
+            <div class="card-body">
+                @if($bundles->count())
+                    @foreach($bundles as $bundle)
+                        <div class="mb-4">
+                            <h6>{{ $bundle->name }}</h6>
+                            @if($bundle->description)
+                                <p>{{ $bundle->description }}</p>
+                            @endif
+                            <div class="table-responsive">
+                                <table class="table table-bordered table-striped">
+                                    <thead>
+                                    <tr>
+                                        <th>Produk</th>
+                                        <th>Harga</th>
+                                        <th>Jumlah</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody>
+                                    @foreach($bundle->items as $item)
+                                        <tr>
+                                            <td>{{ $item->product->product_name }}</td>
+                                            <td>{{ format_currency($item->price) }}</td>
+                                            <td>{{ $item->quantity }}</td>
+                                        </tr>
+                                    @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                            @can('edit_products')
+                                <a href="{{ route('products.bundle.edit', [$product->id, $bundle->id]) }}" class="btn btn-info btn-sm">Ubah Paket</a>
+                                <form action="{{ route('products.bundle.destroy', [$product->id, $bundle->id]) }}" method="POST" style="display:inline;">
+                                    @csrf
+                                    @method('delete')
+                                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure?');">
+                                    Hapus Paket
+                                    </button>
+                                </form>
+                            @endcan
+                        </div>
+                    @endforeach
+                @else
+                    <p>Belum ada Paket Penjualan untuk produk ini.</p>
+                @endif
+            </div>
+        </div>
+        <!-- End Product Bundles -->
+
         <!-- Serial Numbers -->
         <div class="card mt-4">
             <div class="card-header">

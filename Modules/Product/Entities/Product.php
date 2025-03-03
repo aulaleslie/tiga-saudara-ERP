@@ -148,4 +148,14 @@ class Product extends Model implements HasMedia
     {
         return $this->belongsTo(Tax::class, 'sale_tax_id');
     }
+
+    public function bundles(): HasMany
+    {
+        return $this->hasMany(ProductBundle::class, 'parent_product_id');
+    }
+
+    public function bundledIn(): HasMany
+    {
+        return $this->hasMany(ProductBundleItem::class, 'product_id');
+    }
 }

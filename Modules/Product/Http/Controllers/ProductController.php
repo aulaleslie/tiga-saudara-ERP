@@ -6,6 +6,7 @@ use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -189,35 +190,43 @@ class ProductController extends Controller
     {
         abort_if(Gate::denies('show_products'), 403);
 
-        $baseUnit = $product->baseUnit; // Assuming this relation exists
-        $conversions = $product->conversions; // Assuming this relation exists
+        $baseUnit = $product->baseUnit;
+        $conversions = $product->conversions;
 
         if ($baseUnit && $conversions->isNotEmpty()) {
             $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
             $convertedQuantity = floor($product->product_quantity / $biggestConversion->conversion_factor);
             $remainder = $product->product_quantity % $biggestConversion->conversion_factor;
-
             $displayQuantity = "{$convertedQuantity} {$biggestConversion->unit->short_name} {$remainder} {$baseUnit->short_name}";
         } else {
             $displayQuantity = $product->product_quantity . ' ' . ($product->product_unit ?? '');
         }
 
-        // Eager load the location relationship on transactions
         $transactions = Transaction::where('product_id', $product->id)
-            ->with('location') // Eager load the location
+            ->with('location')
             ->orderBy('created_at', 'desc')
-            ->get();// Fetch transactions
+            ->get();
 
         $productStocks = ProductStock::where('product_id', $product->id)
-            ->with('location') // Eager load the location
-            ->get();// Fetch transactions
+            ->with('location')
+            ->get();
 
         $serialNumbers = ProductSerialNumber::where('product_id', $product->id)
             ->with('location')
-            ->with('tax') // Eager load the location
+            ->with('tax')
             ->get();
 
-        return view('product::products.show', compact('product', 'displayQuantity', 'transactions', 'productStocks', 'serialNumbers'));
+        // Eager load bundles with their items and the bundled products
+        $bundles = $product->bundles()->with('items.product')->get();
+
+        return view('product::products.show', compact(
+            'product',
+            'displayQuantity',
+            'transactions',
+            'productStocks',
+            'serialNumbers',
+            'bundles'
+        ));
     }
 
 
@@ -583,5 +592,15 @@ class ProductController extends Controller
             toast('Failed to save serial numbers. Please try again.', 'error');
             return redirect()->back()->withInput();
         }
+    }
+
+    public function search(Request $request): JsonResponse
+    {
+        $search = $request->input('q');
+        $products = Product::where('product_name', 'LIKE', "%{$search}%")
+            ->select('id', 'product_name as text')
+            ->limit(10)
+            ->get();
+        return response()->json($products);
     }
 }
