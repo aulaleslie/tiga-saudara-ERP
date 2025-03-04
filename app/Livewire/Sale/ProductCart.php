@@ -8,6 +8,9 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductBundle;
+use Modules\Product\Entities\ProductBundleItem;
 use Modules\Setting\Entities\Tax;
 
 class ProductCart extends Component
@@ -145,6 +148,53 @@ class ProductCart extends Component
     {
         $cart = Cart::instance($this->cart_instance);
 
+        // --- Check for and add bundle items if they exist ---
+        $bundle = ProductBundle::where('parent_product_id', $product['id'])->first();
+        if ($bundle) {
+            // Retrieve bundle items
+            $bundleItems = ProductBundleItem::where('bundle_id', $bundle->id)->get();
+            foreach ($bundleItems as $bundleItem) {
+                // Load the bundle product details
+                $bundleProduct = Product::find($bundleItem->product_id);
+                if (!$bundleProduct) {
+                    continue; // Skip if not found
+                }
+                // Build options array for the bundle product.
+                $options = [
+                    'product_discount'      => 0.00,
+                    'product_discount_type' => 'fixed',
+                    'sub_total'             => $bundleItem->price * $bundleItem->quantity,
+                    'code'                  => $bundleProduct->product_code,
+                    'stock'                 => $bundleProduct->product_quantity,
+                    'unit'                  => $bundleProduct->product_unit,
+                    'last_sale_price'       => 0,
+                    'average_sale_price'    => 0,
+                    'product_tax'           => null,
+                    'unit_price'            => $bundleItem->price,
+                ];
+                // For now, we assume bundle items do not require serial numbers.
+                // Add the bundle product to the cart.
+                $cart->add([
+                    'id'      => $bundleProduct->id,
+                    'name'    => $bundleProduct->product_name,
+                    'qty'     => $bundleItem->quantity,
+                    'price'   => $bundleItem->price,
+                    'weight'  => 1,
+                    'options' => $options,
+                ]);
+
+                $this->check_quantity[$bundleProduct->id] = $bundleProduct->product_quantity;
+                $this->quantity[$bundleProduct->id] = $bundleItem->quantity;
+                $this->discount_type[$bundleProduct->id] = 'fixed';
+                $this->item_discount[$bundleProduct->id] = 0;
+                $this->product_tax[$bundleProduct->id] = null;
+            }
+//            session()->flash('message', 'Bundle items added successfully.');
+            // Notice: we do not return here; we continue to process the parent product.
+        }
+
+        // --- Now, proceed with the normal product selection for the parent product ---
+
         // For products that do NOT require a serial number, prevent duplicates.
         if (empty($product['serial_number_required']) || !$product['serial_number_required']) {
             $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
@@ -177,7 +227,7 @@ class ProductCart extends Component
                 // Append the new serial number and update quantity accordingly.
                 $currentSerials[] = $newSerial;
                 Cart::instance($this->cart_instance)->update($existingItem->rowId, [
-                    'qty' => count($currentSerials),
+                    'qty'     => count($currentSerials),
                     'options' => array_merge($existingItem->options->toArray(), [
                         'serial_numbers' => $currentSerials
                     ])
@@ -187,7 +237,7 @@ class ProductCart extends Component
             }
         }
 
-        // For both cases (new product entry), add the product to the cart.
+        // For both cases (new product entry), add the parent product to the cart.
         $this->product = $product;
 
         // Build options array.
@@ -204,7 +254,7 @@ class ProductCart extends Component
             'unit_price'            => $this->calculate($product)['unit_price']
         ];
 
-        // If the product requires a serial number, initialize serial_numbers and set quantity accordingly.
+        // If the product requires a serial number, initialize the serial_numbers array and set quantity accordingly.
         if (!empty($product['serial_number_required']) && $product['serial_number_required']) {
             $newSerial = $product['serial_number'] ?? null;
             $options['serial_numbers'] = $newSerial ? [$newSerial] : [];
@@ -214,7 +264,7 @@ class ProductCart extends Component
             $qty = 1;
         }
 
-        // Add product to cart with appropriate quantity.
+        // Add parent product to cart with appropriate quantity.
         $cart->add([
             'id'      => $product['id'],
             'name'    => $product['product_name'],
