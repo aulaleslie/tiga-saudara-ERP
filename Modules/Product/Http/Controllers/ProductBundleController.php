@@ -95,32 +95,26 @@ class ProductBundleController extends Controller
         }
     }
 
-    /**
-     * Show the form for editing the specified bundle.
-     *
-     * @param int $bundleId
-     * @return View
-     */
-    public function edit(int $bundleId): View
+    public function edit(Product $product, ProductBundle $bundle): View
     {
-        $bundle = ProductBundle::with('items')->findOrFail($bundleId);
-        $parentProduct = $bundle->parentProduct;
-        // Get a list of potential products to include in the bundle (excluding the parent product)
-        $products = Product::where('id', '!=', $parentProduct->id)->get();
+        // Optionally, ensure that the bundle actually belongs to the product.
+        if ($bundle->parent_product_id !== $product->id) {
+            abort(404);
+        }
 
-        return view('product::bundles.edit', compact('bundle', 'parentProduct', 'products'));
+        // Retrieve potential products for editing if needed.
+        $products = Product::where('id', '!=', $product->id)->get();
+
+        return view('product::bundles.edit', [
+            'bundle' => $bundle,
+            'parentProduct' => $product,
+            'products' => $products,
+        ]);
     }
 
-    /**
-     * Update the specified bundle in storage.
-     *
-     * @param Request $request
-     * @param int $bundleId
-     * @return RedirectResponse
-     */
-    public function update(Request $request, int $bundleId): RedirectResponse
+    public function update(Request $request, Product $product, ProductBundle $bundle): RedirectResponse
     {
-        $bundle = ProductBundle::with('items')->findOrFail($bundleId);
+        // Validate the request.
         $request->validate([
             'name'        => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -135,7 +129,7 @@ class ProductBundleController extends Controller
 
         DB::beginTransaction();
         try {
-            // Update bundle header including active period
+            // Update bundle header including active period.
             $bundle->update([
                 'name'        => $request->input('name'),
                 'description' => $request->input('description'),
@@ -143,7 +137,7 @@ class ProductBundleController extends Controller
                 'active_to'   => $request->input('active_to'),
             ]);
 
-            // Option 1: Delete all existing items and re-create them.
+            // Option: Delete all existing items and re-create them.
             $bundle->items()->delete();
             foreach ($request->input('items') as $item) {
                 $bundle->items()->create([
@@ -154,7 +148,7 @@ class ProductBundleController extends Controller
             }
 
             DB::commit();
-            return redirect()->route('products.bundle.index', $bundle->parent_product_id)
+            return redirect()->route('products.bundle.index', $product->id)
                 ->with('success', 'Bundle updated successfully.');
         } catch (Exception $e) {
             DB::rollBack();
@@ -163,19 +157,15 @@ class ProductBundleController extends Controller
         }
     }
 
-    /**
-     * Remove the specified bundle from storage.
-     *
-     * @param int $bundleId
-     * @return RedirectResponse
-     */
-    public function destroy(int $bundleId): RedirectResponse
+    public function destroy(Product $product, ProductBundle $bundle): RedirectResponse
     {
-        $bundle = ProductBundle::findOrFail($bundleId);
-        $parentProductId = $bundle->parent_product_id;
+        if ($bundle->parent_product_id !== $product->id) {
+            abort(404);
+        }
+
         try {
             $bundle->delete();
-            return redirect()->route('products.show', $parentProductId)
+            return redirect()->route('products.show', $product->id)
                 ->with('success', 'Bundle deleted successfully.');
         } catch (Exception $e) {
             Log::error('Failed to delete bundle', ['error' => $e->getMessage()]);

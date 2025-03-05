@@ -114,19 +114,22 @@
                                     <div class="form-group">
                                         <br>
                                         <label>
-                                            <!-- Hidden input to send '0' if the checkbox is unchecked -->
-                                            <input type="hidden" name="stock_managed" value="0" />
+                                            @if($product->product_quantity > 0)
+                                                <!-- If quantity > 0, checkbox is disabled so output current value -->
+                                                <input type="hidden" name="stock_managed" value="{{ $product->stock_managed }}" />
+                                            @else
+                                                <!-- Otherwise, use 0 as the default hidden value -->
+                                                <input type="hidden" name="stock_managed" value="0" />
+                                            @endif
                                             <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
                                                    class="input-icheck"
                                                 {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }}
                                                 {{ $product->product_quantity > 0 ? 'disabled' : '' }} />
                                             <strong>Manajemen Stok</strong>
                                         </label>
-                                        <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip"
-                                           data-placement="top"
+                                        <i class="bi bi-question-circle-fill text-info" data-toggle="tooltip" data-placement="top"
                                            title="Stock Management should be disabled mostly for services. Example: Jasa Instalasi, Jasa Perbaikan, dll."></i>
-                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk
-                                                produk ini.</i></p>
+                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
                                     </div>
                                 </div>
                             </div>
@@ -134,10 +137,14 @@
                             <div class="form-row">
                                 <div class="col-md-4">
                                     <div class="form-group">
-                                        <!-- Hidden input to send '0' if the checkbox is unchecked -->
-                                        <input type="hidden" name="serial_number_required" value="0" />
-                                        <input type="checkbox" name="serial_number_required" id="serial_number_required"
-                                               value="1"
+                                        @if($product->product_quantity > 0)
+                                            <!-- If quantity > 0, checkbox is disabled so output current value -->
+                                            <input type="hidden" name="serial_number_required" value="{{ $product->serial_number_required }}" />
+                                        @else
+                                            <!-- Otherwise, use 0 as the default hidden value -->
+                                            <input type="hidden" name="serial_number_required" value="0" />
+                                        @endif
+                                        <input type="checkbox" name="serial_number_required" id="serial_number_required" value="1"
                                             {{ old('serial_number_required', $product->serial_number_required) ? 'checked' : '' }}
                                             {{ $product->product_quantity > 0 ? 'disabled' : '' }}>
                                         <label for="serial_number_required"><strong>Serial Number Diperlukan</strong></label>

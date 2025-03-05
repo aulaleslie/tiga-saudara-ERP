@@ -39,6 +39,9 @@ class ProductCart extends Component
 
     public $global_discount_type = 'percentage';
 
+    public $pendingProduct = null;
+    public $bundleOptions = [];
+
     protected $rules = [
         'unit_price.*' => 'required|numeric|min:0', // Unit price per row.
         'quantity.*' => 'required|integer|min:1', // Quantity must be at least 1.
@@ -57,19 +60,16 @@ class ProductCart extends Component
 
         if ($data) {
             $this->data = $data;
-
             if ($data->discount_percentage > 0) {
                 $this->global_discount_type = 'percentage';
             } else if ($data->discount_amount > 0) {
                 $this->global_discount_type = 'fixed';
             }
-
             $this->global_discount = $data->discount_percentage ?? 0;
             $this->shipping = $data->shipping_amount;
             $this->is_tax_included = $data->is_tax_included;
 
             $cart_items = Cart::instance($this->cart_instance)->content();
-
             foreach ($cart_items as $cart_item) {
                 $this->initializeCartItemAttributes($cart_item);
             }
@@ -83,16 +83,6 @@ class ProductCart extends Component
             $this->item_discount = [];
             $this->product_tax = [];
         }
-    }
-
-    private function initializeCartItemAttributes($cart_item)
-    {
-        $this->check_quantity[$cart_item->id] = [$cart_item->options->stock ?? 0];
-        $this->quantity[$cart_item->id] = $cart_item->qty ?? 0;
-        $this->unit_price[$cart_item->id] = $cart_item->price ?? 0;
-        $this->discount_type[$cart_item->id] = $cart_item->options->product_discount_type ?? 'fixed';
-        $this->item_discount[$cart_item->id] = $cart_item->options->product_discount ?? 0;
-        $this->product_tax[$cart_item->id] = $cart_item->options->product_tax ?? null;
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
@@ -144,59 +134,33 @@ class ProductCart extends Component
         ]);
     }
 
+    private function initializeCartItemAttributes($cart_item): void
+    {
+        $this->check_quantity[$cart_item->id] = [$cart_item->options->stock ?? 0];
+        $this->quantity[$cart_item->id] = $cart_item->qty ?? 0;
+        $this->unit_price[$cart_item->id] = $cart_item->price ?? 0;
+        $this->discount_type[$cart_item->id] = $cart_item->options->product_discount_type ?? 'fixed';
+        $this->item_discount[$cart_item->id] = $cart_item->options->product_discount ?? 0;
+        $this->product_tax[$cart_item->id] = $cart_item->options->product_tax ?? null;
+    }
+
     public function productSelected($product): void
     {
         $cart = Cart::instance($this->cart_instance);
 
-        // --- Check for and add bundle items if they exist ---
-        $bundle = ProductBundle::where('parent_product_id', $product['id'])->first();
-        if ($bundle) {
-            // Retrieve bundle items
-            $bundleItems = ProductBundleItem::where('bundle_id', $bundle->id)->get();
-            foreach ($bundleItems as $bundleItem) {
-                // Load the bundle product details
-                $bundleProduct = Product::find($bundleItem->product_id);
-                if (!$bundleProduct) {
-                    continue; // Skip if not found
-                }
-                // Build options array for the bundle product.
-                $options = [
-                    'product_discount'      => 0.00,
-                    'product_discount_type' => 'fixed',
-                    'sub_total'             => $bundleItem->price * $bundleItem->quantity,
-                    'code'                  => $bundleProduct->product_code,
-                    'stock'                 => $bundleProduct->product_quantity,
-                    'unit'                  => $bundleProduct->product_unit,
-                    'last_sale_price'       => 0,
-                    'average_sale_price'    => 0,
-                    'product_tax'           => null,
-                    'unit_price'            => $bundleItem->price,
-                ];
-                // For now, we assume bundle items do not require serial numbers.
-                // Add the bundle product to the cart.
-                $cart->add([
-                    'id'      => $bundleProduct->id,
-                    'name'    => $bundleProduct->product_name,
-                    'qty'     => $bundleItem->quantity,
-                    'price'   => $bundleItem->price,
-                    'weight'  => 1,
-                    'options' => $options,
-                ]);
-
-                $this->check_quantity[$bundleProduct->id] = $bundleProduct->product_quantity;
-                $this->quantity[$bundleProduct->id] = $bundleItem->quantity;
-                $this->discount_type[$bundleProduct->id] = 'fixed';
-                $this->item_discount[$bundleProduct->id] = 0;
-                $this->product_tax[$bundleProduct->id] = null;
-            }
-//            session()->flash('message', 'Bundle items added successfully.');
-            // Notice: we do not return here; we continue to process the parent product.
+        // --- Check for associated bundles (could be more than one) ---
+        $bundles = ProductBundle::with('items.product')->where('parent_product_id', $product['id'])->get();
+        if ($bundles->isNotEmpty()) {
+            $this->pendingProduct = $product;
+            $this->bundleOptions = $bundles;
+            // Emit event to display the bundle selection modal
+            $this->dispatch('showBundleSelectionModal', $this->pendingProduct, $this->bundleOptions);
+            return;
         }
 
-        // --- Now, proceed with the normal product selection for the parent product ---
-
+        // --- Normal product selection if no bundle exists ---
         // For products that do NOT require a serial number, prevent duplicates.
-        if (empty($product['serial_number_required']) || !$product['serial_number_required']) {
+        if (empty($product['serial_number_required'])) {
             $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
                 return $cartItem->id == $product['id'];
             });
@@ -206,28 +170,24 @@ class ProductCart extends Component
             }
         } else {
             // For products requiring a serial number, allow multiple entries if serial numbers differ.
-            // Check if the product already exists in the cart.
             $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
                 return $cartItem->id == $product['id'];
             });
             if ($exists->isNotEmpty()) {
-                // Assume the new serial number comes in $product['serial_number']
                 $newSerial = $product['serial_number'] ?? null;
                 if (!$newSerial) {
                     session()->flash('message', 'No serial number provided!');
                     return;
                 }
-                // Get the first matching cart item.
                 $existingItem = $exists->first();
                 $currentSerials = $existingItem->options->serial_numbers ?? [];
                 if (in_array($newSerial, $currentSerials)) {
                     session()->flash('message', 'Serial number sudah dimasukkan!');
                     return;
                 }
-                // Append the new serial number and update quantity accordingly.
                 $currentSerials[] = $newSerial;
                 Cart::instance($this->cart_instance)->update($existingItem->rowId, [
-                    'qty'     => count($currentSerials),
+                    'qty' => count($currentSerials),
                     'options' => array_merge($existingItem->options->toArray(), [
                         'serial_numbers' => $currentSerials
                     ])
@@ -237,10 +197,15 @@ class ProductCart extends Component
             }
         }
 
-        // For both cases (new product entry), add the parent product to the cart.
+        // --- Add parent product normally ---
+        $this->addParentProduct($product);
+    }
+
+    public function addParentProduct($product): void
+    {
+        $cart = Cart::instance($this->cart_instance);
         $this->product = $product;
 
-        // Build options array.
         $options = [
             'product_discount'      => 0.00,
             'product_discount_type' => 'fixed',
@@ -254,17 +219,15 @@ class ProductCart extends Component
             'unit_price'            => $this->calculate($product)['unit_price']
         ];
 
-        // If the product requires a serial number, initialize the serial_numbers array and set quantity accordingly.
         if (!empty($product['serial_number_required']) && $product['serial_number_required']) {
             $newSerial = $product['serial_number'] ?? null;
             $options['serial_numbers'] = $newSerial ? [$newSerial] : [];
             $options['serial_number_required'] = true;
-            $qty = count($options['serial_numbers']); // This will be 1 if newSerial is provided.
+            $qty = count($options['serial_numbers']);
         } else {
             $qty = 1;
         }
 
-        // Add parent product to cart with appropriate quantity.
         $cart->add([
             'id'      => $product['id'],
             'name'    => $product['product_name'],
@@ -274,7 +237,6 @@ class ProductCart extends Component
             'options' => $options,
         ]);
 
-        // Update component state arrays.
         $this->check_quantity[$product['id']] = $product['product_quantity'];
         $this->quantity[$product['id']] = $qty;
         $this->discount_type[$product['id']] = 'fixed';
@@ -286,7 +248,64 @@ class ProductCart extends Component
         ]);
     }
 
-    public function removeItem($row_id)
+    public function confirmBundleSelection($bundleId): void
+    {
+        $cart = Cart::instance($this->cart_instance);
+        $bundle = ProductBundle::find($bundleId);
+        if ($bundle) {
+            $bundleItems = ProductBundleItem::where('bundle_id', $bundle->id)->get();
+            foreach ($bundleItems as $bundleItem) {
+                $bundleProduct = Product::find($bundleItem->product_id);
+                if (!$bundleProduct) {
+                    continue;
+                }
+                $options = [
+                    'product_discount'      => 0.00,
+                    'product_discount_type' => 'fixed',
+                    'sub_total'             => $bundleItem->price * $bundleItem->quantity,
+                    'code'                  => $bundleProduct->product_code,
+                    'stock'                 => $bundleProduct->product_quantity,
+                    'unit'                  => $bundleProduct->product_unit,
+                    'last_sale_price'       => 0,
+                    'average_sale_price'    => 0,
+                    'product_tax'           => null,
+                    'unit_price'            => $bundleItem->price,
+                ];
+                $cart->add([
+                    'id'      => $bundleProduct->id,
+                    'name'    => $bundleProduct->product_name,
+                    'qty'     => $bundleItem->quantity,
+                    'price'   => $bundleItem->price,
+                    'weight'  => 1,
+                    'options' => $options,
+                ]);
+                $this->check_quantity[$bundleProduct->id] = $bundleProduct->product_quantity;
+                $this->quantity[$bundleProduct->id] = $bundleItem->quantity;
+                $this->discount_type[$bundleProduct->id] = 'fixed';
+                $this->item_discount[$bundleProduct->id] = 0;
+                $this->product_tax[$bundleProduct->id] = null;
+            }
+            session()->flash('message', 'Bundle items added successfully.');
+        }
+        // After adding bundle items, add the parent product.
+        if ($this->pendingProduct) {
+            $this->addParentProduct($this->pendingProduct);
+            $this->pendingProduct = null;
+            $this->bundleOptions = [];
+        }
+    }
+
+    public function proceedWithoutBundle(): void
+    {
+        if ($this->pendingProduct) {
+            $this->addParentProduct($this->pendingProduct);
+            $this->pendingProduct = null;
+            $this->bundleOptions = [];
+            session()->flash('message', 'Produk diproses tanpa bundle.');
+        }
+    }
+
+    public function removeItem($row_id): void
     {
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
         Cart::instance($this->cart_instance)->remove($row_id);
@@ -296,7 +315,7 @@ class ProductCart extends Component
         unset($this->product_tax[$cart_item->id]);
     }
 
-    public function updatedGlobalTax()
+    public function updatedGlobalTax(): void
     {
         // Recalculate when global tax changes
         // Ensure that the new global tax is applied
@@ -310,7 +329,7 @@ class ProductCart extends Component
         $this->render();
     }
 
-    public function updateQuantity($row_id, $product_id)
+    public function updateQuantity($row_id, $product_id): void
     {
         if ($this->cart_instance == 'purchase' || $this->cart_instance == 'purchase_return') {
             if ($this->check_quantity[$product_id] < $this->quantity[$product_id]) {
