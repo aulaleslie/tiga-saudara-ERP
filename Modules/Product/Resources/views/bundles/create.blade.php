@@ -5,6 +5,17 @@
 @section('content')
     <div class="container">
         <h3>Buat Paket Penjualan untuk "{{ $product->product_name }}"</h3>
+
+        @if ($errors->any())
+            <div class="alert alert-danger">
+                <ul>
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         <form action="{{ route('products.bundle.store', $product->id) }}" method="POST">
             @csrf
             <!-- Row for Nama Paket -->
@@ -12,7 +23,7 @@
                 <div class="col-md-3">
                     <div class="form-group">
                         <label for="bundle_name">Nama Paket</label>
-                        <input type="text" name="name" id="bundle_name" class="form-control" required>
+                        <input type="text" value="{{ old('name') }}" name="name" id="bundle_name" class="form-control" required>
                     </div>
                 </div>
             </div>
@@ -38,7 +49,7 @@
                 <div class="col-md-6">
                     <div class="form-group">
                         <label for="bundle_description">Deskripsi</label>
-                        <textarea name="description" id="bundle_description" class="form-control"></textarea>
+                        <textarea name="description" id="bundle_description" class="form-control">{{ old('description') }}</textarea>
                     </div>
                 </div>
             </div>

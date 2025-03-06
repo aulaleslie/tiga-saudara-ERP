@@ -13,11 +13,14 @@
             <tr>
                 <td>
                     <livewire:auto-complete.product-loader :index="$index" :key="$index" />
+                    @error("items.$index.product_id")
+                    <div class="invalid-feedback">{{ $message }}</div>
+                    @enderror
                 </td>
                 <td x-data="{ open: false }" class="align-middle text-right">
                         <span x-show="!open"
                               @click="open = true;">
-                            {{ format_currency($item['price']) }}
+                            {{ format_currency($item['price'] ?? 0) }}
                         </span>
                     <!-- Editable input field -->
                     <div x-show="open" @click.away="open = false">
@@ -51,7 +54,7 @@
     <!-- Hidden inputs to pass bundle items data when the parent form is submitted -->
     @foreach($items as $index => $item)
         <input type="hidden" name="items[{{ $index }}][product_id]" value="{{ $item['product_id'] }}">
-        <input type="hidden" name="items[{{ $index }}][price]" value="{{ $item['price'] }}">
-        <input type="hidden" name="items[{{ $index }}][quantity]" value="{{ $item['quantity'] }}">
+        <input type="hidden" name="items[{{ $index }}][price]" value="{{ $item['price'] ?? 0 }}">
+        <input type="hidden" name="items[{{ $index }}][quantity]" value="{{ $item['quantity'] ?? 0}}">
     @endforeach
 </div>

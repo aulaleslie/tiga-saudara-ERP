@@ -55,14 +55,22 @@ class ProductBundleController extends Controller
     public function store(Request $request, int $productId): RedirectResponse
     {
         $request->validate([
-            'name'        => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'active_from' => 'nullable|date',
-            'active_to'   => 'nullable|date|after_or_equal:active_from',
-            'items'       => 'required|array',
-            'items.*.product_id' => 'required|exists:products,id',
-            'items.*.price'      => 'nullable|numeric|min:0',
-            'items.*.quantity'   => 'required|integer|min:1',
+            'name'                   => 'required|string|max:255',
+            'description'            => 'nullable|string',
+            'active_from'            => 'nullable|date',
+            'active_to'              => 'nullable|date|after_or_equal:active_from',
+            'items'                  => 'required|array',
+            'items.*.product_id'     => 'required|exists:products,id',
+            'items.*.price'          => 'nullable|numeric|min:0',
+            'items.*.quantity'       => 'required|integer|min:1',
+        ], [
+            'name.required'                  => 'Nama harus diisi.',
+            'active_to.after_or_equal'       => 'Periode Selesai harus sama atau lebih dari Periode Mulai',
+            'items.required'                 => 'Item harus diisi.',
+            'items.*.product_id.required'    => 'Produk harus dipilih disetiap item.',
+            'items.*.product_id.exists'      => 'Produk yang dipilih tidak ada.',
+            'items.*.quantity.required'      => 'Setiap item harus punya jumlah.',
+            'items.*.quantity.integer'       => 'Jumlah harus berupa angka.',
         ]);
 
         DB::beginTransaction();

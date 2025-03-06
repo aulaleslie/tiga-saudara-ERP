@@ -24,9 +24,7 @@ class BundleTable extends Component
     public function mount($productId): void
     {
         $this->productId = $productId;
-        $this->items = [
-            ['product_id' => null, 'product_name' => '', 'price' => 0, 'quantity' => 1, 'search' => '']
-        ];
+        $this->items = session()->getOldInput('items', []);
     }
 
     /**
@@ -47,6 +45,11 @@ class BundleTable extends Component
     }
 
     public function updateProductRow($data): void {
+        // If data is null, simply return without updating anything.
+        if (!$data) {
+            return;
+        }
+
         // Extract the index and product from the event payload.
         $index = $data['index'] ?? null;
         $product = $data['product'] ?? null;
@@ -56,10 +59,7 @@ class BundleTable extends Component
             $this->items[$index]['product_id']   = $product['id'];
             $this->items[$index]['product_name'] = $product['product_name'];
         } else {
-            // Log an error if expected data is missing.
             Log::error('updateProductRow missing index or product', compact('data'));
-            $this->items[$index]['product_id']   = null;
-            $this->items[$index]['product_name'] = null;
         }
     }
 

@@ -17,9 +17,13 @@ class ProductLoader extends Component
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
 
+    // New property to hold the selected product
+    public $selectedProduct = null;
+
     public function updatedQuery(): void
     {
-        if ($this->isFocused) {
+        // Only search if not already selected
+        if ($this->isFocused && !$this->selectedProduct) {
             $this->searchProducts();
         } else {
             $this->search_results = [];
@@ -60,8 +64,9 @@ class ProductLoader extends Component
     {
         $product = Product::find($productId);
         if ($product) {
-            $this->search_results = [$product];
+            $this->selectedProduct = $product; // Store the selected product
             $this->query = $product->product_name;
+            $this->search_results = [$product];
 
             // Dispatch event with both the product data and its row index
             $this->dispatch('productSelected', [
@@ -71,6 +76,14 @@ class ProductLoader extends Component
             $this->isFocused = false;
             $this->query_count = 0;
         }
+    }
+
+    // New method to clear the selection
+    public function clearSelection(): void
+    {
+        $this->selectedProduct = null;
+        $this->query = '';
+        $this->dispatch('productSelected', null);
     }
 
     public function loadMore(): void
