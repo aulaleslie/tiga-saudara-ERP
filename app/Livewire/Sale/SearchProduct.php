@@ -46,7 +46,7 @@ class SearchProduct extends Component
                     ->orWhere('products.barcode', 'like', '%' . $this->query . '%')
                     ->orWhere('psn.serial_number', 'like', '%' . $this->query . '%');
             })
-            ->select('products.*', 'psn.id as serial_number_id', 'psn.serial_number')
+            ->select('products.*', 'psn.id as serial_number_id', 'psn.serial_number', 'psn.tax_id')
             ->take($this->how_many)
             ->get();
 
