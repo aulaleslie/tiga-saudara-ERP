@@ -4,6 +4,7 @@ namespace Modules\Sale\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Sale extends Model
 {
@@ -11,11 +12,22 @@ class Sale extends Model
 
     protected $guarded = [];
 
-    public function saleDetails() {
+    const STATUS_DRAFTED = 'DRAFTED';
+    const STATUS_WAITING_APPROVAL = 'WAITING_APPROVAL';
+    const STATUS_APPROVED = 'APPROVED';
+    const STATUS_REJECTED = 'REJECTED';
+    const STATUS_DISPATCHED_PARTIALLY = 'DISPATCHED PARTIALLY';
+    const STATUS_DISPATCHED = 'DISPATCHED';
+    const STATUS_RETURNED = 'RETURNED';
+    const STATUS_RETURNED_PARTIALLY = 'RETURNED PARTIALLY';
+
+    public function saleDetails(): HasMany
+    {
         return $this->hasMany(SaleDetails::class, 'sale_id', 'id');
     }
 
-    public function salePayments() {
+    public function salePayments(): HasMany
+    {
         return $this->hasMany(SalePayment::class, 'sale_id', 'id');
     }
 

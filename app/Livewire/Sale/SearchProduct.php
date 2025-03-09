@@ -35,29 +35,15 @@ class SearchProduct extends Component
             return;
         }
 
-        // Fetch products with an optional serial number match using a LEFT JOIN.
-        $this->search_results = Product::query()
-            ->leftJoin('product_serial_numbers as psn', 'products.id', '=', 'psn.product_id')
-            ->where('products.stock_managed', true)
-            ->where('products.setting_id', $this->settingId)
-            ->where(function ($q) {
-                $q->where('products.product_name', 'like', '%' . $this->query . '%')
-                    ->orWhere('products.product_code', 'like', '%' . $this->query . '%')
-                    ->orWhere('products.barcode', 'like', '%' . $this->query . '%')
-                    ->orWhere('psn.serial_number', 'like', '%' . $this->query . '%');
+        // Fetch products based on the query and setting_id
+        $this->search_results = Product::where('stock_managed', true)
+            ->where('setting_id', $this->settingId)
+            ->where(function ($query) {
+                $query->where('product_name', 'like', '%' . $this->query . '%')
+                    ->orWhere('product_code', 'like', '%' . $this->query . '%');
             })
-            ->select('products.*', 'psn.id as serial_number_id', 'psn.serial_number', 'psn.tax_id')
             ->take($this->how_many)
             ->get();
-
-        // If there's exactly one result and its barcode or serial number exactly equals the query,
-        // immediately select it.
-        if ($this->search_results->count() === 1) {
-            $first = $this->search_results->first();
-            if ($first->barcode === $this->query || $first->serial_number === $this->query) {
-                $this->selectProduct($first);
-            }
-        }
     }
 
     public function loadMore(): void
@@ -76,11 +62,5 @@ class SearchProduct extends Component
     public function selectProduct($product): void
     {
         $this->dispatch('productSelected', $product);
-        $this->resetQuery();
-    }
-
-    public function doNothing(): void
-    {
-        // This method intentionally left blank.
     }
 }

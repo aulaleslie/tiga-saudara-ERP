@@ -12,19 +12,20 @@ class StoreSaleRequest extends FormRequest
      *
      * @return array
      */
-    public function rules()
+    public function rules(): array
     {
         return [
-            'customer_id' => 'required|numeric',
+            'customer_id' => 'required|integer|exists:customers,id',
             'reference' => 'required|string|max:255',
-            'tax_percentage' => 'required|integer|min:0|max:100',
-            'discount_percentage' => 'required|integer|min:0|max:100',
+            'date' => 'required|date',
+            'due_date' => 'required|date|after_or_equal:date',
+            'tax_id' => 'nullable|integer|exists:taxes,id',
+            'discount_percentage' => 'nullable|numeric|min:0|max:100|required_without:discount_amount',
+            'discount_amount' => 'nullable|numeric|min:0|required_without:discount_percentage',
             'shipping_amount' => 'required|numeric',
-            'total_amount' => 'required|numeric',
-            'paid_amount' => 'required|numeric',
-            'status' => 'required|string|max:255',
-            'payment_method' => 'required|string|max:255',
-            'note' => 'nullable|string|max:1000'
+            'total_amount' => 'required|numeric|min:0', // Ensure total amount is a valid number
+            'payment_term' => 'required|integer|exists:payment_terms,id', // New field for payment term
+            'note' => 'nullable|string|max:1000',
         ];
     }
 
@@ -33,7 +34,7 @@ class StoreSaleRequest extends FormRequest
      *
      * @return bool
      */
-    public function authorize()
+    public function authorize(): bool
     {
         return Gate::allows('create_sales');
     }

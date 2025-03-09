@@ -43,7 +43,7 @@
                                 <span class="d-inline-block"
                                       data-bs-toggle="tooltip"
                                       data-bs-placement="top"
-                                      title="Harga Jual Rata-Rata: {{ format_currency($cart_item->options->average_sale_price) }} | Harga Jual Terakhir: {{ format_currency($cart_item->options->last_sale_price) }}">
+                                      title="Harga Jual Terakhir: 0">
                                     <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
                                 </span>
                             </td>
@@ -66,7 +66,10 @@
                             </td>
 
                             <td class="align-middle text-right">
-                                <span class="badge badge-info">
+                                <span class="badge badge-info"
+                                      data-bs-toggle="tooltip"
+                                      data-bs-placement="top"
+                                      title="Stok Non PPN: {{ $cart_item->options->quantity_non_tax }}, Stok PPN: {{ $cart_item->options->quantity_tax }}">
                                     {{ $cart_item->options->stock . ' ' . $cart_item->options->unit }}
                                 </span>
                             </td>
@@ -154,45 +157,6 @@
                                 </a>
                             </td>
                         </tr>
-                        @if($cart_item->options->serial_number_required)
-                            @php
-                                $collapseId = 'serialRow-' . md5($cart_item->rowId);
-                            @endphp
-                            <tr>
-                                <td colspan="9">
-                                    <div>
-                                        <table class="table table-bordered align-middle">
-                                            <thead class="table-primary">
-                                            <tr class="text-center">
-                                                <th style="width: 80%">Serial Number</th>
-                                                <th style="width: 20%">Aksi</th>
-                                            </tr>
-                                            </thead>
-                                            <tbody>
-                                            @if(count($cart_item->options->serial_numbers) > 0)
-                                                @foreach($cart_item->options->serial_numbers as $serial)
-                                                    <tr class="text-center">
-                                                        <td>{{ $serial }}</td>
-                                                        <td>
-                                                            <button type="button" class="btn btn-danger btn-sm rounded-circle shadow-sm"
-                                                                    wire:click.prevent="removeSerialNumber('{{ $cart_item->rowId }}', '{{ $serial }}')">
-                                                                <i class="bi bi-trash"></i>
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                @endforeach
-                                            @else
-                                                <tr class="text-center">
-                                                    <td colspan="2" class="text-muted">Belum ada serial number dimasukkan.</td>
-                                                </tr>
-                                            @endif
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </td>
-                            </tr>
-                        @endif
-
                     @endforeach
                 @else
                     <tr>
@@ -276,7 +240,8 @@
                         {{ $global_discount_type == 'percentage' ? '%' : 'Rp' }}
                     </button>
 
-                    <ul class="dropdown-menu" style="color: black; font-size: 0.9rem; position: absolute; left: 0; top: 100%; z-index: 1050;">
+                    <ul class="dropdown-menu"
+                        style="color: black; font-size: 0.9rem; position: absolute; left: 0; top: 100%; z-index: 1050;">
                         <li>
                             <a class="dropdown-item text-left text-dark" href="#"
                                wire:click.prevent="setGlobalDiscountType('fixed')">
@@ -305,11 +270,10 @@
         <div class="col-lg-4">
             <div class="form-group">
                 <label for="shipping_amount">Ongkos Kirim</label>
-                <input wire:model.blur="shipping" type="number" class="form-control text-right" name="shipping_amount" min="0"
+                <input wire:model.blur="shipping" type="number" class="form-control text-right" name="shipping_amount"
+                       min="0"
                        value="0" required step="0.01">
             </div>
         </div>
     </div>
-
-    @include('livewire.sale.includes.bundle-confirmation-modal')
 </div>
