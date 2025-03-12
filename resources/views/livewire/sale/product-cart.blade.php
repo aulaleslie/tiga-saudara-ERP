@@ -38,6 +38,12 @@
                             <td class="align-middle">
                                 <strong>{{ $cart_item->name }}</strong> <br>
                                 <span class="badge badge-success">{{ $cart_item->options->code }}</span>
+                                @if($cart_item->options->bundle_items)
+                                    <br>
+                                    <a class="btn btn-link btn-sm p-0" data-bs-toggle="collapse" href="#bundleCollapse{{ $cart_item->rowId }}" role="button" aria-expanded="false" aria-controls="bundleCollapse{{ $cart_item->rowId }}">
+                                        Lihat Paket Penjualan
+                                    </a>
+                                @endif
 
                                 <!-- Tooltip Container -->
                                 <span class="d-inline-block"
@@ -149,6 +155,13 @@
 
                             <td class="align-middle text-center">
                                 {{ format_currency($cart_item->options->sub_total) }}
+                                @if(isset($cart_item->options->bundle_items))
+                                    @php
+                                        dump($cart_item->options->bundle_items);
+                                        // Or to inspect the type:
+                                        dump(gettype($cart_item->options->bundle_items));
+                                    @endphp
+                                @endif
                             </td>
 
                             <td class="align-middle text-center">
@@ -157,6 +170,36 @@
                                 </a>
                             </td>
                         </tr>
+
+                        @if($cart_item->options->bundle_items)
+                            <tr class="collapse" id="bundleCollapse{{ $cart_item->rowId }}">
+                                <td colspan="9" class="p-0">
+                                    <div class="card card-body">
+                                        <h6>Paket Penjualan</h6>
+                                        <table class="table table-sm table-bordered mb-0">
+                                            <thead>
+                                            <tr>
+                                                <th>Nama Barang</th>
+                                                <th>Harga</th>
+                                                <th>Jumlah</th>
+                                                <th>Subtotal</th>
+                                            </tr>
+                                            </thead>
+                                            <tbody>
+                                            @foreach($cart_item->options->bundle_items as $bundleItem)
+                                                <tr>
+                                                    <td>{{ $bundleItem['name'] }}</td>
+                                                    <td>{{ format_currency($bundleItem['price']) }}</td>
+                                                    <td>{{ $bundleItem['quantity'] }}</td>
+                                                    <td>{{ format_currency($bundleItem['sub_total']) }}</td>
+                                                </tr>
+                                            @endforeach
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endif
                     @endforeach
                 @else
                     <tr>

@@ -257,40 +257,102 @@ class ProductCart extends Component
     {
         $cart = Cart::instance($this->cart_instance);
         $bundle = ProductBundle::find($bundleId);
-        if ($bundle) {
-            $bundleItems = ProductBundleItem::where('bundle_id', $bundle->id)->get();
-            foreach ($bundleItems as $bundleItem) {
-                $bundleProduct = Product::find($bundleItem->product_id);
-                if (!$bundleProduct) {
-                    continue;
+        if (!$bundle) {
+            session()->flash('message', 'Invalid bundle selected.');
+            return;
+        }
+
+        // Build the bundle items details array from the selected bundle
+        $selectedBundleItems = [];
+        $bundleItems = ProductBundleItem::where('bundle_id', $bundle->id)->get();
+        foreach ($bundleItems as $bundleItem) {
+            $bundleProduct = Product::find($bundleItem->product_id);
+            if (!$bundleProduct) {
+                continue;
+            }
+            $selectedBundleItems[] = [
+                'bundle_id'   => $bundle->id,
+                'product_id'  => $bundleProduct->id,
+                'name'        => $bundleProduct->product_name,
+                'price'       => $bundleItem->price,
+                'quantity'    => $bundleItem->quantity, // defined in the bundle
+                'sub_total'   => $bundleItem->price * $bundleItem->quantity,
+                // add any extra fields you need
+            ];
+        }
+
+        // Now, check if the pending product already exists in the cart
+        if ($this->pendingProduct) {
+            // Search for an existing cart item for this product
+            $existingItems = $cart->search(function ($cartItem, $rowId) {
+                return $cartItem->id == $this->pendingProduct['id'];
+            });
+
+            if ($existingItems->isNotEmpty()) {
+                // Get the first matching cart item (you could also loop if you allow duplicates)
+                $existingCartItem = $existingItems->first();
+                $options = $existingCartItem->options->toArray();
+
+                // Get current bundle items (if any) or start with an empty array
+                $currentBundleItems = $options['bundle_items'] ?? [];
+
+                // Loop through each selected bundle item
+                foreach ($selectedBundleItems as $newBundleItem) {
+                    $found = false;
+                    // Check if the same bundle (by bundle_id and product_id) is already attached
+                    if (!empty($currentBundleItems)) {
+                        foreach ($currentBundleItems as &$existingBundleItem) {
+                            if (
+                                $existingBundleItem['bundle_id'] == $newBundleItem['bundle_id'] &&
+                                $existingBundleItem['product_id'] == $newBundleItem['product_id']
+                            ) {
+                                // Increase the quantity of the bundle item
+                                $existingBundleItem['quantity'] += $newBundleItem['quantity'];
+                                $existingBundleItem['sub_total'] = $existingBundleItem['price'] * $existingBundleItem['quantity'];
+                                $found = true;
+                                break;
+                            }
+                        }
+                    }
+                    // If not found, append the new bundle item
+                    if (!$found) {
+                        $currentBundleItems[] = $newBundleItem;
+                    }
                 }
-                // Use calculate() to get default values then override with bundle info.
-                $calc = $this->calculate($bundleProduct);
-                $calc['price'] = $bundleItem->price;
-                $calc['unit_price'] = $bundleItem->price;
-                $calc['sub_total'] = $bundleItem->price * $bundleItem->quantity;
-                $options = [
-                    'product_discount'      => 0.00,
-                    'product_discount_type' => 'fixed',
-                    'sub_total'             => $calc['sub_total'],
-                    'code'                  => $bundleProduct->product_code,
-                    'stock'                 => $bundleProduct->product_quantity,
-                    'unit'                  => $bundleProduct->product_unit,
-                    'last_sale_price'       => 0,
-                    'average_sale_price'    => 0,
-                    'product_tax'           => null,
-                    'unit_price'            => $calc['unit_price'],
-                ];
 
-
+                // Update the cart item with the merged bundle items
+                $cart->update($existingCartItem->rowId, [
+                    'options' => array_merge($options, [
+                        'bundle_items' => $currentBundleItems,
+                    ]),
+                ]);
+            } else {
+                // If the product isn’t already in the cart, add it first
+                $this->addProduct($this->pendingProduct);
+                // Then, get the newly added product row
+                $newItems = $cart->search(function ($cartItem, $rowId) {
+                    return $cartItem->id == $this->pendingProduct['id'];
+                });
+                if ($newItems->isNotEmpty()) {
+                    $newCartItem = $newItems->first();
+                    $options = $newCartItem->options->toArray();
+                    // Set the bundle items option on the new row
+                    $cart->update($newCartItem->rowId, [
+                        'options' => array_merge($options, [
+                            'bundle_items' => $selectedBundleItems,
+                        ]),
+                    ]);
+                }
             }
             session()->flash('message', 'Bundle items added successfully.');
-        }
-        if ($this->pendingProduct) {
-            $this->addProduct($this->pendingProduct);
+            // Clear pending product and bundle options
             $this->pendingProduct = null;
             $this->bundleOptions = [];
         }
+
+        Log::info('Cart content after confirmBundleSelection:', [
+            'cart' => Cart::instance($this->cart_instance)->content()->toArray()
+        ]);
     }
 
     public function proceedWithoutBundle(): void
