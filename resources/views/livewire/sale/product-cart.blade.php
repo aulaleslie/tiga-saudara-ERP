@@ -276,4 +276,5 @@
             </div>
         </div>
     </div>
+    @include('livewire.sale.includes.bundle-confirmation-modal')
 </div>

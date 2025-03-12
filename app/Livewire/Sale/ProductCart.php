@@ -8,6 +8,9 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductBundle;
+use Modules\Product\Entities\ProductBundleItem;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Tax;
 
@@ -35,6 +38,9 @@ class ProductCart extends Component
     public $customer;
 
     public $global_discount_type = 'percentage';
+
+    public $pendingProduct = null;
+    public $bundleOptions = [];
 
     protected $rules = [
         'unit_price.*' => 'required|numeric|min:0', // Unit price per row.
@@ -182,6 +188,7 @@ class ProductCart extends Component
     public function productSelected($product): void
     {
         Log::info('Product Selected:', $product);
+
         $cart = Cart::instance($this->cart_instance);
 
         $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
@@ -192,6 +199,25 @@ class ProductCart extends Component
             session()->flash('message', 'Produk sudah dimasukkan!');
             return;
         }
+
+        $bundles = ProductBundle::with('items.product')
+            ->where('parent_product_id', $product['id'])
+            ->get();
+
+        if ($bundles->isNotEmpty()) {
+            $this->pendingProduct = $product;
+            $this->bundleOptions = $bundles;
+            // Dispatch event to open the bundle selection modal.
+            $this->dispatch('showBundleSelectionModal', $this->pendingProduct, $this->bundleOptions);
+            return;
+        }
+
+        $this->addProduct($product);
+    }
+
+    public function addProduct($product): void {
+
+        $cart = Cart::instance($this->cart_instance);
 
         $stockData = ProductStock::where('product_id', $product['id'])
             ->selectRaw('SUM(quantity_non_tax) as quantity_non_tax, SUM(quantity_tax) as quantity_tax')
@@ -225,6 +251,56 @@ class ProductCart extends Component
         $this->discount_type[$product['id']] = 'fixed';
         $this->item_discount[$product['id']] = 0;
         $this->product_tax[$product['id']] = null; // Initialize per-product tax
+    }
+
+    public function confirmBundleSelection($bundleId): void
+    {
+        $cart = Cart::instance($this->cart_instance);
+        $bundle = ProductBundle::find($bundleId);
+        if ($bundle) {
+            $bundleItems = ProductBundleItem::where('bundle_id', $bundle->id)->get();
+            foreach ($bundleItems as $bundleItem) {
+                $bundleProduct = Product::find($bundleItem->product_id);
+                if (!$bundleProduct) {
+                    continue;
+                }
+                // Use calculate() to get default values then override with bundle info.
+                $calc = $this->calculate($bundleProduct);
+                $calc['price'] = $bundleItem->price;
+                $calc['unit_price'] = $bundleItem->price;
+                $calc['sub_total'] = $bundleItem->price * $bundleItem->quantity;
+                $options = [
+                    'product_discount'      => 0.00,
+                    'product_discount_type' => 'fixed',
+                    'sub_total'             => $calc['sub_total'],
+                    'code'                  => $bundleProduct->product_code,
+                    'stock'                 => $bundleProduct->product_quantity,
+                    'unit'                  => $bundleProduct->product_unit,
+                    'last_sale_price'       => 0,
+                    'average_sale_price'    => 0,
+                    'product_tax'           => null,
+                    'unit_price'            => $calc['unit_price'],
+                ];
+
+
+            }
+            session()->flash('message', 'Bundle items added successfully.');
+        }
+        if ($this->pendingProduct) {
+            $this->addProduct($this->pendingProduct);
+            $this->pendingProduct = null;
+            $this->bundleOptions = [];
+        }
+    }
+
+    public function proceedWithoutBundle(): void
+    {
+        if ($this->pendingProduct) {
+            $this->addProduct($this->pendingProduct);
+            $this->pendingProduct = null;
+            $this->bundleOptions = [];
+            session()->flash('message', 'Produk diproses tanpa bundle.');
+        }
     }
 
     public function removeItem($row_id)
