@@ -14,6 +14,7 @@
 use App\Http\Controllers\PrintController;
 use Illuminate\Support\Facades\Route;
 use Modules\Setting\Http\Controllers\BusinessController;
+use Modules\Setting\Http\Controllers\JournalController;
 use Modules\Setting\Http\Controllers\PaymentMethodController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
@@ -35,6 +36,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::resource('payment-terms', 'PaymentTermController')->except('show');
     // Chart of accounts
     Route::resource('chart-of-account', 'ChartofAccountController')->except('show');
+    // Journals
+    Route::resource('journals', JournalController::class);
 
     Route::get('/print-receipt', function() {
 

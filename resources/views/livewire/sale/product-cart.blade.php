@@ -40,7 +40,7 @@
                                 <span class="badge badge-success">{{ $cart_item->options->code }}</span>
                                 @if($cart_item->options->bundle_items)
                                     <br>
-                                    <a class="btn btn-link btn-sm p-0" data-bs-toggle="collapse" href="#bundleCollapse{{ $cart_item->rowId }}" role="button" aria-expanded="false" aria-controls="bundleCollapse{{ $cart_item->rowId }}">
+                                    <a class="btn btn-link btn-sm p-0" data-bs-toggle="collapse" href="#bundleCollapse{{ $cart_item->id }}" role="button" aria-expanded="false" aria-controls="bundleCollapse{{ $cart_item->id }}">
                                         Lihat Paket Penjualan
                                     </a>
                                 @endif
@@ -172,7 +172,7 @@
                         </tr>
 
                         @if($cart_item->options->bundle_items)
-                            <tr class="collapse" id="bundleCollapse{{ $cart_item->rowId }}">
+                            <tr class="collapse" id="bundleCollapse{{ $cart_item->id }}">
                                 <td colspan="9" class="p-0">
                                     <div class="card card-body">
                                         <h6>Paket Penjualan</h6>

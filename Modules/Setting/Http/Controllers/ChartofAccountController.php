@@ -9,7 +9,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
-use Modules\Setting\DataTables\ChartOfAccountsDataTable;
 use Modules\Setting\Entities\ChartOfAccount;
 
 class ChartofAccountController extends Controller

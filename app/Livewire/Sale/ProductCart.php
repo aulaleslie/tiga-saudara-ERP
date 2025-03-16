@@ -7,6 +7,7 @@ use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
@@ -129,11 +130,14 @@ class ProductCart extends Component
 
         // Log the final totals for debugging
         Log::info('Final totals calculated', [
+            'cart_items' => $cart_items,
             'grand_total' => $grand_total,
             'total_sub_total' => $total_sub_total,
             'global_discount' => $this->global_discount,
             'global_discount_amount' => $global_discount_amount,
             'shipping' => $this->shipping,
+            'discountType' => $this->discount_type,
+            'quantity' => $this->quantity,
         ]);
 
         return view('livewire.sale.product-cart', [
@@ -160,7 +164,7 @@ class ProductCart extends Component
                 // Reconstruct a product array with necessary fields.
                 // Make sure these fields exist; you might need to store them in options when adding the product.
                 $product = [
-                    'id' => $cart_item->id,
+                    'id' => $cart_item->product_id,
                     'sale_price' => $cart_item->options->sale_price,
                     'tier_1_price' => $cart_item->options->tier_1_price ?? $cart_item->price,
                     'tier_2_price' => $cart_item->options->tier_2_price ?? $cart_item->price,
@@ -180,6 +184,7 @@ class ProductCart extends Component
                     ]),
                 ]);
             }
+
             // Recalculate the cart totals to reflect the updated prices
             $this->recalculateCart();
         }
@@ -191,14 +196,14 @@ class ProductCart extends Component
 
         $cart = Cart::instance($this->cart_instance);
 
-        $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
-            return $cartItem->id == $product['id'];
-        });
-
-        if ($exists->isNotEmpty()) {
-            session()->flash('message', 'Produk sudah dimasukkan!');
-            return;
-        }
+//        $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
+//            return $cartItem->id == $product['id'];
+//        });
+//
+//        if ($exists->isNotEmpty()) {
+//            session()->flash('message', 'Produk sudah dimasukkan!');
+//            return;
+//        }
 
         $bundles = ProductBundle::with('items.product')
             ->where('parent_product_id', $product['id'])
@@ -215,7 +220,7 @@ class ProductCart extends Component
         $this->addProduct($product);
     }
 
-    public function addProduct($product): void {
+    public function addProduct($product): string {
 
         $cart = Cart::instance($this->cart_instance);
 
@@ -223,13 +228,14 @@ class ProductCart extends Component
             ->selectRaw('SUM(quantity_non_tax) as quantity_non_tax, SUM(quantity_tax) as quantity_tax')
             ->first();
 
-        $cart->add([
-            'id' => $product['id'],
+        $cartItem = $cart->add([
+            'id' => Str::uuid()->toString(),
             'name' => $product['product_name'],
             'qty' => 1,
             'price' => $this->calculate($product)['price'],
             'weight' => 1,
             'options' => [
+                'product_id' => $product['id'],
                 'product_discount' => 0.00,
                 'product_discount_type' => 'fixed',
                 'sub_total' => $this->calculate($product)['sub_total'],
@@ -246,11 +252,9 @@ class ProductCart extends Component
             ]
         ]);
 
-        $this->check_quantity[$product['id']] = $product['product_quantity'];
-        $this->quantity[$product['id']] = 1;
-        $this->discount_type[$product['id']] = 'fixed';
-        $this->item_discount[$product['id']] = 0;
-        $this->product_tax[$product['id']] = null; // Initialize per-product tax
+        $this->initializeCartItemAttributes($cartItem); // Initialize per-product tax
+
+        return $cartItem->rowId;
     }
 
     public function confirmBundleSelection($bundleId): void
@@ -277,73 +281,45 @@ class ProductCart extends Component
                 'price'       => $bundleItem->price,
                 'quantity'    => $bundleItem->quantity, // defined in the bundle
                 'sub_total'   => $bundleItem->price * $bundleItem->quantity,
-                // add any extra fields you need
             ];
         }
 
-        // Now, check if the pending product already exists in the cart
+        // If there's a pending product, add it exclusively here
         if ($this->pendingProduct) {
-            // Search for an existing cart item for this product
-            $existingItems = $cart->search(function ($cartItem, $rowId) {
-                return $cartItem->id == $this->pendingProduct['id'];
-            });
+            // Get stock data for the pending product
+            $stockData = ProductStock::where('product_id', $this->pendingProduct['id'])
+                ->selectRaw('SUM(quantity_non_tax) as quantity_non_tax, SUM(quantity_tax) as quantity_tax')
+                ->first();
 
-            if ($existingItems->isNotEmpty()) {
-                // Get the first matching cart item (you could also loop if you allow duplicates)
-                $existingCartItem = $existingItems->first();
-                $options = $existingCartItem->options->toArray();
+            // Add the product to the cart
+            $cartItem = $cart->add([
+                'id' => Str::uuid()->toString(), // Unique id for cart row
+                'product_id' => $this->pendingProduct['id'],
+                'name' => $this->pendingProduct['product_name'],
+                'qty' => 1,
+                'price' => $this->calculate($this->pendingProduct)['price'],
+                'weight' => 1,
+                'options' => [
+                    'product_discount' => 0.00,
+                    'product_discount_type' => 'fixed',
+                    'sub_total' => $this->calculate($this->pendingProduct)['sub_total'],
+                    'code' => $this->pendingProduct['product_code'],
+                    'stock' => $this->pendingProduct['product_quantity'],
+                    'unit' => $this->pendingProduct['product_unit'],
+                    'product_tax' => null, // Initialize as null
+                    'unit_price' => $this->calculate($this->pendingProduct)['unit_price'],
+                    'sale_price' => $this->pendingProduct['sale_price'] ?? 0,
+                    'tier_1_price' => $this->pendingProduct['tier_1_price'] ?? 0,
+                    'tier_2_price' => $this->pendingProduct['tier_2_price'] ?? 0,
+                    'quantity_non_tax' => $stockData->quantity_non_tax ?? 0,
+                    'quantity_tax' => $stockData->quantity_tax ?? 0,
+                    'bundle_items' => $selectedBundleItems,
+                ]
+            ]);
 
-                // Get current bundle items (if any) or start with an empty array
-                $currentBundleItems = $options['bundle_items'] ?? [];
+            // Initialize component arrays for the new cart row
+            $this->initializeCartItemAttributes($cartItem);
 
-                // Loop through each selected bundle item
-                foreach ($selectedBundleItems as $newBundleItem) {
-                    $found = false;
-                    // Check if the same bundle (by bundle_id and product_id) is already attached
-                    if (!empty($currentBundleItems)) {
-                        foreach ($currentBundleItems as &$existingBundleItem) {
-                            if (
-                                $existingBundleItem['bundle_id'] == $newBundleItem['bundle_id'] &&
-                                $existingBundleItem['product_id'] == $newBundleItem['product_id']
-                            ) {
-                                // Increase the quantity of the bundle item
-                                $existingBundleItem['quantity'] += $newBundleItem['quantity'];
-                                $existingBundleItem['sub_total'] = $existingBundleItem['price'] * $existingBundleItem['quantity'];
-                                $found = true;
-                                break;
-                            }
-                        }
-                    }
-                    // If not found, append the new bundle item
-                    if (!$found) {
-                        $currentBundleItems[] = $newBundleItem;
-                    }
-                }
-
-                // Update the cart item with the merged bundle items
-                $cart->update($existingCartItem->rowId, [
-                    'options' => array_merge($options, [
-                        'bundle_items' => $currentBundleItems,
-                    ]),
-                ]);
-            } else {
-                // If the product isn’t already in the cart, add it first
-                $this->addProduct($this->pendingProduct);
-                // Then, get the newly added product row
-                $newItems = $cart->search(function ($cartItem, $rowId) {
-                    return $cartItem->id == $this->pendingProduct['id'];
-                });
-                if ($newItems->isNotEmpty()) {
-                    $newCartItem = $newItems->first();
-                    $options = $newCartItem->options->toArray();
-                    // Set the bundle items option on the new row
-                    $cart->update($newCartItem->rowId, [
-                        'options' => array_merge($options, [
-                            'bundle_items' => $selectedBundleItems,
-                        ]),
-                    ]);
-                }
-            }
             session()->flash('message', 'Bundle items added successfully.');
             // Clear pending product and bundle options
             $this->pendingProduct = null;
@@ -351,7 +327,7 @@ class ProductCart extends Component
         }
 
         Log::info('Cart content after confirmBundleSelection:', [
-            'cart' => Cart::instance($this->cart_instance)->content()->toArray()
+            'cart' => $cart->content()->toArray()
         ]);
     }
 
@@ -387,17 +363,17 @@ class ProductCart extends Component
         $this->render();
     }
 
-    public function updateQuantity($row_id, $product_id)
+    public function updateQuantity($row_id, $id)
     {
-        if ($this->quantity[$product_id] <= 0) {
-            $this->quantity[$product_id] = 1;
+        if ($this->quantity[$id] <= 0) {
+            $this->quantity[$id] = 1;
             session()->flash('message', 'Jumlah barang dipesan minimal 1!');
             return;
         }
 
-        if ($this->check_quantity[$product_id] < $this->quantity[$product_id]) {
+        if ($this->check_quantity[$id] < $this->quantity[$id]) {
             session()->flash('message', 'The requested quantity is not available in stock.');
-            $this->quantity[$product_id] = $this->check_quantity[$product_id];
+            $this->quantity[$id] = $this->check_quantity[$id];
             return;
         }
 
@@ -405,15 +381,15 @@ class ProductCart extends Component
 
         // Use calculateSubtotalAndTax function to calculate
         $calculated = $this->calculateSubtotalAndTax(
-            $this->unit_price[$product_id] ?? $cart_item->price,
-            $this->quantity[$product_id],
+            $this->unit_price[$id] ?? $cart_item->price,
+            $this->quantity[$id] ?? 0,
             $cart_item->options->product_discount ?? 0,
-            $this->product_tax[$product_id] ?? null
+            $this->product_tax[$id] ?? null
         );
 
         // Update cart item
         Cart::instance($this->cart_instance)->update($row_id, [
-            'qty' => $this->quantity[$product_id],
+            'qty' => $this->quantity[$id],
             'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total' => $calculated['sub_total'],
                 'sub_total_before_tax' => $calculated['subtotal_before_tax'],
@@ -498,43 +474,43 @@ class ProductCart extends Component
         $this->item_discount[$name] = 0;
     }
 
-    public function discountModalRefresh($product_id, $row_id)
+    public function discountModalRefresh($id, $row_id)
     {
-        $this->updateQuantity($row_id, $product_id);
+        $this->updateQuantity($row_id, $id);
     }
 
-    public function setDiscountType($row_id, $product_id, $discount_type): void
+    public function setDiscountType($row_id, $id, $discount_type): void
     {
-        $this->discount_type[$product_id] = $discount_type;
-        $this->setProductDiscount($row_id, $product_id);
+        $this->discount_type[$id] = $discount_type;
+        $this->setProductDiscount($row_id, $id);
     }
 
-    public function setProductDiscount($row_id, $product_id): void
+    public function setProductDiscount($row_id, $id): void
     {
         // Fetch cart item
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
 
         // Retrieve the unit price (fallback to 'price' if 'unit_price' is missing)
-        $unit_price = $this->unit_price[$product_id] ?? $cart_item->price;
+        $unit_price = $this->unit_price[$id] ?? $cart_item->price;
         $quantity = $cart_item->qty;
 
         Log::info('SetProductDiscount - Initial Values', [
             'row_id' => $row_id,
-            'product_id' => $product_id,
+            'id' => $id,
             'unit_price' => $unit_price,
             'quantity' => $quantity,
             'current_discount' => $cart_item->options['product_discount'] ?? 0,
         ]);
 
         // Sanitize and validate discount input
-        $raw_discount_input = $this->item_discount[$product_id] ?? 0;
+        $raw_discount_input = $this->item_discount[$id] ?? 0;
         $sanitized_discount_input = is_numeric($raw_discount_input) ? (float)$raw_discount_input : 0;
 
         // Calculate discount amount
         $discount_amount = 0;
-        if ($this->discount_type[$product_id] == 'fixed') {
+        if ($this->discount_type[$id] == 'fixed') {
             $discount_amount = $sanitized_discount_input;
-        } elseif ($this->discount_type[$product_id] == 'percentage') {
+        } elseif ($this->discount_type[$id] == 'percentage') {
             $discount_amount = $unit_price * ($sanitized_discount_input / 100);
         }
 
@@ -545,7 +521,7 @@ class ProductCart extends Component
 
         Log::info('SetProductDiscount - Calculated Discount', [
             'discount_amount' => $discount_amount,
-            'discount_type' => $this->discount_type[$product_id],
+            'discount_type' => $this->discount_type[$id],
         ]);
 
         // Adjust price and subtotal based on tax inclusion
@@ -554,7 +530,7 @@ class ProductCart extends Component
             $adjusted_price,
             $quantity,
             $discount_amount,
-            $this->product_tax[$product_id] ?? null
+            $this->product_tax[$id] ?? null
         );
 
         Log::info('SetProductDiscount - Updated Cart Data', [
@@ -569,7 +545,7 @@ class ProductCart extends Component
                 'sub_total' => $updated_cart_data['sub_total'],
                 'sub_total_before_tax' => $updated_cart_data['subtotal_before_tax'],
                 'product_discount' => $discount_amount,
-                'product_discount_type' => $this->discount_type[$product_id],
+                'product_discount_type' => $this->discount_type[$id],
             ]),
         ]);
 
@@ -577,29 +553,29 @@ class ProductCart extends Component
         $this->recalculateCart();
 
         // Flash success message
-        session()->flash('discount_message' . $product_id, 'Discount applied to the product!');
+        session()->flash('discount_message' . $id, 'Discount applied to the product!');
 
         // Log the updated values
         Log::info('SetProductDiscount - Final Update', [
             'row_id' => $row_id,
-            'product_id' => $product_id,
+            'id' => $id,
             'product_discount' => $discount_amount,
             'updated_cart_data' => $updated_cart_data,
         ]);
     }
 
-    public function updatePrice($row_id, $product_id)
+    public function updatePrice($row_id, $id)
     {
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
 
         // Validate and set new price
-        $new_price = $this->unit_price[$product_id] ?? $cart_item->price;
+        $new_price = $this->unit_price[$id] ?? $cart_item->price;
 
         // if percentage, recalculate discount amount
         $discount_amount = $cart_item->options->product_discount;
-        $raw_discount_input = $this->item_discount[$product_id] ?? 0;
+        $raw_discount_input = $this->item_discount[$id] ?? 0;
         $sanitized_discount_input = is_numeric($raw_discount_input) ? (float)$raw_discount_input : 0;
-        if ($this->discount_type[$product_id] == 'percentage') {
+        if ($this->discount_type[$id] == 'percentage') {
             $discount_amount = $new_price * ($sanitized_discount_input / 100);
         }
 
@@ -608,7 +584,7 @@ class ProductCart extends Component
             $new_price,
             $cart_item->qty,
             $discount_amount ?? 0,
-            $this->product_tax[$product_id] ?? null
+            $this->product_tax[$id] ?? null
         );
 
         // Update cart item
@@ -655,7 +631,7 @@ class ProductCart extends Component
         ];
     }
 
-    public function updateCartOptions($row_id, $product_id, $cart_item, $discount_amount)
+    public function updateCartOptions($row_id, $id, $cart_item, $discount_amount)
     {
         Cart::instance($this->cart_instance)->update($row_id, ['options' => [
             'sub_total' => $cart_item->price * $cart_item->qty,
@@ -665,7 +641,7 @@ class ProductCart extends Component
             'product_tax' => $cart_item->options->product_tax,
             'unit_price' => $cart_item->options->unit_price,
             'product_discount' => $discount_amount,
-            'product_discount_type' => $this->discount_type[$product_id],
+            'product_discount_type' => $this->discount_type[$id],
         ]]);
     }
 
@@ -675,13 +651,13 @@ class ProductCart extends Component
         $this->render();
     }
 
-    public function updateTax($row_id, $product_id)
+    public function updateTax($row_id, $id)
     {
         // Fetch the cart item
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
 
         // Get the selected tax ID
-        $tax_id = !empty($this->product_tax[$product_id]) ? $this->product_tax[$product_id] : null;
+        $tax_id = !empty($this->product_tax[$id]) ? $this->product_tax[$id] : null;
 
         // Initialize tax amount and validate the tax ID
         $tax_amount = 0;
@@ -689,7 +665,7 @@ class ProductCart extends Component
             $tax = Tax::find($tax_id);
             if ($tax) {
                 Log::info('Tax applied', [
-                    'product_id' => $product_id,
+                    'id' => $id,
                     'tax_id' => $tax_id,
                     'tax_value' => $tax->value,
                 ]);
@@ -739,7 +715,7 @@ class ProductCart extends Component
             ]);
 
             $this->recalculateCart();
-            Log::warning('No tax ID provided for product', ['product_id' => $product_id]);
+            Log::warning('No tax ID provided for product', ['id' => $id]);
         }
     }
 
@@ -748,14 +724,14 @@ class ProductCart extends Component
         $cart_items = Cart::instance($this->cart_instance)->content();
 
         foreach ($cart_items as $cart_item) {
-            $product_id = $cart_item->id;
+//            $product_id = $cart_item->id;
             $row_id = $cart_item->rowId;
 
             // Retrieve required data for calculations
             $price = $cart_item->price;
             $quantity = $cart_item->qty;
             $discount = $cart_item->options->product_discount ?? 0;
-            $tax_id = $this->product_tax[$product_id] ?? null;
+            $tax_id = $this->product_tax[$cart_item->id] ?? null;
 
             // Calculate subtotal and tax using the helper function
             $calculated = $this->calculateSubtotalAndTax($price, $quantity, $discount, $tax_id);
