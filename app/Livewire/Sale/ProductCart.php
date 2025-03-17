@@ -91,7 +91,7 @@ class ProductCart extends Component
 
     private function initializeCartItemAttributes($cart_item): void
     {
-        $this->check_quantity[$cart_item->id] = [$cart_item->options->stock ?? 0];
+        $this->check_quantity[$cart_item->id] = $cart_item->options->stock ?? 0;
         $this->quantity[$cart_item->id] = $cart_item->qty ?? 0;
         $this->unit_price[$cart_item->id] = $cart_item->price ?? 0;
         $this->discount_type[$cart_item->id] = $cart_item->options->product_discount_type ?? 'fixed';
@@ -365,6 +365,10 @@ class ProductCart extends Component
 
     public function updateQuantity($row_id, $id)
     {
+        Log::info('called', [
+            'row_id' => $row_id,
+            'id' => $id
+        ]);
         if ($this->quantity[$id] <= 0) {
             $this->quantity[$id] = 1;
             session()->flash('message', 'Jumlah barang dipesan minimal 1!');
@@ -387,6 +391,9 @@ class ProductCart extends Component
             $this->product_tax[$id] ?? null
         );
 
+        Log::info('update quantity calculation', [
+            'calculated' => $calculated,
+        ]);
         // Update cart item
         Cart::instance($this->cart_instance)->update($row_id, [
             'qty' => $this->quantity[$id],
