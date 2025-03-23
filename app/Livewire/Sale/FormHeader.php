@@ -44,21 +44,26 @@ class FormHeader extends Component
     public function handleCustomerSelected($customer)
     {
         Log::info('customer selected: ', [
-            'customer' =>  $customer,
+            'customer' => $customer,
         ]);
 
-        // If the customer has a default payment term, use it.
-        if ($customer && $customer['payment_term_id']) {
-            $this->paymentTermId = $customer['payment_term_id'];
+        if ($customer) {
+            // Always update customer ID
             $this->customerId = $customer['id'];
-        } else {
-            $this->paymentTermId = null;
-            $this->customerId = null;
+
+            // Only update payment term if the customer has a default value
+            if (!empty($customer['payment_term_id'])) {
+                $this->paymentTermId = $customer['payment_term_id'];
+            }
         }
+
+        Log::info('customer selected: ', [
+            'customer' => $this->customerId,
+        ]);
         $this->calculateDueDate();
     }
 
-    protected function calculateDueDate()
+    protected function calculateDueDate(): void
     {
         if ($this->paymentTermId) {
             // Find the selected payment term from the loaded list.

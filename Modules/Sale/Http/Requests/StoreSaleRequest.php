@@ -24,7 +24,7 @@ class StoreSaleRequest extends FormRequest
             'discount_amount' => 'nullable|numeric|min:0|required_without:discount_percentage',
             'shipping_amount' => 'required|numeric',
             'total_amount' => 'required|numeric|min:0', // Ensure total amount is a valid number
-            'payment_term' => 'required|integer|exists:payment_terms,id', // New field for payment term
+            'payment_term_id' => 'required|integer|exists:payment_terms,id', // New field for payment term
             'note' => 'nullable|string|max:1000',
         ];
     }

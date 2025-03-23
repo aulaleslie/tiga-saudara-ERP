@@ -4,6 +4,7 @@ namespace Modules\Sale\Http\Controllers;
 
 use Exception;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
@@ -48,6 +49,12 @@ class SaleController extends Controller
 
     public function store(StoreSaleRequest $request): RedirectResponse
     {
+        Log::info('REQUEST', [
+            'request' => $request->all(),
+        ]);
+
+        foreach (Cart::instance('sale')->content() as $cart_item) { Log::info('cart ', ['cart_item' => $cart_item]); }
+
         if (Cart::instance('sale')->count() == 0) {
             return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
         }

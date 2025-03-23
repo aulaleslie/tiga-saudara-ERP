@@ -36,11 +36,12 @@
         </div>
     </div>
 
+    <input type="hidden" name="customer_id" value="{{ $customerId }}">
     <!-- Term Pembayaran -->
     <div class="col-lg-6">
         <div class="form-group">
             <label for="payment_term">Term Pembayaran <span class="text-danger">*</span></label>
-            <select id="payment_term" class="form-control" name="payment_term" wire:model="paymentTermId" required>
+            <select id="payment_term_id" class="form-control" name="payment_term_id" wire:model="paymentTermId" required>
                 <option value="">Pilih Term Pembayaran</option>
                 @foreach($paymentTerms as $term)
                     <option value="{{ $term->id }}" data-longevity="{{ $term->longevity }}">
@@ -53,7 +54,3 @@
     </div>
 </div>
 
-<input type="hidden" name="customer_id" value="{{ $customerId }}">
-<input type="hidden" name="date" value="{{ $date }}">
-<input type="hidden" name="due_date" value="{{ $dueDate }}">
-<input type="hidden" name="payment_term" value="{{ $paymentTermId }}">

@@ -66,7 +66,7 @@
                                         type="text"
                                         class="form-control text-right"
                                         @keydown.enter="open = false"
-                                        wire:blur="updatePrice('{{ $cart_item->rowId }}', {{ $cart_item->id }})"
+                                        wire:blur="updatePrice('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
                                     >
                                 </div>
                             </td>
