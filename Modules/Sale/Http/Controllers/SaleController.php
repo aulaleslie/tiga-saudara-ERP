@@ -53,73 +53,147 @@ class SaleController extends Controller
             'request' => $request->all(),
         ]);
 
-        foreach (Cart::instance('sale')->content() as $cart_item) { Log::info('cart ', ['cart_item' => $cart_item]); }
-
+        // Ensure cart is not empty.
         if (Cart::instance('sale')->count() == 0) {
-            return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
+            return redirect()->back()
+                ->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])
+                ->withInput();
+        }
+
+        // Validate stock for parent products and bundled items.
+        $parentQuantities = [];
+        $bundleQuantities = [];
+
+        // Loop through each cart item.
+        foreach (Cart::instance('sale')->content() as $cart_item) {
+            // Parent product ID is stored in options->product_id.
+            $parentId = $cart_item->options->product_id;
+            if (!isset($parentQuantities[$parentId])) {
+                $parentQuantities[$parentId] = 0;
+            }
+            $parentQuantities[$parentId] += $cart_item->qty;
+
+            // If the cart item has bundle items, validate them.
+            if (isset($cart_item->options->bundle_items) && is_array($cart_item->options->bundle_items)) {
+                foreach ($cart_item->options->bundle_items as $bundleItem) {
+                    // Bundle product ID.
+                    $bundleProductId = $bundleItem['product_id'];
+                    // Assume bundleItem['quantity'] is the base quantity defined in the bundle.
+                    // Multiply by the parent's quantity.
+                    $bundleQty = $bundleItem['quantity'] * $cart_item->qty;
+                    if (!isset($bundleQuantities[$bundleProductId])) {
+                        $bundleQuantities[$bundleProductId] = 0;
+                    }
+                    $bundleQuantities[$bundleProductId] += $bundleQty;
+                }
+            }
+        }
+
+        $errors = [];
+
+        // Validate parent products stock.
+        foreach ($parentQuantities as $productId => $requestedQty) {
+            $product = Product::find($productId);
+            if (!$product) {
+                $errors[] = "Product ID {$productId} not found.";
+            } else {
+                if ($product->product_quantity < $requestedQty) {
+                    $errors[] = "Insufficient stock for {$product->product_name}. Requested: {$requestedQty}, Available: {$product->product_quantity}.";
+                }
+            }
+        }
+
+        // Validate bundled products stock.
+        foreach ($bundleQuantities as $productId => $requestedQty) {
+            $product = Product::find($productId);
+            if (!$product) {
+                $errors[] = "Bundle Product ID {$productId} not found.";
+            } else {
+                if ($product->product_quantity < $requestedQty) {
+                    $errors[] = "Insufficient stock for bundled product {$product->product_name}. Requested: {$requestedQty}, Available: {$product->product_quantity}.";
+                }
+            }
+        }
+
+        // If errors exist, redirect back with error messages.
+        if (!empty($errors)) {
+            return redirect()->back()->withErrors($errors)->withInput();
         }
 
         $setting_id = session('setting_id');
-        DB::beginTransaction(); // Start the transaction manually
+        DB::beginTransaction();
         try {
-            // Create the sale record (example shown earlier)
+            // Create the sale record.
             $sale = Sale::create([
-                'date' => $request->date,
-                'due_date' => $request->due_date,
-                'supplier_id' => $request->supplier_id,
-                'tax_id' => $request->tax_id,
-                'tax_percentage' => 0, // Example
-                'tax_amount' => 0, // Example
-                'discount_percentage' => $request->discount_percentage ?? 0,
-                'discount_amount' => $request->discount_amount ?? 0,
-                'shipping_amount' => $request->shipping_amount,
-                'total_amount' => $request->total_amount,
-                'due_amount' => $request->total_amount,
-                'status' => Purchase::STATUS_DRAFTED,
-                'payment_status' => 'unpaid',
-                'payment_term_id' => $request->payment_term,
-                'note' => $request->note,
-                'setting_id' => $setting_id,
-                'paid_amount' => 0.0,
-                'is_tax_included' => $request->is_tax_included,
-                'payment_method' => '',
+                'date'              => $request->date,
+                'due_date'          => $request->due_date,
+                'customer_id'       => $request->customer_id,
+                'customer_name'     => Customer::findOrFail($request->customer_id)->customer_name,
+                'tax_id'            => $request->tax_id,
+                'tax_percentage'    => 0, // Set as needed.
+                'tax_amount'        => 0, // Set as needed.
+                'discount_percentage'=> $request->discount_percentage ?? 0,
+                'discount_amount'   => $request->discount_amount ?? 0,
+                'shipping_amount'   => $request->shipping_amount,
+                'total_amount'      => $request->total_amount,
+                'due_amount'        => $request->total_amount,
+                'status'            => Purchase::STATUS_DRAFTED, // Adjust as necessary (or use Sale::STATUS_DRAFTED).
+                'payment_status'    => 'unpaid',
+                'payment_term_id'   => $request->payment_term_id,
+                'note'              => $request->note,
+                'setting_id'        => $setting_id,
+                'paid_amount'       => 0.0,
+                'is_tax_included'   => $request->is_tax_included,
+                'payment_method'    => '',
             ]);
 
-            // Iterate over cart items
+            // Iterate over cart items and create sale details.
             foreach (Cart::instance('sale')->content() as $cart_item) {
-                // Map cart item to sale details
+                // Calculate product tax amount.
                 $product_tax_amount = $cart_item->options['sub_total'] -
                     ($cart_item->options['sub_total_before_tax'] ?? 0);
 
-                SaleDetails::create([
-                    'purchase_id' => $sale->id, // FK reference
-                    'product_id' => $cart_item->id,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options['code'],
-                    'quantity' => $cart_item->qty,
-                    'unit_price' => $cart_item->options['unit_price'],
-                    'price' => $cart_item->price,
-                    'product_discount_type' => $cart_item->options['product_discount_type'],
-                    'product_discount_amount' => $cart_item->options['product_discount'],
-                    'sub_total' => $cart_item->options['sub_total'],
-                    'product_tax_amount' => $product_tax_amount, // Calculated
-                    'tax_id' => $cart_item->options['product_tax'], // Tax ID
+                $saleDetail = SaleDetails::create([
+                    'sale_id'                   => $sale->id,
+                    'product_id'                => $cart_item->options->product_id,
+                    'product_name'              => $cart_item->name,
+                    'product_code'              => $cart_item->options['code'],
+                    'quantity'                  => $cart_item->qty,
+                    'unit_price'                => $cart_item->options['unit_price'],
+                    'price'                     => $cart_item->price,
+                    'product_discount_type'     => $cart_item->options['product_discount_type'],
+                    'product_discount_amount'   => $cart_item->options['product_discount'],
+                    'sub_total'                 => $cart_item->options['sub_total'],
+                    'product_tax_amount'        => $product_tax_amount,
+                    'tax_id'                    => $cart_item->options['product_tax'],
                 ]);
+
+                // If the cart item has bundle items, iterate and create SaleBundleItem records.
+                if (isset($cart_item->options->bundle_items) && is_array($cart_item->options->bundle_items)) {
+                    foreach ($cart_item->options->bundle_items as $bundleItem) {
+                        // Create a bundle record for each bundle item.
+                        // Note: You might need to adjust fields if you have computed values.
+                        \Modules\Sale\Entities\SaleBundleItem::create([
+                            'sale_detail_id' => $saleDetail->id,
+                            'sale_id'        => $sale->id,
+                            'bundle_id'      => $bundleItem['bundle_id'] ?? null,
+                            'bundle_item_id' => $bundleItem['bundle_item_id'] ?? null,
+                            'product_id'     => $bundleItem['product_id'],
+                            'name'           => $bundleItem['name'],
+                            'price'          => $bundleItem['price'],
+                            'quantity'       => $bundleItem['quantity'], // base quantity; computed quantity = base * parent qty can be computed as needed.
+                            'sub_total'      => $bundleItem['sub_total'],
+                        ]);
+                    }
+                }
             }
 
-            // Commit transaction
             DB::commit();
-
             toast('Pembelian Ditambahkan!', 'success');
             return redirect()->route('sales.index');
         } catch (Exception $e) {
-            // Rollback on error
             DB::rollBack();
-
-            // Log the error for debugging
             Log::error('Sale Creation Failed:', ['error' => $e->getMessage()]);
-
-            // Return an error message to the user
             toast('An error occurred while creating the sale. Please try again.', 'error');
             return redirect()->back()->withInput();
         }

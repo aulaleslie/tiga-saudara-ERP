@@ -321,12 +321,12 @@ class ProductCart extends Component
             // Add the product to the cart with the updated subtotal that includes the bundle items
             $cartItem = $cart->add([
                 'id' => Str::uuid()->toString(), // Unique id for cart row
-                'product_id' => $this->pendingProduct['id'],
                 'name' => $this->pendingProduct['product_name'],
                 'qty' => 1,
                 'price' => $parentCalculated['price'], // parent's price remains unchanged
                 'weight' => 1,
                 'options' => [
+                    'product_id' => $this->pendingProduct['id'],
                     'product_discount' => 0.00,
                     'product_discount_type' => 'fixed',
                     'sub_total' => $final_sub_total, // parent's subtotal plus bundle total
