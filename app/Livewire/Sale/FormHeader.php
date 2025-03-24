@@ -35,7 +35,7 @@ class FormHeader extends Component
         $this->calculateDueDate();
     }
 
-    public function updatedPaymentTermId($value)
+    public function paymentTermChanged()
     {
         $this->calculateDueDate();
     }

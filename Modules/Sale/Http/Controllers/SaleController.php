@@ -3,6 +3,9 @@
 namespace Modules\Sale\Http\Controllers;
 
 use Exception;
+use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -18,6 +21,7 @@ use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Http\Requests\StoreSaleRequest;
 use Modules\Sale\Http\Requests\UpdateSaleRequest;
+use Modules\Setting\Entities\Location;
 
 class SaleController extends Controller
 {
@@ -29,7 +33,8 @@ class SaleController extends Controller
     }
 
 
-    public function create() {
+    public function create(): Factory|\Illuminate\Foundation\Application|View|Application
+    {
         abort_if(Gate::denies('sale.create'), 403);
 
         Cart::instance('sale')->destroy();
@@ -343,5 +348,19 @@ class SaleController extends Controller
         toast('Penjualan Dihapus!', 'warning');
 
         return redirect()->route('sales.index');
+    }
+
+    public function dispatch(Sale $sale): Factory|\Illuminate\Foundation\Application|View|Application
+    {
+        $currentSettingId = session('setting_id');
+        $locations = Location::where('setting_id', $currentSettingId)->get();
+
+
+        return view('sale::dispatch', compact('sale', 'locations'));
+    }
+
+    public function storeDispatch(Request $request, Sale $sale): RedirectResponse
+    {
+        return redirect()->route('sales.show', $sale->id)->with('message', 'Items successfully received.');
     }
 }

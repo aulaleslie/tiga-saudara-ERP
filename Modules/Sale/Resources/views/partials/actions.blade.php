@@ -13,15 +13,17 @@
         @endcan
         @can('access_sale_payments')
             @if($data->due_amount > 0)
-            <a href="{{ route('sale-payments.create', $data->id) }}" class="dropdown-item">
-                <i class="bi bi-plus-circle-dotted mr-2 text-success" style="line-height: 1;"></i> Add Payment
-            </a>
+                <a href="{{ route('sale-payments.create', $data->id) }}" class="dropdown-item">
+                    <i class="bi bi-plus-circle-dotted mr-2 text-success" style="line-height: 1;"></i> Add Payment
+                </a>
             @endif
         @endcan
         @can('edit_sales')
-            <a href="{{ route('sales.edit', $data->id) }}" class="dropdown-item">
-                <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Edit
-            </a>
+            @if ($data->status === 'DRAFTED')
+                <a href="{{ route('sales.edit', $data->id) }}" class="dropdown-item">
+                    <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Edit
+                </a>
+            @endif
         @endcan
         @can('show_sales')
             <a href="{{ route('sales.show', $data->id) }}" class="dropdown-item">
@@ -59,17 +61,24 @@
             </form>
         @endif
         @can('delete_sales')
-            <button id="delete" class="dropdown-item" onclick="
-                event.preventDefault();
-                if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {
-                document.getElementById('destroy{{ $data->id }}').submit()
-                }">
-                <i class="bi bi-trash mr-2 text-danger" style="line-height: 1;"></i> Delete
-                <form id="destroy{{ $data->id }}" class="d-none" action="{{ route('sales.destroy', $data->id) }}" method="POST">
-                    @csrf
-                    @method('delete')
-                </form>
-            </button>
+            @if($data->status === 'DRAFTED')
+                <button id="delete" class="dropdown-item" onclick="
+                    event.preventDefault();
+                    if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {
+                    document.getElementById('destroy{{ $data->id }}').submit()
+                    }">
+                    <i class="bi bi-trash mr-2 text-danger" style="line-height: 1;"></i> Delete
+                    <form id="destroy{{ $data->id }}" class="d-none" action="{{ route('sales.destroy', $data->id) }}" method="POST">
+                        @csrf
+                        @method('delete')
+                    </form>
+                </button>
+            @endif
         @endcan
+        @if ($data->status === 'APPROVED' || $data->status === 'RECEIVED_PARTIALLY')
+            <a href="{{ route('sales.dispatch', $data->id) }}" class="dropdown-item text-primary">
+                <i class="bi bi-box-arrow-in-down mr-2"></i> Pengeluaran Barang
+            </a>
+        @endif
     </div>
 </div>

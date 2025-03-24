@@ -41,7 +41,12 @@
     <div class="col-lg-6">
         <div class="form-group">
             <label for="payment_term">Term Pembayaran <span class="text-danger">*</span></label>
-            <select id="payment_term_id" class="form-control" name="payment_term_id" wire:model="paymentTermId" required>
+            <select id="payment_term_id"
+                    class="form-control"
+                    name="payment_term_id"
+                    wire:model="paymentTermId"
+                    wire:change="paymentTermChanged"
+                    required>
                 <option value="">Pilih Term Pembayaran</option>
                 @foreach($paymentTerms as $term)
                     <option value="{{ $term->id }}" data-longevity="{{ $term->longevity }}">
