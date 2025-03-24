@@ -11,6 +11,9 @@
 |
 */
 
+use Illuminate\Support\Facades\Route;
+use Modules\Sale\Http\Controllers\SaleController;
+
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     //POS
@@ -45,6 +48,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     })->name('sales.pos.pdf');
 
     //Sales
+    Route::patch('sales/{sale}/status', [SaleController::class, 'updateStatus'])->name('sales.updateStatus');
     Route::resource('sales', 'SaleController');
 
     //Payments

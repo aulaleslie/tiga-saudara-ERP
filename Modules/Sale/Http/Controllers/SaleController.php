@@ -7,7 +7,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Entities\PaymentTerm;
-use Modules\Purchase\Entities\Purchase;
 use Modules\Sale\DataTables\SalesDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
@@ -17,7 +16,6 @@ use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
-use Modules\Sale\Entities\SalePayment;
 use Modules\Sale\Http\Requests\StoreSaleRequest;
 use Modules\Sale\Http\Requests\UpdateSaleRequest;
 
@@ -137,7 +135,7 @@ class SaleController extends Controller
                 'shipping_amount'   => $request->shipping_amount,
                 'total_amount'      => $request->total_amount,
                 'due_amount'        => $request->total_amount,
-                'status'            => Purchase::STATUS_DRAFTED, // Adjust as necessary (or use Sale::STATUS_DRAFTED).
+                'status'            => Sale::STATUS_DRAFTED, // Adjust as necessary (or use Sale::STATUS_DRAFTED).
                 'payment_status'    => 'unpaid',
                 'payment_term_id'   => $request->payment_term_id,
                 'note'              => $request->note,
@@ -312,6 +310,28 @@ class SaleController extends Controller
         toast('Penjualan Diperbaharui!', 'info');
 
         return redirect()->route('sales.index');
+    }
+
+    public function updateStatus(Request $request, Sale $sale): RedirectResponse
+    {
+        $validated = $request->validate([
+            'status' => 'required|string|in:' . implode(',', [
+                    Sale::STATUS_WAITING_APPROVAL,
+                    Sale::STATUS_APPROVED,
+                    Sale::STATUS_REJECTED
+                ]),
+        ]);
+
+        try {
+            $sale->update(['status' => $validated['status']]);
+            toast("Sale status updated to {$validated['status']}!", 'success');
+        } catch (Exception $e) {
+            Log::error('Failed to update sale status', ['error' => $e->getMessage()]);
+            toast('Failed to update sale status.', 'error');
+        }
+
+        // Redirect back to the referring page
+        return redirect()->to(url()->previous());
     }
 
 

@@ -28,6 +28,36 @@
                 <i class="bi bi-eye mr-2 text-info" style="line-height: 1;"></i> Details
             </a>
         @endcan
+        {{-- New Actions for Status Updates --}}
+        @if ($data->status === 'DRAFTED')
+            <form method="POST" action="{{ route('sales.updateStatus', $data->id) }}">
+                @csrf
+                @method('PATCH')
+                <input type="hidden" name="status" value="WAITING_APPROVAL">
+                <button type="submit" class="dropdown-item text-warning">
+                    <i class="bi bi-send mr-2"></i> Kirim untuk Persetujuan
+                </button>
+            </form>
+        @endif
+
+        @if ($data->status === 'WAITING_APPROVAL')
+            <form method="POST" action="{{ route('sales.updateStatus', $data->id) }}">
+                @csrf
+                @method('PATCH')
+                <input type="hidden" name="status" value="APPROVED">
+                <button type="submit" class="dropdown-item text-success">
+                    <i class="bi bi-check-circle mr-2"></i> Setuju
+                </button>
+            </form>
+            <form method="POST" action="{{ route('sales.updateStatus', $data->id) }}">
+                @csrf
+                @method('PATCH')
+                <input type="hidden" name="status" value="REJECTED">
+                <button type="submit" class="dropdown-item text-danger">
+                    <i class="bi bi-x-circle mr-2"></i> Tolak
+                </button>
+            </form>
+        @endif
         @can('delete_sales')
             <button id="delete" class="dropdown-item" onclick="
                 event.preventDefault();

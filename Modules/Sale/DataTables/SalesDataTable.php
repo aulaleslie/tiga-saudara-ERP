@@ -5,16 +5,32 @@ namespace Modules\Sale\DataTables;
 use Modules\Sale\Entities\Sale;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class SalesDataTable extends DataTable
 {
-
-    public function dataTable($query) {
+    public function dataTable($query)
+    {
         return datatables()
             ->eloquent($query)
+            ->addColumn('reference_hyperlink', function ($data) {
+                $reference = '<a href="' . route('sales.show', $data->id) . '" class="text-primary">' . $data->reference . '</a>';
+                if (!empty($data->note)) {
+                    $note = nl2br(e($data->note));
+                    $lineCount = substr_count($data->note, "\n") + 1;
+                    $characterCount = strlen($data->note);
+                    if ($lineCount > 1 || $characterCount > 10) {
+                        $noteHtml = '<div class="note-wrapper" style="max-height: 40px; overflow: hidden; transition: max-height 0.3s;">
+                            <p class="note-content mb-0">' . $note . '</p>
+                        </div>
+                        <a href="javascript:void(0);" class="toggle-note" style="color: blue; text-decoration: underline; cursor: pointer;">Lihat selengkapnya</a>';
+                    } else {
+                        $noteHtml = '<p class="note-content mb-0">' . $note . '</p>';
+                    }
+                    return $reference . '<br>' . $noteHtml;
+                }
+                return $reference;
+            })
             ->addColumn('total_amount', function ($data) {
                 return format_currency($data->total_amount);
             })
@@ -32,21 +48,25 @@ class SalesDataTable extends DataTable
             })
             ->addColumn('action', function ($data) {
                 return view('sale::partials.actions', compact('data'));
-            });
+            })
+            ->rawColumns(['reference_hyperlink']);
     }
 
-    public function query(Sale $model) {
-        return $model->newQuery();
+    public function query(Sale $model)
+    {
+        // Load customer relationship.
+        return $model->newQuery()->with('customer');
     }
 
-    public function html() {
+    public function html()
+    {
         return $this->builder()
             ->setTableId('sales-table')
             ->columns($this->getColumns())
             ->minifiedAjax()
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
-                                'tr' .
-                                <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
+                  'tr' .
+                  <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
             ->orderBy(8)
             ->buttons(
                 Button::make('excel')
@@ -60,41 +80,47 @@ class SalesDataTable extends DataTable
             );
     }
 
-    protected function getColumns() {
+    protected function getColumns()
+    {
         return [
             Column::make('reference')
+                ->visible(false),
+            Column::make('note')
+                ->visible(false),
+            Column::computed('reference_hyperlink')
+                ->title('Referensi')
                 ->className('text-center align-middle'),
-
-            Column::make('customer_name')
+            // Use the customer relation to display customer name.
+            Column::make('customer.contact_name')
                 ->title('Customer')
                 ->className('text-center align-middle'),
-
             Column::computed('status')
                 ->className('text-center align-middle'),
-
             Column::computed('total_amount')
+                ->title('Jumlah Total')
                 ->className('text-center align-middle'),
-
             Column::computed('paid_amount')
+                ->title('Jumlah yang Dibayar')
                 ->className('text-center align-middle'),
-
             Column::computed('due_amount')
+                ->title('Jumlah Jatuh Tempo')
                 ->className('text-center align-middle'),
-
             Column::computed('payment_status')
+                ->title('Status Pembayaran')
                 ->className('text-center align-middle'),
-
             Column::computed('action')
+                ->title('Aksi')
                 ->exportable(false)
                 ->printable(false)
                 ->className('text-center align-middle'),
-
             Column::make('created_at')
                 ->visible(false)
+                ->searchable(false)
         ];
     }
 
-    protected function filename(): string {
+    protected function filename(): string
+    {
         return 'Sales_' . date('YmdHis');
     }
 }

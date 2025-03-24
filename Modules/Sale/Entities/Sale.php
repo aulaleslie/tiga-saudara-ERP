@@ -4,7 +4,9 @@ namespace Modules\Sale\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\People\Entities\Customer;
 
 class Sale extends Model
 {
@@ -62,27 +64,32 @@ class Sale extends Model
         return $query->where('status', 'Completed');
     }
 
-    public function getShippingAmountAttribute($value) {
-        return $value / 100;
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'customer_id', 'id');
     }
 
-    public function getPaidAmountAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getTotalAmountAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getDueAmountAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getTaxAmountAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getDiscountAmountAttribute($value) {
-        return $value / 100;
-    }
+//    public function getShippingAmountAttribute($value) {
+//        return $value / 100;
+//    }
+//
+//    public function getPaidAmountAttribute($value) {
+//        return $value / 100;
+//    }
+//
+//    public function getTotalAmountAttribute($value) {
+//        return $value / 100;
+//    }
+//
+//    public function getDueAmountAttribute($value) {
+//        return $value / 100;
+//    }
+//
+//    public function getTaxAmountAttribute($value) {
+//        return $value / 100;
+//    }
+//
+//    public function getDiscountAmountAttribute($value) {
+//        return $value / 100;
+//    }
 }
