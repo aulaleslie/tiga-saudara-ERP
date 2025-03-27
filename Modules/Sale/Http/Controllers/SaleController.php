@@ -17,7 +17,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
+use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Http\Requests\StoreSaleRequest;
 use Modules\Sale\Http\Requests\UpdateSaleRequest;
@@ -54,6 +56,7 @@ class SaleController extends Controller
     {
         Log::info('REQUEST', [
             'request' => $request->all(),
+            'cart'    => Cart::instance('sale')->content()->toArray()
         ]);
 
         // Ensure cart is not empty.
@@ -77,7 +80,7 @@ class SaleController extends Controller
             $parentQuantities[$parentId] += $cart_item->qty;
 
             // If the cart item has bundle items, validate them.
-            if (isset($cart_item->options->bundle_items) && is_array($cart_item->options->bundle_items)) {
+            if (is_array($cart_item->options->bundle_items)) {
                 foreach ($cart_item->options->bundle_items as $bundleItem) {
                     // Bundle product ID.
                     $bundleProductId = $bundleItem['product_id'];
@@ -99,10 +102,6 @@ class SaleController extends Controller
             $product = Product::find($productId);
             if (!$product) {
                 $errors[] = "Product ID {$productId} not found.";
-            } else {
-                if ($product->product_quantity < $requestedQty) {
-                    $errors[] = "Insufficient stock for {$product->product_name}. Requested: {$requestedQty}, Available: {$product->product_quantity}.";
-                }
             }
         }
 
@@ -111,10 +110,6 @@ class SaleController extends Controller
             $product = Product::find($productId);
             if (!$product) {
                 $errors[] = "Bundle Product ID {$productId} not found.";
-            } else {
-                if ($product->product_quantity < $requestedQty) {
-                    $errors[] = "Insufficient stock for bundled product {$product->product_name}. Requested: {$requestedQty}, Available: {$product->product_quantity}.";
-                }
             }
         }
 
@@ -172,11 +167,11 @@ class SaleController extends Controller
                 ]);
 
                 // If the cart item has bundle items, iterate and create SaleBundleItem records.
-                if (isset($cart_item->options->bundle_items) && is_array($cart_item->options->bundle_items)) {
+                if (is_array($cart_item->options->bundle_items)) {
                     foreach ($cart_item->options->bundle_items as $bundleItem) {
                         // Create a bundle record for each bundle item.
                         // Note: You might need to adjust fields if you have computed values.
-                        \Modules\Sale\Entities\SaleBundleItem::create([
+                        SaleBundleItem::create([
                             'sale_detail_id' => $saleDetail->id,
                             'sale_id'        => $sale->id,
                             'bundle_id'      => $bundleItem['bundle_id'] ?? null,
@@ -203,8 +198,12 @@ class SaleController extends Controller
     }
 
 
-    public function show(Sale $sale) {
+    public function show(Sale $sale)
+    {
         abort_if(Gate::denies('show_sales'), 403);
+
+        // Eager load saleDetails and their related bundleItems
+        $sale->load('saleDetails.bundleItems');
 
         $customer = Customer::findOrFail($sale->customer_id);
 
@@ -350,13 +349,54 @@ class SaleController extends Controller
         return redirect()->route('sales.index');
     }
 
-    public function dispatch(Sale $sale): Factory|\Illuminate\Foundation\Application|View|Application
+    public function dispatch(Sale $sale)
     {
         $currentSettingId = session('setting_id');
         $locations = Location::where('setting_id', $currentSettingId)->get();
 
+        // Aggregate products from sale_details
+        $aggregatedProducts = [];
+        foreach ($sale->saleDetails as $detail) {
+            $pid = $detail->product_id;
+            if (!isset($aggregatedProducts[$pid])) {
+                $aggregatedProducts[$pid] = [
+                    'product_id'         => $pid,
+                    'product_name'       => $detail->product_name,
+                    'total_quantity'     => 0,
+                    'dispatched_quantity'=> 0,
+                ];
+            }
+            $aggregatedProducts[$pid]['total_quantity'] += $detail->quantity;
+        }
 
-        return view('sale::dispatch', compact('sale', 'locations'));
+        // Aggregate from bundle items (assumes SaleBundleItem model exists)
+        $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->get();
+        foreach ($bundleItems as $bundleItem) {
+            $pid = $bundleItem->product_id;
+            if (!isset($aggregatedProducts[$pid])) {
+                $aggregatedProducts[$pid] = [
+                    'product_id'         => $pid,
+                    'product_name'       => $bundleItem->name,
+                    'total_quantity'     => 0,
+                    'dispatched_quantity'=> 0,
+                ];
+            }
+            // Note: Adjust if you need to multiply by parent quantity.
+            $aggregatedProducts[$pid]['total_quantity'] += $bundleItem->quantity;
+        }
+
+        // Get already dispatched quantities for this sale (if any)
+        $dispatchedDetails = DispatchDetail::whereHas('dispatch', function($query) use ($sale) {
+            $query->where('sale_id', $sale->id);
+        })->get();
+
+        foreach ($dispatchedDetails as $d) {
+            if (isset($aggregatedProducts[$d->product_id])) {
+                $aggregatedProducts[$d->product_id]['dispatched_quantity'] += $d->dispatched_quantity;
+            }
+        }
+
+        return view('sale::dispatch', compact('sale', 'locations', 'aggregatedProducts'));
     }
 
     public function storeDispatch(Request $request, Sale $sale): RedirectResponse

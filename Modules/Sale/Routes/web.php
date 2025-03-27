@@ -48,7 +48,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     })->name('sales.pos.pdf');
 
     //Sales
-    Route::post('/sales/{sale}/dispatch', [SaleController::class, 'storeDispatch'])->name('sales.storeReceive');
+    Route::post('/sales/{sale}/dispatch', [SaleController::class, 'storeDispatch'])->name('sales.storeDispatch');
     Route::get('/sales/{sale}/dispatch', [SaleController::class, 'dispatch'])->name('sales.dispatch');
     Route::patch('sales/{sale}/status', [SaleController::class, 'updateStatus'])->name('sales.updateStatus');
     Route::resource('sales', 'SaleController');

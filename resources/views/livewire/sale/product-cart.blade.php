@@ -163,13 +163,6 @@
 
                             <td class="align-middle text-center">
                                 {{ format_currency($cart_item->options->sub_total) }}
-                                @if(isset($cart_item->options->bundle_items))
-                                    @php
-                                        dump($cart_item->options->bundle_items);
-                                        // Or to inspect the type:
-                                        dump(gettype($cart_item->options->bundle_items));
-                                    @endphp
-                                @endif
                             </td>
 
                             <td class="align-middle text-center">

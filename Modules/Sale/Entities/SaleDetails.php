@@ -22,23 +22,8 @@ class SaleDetails extends Model
         return $this->belongsTo(Sale::class, 'sale_id', 'id');
     }
 
-    public function getPriceAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getUnitPriceAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getSubTotalAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getProductDiscountAmountAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getProductTaxAmountAttribute($value) {
-        return $value / 100;
+    public function bundleItems()
+    {
+        return $this->hasMany(SaleBundleItem::class, 'sale_detail_id', 'id');
     }
 }
