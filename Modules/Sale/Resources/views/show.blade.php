@@ -1,3 +1,4 @@
+@php use Carbon\Carbon;use Modules\Sale\Entities\Sale; @endphp
 @extends('layouts.app')
 
 @section('title', 'Rincian Penjualan')
@@ -9,10 +10,12 @@
                 <div>
                     Referensi: <strong>{{ $sale->reference ?? 'N/A' }}</strong>
                 </div>
-                <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" href="{{ route('sales.pdf', $sale->id) }}">
+                <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none"
+                   href="{{ route('sales.pdf', $sale->id) }}">
                     <i class="bi bi-printer"></i> Cetak
                 </a>
-                <a target="_blank" class="btn btn-sm btn-info mfe-1 d-print-none" href="{{ route('sales.pdf', $sale->id) }}">
+                <a target="_blank" class="btn btn-sm btn-info mfe-1 d-print-none"
+                   href="{{ route('sales.pdf', $sale->id) }}">
                     <i class="bi bi-save"></i> Simpan
                 </a>
                 <a class="btn btn-sm btn-info mfe-1 d-print-none" href="{{ route('sales.index') }}">
@@ -39,7 +42,7 @@
                     <div class="col-sm-4 mb-3 mb-md-0">
                         <h5 class="mb-2 border-bottom pb-2">Info Faktur:</h5>
                         <div>Faktur: <strong>INV/{{ $sale->reference }}</strong></div>
-                        <div>Tanggal: {{ \Carbon\Carbon::parse($sale->date)->format('d M, Y') }}</div>
+                        <div>Tanggal: {{ Carbon::parse($sale->date)->format('d M, Y') }}</div>
                         <div>Status: <strong>{{ $sale->status }}</strong></div>
                         <div>Status Pembayaran: <strong>{{ $sale->payment_status }}</strong></div>
                     </div>
@@ -141,8 +144,44 @@
                     </div>
                 </div>
             </div>
+
             <div class="card-footer text-end">
-                <a href="{{ route('sales.index') }}" class="btn btn-secondary">Kembali</a>
+                @if ($sale->status === Sale::STATUS_DRAFTED)
+                    <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline">
+                        @csrf
+                        @method('PATCH')
+                        <input type="hidden" name="status" value="{{ Sale::STATUS_WAITING_APPROVAL }}">
+                        <button type="submit" class="btn btn-warning">Kirim untuk Persetujuan</button>
+                    </form>
+                    <a href="{{ route('sales.edit', $sale->id) }}" class="btn btn-primary">
+                        <i class="bi bi-pencil mr-2"></i> Ubah
+                    </a>
+                @endif
+
+                @can('sale.approval')
+                    @if ($sale->status === Sale::STATUS_WAITING_APPROVAL)
+                        <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline">
+                            @csrf
+                            @method('PATCH')
+                            <input type="hidden" name="status" value="{{ Sale::STATUS_APPROVED }}">
+                            <button type="submit" class="btn btn-success">Setuju</button>
+                        </form>
+                        <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline">
+                            @csrf
+                            @method('PATCH')
+                            <input type="hidden" name="status" value="{{ Sale::STATUS_REJECTED }}">
+                            <button type="submit" class="btn btn-danger">Tolak</button>
+                        </form>
+                    @endif
+                @endcan
+
+                @can('sale.receiving')
+                    @if ($sale->status === Sale::STATUS_APPROVED || $sale->status === Sale::STATUS_DISPATCHED_PARTIALLY)
+                        <a href="{{ route('sales.dispatch', $sale->id) }}" class="btn btn-primary">
+                            Menerima
+                        </a>
+                    @endif
+                @endcan
             </div>
         </div>
     </div>

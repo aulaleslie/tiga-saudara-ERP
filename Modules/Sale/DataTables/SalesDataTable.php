@@ -55,7 +55,7 @@ class SalesDataTable extends DataTable
     public function query(Sale $model)
     {
         // Load customer relationship.
-        return $model->newQuery()->with('customer');
+        return $model->newQuery()->with('customer')->orderBy('id', 'desc');
     }
 
     public function html()
@@ -67,7 +67,6 @@ class SalesDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                   'tr' .
                   <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(8)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),

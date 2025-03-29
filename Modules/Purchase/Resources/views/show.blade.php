@@ -226,6 +226,9 @@
                                     <input type="hidden" name="status" value="{{ Purchase::STATUS_WAITING_APPROVAL }}">
                                     <button type="submit" class="btn btn-warning">Kirim untuk Persetujuan</button>
                                 </form>
+                                <a href="{{ route('purchases.edit', $purchase->id) }}" class="btn btn-primary">
+                                    <i class="bi bi-pencil mr-2"></i> Ubah
+                                </a>
                             @endif
 
                             @can('purchase.approval')
