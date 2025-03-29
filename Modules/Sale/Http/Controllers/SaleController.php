@@ -24,6 +24,7 @@ use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Http\Requests\StoreSaleRequest;
 use Modules\Sale\Http\Requests\UpdateSaleRequest;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Tax;
 
 class SaleController extends Controller
 {
@@ -354,45 +355,70 @@ class SaleController extends Controller
         $currentSettingId = session('setting_id');
         $locations = Location::where('setting_id', $currentSettingId)->get();
 
-        // Aggregate products from sale_details
         $aggregatedProducts = [];
+
+        // Aggregate products from sale_details
         foreach ($sale->saleDetails as $detail) {
             $pid = $detail->product_id;
-            if (!isset($aggregatedProducts[$pid])) {
-                $aggregatedProducts[$pid] = [
-                    'product_id'         => $pid,
-                    'product_name'       => $detail->product_name,
-                    'total_quantity'     => 0,
-                    'dispatched_quantity'=> 0,
+            $taxId = $detail->tax_id; // assumed to exist on sale detail
+            $key = $pid . '-' . $taxId; // composite key for grouping
+
+            if (!isset($aggregatedProducts[$key])) {
+                // Retrieve product to get the product_code
+                $product = Product::find($pid);
+                // Retrieve tax to get tax_name (if tax_id exists)
+                $tax = $taxId ? Tax::find($taxId) : null;
+
+                $aggregatedProducts[$key] = [
+                    'product_id'          => $pid,
+                    'tax_id'              => $taxId,
+                    'product_name'        => $detail->product_name,
+                    'product_code'        => $product ? $product->product_code : null,
+                    'tax_name'            => $tax ? $tax->name : null,
+                    'is_tax_included'     => $sale->is_tax_included,
+                    'total_quantity'      => 0,
+                    'dispatched_quantity' => 0,
                 ];
             }
-            $aggregatedProducts[$pid]['total_quantity'] += $detail->quantity;
+            $aggregatedProducts[$key]['total_quantity'] += $detail->quantity;
         }
 
         // Aggregate from bundle items (assumes SaleBundleItem model exists)
         $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->get();
         foreach ($bundleItems as $bundleItem) {
             $pid = $bundleItem->product_id;
-            if (!isset($aggregatedProducts[$pid])) {
-                $aggregatedProducts[$pid] = [
-                    'product_id'         => $pid,
-                    'product_name'       => $bundleItem->name,
-                    'total_quantity'     => 0,
-                    'dispatched_quantity'=> 0,
+            // Assume bundle item has a tax_id field or follow its sale detail's tax.
+            $taxId = $bundleItem->tax_id;
+            $key = $pid . '-' . $taxId;
+
+            if (!isset($aggregatedProducts[$key])) {
+                $product = Product::find($pid);
+                $tax = $taxId ? Tax::find($taxId) : null;
+
+                $aggregatedProducts[$key] = [
+                    'product_id'          => $pid,
+                    'tax_id'              => $taxId,
+                    'product_name'        => $bundleItem->name,
+                    'product_code'        => $product ? $product->product_code : null,
+                    'tax_name'            => $tax ? $tax->name : null,
+                    'is_tax_included'     => $sale->is_tax_included,
+                    'total_quantity'      => 0,
+                    'dispatched_quantity' => 0,
                 ];
             }
-            // Note: Adjust if you need to multiply by parent quantity.
-            $aggregatedProducts[$pid]['total_quantity'] += $bundleItem->quantity;
+            // Adjust quantity multiplication if needed.
+            $aggregatedProducts[$key]['total_quantity'] += $bundleItem->quantity;
         }
 
         // Get already dispatched quantities for this sale (if any)
-        $dispatchedDetails = DispatchDetail::whereHas('dispatch', function($query) use ($sale) {
+        $dispatchedDetails = DispatchDetail::whereHas('dispatch', function ($query) use ($sale) {
             $query->where('sale_id', $sale->id);
         })->get();
 
         foreach ($dispatchedDetails as $d) {
-            if (isset($aggregatedProducts[$d->product_id])) {
-                $aggregatedProducts[$d->product_id]['dispatched_quantity'] += $d->dispatched_quantity;
+            $key = $d->product_id . '-' . $d->tax_id;
+            if (isset($aggregatedProducts[$key])) {
+                $aggregatedProducts[$key]['dispatched_quantity'] += $d->dispatched_quantity;
             }
         }
 
