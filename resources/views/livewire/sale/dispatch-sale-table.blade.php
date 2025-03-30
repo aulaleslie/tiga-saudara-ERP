@@ -15,7 +15,7 @@
             </tr>
             </thead>
             <tbody>
-            @foreach($aggregatedProducts as $product)
+            @foreach($aggregatedProducts as $key => $product)
                 <tr>
                     <td>
                         {{ $product['product_name'] }}
@@ -26,29 +26,39 @@
                         @else
                             <span class="badge bg-secondary">Non PPN</span>
                         @endif
-
                     </td>
                     <td>{{ $product['total_quantity'] }}</td>
                     <td>{{ $product['dispatched_quantity'] }}</td>
                     <td>
                         <input type="number"
-                               name="dispatched_quantities[{{ $product['product_id'] }}]"
-                               value="0"
+                               name="dispatchedQuantities[{{ $key }}]"
+                               value="{{ $dispatchedQuantities[$key] ?? 0 }}"
                                min="0"
                                max="{{ $product['total_quantity'] - $product['dispatched_quantity'] }}"
-                               class="form-control">
+                               class="form-control"
+                               wire:model="dispatchedQuantities.{{ $key }}"
+                               wire:change="quantityUpdated($event.target.value, '{{ $key }}')">
                     </td>
                     <td>
-                        <select id="location_{{ $product['product_id'] }}" class="form-control"
-                                wire:model="selectedLocations.{{ $product['product_id'] }}">
+                        <select id="location_{{ $key }}" class="form-control"
+                                wire:model="selectedLocations.{{ $key }}"
+                                wire:change="locationChanged($event.target.value, '{{ $key }}')">
                             <option value="">-- Pilih Lokasi --</option>
                             @foreach($locations as $location)
                                 <option value="{{ $location->id }}">{{ $location->name }}</option>
                             @endforeach
                         </select>
                     </td>
-                    <td>{{ $stockAtLocations[$product['product_id']] ?? 'N/A' }}</td>
+                    <td>{{ $stockAtLocations[$key] ?? 'N/A' }}</td>
                 </tr>
+                @if($serialNumberRequiredFlags[$key] && (($selectedLocations[$key] ?? 0) > 0) && (($dispatchedQuantities[$key] ?? 0) > 0))
+                    <tr>
+                        <td colspan="6">
+                            hello
+
+                        </td>
+                    </tr>
+                @endif
             @endforeach
             </tbody>
         </table>

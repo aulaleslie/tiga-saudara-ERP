@@ -17,7 +17,7 @@
             <div class="col-sm-6">
                 <div class="form-group">
                     <label for="dispatch_date">Tanggal Pengiriman</label>
-                    <input type="datetime-local" id="dispatch_date" class="form-control" wire:model="dispatch_date">
+                    <input type="date" id="dispatch_date" class="form-control" wire:model="dispatch_date">
                 </div>
             </div>
         </div>
