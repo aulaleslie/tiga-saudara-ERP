@@ -5,10 +5,13 @@ namespace Modules\Sale\Entities;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Carbon;
+use Modules\Setting\Entities\PaymentMethod;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
 
-class SalePayment extends Model
+class SalePayment extends Model implements HasMedia
 {
-
+    use InteractsWithMedia;
     use HasFactory;
 
     protected $guarded = [];
@@ -31,5 +34,17 @@ class SalePayment extends Model
 
     public function scopeBySale($query) {
         return $query->where('sale_id', request()->route('sale_id'));
+    }
+
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('attachments')->singleFile(); // Single file for each payment
+    }
+
+    /**
+     * Relationship with PaymentMethod
+     */
+    public function paymentMethod() {
+        return $this->belongsTo(PaymentMethod::class, 'payment_method_id', 'id');
     }
 }

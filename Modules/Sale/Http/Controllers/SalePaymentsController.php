@@ -8,12 +8,13 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
+use Modules\Setting\Entities\PaymentMethod;
 
 class SalePaymentsController extends Controller
 {
-
     public function index($sale_id, SalePaymentsDataTable $dataTable) {
         abort_if(Gate::denies('access_sale_payments'), 403);
 
@@ -22,40 +23,53 @@ class SalePaymentsController extends Controller
         return $dataTable->render('sale::payments.index', compact('sale'));
     }
 
-
     public function create($sale_id) {
         abort_if(Gate::denies('access_sale_payments'), 403);
 
         $sale = Sale::findOrFail($sale_id);
+        // Retrieve payment methods for the current setting.
+        $payment_methods = PaymentMethod::where('setting_id', session('setting_id'))->get();
 
-        return view('sale::payments.create', compact('sale'));
+        return view('sale::payments.create', compact('sale', 'payment_methods'));
     }
-
 
     public function store(Request $request) {
         abort_if(Gate::denies('access_sale_payments'), 403);
 
+        // Retrieve sale to determine due amount.
+        $sale = Sale::findOrFail($request->sale_id);
+
         $request->validate([
-            'date' => 'required|date',
-            'reference' => 'required|string|max:255',
-            'amount' => 'required|numeric',
-            'note' => 'nullable|string|max:1000',
-            'sale_id' => 'required',
-            'payment_method' => 'required|string|max:255'
+            'date'               => 'required|date',
+            'reference'          => 'required|string|max:255',
+            'amount'             => 'required|numeric|max:' . $sale->due_amount,
+            'note'               => 'nullable|string|max:1000',
+            'sale_id'            => 'required',
+            'payment_method_id'  => 'required|string|max:255',
+            'attachment'         => 'nullable|string', // file upload via Dropzone returns file name
+        ], [
+            'amount.max' => 'The payment amount cannot be greater than the due amount.'
         ]);
 
-        DB::transaction(function () use ($request) {
-            SalePayment::create([
-                'date' => $request->date,
-                'reference' => $request->reference,
-                'amount' => $request->amount,
-                'note' => $request->note,
-                'sale_id' => $request->sale_id,
-                'payment_method' => $request->payment_method
+        DB::transaction(function () use ($request, $sale) {
+            // Create the sale payment record.
+            $payment = SalePayment::create([
+                'date'              => $request->date,
+                'reference'         => $request->reference,
+                'amount'            => $request->amount,
+                'note'              => $request->note,
+                'sale_id'           => $request->sale_id,
+                'payment_method_id' => $request->payment_method_id,
+                'payment_method'    => '', // Optionally fill in later from PaymentMethod
             ]);
 
-            $sale = Sale::findOrFail($request->sale_id);
+            // If an attachment exists, add it to the payment's media collection.
+            if ($request->attachment) {
+                $payment->addMedia(Storage::path('temp/dropzone/' . $request->attachment))
+                    ->toMediaCollection('attachments');
+            }
 
+            // Update the sale amounts.
             $due_amount = $sale->due_amount - $request->amount;
 
             if ($due_amount == $sale->total_amount) {
@@ -67,9 +81,9 @@ class SalePaymentsController extends Controller
             }
 
             $sale->update([
-                'paid_amount' => ($sale->paid_amount + $request->amount) * 100,
-                'due_amount' => $due_amount * 100,
-                'payment_status' => $payment_status
+                'paid_amount'    => ($sale->paid_amount + $request->amount) * 100,
+                'due_amount'     => $due_amount * 100,
+                'payment_status' => $payment_status,
             ]);
         });
 
@@ -78,31 +92,36 @@ class SalePaymentsController extends Controller
         return redirect()->route('sales.index');
     }
 
-
     public function edit($sale_id, SalePayment $salePayment) {
         abort_if(Gate::denies('access_sale_payments'), 403);
 
         $sale = Sale::findOrFail($sale_id);
+        // Retrieve payment methods for the current setting.
+        $payment_methods = PaymentMethod::where('setting_id', session('setting_id'))->get();
 
-        return view('sale::payments.edit', compact('salePayment', 'sale'));
+        return view('sale::payments.edit', compact('salePayment', 'sale', 'payment_methods'));
     }
-
 
     public function update(Request $request, SalePayment $salePayment) {
         abort_if(Gate::denies('access_sale_payments'), 403);
 
+        // Retrieve sale to check due amount.
+        $sale = $salePayment->sale;
+
         $request->validate([
-            'date' => 'required|date',
-            'reference' => 'required|string|max:255',
-            'amount' => 'required|numeric',
-            'note' => 'nullable|string|max:1000',
-            'sale_id' => 'required',
-            'payment_method' => 'required|string|max:255'
+            'date'               => 'required|date',
+            'reference'          => 'required|string|max:255',
+            'amount'             => 'required|numeric|max:' . ($sale->due_amount + $salePayment->amount),
+            'note'               => 'nullable|string|max:1000',
+            'sale_id'            => 'required',
+            'payment_method_id'  => 'required|string|max:255',
+            // Attachment is optional on update.
+            'attachment'         => 'nullable|string',
+        ], [
+            'amount.max' => 'The payment amount cannot be greater than the due amount.'
         ]);
 
-        DB::transaction(function () use ($request, $salePayment) {
-            $sale = $salePayment->sale;
-
+        DB::transaction(function () use ($request, $salePayment, $sale) {
             $due_amount = ($sale->due_amount + $salePayment->amount) - $request->amount;
 
             if ($due_amount == $sale->total_amount) {
@@ -114,26 +133,33 @@ class SalePaymentsController extends Controller
             }
 
             $sale->update([
-                'paid_amount' => (($sale->paid_amount - $salePayment->amount) + $request->amount) * 100,
-                'due_amount' => $due_amount * 100,
-                'payment_status' => $payment_status
+                'paid_amount'    => (($sale->paid_amount - $salePayment->amount) + $request->amount) * 100,
+                'due_amount'     => $due_amount * 100,
+                'payment_status' => $payment_status,
             ]);
 
             $salePayment->update([
-                'date' => $request->date,
-                'reference' => $request->reference,
-                'amount' => $request->amount,
-                'note' => $request->note,
-                'sale_id' => $request->sale_id,
-                'payment_method' => $request->payment_method
+                'date'              => $request->date,
+                'reference'         => $request->reference,
+                'amount'            => $request->amount,
+                'note'              => $request->note,
+                'sale_id'           => $request->sale_id,
+                'payment_method_id' => $request->payment_method_id,
+                'payment_method'    => '', // Optionally update based on PaymentMethod
             ]);
+
+            // (Optional) Handle attachment update if needed.
+            // For example, you might add a new attachment if one is provided.
+            if ($request->attachment) {
+                $salePayment->addMedia(Storage::path('temp/dropzone/' . $request->attachment))
+                    ->toMediaCollection('attachments');
+            }
         });
 
         toast('Sale Payment Updated!', 'info');
 
         return redirect()->route('sales.index');
     }
-
 
     public function destroy(SalePayment $salePayment) {
         abort_if(Gate::denies('access_sale_payments'), 403);

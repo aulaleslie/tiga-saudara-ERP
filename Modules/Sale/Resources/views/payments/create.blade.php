@@ -1,13 +1,13 @@
 @extends('layouts.app')
 
-@section('title', 'Create Payment')
+@section('title', 'Buat Pembayaran')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('sales.index') }}">Sales</a></li>
+        <li class="breadcrumb-item"><a href="{{ route('sales.index') }}">Penjualan</a></li>
         <li class="breadcrumb-item"><a href="{{ route('sales.show', $sale) }}">{{ $sale->reference }}</a></li>
-        <li class="breadcrumb-item active">Add Payment</li>
+        <li class="breadcrumb-item active">Buat Pembayaran</li>
     </ol>
 @endsection
 
@@ -19,7 +19,7 @@
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Create Payment <i class="bi bi-check"></i></button>
+                        <button class="btn btn-primary">Buat Pembayaran <i class="bi bi-check"></i></button>
                     </div>
                 </div>
                 <div class="col-lg-12">
@@ -28,14 +28,16 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="reference">Reference <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="reference" required readonly value="INV/{{ $sale->reference }}">
+                                        <label for="reference">Referensi <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="reference" required readonly
+                                               value="INV/{{ $sale->reference }}">
                                     </div>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="date">Date <span class="text-danger">*</span></label>
-                                        <input type="date" class="form-control" name="date" required value="{{ now()->format('Y-m-d') }}">
+                                        <label for="date">Tanggal <span class="text-danger">*</span></label>
+                                        <input type="date" class="form-control" name="date" required
+                                               value="{{ now()->format('Y-m-d') }}">
                                     </div>
                                 </div>
                             </div>
@@ -43,45 +45,39 @@
                             <div class="form-row">
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="due_amount">Due Amount <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="due_amount" required value="{{ format_currency($sale->due_amount) }}" readonly>
+                                        <label for="due_amount">Jumlah yang Harus Dibayar <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="due_amount" required
+                                               value="{{ format_currency($sale->due_amount) }}" readonly>
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="amount">Amount <span class="text-danger">*</span></label>
-                                        <div class="input-group">
-                                            <input id="amount" type="text" class="form-control" name="amount" required value="{{ old('amount') }}">
-                                            <div class="input-group-append">
-                                                <button id="getTotalAmount" class="btn btn-primary" type="button">
-                                                    <i class="bi bi-check-square"></i>
-                                                </button>
-                                            </div>
-                                        </div>
+                                        <label for="amount">Jumlah yang Dibayar <span class="text-danger">*</span></label>
+                                        <input id="amount" type="text" class="form-control" name="amount" required
+                                               value="{{ old('amount') }}">
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="payment_method">Payment Method <span class="text-danger">*</span></label>
-                                            <select class="form-control" name="payment_method" id="payment_method" required>
-                                                <option value="Cash">Cash</option>
-                                                <option value="Credit Card">Credit Card</option>
-                                                <option value="Bank Transfer">Bank Transfer</option>
-                                                <option value="Cheque">Cheque</option>
-                                                <option value="Other">Other</option>
-                                            </select>
-                                        </div>
-                                    </div>
+                                    <x-select label="Metode Pembayaran" name="payment_method_id"
+                                              :options="$payment_methods->pluck('name', 'id')"/>
                                 </div>
                             </div>
 
                             <div class="form-group">
-                                <label for="note">Note</label>
+                                <label for="note">Catatan</label>
                                 <textarea class="form-control" rows="4" name="note">{{ old('note') }}</textarea>
                             </div>
 
-                            <input type="hidden" value="{{ $sale->id }}" name="sale_id">
+                            <div class="form-group">
+                                <label for="attachment">Unggah Lampiran (PDF/Gambar)</label>
+                                <div class="dropzone d-flex flex-wrap align-items-center justify-content-center" id="file-dropzone">
+                                    <div class="dz-message" data-dz-message>
+                                        <i class="bi bi-cloud-arrow-up"></i> Drag & Drop a file here or click to upload
+                                    </div>
+                                </div>
+                            </div>
+
+                            <input type="hidden" name="sale_id" value="{{ $sale->id }}">
                         </div>
                     </div>
                 </div>
@@ -94,21 +90,105 @@
     <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
     <script>
         $(document).ready(function () {
-            $('#amount').maskMoney({
-                prefix:'{{ settings()->currency->symbol }}',
-                thousands:'{{ settings()->currency->thousand_separator }}',
-                decimal:'{{ settings()->currency->decimal_separator }}',
+            // Get currency settings from your Blade variables
+            var currencySymbol = '{{ settings()->currency->symbol }}';
+            var thousandsSeparator = '{{ settings()->currency->thousand_separator }}';
+            var decimalSeparator = '{{ settings()->currency->decimal_separator }}';
+
+            // A helper to format a number as currency
+            function formatCurrency(num) {
+                // Use toLocaleString to get proper formatting.
+                // Adjust the locale or options as needed.
+                var formatted = parseFloat(num).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+                return currencySymbol + formatted;
+            }
+
+            // On focus: remove any currency formatting so the user sees a raw number.
+            $('#amount').on('focus', function () {
+                var val = $(this).val();
+                // Remove currency symbol and thousands separators.
+                // This regex assumes the currency symbol is a fixed string.
+                var raw = val.replace(new RegExp('\\' + currencySymbol, 'g'), '')
+                    .replace(new RegExp('\\' + thousandsSeparator, 'g'), '')
+                    .trim();
+                $(this).val(raw);
+                $(this).select();
             });
 
-            $('#getTotalAmount').click(function () {
-                $('#amount').maskMoney('mask', {{ $sale->due_amount }});
+            // On blur: validate and format the number as currency.
+            $('#amount').on('blur', function () {
+                var val = $(this).val();
+                var num = parseFloat(val);
+                if (!isNaN(num)) {
+                    $(this).val(formatCurrency(num));
+                } else {
+                    $(this).val(''); // clear if invalid
+                }
             });
 
-            $('#payment-form').submit(function () {
-                var amount = $('#amount').maskMoney('unmasked')[0];
-                $('#amount').val(amount);
+            // On form submission, if you need to submit the raw number, you can strip formatting.
+            $('#payment-form').on('submit', function () {
+                var val = $('#amount').val();
+                var raw = val.replace(new RegExp('\\' + currencySymbol, 'g'), '')
+                    .replace(new RegExp('\\' + thousandsSeparator, 'g'), '')
+                    .trim();
+                $('#amount').val(raw);
             });
         });
     </script>
-@endpush
 
+    <script src="{{ asset('js/dropzone.js') }}"></script>
+    <script>
+        Dropzone.options.fileDropzone = {
+            url: '{{ route('dropzone.upload') }}', // Upload route
+            maxFilesize: 2, // Maximum file size in MB
+            acceptedFiles: '.jpg,.jpeg,.png,.pdf', // Allowed file types
+            maxFiles: 1, // Only one file allowed
+            addRemoveLinks: true,
+            dictRemoveFile: "<i class='bi bi-x-circle text-danger'></i> Remove",
+            headers: {
+                'X-CSRF-TOKEN': "{{ csrf_token() }}"
+            },
+            init: function () {
+                var uploadedFileMap = {};
+
+                // Handle successful upload
+                this.on("success", function (file, response) {
+                    $('form').append('<input type="hidden" name="attachment" value="' + response.name + '">');
+                    uploadedFileMap[file.name] = response.name;
+                });
+
+                // Handle removal of file
+                this.on("removedfile", function (file) {
+                    var name = uploadedFileMap[file.name] || file.name;
+                    $.ajax({
+                        type: 'POST',
+                        url: '{{ route('dropzone.delete') }}',
+                        data: {
+                            _token: "{{ csrf_token() }}",
+                            file_name: name
+                        },
+                    });
+                    $('form').find('input[name="attachment"][value="' + name + '"]').remove();
+                });
+
+                // Ensure only one file is uploaded
+                this.on("addedfile", function () {
+                    if (this.files.length > 1) {
+                        this.removeFile(this.files[0]);
+                    }
+                });
+
+                // Generate thumbnails for images
+                this.on("thumbnail", function (file, dataUrl) {
+                    if (file.type.startsWith("image/")) {
+                        this.emit("thumbnail", file, dataUrl);
+                    }
+                });
+            }
+        };
+    </script>
+@endpush
