@@ -5,6 +5,7 @@ namespace App\Livewire\AutoComplete;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\ProductSerialNumber;
 
@@ -12,19 +13,25 @@ class SerialNumberLoader extends Component
 {
     public $query = '';  // User input for search
     public $search_results = []; // search results
-    public $index; // Row index in table
+    public $index; // Row index (or key) in table, passed from parent
     public $isFocused = false;
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
     public $location_id = 0;
     public $product_id = 0;
     public $is_taxed = false;
+    public $is_broken = false;
+    public $serialIndex;
+    public $productCompositeKey;
 
-    public function mount($location_id = 0, $product_id = 0, $is_taxed = false): void
+    public function mount($locationId = 0, $productId = 0, $isTaxed = false, $isBroken = false, $serialIndex = null, $productCompositeKey = null): void
     {
-        $this->location_id = $location_id;
-        $this->product_id = $product_id;
-        $this->is_taxed = $is_taxed;
+        $this->location_id = $locationId;
+        $this->product_id = $productId;
+        $this->is_taxed = $isTaxed;
+        $this->is_broken = $isBroken;
+        $this->serialIndex = $serialIndex;
+        $this->productCompositeKey = $productCompositeKey;
     }
 
     public function updatedQuery(): void
@@ -45,15 +52,53 @@ class SerialNumberLoader extends Component
     public function searchSerialNumbers(): void
     {
         if ($this->query) {
-            $this->query_count = ProductSerialNumber::where(function ($query) {
-                $query->where('supplier_name', 'like', '%' . $this->query . '%');
-            })
-                ->where('setting_id', session('setting_id'))
-                ->count();
-            $this->search_results = ProductSerialNumber::where(function ($query) {
-                $query->where('supplier_name', 'like', '%' . $this->query . '%');
-            })
-                ->where('setting_id', session('setting_id'))
+            Log::info('search serial number', [
+                'query' => $this->query,
+                'is_taxed' => $this->is_taxed,
+                'is_broken' => $this->is_broken,
+                'serialIndex' => $this->serialIndex,
+                'productCompositeKey' => $this->productCompositeKey,
+            ]);
+
+            $baseQuery = ProductSerialNumber::where('serial_number', 'like', '%' . $this->query . '%')
+                ->when($this->product_id > 0, function ($query) {
+                    return $query->where('product_id', $this->product_id);
+                })
+                ->when($this->is_taxed,
+                    function ($query) {
+                        // If is_taxed is true, only include rows with tax_id > 0
+                        $query->whereNotNull('tax_id')->where('tax_id', '>', 0);
+                    },
+                    function ($query) {
+                        // Else, only include rows with tax_id null or equal to 0.
+                        $query->where(function ($q) {
+                            $q->whereNull('tax_id')->orWhere('tax_id', 0);
+                        });
+                    }
+                )
+                ->when($this->is_broken, function ($query) {
+                    $query->where('is_broken', true);
+                });
+
+            $this->query_count = $baseQuery->count();
+
+            $this->search_results = ProductSerialNumber::where('serial_number', 'like', '%' . $this->query . '%')
+                ->when($this->product_id > 0, function ($query) {
+                    return $query->where('product_id', $this->product_id);
+                })
+                ->when($this->is_taxed,
+                    function ($query) {
+                        $query->whereNotNull('tax_id')->where('tax_id', '>', 0);
+                    },
+                    function ($query) {
+                        $query->where(function ($q) {
+                            $q->whereNull('tax_id')->orWhere('tax_id', 0);
+                        });
+                    }
+                )
+                ->when($this->is_broken, function ($query) {
+                    $query->where('is_broken', true);
+                })
                 ->limit($this->how_many)
                 ->get();
         }
@@ -63,11 +108,16 @@ class SerialNumberLoader extends Component
     {
         $serialNumber = ProductSerialNumber::find($serialNumberId);
         if ($serialNumber) {
-            $this->search_results = array($serialNumber);
+            $this->search_results = [$serialNumber];
             $this->query = "$serialNumber->serial_number";
 
-            // Dispatch event to update table row
-            $this->dispatch('serialNumberSelected', $supplier);
+            // Dispatch event with both productCompositeKey and serialIndex
+            $this->dispatch('serialNumberSelected', [
+                'serialNumber' => $serialNumber,
+                'productCompositeKey' => $this->productCompositeKey,
+                'serialIndex' => $this->serialIndex,
+            ]);
+
             $this->isFocused = false;
             $this->query_count = 0;
         }
@@ -76,7 +126,7 @@ class SerialNumberLoader extends Component
     public function loadMore(): void
     {
         $this->how_many += 10; // Load more results
-        $this->searchSuppliers();
+        $this->searchSerialNumbers();
     }
 
     public function resetQuery(): void
@@ -86,6 +136,6 @@ class SerialNumberLoader extends Component
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        return view('livewire.auto-complete.supplier-loader');
+        return view('livewire.auto-complete.serial-number-loader');
     }
 }

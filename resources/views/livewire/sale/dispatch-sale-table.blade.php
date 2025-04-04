@@ -2,6 +2,16 @@
     <div class="card-header">
         Daftar Produk
     </div>
+    @if (session()->has('message'))
+        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            <div class="alert-body">
+                <span>{{ session('message') }}</span>
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">×</span>
+                </button>
+            </div>
+        </div>
+    @endif
     <div class="card-body p-0">
         <table class="table table-bordered mb-0">
             <thead>
@@ -54,8 +64,21 @@
                 @if($serialNumberRequiredFlags[$key] && (($selectedLocations[$key] ?? 0) > 0) && (($dispatchedQuantities[$key] ?? 0) > 0))
                     <tr>
                         <td colspan="6">
-                            hello
-
+                            @for ($i = 0; $i < ($dispatchedQuantities[$key] ?? 0); $i++)
+                                <div class="row mb-3">
+                                    <div class="col-sm-6">
+                                        <livewire:auto-complete.serial-number-loader
+                                            :locationId="$selectedLocations[$key]"
+                                            :productId="$product['product_id']"
+                                            :isTaxed="$product['tax_id']"
+                                            :isBroken="false"
+                                            :serialIndex="$i"
+                                            :productCompositeKey="$key"
+                                            wire:key="{{ $key . '-' . $i . '-' . ($selectedLocations[$key] ?? 0) . '-' . ($dispatchedQuantities[$key] ?? 0) }}"
+                                        />
+                                    </div>
+                                </div>
+                            @endfor
                         </td>
                     </tr>
                 @endif
@@ -63,4 +86,16 @@
             </tbody>
         </table>
     </div>
+    @foreach($selectedSerialNumbers as $compositeKey => $serials)
+        @foreach($serials as $index => $serial)
+            <input type="hidden" name="selectedSerialNumbers[{{ $compositeKey }}][{{ $index }}]" value="{{ $serial }}">
+        @endforeach
+    @endforeach
+    @foreach($selectedLocations as $key => $location)
+        <input type="hidden" name="selectedLocations[{{ $key }}]" value="{{ $location }}">
+    @endforeach
+
+    @foreach($stockAtLocations as $key => $stock)
+        <input type="hidden" name="stockAtLocations[{{ $key }}]" value="{{ $stock }}">
+    @endforeach
 </div>

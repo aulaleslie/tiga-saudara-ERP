@@ -178,7 +178,7 @@
                 @can('sale.receiving')
                     @if ($sale->status === Sale::STATUS_APPROVED || $sale->status === Sale::STATUS_DISPATCHED_PARTIALLY)
                         <a href="{{ route('sales.dispatch', $sale->id) }}" class="btn btn-primary">
-                            Menerima
+                            Keluarkan
                         </a>
                     @endif
                 @endcan

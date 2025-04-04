@@ -16,6 +16,11 @@ class DispatchSaleTable extends Component
     public $stockAtLocations = [];  // Array to store stock at location for each product
     public $dispatchedQuantities = []; // Array to store updated dispatched quantity for each product
     public $serialNumberRequiredFlags = [];
+    public $selectedSerialNumbers = [];
+
+    protected $listeners = [
+        'serialNumberSelected' => 'handleSerialNumberSelected',
+    ];
 
     public function mount($sale, $locations, $aggregatedProducts)
     {
@@ -34,21 +39,25 @@ class DispatchSaleTable extends Component
     public function quantityUpdated($value, $compositeKey): void
     {
         Log::info('Quantity updated for product', ['compositeKey' => $compositeKey, 'value' => $value]);
-        $this->dispatchedQuantities[$compositeKey] = $value;
+
+        // Calculate the maximum allowed quantity for this product.
+        $maxAllowed = $this->aggregatedProducts[$compositeKey]['total_quantity']
+            - $this->aggregatedProducts[$compositeKey]['dispatched_quantity'];
+
+        if ($value > $maxAllowed) {
+            // If entered value exceeds allowed, adjust it and alert the user.
+            $this->dispatchedQuantities[$compositeKey] = $maxAllowed;
+            session()->flash('message', "Jumlah yang dimasukkan melebihi batas maksimum, disesuaikan ke $maxAllowed.");
+        } else {
+            $this->dispatchedQuantities[$compositeKey] = $value;
+        }
 
         // Explode composite key to get productId and taxId.
         list($productId, $taxId) = explode('-', $compositeKey);
 
         // Retrieve the product from the Product entity.
         $product = Product::find($productId);
-
-        if ($product) {
-            $this->serialNumberRequiredFlags[$compositeKey] = $product->serial_number_required;
-        } else {
-            $this->serialNumberRequiredFlags[$compositeKey] = false;
-        }
-
-        // Additional logic can be added here (e.g., validations or further processing).
+        $this->serialNumberRequiredFlags[$compositeKey] = $product ? $product->serial_number_required : false;
     }
 
     // When a location is updated for a product, update its stock value.
@@ -79,6 +88,17 @@ class DispatchSaleTable extends Component
         } else {
             return $stockRecord->quantity_non_tax - $stockRecord->broken_quantity_non_tax;
         }
+    }
+
+    public function handleSerialNumberSelected($payload): void
+    {
+        Log::info('Serial number selected', $payload);
+        // Save the selected serial number in a nested array keyed by product composite key and serial index.
+        $productKey = $payload['productCompositeKey'];
+        $serialIndex = $payload['serialIndex'];
+        $this->selectedSerialNumbers[$productKey][$serialIndex] = $payload['serialNumber']['serial_number'];
+
+        // You can add further processing here such as validation if all serial numbers are filled.
     }
 
     public function render()

@@ -9,6 +9,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Sale\DataTables\SalesDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
+use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleBundleItem;
@@ -427,6 +429,131 @@ class SaleController extends Controller
 
     public function storeDispatch(Request $request, Sale $sale): RedirectResponse
     {
-        return redirect()->route('sales.show', $sale->id)->with('message', 'Items successfully received.');
+        Log::info('Store dispatch request', [
+            'request' => $request->all()
+        ]);
+
+        // Base validation for required arrays and dispatch_date.
+        $validator = Validator::make($request->all(), [
+            'dispatch_date' => 'required|date',
+            'dispatchedQuantities' => 'required|array',
+            'selectedLocations' => 'required|array',
+            'selectedSerialNumbers' => 'required|array',
+            // Optionally, if you pass stockAtLocations as hidden inputs:
+            'stockAtLocations' => 'required|array',
+        ]);
+
+        // Custom validation for our conditions.
+        $validator->after(function ($validator) use ($request, $sale) {
+            $dispatchedQuantities = $request->input('dispatchedQuantities', []);
+            $selectedLocations    = $request->input('selectedLocations', []);
+            $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
+            $stockAtLocations     = $request->input('stockAtLocations', []);
+
+            // Recalculate aggregated data for the sale.
+            // Aggregate sale details by composite key (product_id-tax_id).
+            $aggregated = [];
+            foreach ($sale->saleDetails as $detail) {
+                $pid = $detail->product_id;
+                $taxId = $detail->tax_id;
+                $key = $pid . '-' . $taxId;
+                if (!isset($aggregated[$key])) {
+                    $aggregated[$key] = [
+                        'total_quantity' => 0,
+                        'dispatched_quantity' => 0,
+                    ];
+                }
+                $aggregated[$key]['total_quantity'] += $detail->quantity;
+            }
+            // Also include already dispatched quantities from DispatchDetail.
+            $dispatchedDetails = DispatchDetail::whereHas('dispatch', function ($query) use ($sale) {
+                $query->where('sale_id', $sale->id);
+            })->get();
+            foreach ($dispatchedDetails as $d) {
+                $key = $d->product_id . '-' . $d->tax_id;
+                if (isset($aggregated[$key])) {
+                    $aggregated[$key]['dispatched_quantity'] += $d->dispatched_quantity;
+                }
+            }
+
+            // Loop through each product row in the request.
+            foreach ($dispatchedQuantities as $compositeKey => $qty) {
+                // 1. If remaining quantity (total - already dispatched) > 0, dispatched quantity cannot be 0.
+                if (isset($aggregated[$compositeKey])) {
+                    $remaining = $aggregated[$compositeKey]['total_quantity'] - $aggregated[$compositeKey]['dispatched_quantity'];
+                    if ($remaining > 0 && (int)$qty === 0) {
+                        $validator->errors()->add("dispatchedQuantities.$compositeKey", "Dispatched quantity cannot be 0 as there is remaining quantity of {$remaining}.");
+                    }
+                }
+
+                // 2. dispatchedQuantities must not exceed available stock.
+                if (isset($stockAtLocations[$compositeKey]) && (int)$qty > (int)$stockAtLocations[$compositeKey]) {
+                    $validator->errors()->add("dispatchedQuantities.$compositeKey", "Dispatched quantity ({$qty}) cannot exceed available stock ({$stockAtLocations[$compositeKey]}).");
+                }
+
+                // 3. selectedLocations: ensure a location is selected.
+                if (empty($selectedLocations[$compositeKey])) {
+                    $validator->errors()->add("selectedLocations.$compositeKey", "Location is required for this product.");
+                }
+
+                // 4. Validate serial numbers if the product requires them.
+                // Retrieve the product to check serial_number_required.
+                list($productId, $taxId) = explode('-', $compositeKey);
+                $product = Product::find($productId);
+                if ($product && $product->serial_number_required) {
+                    $serials = $selectedSerialNumbers[$compositeKey] ?? [];
+                    // The count of serial numbers must equal the dispatched quantity.
+                    if (count($serials) != (int)$qty) {
+                        $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Number of serial numbers must equal the dispatched quantity ({$qty}).");
+                    }
+                    // Serial numbers must be unique (no duplicates).
+                    if (count($serials) !== count(array_unique($serials))) {
+                        $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Duplicate serial numbers are not allowed.");
+                    }
+                }
+            }
+        });
+
+        if ($validator->fails()) {
+            return redirect()->back()->withErrors($validator)->withInput();
+        }
+
+        // Proceed to store dispatch records.
+        DB::beginTransaction();
+        try {
+            // Create a dispatch record. (If a global location is needed, you can adjust accordingly.)
+            $dispatch = Dispatch::create([
+                'sale_id'       => $sale->id,
+                'dispatch_date' => $request->input('dispatch_date'),
+            ]);
+
+            $dispatchedQuantities = $request->input('dispatchedQuantities', []);
+            $selectedLocations    = $request->input('selectedLocations', []);
+            $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
+
+            foreach ($dispatchedQuantities as $compositeKey => $qty) {
+                list($productId, $taxId) = explode('-', $compositeKey);
+                $locationId = $selectedLocations[$compositeKey] ?? null;
+                $serialNumbers = $selectedSerialNumbers[$compositeKey] ?? [];
+
+                DispatchDetail::create([
+                    'dispatch_id'         => $dispatch->id,
+                    'sale_id'             => $sale->id,
+                    'product_id'          => $productId,
+                    'dispatched_quantity' => $qty,
+                    'location_id'         => $locationId,
+                    'serial_numbers'      => json_encode($serialNumbers),
+                ]);
+            }
+
+            DB::commit();
+            toast('Pengeluaran berhasil dibuat!', 'success');
+            return redirect()->route('sales.show', $sale->id);
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Error storing dispatch', ['error' => $e->getMessage()]);
+            toast('Gagal menyimpan pengeluaran', 'error');
+            return redirect()->back()->withInput();
+        }
     }
 }

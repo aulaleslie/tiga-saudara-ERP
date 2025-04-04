@@ -12,7 +12,7 @@ class DispatchSaleHeader extends Component
     public function mount($sale)
     {
         $this->sale = $sale;
-        $this->dispatch_date = now()->format('Y-m-d\TH:i');
+        $this->dispatch_date = now()->format('Y-m-d');
     }
 
     public function render()
