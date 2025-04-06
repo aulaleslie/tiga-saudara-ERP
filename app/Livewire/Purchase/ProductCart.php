@@ -50,6 +50,9 @@ class ProductCart extends Component
         $this->cart_instance = $cartInstance;
         $this->setting_id = session('setting_id');
         $this->taxes = Tax::where('setting_id', $this->setting_id)->get();
+        Log::info('validated', [
+            'data' => $data,
+        ]);
 
         if ($data) {
             $this->data = $data;

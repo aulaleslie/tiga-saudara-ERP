@@ -68,7 +68,7 @@
                                     {{ $detail->product_name }} <br>
                                     <span class="badge bg-success">{{ $detail->product_code }}</span>
                                 </td>
-                                <td class="align-middle">{{ format_currency($detail->unit_price) }}</td>
+                                <td class="align-middle">{{ format_currency($detail->price) }}</td>
                                 <td class="align-middle">{{ $detail->quantity }}</td>
                                 <td class="align-middle">{{ format_currency($detail->product_discount_amount) }}</td>
                                 <td class="align-middle">{{ format_currency($detail->product_tax_amount) }}</td>
