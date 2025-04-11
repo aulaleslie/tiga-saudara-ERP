@@ -12,12 +12,14 @@
 
 @section('content')
     <div class="container-fluid mb-4">
+        <!-- Search Product Livewire Component -->
         <div class="row">
             <div class="col-12">
-                <livewire:search-product/>
+                <livewire:sale.search-product/>
             </div>
         </div>
 
+        <!-- Sale Form -->
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
@@ -26,31 +28,42 @@
                         <form id="sale-form" action="{{ route('sales.update', $sale) }}" method="POST">
                             @csrf
                             @method('patch')
-                            <livewire:sale.form-header />
 
-                            <livewire:product-cart :cartInstance="'sale'" :data="$sale"/>
+                            <!-- Header Form Component -->
+                            <livewire:sale.form-header :data="$sale" />
 
-                            <div class="form-group">
-                                <label for="note">Catatan (Jika Dibutuhkan)</label>
+                            <!-- Product Cart Livewire Component -->
+                            <livewire:sale.product-cart :cartInstance="'sale'" :data="$sale"/>
+
+                            <!-- Catatan -->
+                            <div class="form-group mt-4">
+                                <label for="note">Catatan (Jika Diperlukan)</label>
                                 <textarea name="note" id="note" rows="5"
-                                          class="form-control">{{ $sale->note }}</textarea>
+                                          class="form-control @error('note') is-invalid @enderror">{{ old('note', $sale->note) }}</textarea>
+                                @error('note')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
                             </div>
 
+                            <!-- Submit Button -->
                             <div class="mt-3">
-
                                 @canany("sale.edit")
-                                    <button type="submit" class="btn btn-primary">
+                                    <button type="button" class="btn btn-primary"
+                                            onclick="showConfirmationModal(() => document.getElementById('sale-form').submit(), 'Apakah Anda yakin ingin memperbaharui penjualan ini?')">
                                         Perbaharui Penjualan <i class="bi bi-check"></i>
                                     </button>
-                                @endcan
-
+                                @endcanany
+                                <a href="{{ route('sales.index') }}" class="btn btn-secondary">Kembali</a>
                             </div>
                         </form>
+                        <!-- Sale Form End -->
                     </div>
                 </div>
             </div>
         </div>
     </div>
+
+    @include('components.confirmation-modal')
 @endsection
 
 @push('page_scripts')
