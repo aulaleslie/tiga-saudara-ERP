@@ -10,6 +10,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
@@ -34,7 +35,8 @@ use Modules\Setting\Entities\Tax;
 class SaleController extends Controller
 {
 
-    public function index(SalesDataTable $dataTable) {
+    public function index(SalesDataTable $dataTable)
+    {
         abort_if(Gate::denies('sale.access'), 403);
 
         return $dataTable->render('sale::index');
@@ -54,7 +56,7 @@ class SaleController extends Controller
         $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
         $customers = Customer::where('setting_id', $setting_id)->get();
 
-        return view('sale::create', compact('paymentTerms','customers'));
+        return view('sale::create', compact('paymentTerms', 'customers'));
     }
 
 
@@ -62,7 +64,7 @@ class SaleController extends Controller
     {
         Log::info('REQUEST', [
             'request' => $request->all(),
-            'cart'    => Cart::instance('sale')->content()->toArray()
+            'cart' => Cart::instance('sale')->content()->toArray()
         ]);
 
         // Ensure cart is not empty.
@@ -129,26 +131,26 @@ class SaleController extends Controller
         try {
             // Create the sale record.
             $sale = Sale::create([
-                'date'              => $request->date,
-                'due_date'          => $request->due_date,
-                'customer_id'       => $request->customer_id,
-                'customer_name'     => Customer::findOrFail($request->customer_id)->customer_name,
-                'tax_id'            => $request->tax_id,
-                'tax_percentage'    => 0, // Set as needed.
-                'tax_amount'        => 0, // Set as needed.
-                'discount_percentage'=> $request->discount_percentage ?? 0,
-                'discount_amount'   => $request->discount_amount ?? 0,
-                'shipping_amount'   => $request->shipping_amount,
-                'total_amount'      => $request->total_amount,
-                'due_amount'        => $request->total_amount,
-                'status'            => Sale::STATUS_DRAFTED, // Adjust as necessary (or use Sale::STATUS_DRAFTED).
-                'payment_status'    => 'unpaid',
-                'payment_term_id'   => $request->payment_term_id,
-                'note'              => $request->note,
-                'setting_id'        => $setting_id,
-                'paid_amount'       => 0.0,
-                'is_tax_included'   => $request->is_tax_included,
-                'payment_method'    => '',
+                'date' => $request->date,
+                'due_date' => $request->due_date,
+                'customer_id' => $request->customer_id,
+                'customer_name' => Customer::findOrFail($request->customer_id)->customer_name,
+                'tax_id' => $request->tax_id,
+                'tax_percentage' => 0, // Set as needed.
+                'tax_amount' => 0, // Set as needed.
+                'discount_percentage' => $request->discount_percentage ?? 0,
+                'discount_amount' => $request->discount_amount ?? 0,
+                'shipping_amount' => $request->shipping_amount,
+                'total_amount' => $request->total_amount,
+                'due_amount' => $request->total_amount,
+                'status' => Sale::STATUS_DRAFTED, // Adjust as necessary (or use Sale::STATUS_DRAFTED).
+                'payment_status' => 'unpaid',
+                'payment_term_id' => $request->payment_term_id,
+                'note' => $request->note,
+                'setting_id' => $setting_id,
+                'paid_amount' => 0.0,
+                'is_tax_included' => $request->is_tax_included,
+                'payment_method' => '',
             ]);
 
             // Iterate over cart items and create sale details.
@@ -158,18 +160,18 @@ class SaleController extends Controller
                     ($cart_item->options['sub_total_before_tax'] ?? 0);
 
                 $saleDetail = SaleDetails::create([
-                    'sale_id'                   => $sale->id,
-                    'product_id'                => $cart_item->options->product_id,
-                    'product_name'              => $cart_item->name,
-                    'product_code'              => $cart_item->options['code'],
-                    'quantity'                  => $cart_item->qty,
-                    'unit_price'                => $cart_item->options['unit_price'],
-                    'price'                     => $cart_item->price,
-                    'product_discount_type'     => $cart_item->options['product_discount_type'],
-                    'product_discount_amount'   => $cart_item->options['product_discount'],
-                    'sub_total'                 => $cart_item->options['sub_total'],
-                    'product_tax_amount'        => $product_tax_amount,
-                    'tax_id'                    => $cart_item->options['product_tax'],
+                    'sale_id' => $sale->id,
+                    'product_id' => $cart_item->options->product_id,
+                    'product_name' => $cart_item->name,
+                    'product_code' => $cart_item->options['code'],
+                    'quantity' => $cart_item->qty,
+                    'unit_price' => $cart_item->options['unit_price'],
+                    'price' => $cart_item->price,
+                    'product_discount_type' => $cart_item->options['product_discount_type'],
+                    'product_discount_amount' => $cart_item->options['product_discount'],
+                    'sub_total' => $cart_item->options['sub_total'],
+                    'product_tax_amount' => $product_tax_amount,
+                    'tax_id' => $cart_item->options['product_tax'],
                 ]);
 
                 // If the cart item has bundle items, iterate and create SaleBundleItem records.
@@ -179,14 +181,14 @@ class SaleController extends Controller
                         // Note: You might need to adjust fields if you have computed values.
                         SaleBundleItem::create([
                             'sale_detail_id' => $saleDetail->id,
-                            'sale_id'        => $sale->id,
-                            'bundle_id'      => $bundleItem['bundle_id'] ?? null,
+                            'sale_id' => $sale->id,
+                            'bundle_id' => $bundleItem['bundle_id'] ?? null,
                             'bundle_item_id' => $bundleItem['bundle_item_id'] ?? null,
-                            'product_id'     => $bundleItem['product_id'],
-                            'name'           => $bundleItem['name'],
-                            'price'          => $bundleItem['price'],
-                            'quantity'       => $bundleItem['quantity'], // base quantity; computed quantity = base * parent qty can be computed as needed.
-                            'sub_total'      => $bundleItem['sub_total'],
+                            'product_id' => $bundleItem['product_id'],
+                            'name' => $bundleItem['name'],
+                            'price' => $bundleItem['price'],
+                            'quantity' => $bundleItem['quantity'], // base quantity; computed quantity = base * parent qty can be computed as needed.
+                            'sub_total' => $bundleItem['sub_total'],
                         ]);
                     }
                 }
@@ -217,31 +219,78 @@ class SaleController extends Controller
     }
 
 
-    public function edit(Sale $sale) {
+    public function edit(Sale $sale)
+    {
         abort_if(Gate::denies('sale.edit'), 403);
 
-        $sale_details = $sale->saleDetails;
+        // Ensure the related bundle items are loaded for each sale detail.
+        $sale->load('saleDetails.bundleItems');
 
+        // Destroy any existing cart items
         Cart::instance('sale')->destroy();
-
         $cart = Cart::instance('sale');
 
-        foreach ($sale_details as $sale_detail) {
+        // Iterate over each sale detail to rebuild the cart item.
+        foreach ($sale->saleDetails as $saleDetail) {
+            // Build the options array from the sale detail.
+            $subtotal_before_tax = $saleDetail->price * $saleDetail->quantity;
+            if ($sale->is_tax_included) {
+                // Case: Tax is included in the price
+                if ($saleDetail->tax_id) {
+                    $tax = Tax::find($saleDetail->tax_id);
+                    if ($tax) {
+                        // Calculate price excluding tax
+                        $price_ex_tax = $saleDetail->price / (1 + $tax->value / 100);
+//                        $tax_amount_per_unit = $purchase_detail->price - $price_ex_tax;
+//                        $tax_amount = $tax_amount_per_unit * $purchase_detail->quantity;
+                        $subtotal_before_tax = $price_ex_tax * $saleDetail->quantity;
+                    } else {
+                        $subtotal_before_tax = $saleDetail->price * $saleDetail->quantity;
+                    }
+                } else {
+                    // No tax applied
+                    $subtotal_before_tax = $saleDetail->price * $saleDetail->quantity;
+                }
+            }
+            $options = [
+                'product_discount' => $saleDetail->product_discount_amount,
+                'product_discount_type' => $saleDetail->product_discount_type,
+                'sub_total' => $saleDetail->sub_total,
+                'code' => $saleDetail->product_code,
+                'stock' => Product::findOrFail($saleDetail->product_id)->product_quantity,
+                'product_tax' => $saleDetail->product_tax_amount,
+                'unit_price' => $saleDetail->unit_price,
+                'sub_total_before_tax' => $subtotal_before_tax
+            ];
+
+            // Remap the bundle items if they exist.
+            if ($saleDetail->bundleItems && $saleDetail->bundleItems->isNotEmpty()) {
+                $bundleItems = [];
+                foreach ($saleDetail->bundleItems as $bundleItem) {
+                    // Format each bundle item similar to how it's built in ProductCart.
+                    $bundleItems[] = [
+                        'bundle_id' => $bundleItem->bundle_id,
+                        'bundle_item_id' => $bundleItem->bundle_item_id,
+                        'product_id' => $bundleItem->product_id,
+                        'name' => $bundleItem->name,
+                        'price' => $bundleItem->price,
+                        'quantity' => $bundleItem->quantity, // this is the base quantity
+                        'sub_total' => $bundleItem->sub_total,
+                    ];
+                }
+                $options['bundle_items'] = $bundleItems;
+            } else {
+                $options['bundle_items'] = [];
+            }
+
+            // Re-create the cart item with the rebuilt options.
             $cart->add([
-                'id'      => $sale_detail->product_id,
-                'name'    => $sale_detail->product_name,
-                'qty'     => $sale_detail->quantity,
-                'price'   => $sale_detail->price,
-                'weight'  => 1,
-                'options' => [
-                    'product_discount' => $sale_detail->product_discount_amount,
-                    'product_discount_type' => $sale_detail->product_discount_type,
-                    'sub_total'   => $sale_detail->sub_total,
-                    'code'        => $sale_detail->product_code,
-                    'stock'       => Product::findOrFail($sale_detail->product_id)->product_quantity,
-                    'product_tax' => $sale_detail->product_tax_amount,
-                    'unit_price'  => $sale_detail->unit_price
-                ]
+                'id' => Str::uuid()->toString(),
+                'name' => $saleDetail->product_name,
+                'qty' => $saleDetail->quantity,
+                'price' => $saleDetail->price,
+                'weight' => 1,
+                'options' => $options,
             ]);
         }
 
@@ -249,7 +298,8 @@ class SaleController extends Controller
     }
 
 
-    public function update(UpdateSaleRequest $request, Sale $sale) {
+    public function update(UpdateSaleRequest $request, Sale $sale)
+    {
         DB::transaction(function () use ($request, $sale) {
 
             $due_amount = $request->total_amount - $request->paid_amount;
@@ -345,7 +395,8 @@ class SaleController extends Controller
     }
 
 
-    public function destroy(Sale $sale) {
+    public function destroy(Sale $sale)
+    {
         abort_if(Gate::denies('sale.delete'), 403);
 
         $sale->delete();
@@ -375,13 +426,13 @@ class SaleController extends Controller
                 $tax = $taxId ? Tax::find($taxId) : null;
 
                 $aggregatedProducts[$key] = [
-                    'product_id'          => $pid,
-                    'tax_id'              => $taxId,
-                    'product_name'        => $detail->product_name,
-                    'product_code'        => $product ? $product->product_code : null,
-                    'tax_name'            => $tax ? $tax->name : null,
-                    'is_tax_included'     => $sale->is_tax_included,
-                    'total_quantity'      => 0,
+                    'product_id' => $pid,
+                    'tax_id' => $taxId,
+                    'product_name' => $detail->product_name,
+                    'product_code' => $product ? $product->product_code : null,
+                    'tax_name' => $tax ? $tax->name : null,
+                    'is_tax_included' => $sale->is_tax_included,
+                    'total_quantity' => 0,
                     'dispatched_quantity' => 0,
                 ];
             }
@@ -401,13 +452,13 @@ class SaleController extends Controller
                 $tax = $taxId ? Tax::find($taxId) : null;
 
                 $aggregatedProducts[$key] = [
-                    'product_id'          => $pid,
-                    'tax_id'              => $taxId,
-                    'product_name'        => $bundleItem->name,
-                    'product_code'        => $product ? $product->product_code : null,
-                    'tax_name'            => $tax ? $tax->name : null,
-                    'is_tax_included'     => $sale->is_tax_included,
-                    'total_quantity'      => 0,
+                    'product_id' => $pid,
+                    'tax_id' => $taxId,
+                    'product_name' => $bundleItem->name,
+                    'product_code' => $product ? $product->product_code : null,
+                    'tax_name' => $tax ? $tax->name : null,
+                    'is_tax_included' => $sale->is_tax_included,
+                    'total_quantity' => 0,
                     'dispatched_quantity' => 0,
                 ];
             }
@@ -436,7 +487,6 @@ class SaleController extends Controller
             'request' => $request->all()
         ]);
 
-        // Base validation for required arrays and dispatch_date.
         $validator = Validator::make($request->all(), [
             'dispatch_date' => 'required|date',
             'dispatchedQuantities' => 'required|array',
@@ -445,14 +495,12 @@ class SaleController extends Controller
             'stockAtLocations' => 'required|array',
         ]);
 
-        // Custom validation for our conditions.
         $validator->after(function ($validator) use ($request, $sale) {
             $dispatchedQuantities = $request->input('dispatchedQuantities', []);
-            $selectedLocations    = $request->input('selectedLocations', []);
+            $selectedLocations = $request->input('selectedLocations', []);
             $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
-            $stockAtLocations     = $request->input('stockAtLocations', []);
+            $stockAtLocations = $request->input('stockAtLocations', []);
 
-            // Recalculate aggregated data for the sale.
             $aggregated = [];
             foreach ($sale->saleDetails as $detail) {
                 $pid = $detail->product_id;
@@ -466,7 +514,7 @@ class SaleController extends Controller
                 }
                 $aggregated[$key]['total_quantity'] += $detail->quantity;
             }
-            // Include already dispatched quantities.
+
             $dispatchedDetails = DispatchDetail::whereHas('dispatch', function ($query) use ($sale) {
                 $query->where('sale_id', $sale->id);
             })->get();
@@ -477,7 +525,6 @@ class SaleController extends Controller
                 }
             }
 
-            // Loop through each product row in the request.
             foreach ($dispatchedQuantities as $compositeKey => $qty) {
                 if (isset($aggregated[$compositeKey])) {
                     $remaining = $aggregated[$compositeKey]['total_quantity'] - $aggregated[$compositeKey]['dispatched_quantity'];
@@ -485,16 +532,13 @@ class SaleController extends Controller
                         $validator->errors()->add("dispatchedQuantities.$compositeKey", "Dispatched quantity cannot be 0 as there is remaining quantity of {$remaining}.");
                     }
                 }
-
                 if (isset($stockAtLocations[$compositeKey]) && (int)$qty > (int)$stockAtLocations[$compositeKey]) {
                     $validator->errors()->add("dispatchedQuantities.$compositeKey", "Dispatched quantity ({$qty}) cannot exceed available stock ({$stockAtLocations[$compositeKey]}).");
                 }
-
                 if (empty($selectedLocations[$compositeKey])) {
                     $validator->errors()->add("selectedLocations.$compositeKey", "Location is required for this product.");
                 }
 
-                // Validate serial numbers if the product requires them.
                 list($productId, $taxId) = explode('-', $compositeKey);
                 $product = Product::find($productId);
                 if ($product && $product->serial_number_required) {
@@ -515,36 +559,31 @@ class SaleController extends Controller
 
         DB::beginTransaction();
         try {
-            // Create a dispatch record.
             $dispatch = Dispatch::create([
-                'sale_id'       => $sale->id,
+                'sale_id' => $sale->id,
                 'dispatch_date' => $request->input('dispatch_date'),
             ]);
 
             $dispatchedQuantities = $request->input('dispatchedQuantities', []);
-            $selectedLocations    = $request->input('selectedLocations', []);
+            $selectedLocations = $request->input('selectedLocations', []);
             $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
 
-            // Iterate over each dispatched product.
             foreach ($dispatchedQuantities as $compositeKey => $qty) {
                 list($productId, $taxId) = explode('-', $compositeKey);
                 $locationId = $selectedLocations[$compositeKey] ?? null;
                 $serialNumbers = $selectedSerialNumbers[$compositeKey] ?? [];
 
-                // Lock the product record.
                 $product = Product::where('id', $productId)->lockForUpdate()->first();
                 if (!$product) {
                     throw new Exception("Product ID {$productId} not found.");
                 }
 
-                // Lock the product stock for the specified location.
                 $productStock = ProductStock::where('product_id', $productId)
                     ->where('location_id', $locationId)
                     ->lockForUpdate()
                     ->first();
 
                 if (!$productStock) {
-                    // Optionally create a new product stock record if it does not exist.
                     $productStock = ProductStock::create([
                         'product_id' => $productId,
                         'location_id' => $locationId,
@@ -557,16 +596,13 @@ class SaleController extends Controller
                     ]);
                 }
 
-                // Check if there's enough stock at the location.
                 if ($productStock->quantity < $qty) {
                     throw new Exception("Not enough stock for product ID {$productId} at location ID {$locationId}.");
                 }
 
-                // Capture previous quantities.
                 $previousQuantity = $product->product_quantity;
                 $previousQuantityAtLocation = $productStock->quantity;
 
-                // Decrement the product stock at the location.
                 $productStock->decrement('quantity', $qty);
                 if ($taxId) {
                     $productStock->decrement('quantity_tax', $qty);
@@ -574,23 +610,19 @@ class SaleController extends Controller
                     $productStock->decrement('quantity_non_tax', $qty);
                 }
 
-                // Check overall product quantity.
                 if ($product->product_quantity < $qty) {
                     throw new Exception("Not enough overall stock for product ID {$productId}.");
                 }
 
-                // Decrement overall product quantity.
                 $product->decrement('product_quantity', $qty);
 
-                // Capture after update quantities.
                 $afterQuantity = $product->product_quantity;
                 $afterQuantityAtLocation = $productStock->quantity;
 
-                // Log the transaction for this dispatch.
                 Transaction::create([
                     'product_id' => $productId,
                     'setting_id' => session('setting_id'),
-                    'quantity' => -$qty, // Negative value to indicate a dispatch.
+                    'quantity' => -$qty,
                     'current_quantity' => $afterQuantity,
                     'broken_quantity' => 0,
                     'location_id' => $locationId,
@@ -607,18 +639,16 @@ class SaleController extends Controller
                     'broken_quantity_tax' => 0,
                 ]);
 
-                // Create the dispatch detail record.
                 $dispatchDetail = DispatchDetail::create([
-                    'dispatch_id'         => $dispatch->id,
-                    'sale_id'             => $sale->id,
-                    'tax_id'              => $taxId,
-                    'product_id'          => $productId,
+                    'dispatch_id' => $dispatch->id,
+                    'sale_id' => $sale->id,
+                    'tax_id' => $taxId,
+                    'product_id' => $productId,
                     'dispatched_quantity' => $qty,
-                    'location_id'         => $locationId,
-                    'serial_numbers'      => json_encode($serialNumbers),
+                    'location_id' => $locationId,
+                    'serial_numbers' => json_encode($serialNumbers),
                 ]);
 
-                // If the product requires serial numbers, update ProductSerialNumber records.
                 if ($product->serial_number_required) {
                     foreach ($serialNumbers as $serial) {
                         ProductSerialNumber::where('product_id', $productId)
@@ -627,6 +657,18 @@ class SaleController extends Controller
                     }
                 }
             }
+
+            $totalSaleQty = $sale->saleDetails()->sum('quantity');
+            $totalBundleQty = SaleBundleItem::where('sale_id', $sale->id)->sum('quantity');
+            $totalOrderQty = $totalSaleQty + $totalBundleQty;
+            $allDispatchedQty = DispatchDetail::where('sale_id', $sale->id)->sum('dispatched_quantity');
+
+            if ($allDispatchedQty < $totalOrderQty) {
+                $sale->status = Sale::STATUS_DISPATCHED_PARTIALLY;
+            } else {
+                $sale->status = Sale::STATUS_DISPATCHED;
+            }
+            $sale->save();
 
             DB::commit();
             toast('Pengeluaran berhasil dibuat!', 'success');

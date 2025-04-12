@@ -30,7 +30,7 @@
                             @method('patch')
 
                             <!-- Header Form Component -->
-                            <livewire:sale.form-header :data="$sale" />
+                            <livewire:sale.form-header :customerId="$sale->customer_id" :paymentTermId="$sale->payment_term_id" />
 
                             <!-- Product Cart Livewire Component -->
                             <livewire:sale.product-cart :cartInstance="'sale'" :data="$sale"/>

@@ -19,9 +19,12 @@ class FormHeader extends Component
     // Listen for an event emitted by your customer auto-complete component.
     protected $listeners = ['customerSelected' => 'handleCustomerSelected'];
 
-    public function mount()
+    public function mount($customerId = null, $paymentTermId = null)
     {
         // Initialize with today's date.
+
+        $this->customerId = $customerId;
+        $this->paymentTermId = $paymentTermId;
         $this->date = Carbon::now()->format('Y-m-d');
         $this->dueDate = $this->date;
 

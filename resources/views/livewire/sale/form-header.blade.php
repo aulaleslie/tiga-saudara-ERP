@@ -13,7 +13,7 @@
         <div class="form-group">
             <label for="customer">Pelanggan</label>
             <!-- This is your auto-complete component which should emit a "customerSelected" event -->
-            <livewire:auto-complete.customer-loader />
+            <livewire:auto-complete.customer-loader :customerId="$customerId" />
             @error('customerId') <span class="text-danger">{{ $message }}</span> @enderror
         </div>
     </div>

@@ -17,6 +17,16 @@ class CustomerLoader extends Component
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
 
+    public function mount($customerId = null)
+    {
+        if ($customerId) {
+            $customer = Customer::find($customerId);
+            $this->query = $customer->contact_name;
+            $this->search_results = [$customer];
+            $this->query_count = 1;
+        }
+    }
+
     public function updatedQuery(): void
     {
         if ($this->isFocused) {
