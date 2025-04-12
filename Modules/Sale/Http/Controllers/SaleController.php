@@ -258,8 +258,8 @@ class SaleController extends Controller
                 'sub_total' => $saleDetail->sub_total,
                 'code' => $saleDetail->product_code,
                 'stock' => Product::findOrFail($saleDetail->product_id)->product_quantity,
-                'product_tax' => $saleDetail->product_tax_amount,
                 'unit_price' => $saleDetail->unit_price,
+                'product_tax' => $saleDetail->tax_id,
                 'sub_total_before_tax' => $subtotal_before_tax
             ];
 
