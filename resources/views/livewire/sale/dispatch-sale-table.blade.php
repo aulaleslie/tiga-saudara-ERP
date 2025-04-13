@@ -26,7 +26,7 @@
             </thead>
             <tbody>
             @foreach($aggregatedProducts as $key => $product)
-                <tr>
+                <tr wire:key="product-row-{{ $key }}">
                     <td>
                         {{ $product['product_name'] }}
                         <br>
@@ -62,7 +62,7 @@
                     <td>{{ $stockAtLocations[$key] ?? 'N/A' }}</td>
                 </tr>
                 @if($serialNumberRequiredFlags[$key] && (($selectedLocations[$key] ?? 0) > 0) && (($dispatchedQuantities[$key] ?? 0) > 0))
-                    <tr>
+                    <tr wire:key="serial-loader-{{ $key }}">
                         <td colspan="6">
                             @for ($i = 0; $i < ($dispatchedQuantities[$key] ?? 0); $i++)
                                 <div class="row mb-3">

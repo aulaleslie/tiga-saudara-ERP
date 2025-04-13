@@ -212,6 +212,7 @@ class ProductController extends Controller
             ->get();
 
         $serialNumbers = ProductSerialNumber::where('product_id', $product->id)
+            ->whereNull('dispatch_detail_id')
             ->with('location')
             ->with('tax')
             ->get();
