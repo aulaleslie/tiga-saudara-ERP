@@ -72,6 +72,7 @@
                                             :productId="$product['product_id']"
                                             :isTaxed="$product['tax_id']"
                                             :isBroken="false"
+                                            :isDispatch="true"
                                             :serialIndex="$i"
                                             :productCompositeKey="$key"
                                             wire:key="{{ $key . '-' . $i . '-' . ($selectedLocations[$key] ?? 0) . '-' . ($dispatchedQuantities[$key] ?? 0) }}"

@@ -642,7 +642,7 @@ class SaleController extends Controller
                 $dispatchDetail = DispatchDetail::create([
                     'dispatch_id' => $dispatch->id,
                     'sale_id' => $sale->id,
-                    'tax_id' => $taxId,
+                    'tax_id' => !empty($taxId) ? $taxId : null,
                     'product_id' => $productId,
                     'dispatched_quantity' => $qty,
                     'location_id' => $locationId,

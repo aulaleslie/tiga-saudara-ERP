@@ -14,6 +14,7 @@ class DispatchDetail extends Model
         'dispatched_quantity',
         'location_id',
         'serial_numbers',
+        'tax_id',
     ];
 
     public function dispatch(): BelongsTo

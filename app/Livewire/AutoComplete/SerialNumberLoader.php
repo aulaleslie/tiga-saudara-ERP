@@ -23,8 +23,9 @@ class SerialNumberLoader extends Component
     public $is_broken = false;
     public $serialIndex;
     public $productCompositeKey;
+    public $is_dispatch;
 
-    public function mount($locationId = 0, $productId = 0, $isTaxed = false, $isBroken = false, $serialIndex = null, $productCompositeKey = null): void
+    public function mount($locationId = 0, $productId = 0, $isTaxed = false, $isBroken = false, $serialIndex = null, $productCompositeKey = null, $isDispatch = null): void
     {
         $this->location_id = $locationId;
         $this->product_id = $productId;
@@ -32,6 +33,7 @@ class SerialNumberLoader extends Component
         $this->is_broken = $isBroken;
         $this->serialIndex = $serialIndex;
         $this->productCompositeKey = $productCompositeKey;
+        $this->is_dispatch = $isDispatch;
     }
 
     public function updatedQuery(): void
@@ -56,49 +58,25 @@ class SerialNumberLoader extends Component
                 'query' => $this->query,
                 'is_taxed' => $this->is_taxed,
                 'is_broken' => $this->is_broken,
+                'is_dispatch' => $this->is_dispatch,
                 'serialIndex' => $this->serialIndex,
                 'productCompositeKey' => $this->productCompositeKey,
             ]);
 
             $baseQuery = ProductSerialNumber::where('serial_number', 'like', '%' . $this->query . '%')
-                ->when($this->product_id > 0, function ($query) {
-                    return $query->where('product_id', $this->product_id);
-                })
+                ->when($this->product_id > 0, fn($query) => $query->where('product_id', $this->product_id))
                 ->when($this->is_taxed,
-                    function ($query) {
-                        // If is_taxed is true, only include rows with tax_id > 0
-                        $query->whereNotNull('tax_id')->where('tax_id', '>', 0);
-                    },
-                    function ($query) {
-                        // Else, only include rows with tax_id null or equal to 0.
-                        $query->where(function ($q) {
-                            $q->whereNull('tax_id')->orWhere('tax_id', 0);
-                        });
-                    }
+                    fn($query) => $query->whereNotNull('tax_id')->where('tax_id', '>', 0),
+                    fn($query) => $query->where(function ($q) {
+                        $q->whereNull('tax_id')->orWhere('tax_id', 0);
+                    })
                 )
-                ->when($this->is_broken, function ($query) {
-                    $query->where('is_broken', true);
-                });
+                ->when($this->is_broken, fn($query) => $query->where('is_broken', true))
+                ->when($this->is_dispatch, fn($query) => $query->whereNull('dispatch_detail_id'));
 
             $this->query_count = $baseQuery->count();
 
-            $this->search_results = ProductSerialNumber::where('serial_number', 'like', '%' . $this->query . '%')
-                ->when($this->product_id > 0, function ($query) {
-                    return $query->where('product_id', $this->product_id);
-                })
-                ->when($this->is_taxed,
-                    function ($query) {
-                        $query->whereNotNull('tax_id')->where('tax_id', '>', 0);
-                    },
-                    function ($query) {
-                        $query->where(function ($q) {
-                            $q->whereNull('tax_id')->orWhere('tax_id', 0);
-                        });
-                    }
-                )
-                ->when($this->is_broken, function ($query) {
-                    $query->where('is_broken', true);
-                })
+            $this->search_results = (clone $baseQuery)
                 ->limit($this->how_many)
                 ->get();
         }
