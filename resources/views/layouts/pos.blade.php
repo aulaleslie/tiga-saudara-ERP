@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>@yield('title') || {{ config('app.name') }}</title>
+    <meta content="Leslie Aula" name="author">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="icon" href="{{ asset('images/favicon.png') }}">
+
+    @include('includes.main-css')
+
+    @yield('third_party_stylesheets')
+</head>
+
+<body class="c-app">
+<div class="c-wrapper">
+    <header class="c-header c-header-fixed">
+        @include('layouts.header')
+        {{--            <div class="c-subheader justify-content-between px-3">--}}
+        {{--                @yield('breadcrumb')--}}
+        {{--            </div>--}}
+    </header>
+
+    <div class="c-body">
+        <main class="c-main">
+            @yield('content')
+        </main>
+    </div>
+
+    @include('layouts.footer')
+</div>
+
+@include('includes.main-js')
+</body>
+</html>
