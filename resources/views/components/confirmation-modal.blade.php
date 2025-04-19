@@ -1,4 +1,5 @@
-<div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
+<div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel"
+     aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
@@ -19,7 +20,6 @@
 </div>
 
 <script>
-    let confirmationFormId = null;
     let confirmationCallback = null;
 
     function showConfirmationModal(callback, message = "Apakah Anda yakin?") {
@@ -30,9 +30,19 @@
         confirmationModal.show();
     }
 
-    document.getElementById('confirmModalSubmit').addEventListener('click', function () {
-        if (confirmationCallback) {
-            confirmationCallback();
+    // ✅ Wait until the DOM is ready before binding to the button
+    document.addEventListener('DOMContentLoaded', function () {
+        const confirmBtn = document.getElementById('confirmModalSubmit');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', function () {
+                if (confirmationCallback) {
+                    confirmationCallback();
+
+                    // Optional: Close the modal after confirming
+                    const confirmationModal = bootstrap.Modal.getInstance(document.getElementById('confirmationModal'));
+                    confirmationModal.hide();
+                }
+            });
         }
     });
 </script>

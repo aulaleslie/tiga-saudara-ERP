@@ -1,0 +1,182 @@
+<?php
+
+namespace App\Livewire\Purchase;
+
+use Carbon\Carbon;
+use Gloudemans\Shoppingcart\Facades\Cart;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Livewire\Component;
+use Modules\People\Entities\Supplier;
+use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+
+class CreateForm extends Component
+{
+    public $reference;
+    public $supplier_id;
+    public $supplier_name; // To sync with SupplierLoader
+    public $date;
+    public $due_date;
+    public $payment_term;
+    public $note;
+    public $listeners = [
+        'supplierSelected' => 'handleSupplierSelected',
+        'confirmSubmit' => 'submit',
+    ];
+
+    public $paymentTerms = [];
+
+    public function mount()
+    {
+        $this->reference = 'PR'; // This can be dynamic if needed
+        $this->date = now()->format('Y-m-d');
+        $this->due_date = now()->format('Y-m-d');
+        $this->paymentTerms = PaymentTerm::where('setting_id', session('setting_id'))->get();
+    }
+
+    public function updatedSupplierId($value)
+    {
+        $supplier = Supplier::find($value);
+        if ($supplier && $supplier->payment_term_id) {
+            $this->payment_term = $supplier->payment_term_id;
+            $this->updateDueDateFromPaymentTerm();
+        }
+//        Log::info("Updated supplier id: ", ['supplier_id' => $value]);
+    }
+
+    public function updatedPaymentTerm($value): void
+    {
+        $this->updateDueDateFromPaymentTerm();
+    }
+
+    private function updateDueDateFromPaymentTerm(): void
+    {
+        $term = PaymentTerm::find($this->payment_term);
+        if ($term) {
+            $date = Carbon::parse($this->date);
+            $this->due_date = $date->addDays($term->longevity)->format('Y-m-d');
+        }
+    }
+
+    public function updatedDate($value)
+    {
+        $this->updateDueDateFromPaymentTerm();
+    }
+
+    public function handleSupplierSelected($supplier)
+    {
+        $this->supplier_id = $supplier['id'];
+        $this->supplier_name = $supplier['supplier_name'];
+        $this->updatedSupplierId($supplier['id']);
+    }
+
+    public function submit()
+    {
+        $this->validate([
+            'supplier_id' => 'required|exists:suppliers,id',
+            'date' => 'required|date',
+            'due_date' => 'required|date|after_or_equal:date',
+            'payment_term' => 'required|exists:payment_terms,id',
+            'note' => 'nullable|string|max:1000',
+        ], [
+            'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
+            'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
+            'date.required' => 'Tanggal pembelian wajib diisi.',
+            'date.date' => 'Format tanggal tidak valid.',
+            'due_date.required' => 'Tanggal jatuh tempo wajib diisi.',
+            'due_date.date' => 'Format tanggal tidak valid.',
+            'due_date.after_or_equal' => 'Tanggal jatuh tempo harus lebih besar dari atau sama dengan tanggal pembelian.',
+            'payment_term.required' => 'Pilih jatuh tempo terlebih dahulu.',
+            'payment_term.exists' => 'Jatuh tempo yang dipilih tidak valid.',
+        ]);
+
+        $cart = Cart::instance('purchase');
+
+        if ($cart->count() === 0) {
+            $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk harus dipilih']);
+            return;
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $setting_id = session('setting_id');
+
+            // Global discount and tax calculations
+            $cartItems = $cart->content();
+            $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
+            $global_discount = 0; // Assume Livewire handles this if needed
+            $shipping = 0; // Same here
+            $tax_amount = 0;
+
+            foreach ($cartItems as $item) {
+                $sub_total = $item->options['sub_total'] ?? 0;
+                $sub_total_before_tax = $item->options['sub_total_before_tax'] ?? 0;
+                $tax_amount += ($sub_total - $sub_total_before_tax);
+            }
+
+            $total_amount = $total_sub_total - $global_discount + $shipping;
+
+            $purchase = Purchase::create([
+                'date' => $this->date,
+                'due_date' => $this->due_date,
+                'supplier_id' => $this->supplier_id,
+                'discount_percentage' => 0,
+                'discount_amount' => $global_discount,
+                'shipping_amount' => $shipping,
+                'tax_id' => null,
+                'tax_percentage' => 0,
+                'tax_amount' => $tax_amount,
+                'total_amount' => $total_amount,
+                'due_amount' => $total_amount,
+                'status' => Purchase::STATUS_DRAFTED,
+                'payment_status' => 'unpaid',
+                'payment_term_id' => $this->payment_term,
+                'note' => $this->note,
+                'setting_id' => $setting_id,
+                'paid_amount' => 0.0,
+                'is_tax_included' => false,
+                'payment_method' => '',
+            ]);
+
+            foreach ($cartItems as $item) {
+                $product_tax_amount = $item->options['sub_total'] - ($item->options['sub_total_before_tax'] ?? 0);
+
+                PurchaseDetail::create([
+                    'purchase_id' => $purchase->id,
+                    'product_id' => $item->id,
+                    'product_name' => $item->name,
+                    'product_code' => $item->options['code'],
+                    'quantity' => $item->qty,
+                    'unit_price' => $item->options['unit_price'],
+                    'price' => $item->price,
+                    'product_discount_type' => $item->options['product_discount_type'],
+                    'product_discount_amount' => $item->options['product_discount'],
+                    'sub_total' => $item->options['sub_total'],
+                    'product_tax_amount' => $product_tax_amount,
+                    'tax_id' => $item->options['product_tax'],
+                ]);
+            }
+
+            DB::commit();
+            $cart->destroy();
+
+            session()->flash('success', 'Pembelian Ditambahkan!');
+            return redirect()->route('purchases.index');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Livewire Purchase Store Failed: ' . $e->getMessage());
+
+            session()->flash('error', 'Gagal menyimpan pembelian. Silakan coba lagi.');
+            return;
+        }
+    }
+
+    public function render()
+    {
+        return view('livewire.purchase.create-form');
+    }
+}

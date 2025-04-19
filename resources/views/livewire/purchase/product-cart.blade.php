@@ -158,7 +158,7 @@
                 @else
                     <tr>
                         <td colspan="9" class="text-center">
-                            <span class="text-danger">Please search & select products!</span>
+                            <span class="text-danger">Silahkan cari dan pilih produk!</span>
                         </td>
                     </tr>
                 @endif

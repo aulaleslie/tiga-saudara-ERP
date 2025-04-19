@@ -47,6 +47,11 @@ class ProductCart extends Component
 
     public function mount($cartInstance, $data = null): void
     {
+        $cart_items = Cart::instance($this->cart_instance)->content();
+        Log::info('mount() called at: ' . round(microtime(true) * 1000), [
+            'cart_instance' => $cartInstance,
+            'cart_items' => $cart_items,
+        ]);
         $this->cart_instance = $cartInstance;
         $this->setting_id = session('setting_id');
         $this->taxes = Tax::where('setting_id', $this->setting_id)->get();
@@ -98,6 +103,10 @@ class ProductCart extends Component
     {
         $cart_items = Cart::instance($this->cart_instance)->content();
 
+        Log::info('render() called at: ' . round(microtime(true) * 1000), [
+            'cart_instance' => $this->cart_instance,
+            'cart_items' => $cart_items,
+        ]);
         // Initialize totals
         $grand_total_before_tax = 0;
         $product_tax_amount = 0;
