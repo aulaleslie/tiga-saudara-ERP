@@ -5,7 +5,9 @@ namespace App\Livewire\AutoComplete;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\People\Entities\Customer;
 use Modules\People\Entities\Supplier;
 
 class SupplierLoader extends Component
@@ -16,13 +18,36 @@ class SupplierLoader extends Component
     public $isFocused = false;
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
+    public $supplierSelected = false;
+
+    public function mount($supplierId = null)
+    {
+        if ($supplierId) {
+            $supplier = Supplier::find($supplierId);
+            $this->query = $supplier->supplier_name;
+            $this->search_results = [$supplier];
+            $this->query_count = 1;
+        }
+    }
 
     public function updatedQuery(): void
     {
+        Log::info('updated query', [
+            'query' => $this->query,
+            'isFocused' => $this->isFocused,
+            'search_results' => $this->search_results,
+        ]);
+        $this->supplierSelected = false;
+
+        if (trim($this->query) === '') {
+            $this->search_results = [];
+            $this->query_count = 0;
+            $this->dispatch('supplierSelected', null);
+            return;
+        }
+
         if ($this->isFocused) {
             $this->searchSuppliers();
-        } else {
-            $this->search_results = [];
         }
     }
 
@@ -30,6 +55,10 @@ class SupplierLoader extends Component
     {
         sleep(1); // Small delay before closing
         $this->isFocused = false;
+
+        if (!$this->supplierSelected) {
+            $this->dispatch('supplierSelected', null);
+        }
     }
 
     public function searchSuppliers(): void
@@ -53,10 +82,10 @@ class SupplierLoader extends Component
     {
         $supplier = Supplier::find($supplierId);
         if ($supplier) {
-            $this->search_results = array($supplier);
-            $this->query = "$supplier->supplier_name";
+            $this->query = $supplier->supplier_name;
+            $this->search_results = [$supplier];
+            $this->supplierSelected = true; // ✅ mark as selected
 
-            // Dispatch event to update table row
             $this->dispatch('supplierSelected', $supplier);
             $this->isFocused = false;
             $this->query_count = 0;
