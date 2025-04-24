@@ -23,40 +23,7 @@
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
-                    <div class="card-body">
-                        <!-- Alert Messages -->
-                        @include('utils.alerts')
-
-                        <!-- Sale Form Start -->
-                        <form id="sale-form" action="{{ route('sales.store') }}" method="POST">
-                            @csrf
-
-                            <livewire:sale.form-header />
-
-                            <!-- Product Cart Livewire Component -->
-                            <livewire:sale.product-cart :cartInstance="'sale'"/>
-
-                            <!-- Catatan -->
-                            <div class="form-group mt-4">
-                                <label for="note">Catatan (Jika Diperlukan)</label>
-                                <textarea name="note" id="note" rows="5"
-                                          class="form-control @error('note') is-invalid @enderror">{{ old('note') }}</textarea>
-                                @error('note')
-                                <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-
-                            <!-- Submit Button -->
-                            <div class="mt-3">
-                                <button type="button" class="btn btn-primary"
-                                        onclick="showConfirmationModal(() => document.getElementById('sale-form').submit(), 'Apakah Anda yakin ingin membuat penjualan ini?')">
-                                    Buat Penjualan <i class="bi bi-check"></i>
-                                </button>
-                                <a href="{{ route('sales.index') }}" class="btn btn-secondary">Kembali</a>
-                            </div>
-                        </form>
-                        <!-- Sale Form End -->
-                    </div>
+                    <livewire:sale.create-form/>
                 </div>
             </div>
         </div>
@@ -64,3 +31,24 @@
 
     @include('components.confirmation-modal')
 @endsection
+
+@push('page_scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const submitButton = document.getElementById('submitWithConfirmation');
+
+            if (submitButton) {
+                submitButton.addEventListener('click', function () {
+                    console.log("submitWithConfirmation clicked")
+                    showConfirmationModal(() => {
+                        if (typeof Livewire !== 'undefined' && Livewire.dispatch) {
+                            Livewire.dispatch('confirmSubmit');
+                        } else {
+                            console.warn('Livewire is not ready yet.');
+                        }
+                    }, 'Apakah Anda yakin ingin membuat penjualan ini?');
+                });
+            }
+        });
+    </script>
+@endpush

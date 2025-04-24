@@ -43,11 +43,13 @@ class SaleController extends Controller
     }
 
 
-    public function create(): Factory|\Illuminate\Foundation\Application|View|Application
+    public function create(Request $request): Factory|\Illuminate\Foundation\Application|View|Application
     {
         abort_if(Gate::denies('sale.create'), 403);
 
-        Cart::instance('sale')->destroy();
+        if (! $request->session()->hasOldInput()) {
+            Cart::instance('sale')->destroy();
+        }
 
         // Retrieve the current setting_id from the session
         $setting_id = session('setting_id');
