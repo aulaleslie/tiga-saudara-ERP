@@ -100,6 +100,11 @@ class StoreProductInfoRequest extends FormRequest
                     }
                 }
             ],
+            'conversions.*.price' => [
+                'required_with:conversions.*.unit_id',
+                'numeric',
+                'gt:0',
+            ],
 
             'document' => ['nullable', 'array'],
             'document.*' => ['nullable', 'string'],
@@ -151,6 +156,9 @@ class StoreProductInfoRequest extends FormRequest
             'conversions.*.conversion_factor.min' => 'Faktor konversi harus lebih dari 0.',
             'conversions.*.barcode.digits' => 'Barcode konversi harus terdiri dari 13 digit.',
             'conversions.*.barcode.regex' => 'Barcode konversi harus berupa 13 digit angka.',
+            'conversions.*.price.required_with' => 'Harga konversi wajib diisi jika Anda memilih unit konversi.',
+            'conversions.*.price.numeric'       => 'Harga konversi harus berupa angka.',
+            'conversions.*.price.gt'            => 'Harga konversi harus lebih dari 0.',
         ];
     }
 

@@ -122,6 +122,11 @@ class UpdateProductRequest extends FormRequest
                     }
                 }
             ],
+            'conversions.*.price' => [
+                'required_with:conversions.*.unit_id',
+                'numeric',
+                'gt:0',
+            ],
 
             'document' => ['nullable', 'array'],
             'document.*' => ['nullable', 'string'],
@@ -153,6 +158,9 @@ class UpdateProductRequest extends FormRequest
             'conversions.*.unit_id.required_with' => 'Konversi ke satuan diperlukan ketika memberikan faktor konversi.',
             'conversions.*.conversion_factor.required_with' => 'Faktor konversi diperlukan saat menyediakan unit.',
             'conversions.*.conversion_factor' => 'Conversion factor harus dipilih jika stock managed',
+            'conversions.*.price.required_with' => 'Harga konversi wajib diisi jika Anda memilih unit konversi.',
+            'conversions.*.price.numeric'       => 'Harga konversi harus berupa angka.',
+            'conversions.*.price.gt'            => 'Harga konversi harus lebih dari 0.',
             // Add custom messages for other fields as needed
         ];
     }

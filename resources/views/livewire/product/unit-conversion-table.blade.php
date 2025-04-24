@@ -47,6 +47,23 @@
                         @endif
                     </td>
                     <td>
+                        <input
+                            type="text"
+                            name="conversions[{{ $index }}][price]"
+                            wire:model.lazy="conversions.{{ $index }}.price"
+                            wire:focus="unformatPrice({{ $index }})"    {{-- new --}}
+                            wire:blur="formatPrice({{ $index }})"
+                            class="form-control {{ isset($errors['conversions.' . $index . '.price']) ? 'is-invalid' : '' }}"
+                            placeholder="0.00"
+                        >
+                        @if(isset($errors['conversions.' . $index . '.price']))
+                            <span class="invalid-feedback" role="alert">
+                                <strong>{{ $errors['conversions.' . $index . '.price'][0] }}</strong>
+                            </span>
+                        @endif
+                    </td>
+
+                    <td>
                         <button type="button" class="btn btn-danger" wire:click="removeConversionRow({{ $index }})">
                             Hapus
                         </button>
