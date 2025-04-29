@@ -50,7 +50,7 @@ class StoreProductInfoRequest extends FormRequest
             'sale_tax' => ['nullable', 'integer'],
             'sale_tax_id' => ['nullable', 'integer', 'exists:taxes,id'],
 
-            'barcode' => ['nullable', 'digits:13', 'regex:/^\d{13}$/', 'unique:products,barcode'],
+            'barcode' => ['nullable', 'string', 'max:255', 'unique:products,barcode'],
 
             // Ensure base_unit_id is required if stock_managed is true
             'base_unit_id' => ['required_if:stock_managed,1', 'integer', function ($attribute, $value, $fail) {
@@ -85,8 +85,8 @@ class StoreProductInfoRequest extends FormRequest
             'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
             'conversions.*.barcode' => [
                 'nullable',
-                'digits:13',
-                'regex:/^\d{13}$/',
+                'string',
+                'max:255',
                 function ($attribute, $value, $fail) {
                     $conversions = $this->input('conversions') ?? [];
                     $barcodes = array_column($conversions, 'barcode');
@@ -144,8 +144,7 @@ class StoreProductInfoRequest extends FormRequest
             'sale_tax.integer' => 'Pajak jual yang dipilih tidak valid.',
 
             // Barcode
-            'barcode.digits' => 'Barcode harus terdiri dari 13 digit.',
-            'barcode.regex' => 'Barcode harus berupa 13 digit angka.',
+            'barcode.max'    => 'Barcode tidak boleh lebih dari 255 karakter.',
             'barcode.unique' => 'Barcode sudah digunakan.',
 
             // Conversions
@@ -154,8 +153,7 @@ class StoreProductInfoRequest extends FormRequest
             'conversions.*.unit_id.not_in' => 'Unit ID tidak boleh 0 atau sama dengan unit dasar.',
             'conversions.*.conversion_factor.required_if' => 'Faktor konversi wajib diisi jika unit tersedia.',
             'conversions.*.conversion_factor.min' => 'Faktor konversi harus lebih dari 0.',
-            'conversions.*.barcode.digits' => 'Barcode konversi harus terdiri dari 13 digit.',
-            'conversions.*.barcode.regex' => 'Barcode konversi harus berupa 13 digit angka.',
+            'conversions.*.barcode.max' => 'Barcode konversi tidak boleh lebih dari 255 karakter.',
             'conversions.*.price.required_with' => 'Harga konversi wajib diisi jika Anda memilih unit konversi.',
             'conversions.*.price.numeric'       => 'Harga konversi harus berupa angka.',
             'conversions.*.price.gt'            => 'Harga konversi harus lebih dari 0.',

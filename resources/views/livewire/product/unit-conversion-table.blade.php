@@ -6,6 +6,7 @@
                 <th>ke Unit</th>
                 <th>Faktor Konversi</th>
                 <th>Barcode</th>
+                <th>Harga</th>
                 <th>Aksi</th>
             </tr>
             </thead>
@@ -47,15 +48,21 @@
                         @endif
                     </td>
                     <td>
-                        <input
-                            type="text"
-                            name="conversions[{{ $index }}][price]"
-                            wire:model.lazy="conversions.{{ $index }}.price"
-                            wire:focus="unformatPrice({{ $index }})"    {{-- new --}}
-                            wire:blur="formatPrice({{ $index }})"
-                            class="form-control {{ isset($errors['conversions.' . $index . '.price']) ? 'is-invalid' : '' }}"
-                            placeholder="0.00"
-                        >
+                        {{-- numeric copy → this is what your form really submits --}}
+                        <input type="hidden"
+                               name="conversions[{{ $index }}][price]"
+                               wire:model="conversions.{{ $index }}.price"
+                               value="{{ $conversion['price'] }}"/>
+
+                        {{-- pretty input --}}
+                        <input type="text"
+                               class="form-control {{ isset($errors['conversions.' . $index . '.price']) ? 'is-invalid' : '' }}"
+                               placeholder="0,00"
+
+                               wire:model="displayPrices.{{ $index }}"      {{-- ⬅ removed “.lazy” --}}
+                               wire:focus="showRawPrice({{ $index }})"
+                               wire:blur="syncPrice({{ $index }})"          {{-- ⬅ no extra arg needed --}}
+                        />
                         @if(isset($errors['conversions.' . $index . '.price']))
                             <span class="invalid-feedback" role="alert">
                                 <strong>{{ $errors['conversions.' . $index . '.price'][0] }}</strong>

@@ -42,6 +42,9 @@ class SupplierLoader extends Component
         if (trim($this->query) === '') {
             $this->search_results = [];
             $this->query_count = 0;
+            Log::info('3. supplier loader trigger event', [
+                'supplierSelected' => $this->supplierSelected,
+            ]);
             $this->dispatch('supplierSelected', null);
             return;
         }
@@ -57,6 +60,9 @@ class SupplierLoader extends Component
         $this->isFocused = false;
 
         if (!$this->supplierSelected) {
+            Log::info('2. supplier loader trigger event', [
+                'supplierSelected' => $this->supplierSelected,
+            ]);
             $this->dispatch('supplierSelected', null);
         }
     }

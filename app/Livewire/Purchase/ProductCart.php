@@ -8,7 +8,9 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Setting\Entities\Tax;
+use Modules\Setting\Entities\Unit;
 
 class ProductCart extends Component
 {
@@ -25,6 +27,7 @@ class ProductCart extends Component
     public $item_discount;
     public $unit_price;
     public $data;
+    public $quantityBreakdowns = [];
 
     public $taxes; // Collection of taxes filtered by setting_id
     public $setting_id; // Current setting ID
@@ -76,6 +79,8 @@ class ProductCart extends Component
 
             foreach ($cart_items as $cart_item) {
                 $this->initializeCartItemAttributes($cart_item);
+                $qty = $this->quantity[$cart_item->id] ?? $cart_item->qty;
+                $this->quantityBreakdowns[$cart_item->id] = $this->calculateConversionBreakdown($cart_item->id, $qty);
             }
         } else {
             $this->global_discount = 0;
@@ -97,6 +102,46 @@ class ProductCart extends Component
         $this->discount_type[$cart_item->id] = $cart_item->options->product_discount_type ?? 'fixed';
         $this->item_discount[$cart_item->id] = $cart_item->options->product_discount ?? 0;
         $this->product_tax[$cart_item->id] = $cart_item->options->product_tax ?? null;
+    }
+
+    private function calculateConversionBreakdown(int $productId, int $quantity): string
+    {
+        if ($quantity < 1) {
+            return '';
+        }
+
+        // 1) get all conversions for this product, biggest first
+        $conversions = ProductUnitConversion::with(['unit', 'baseUnit'])
+            ->where('product_id', $productId)
+            ->orderByDesc('conversion_factor')
+            ->get();
+
+        $parts = [];
+        $remaining = $quantity;
+
+        foreach ($conversions as $conv) {
+            $factor = (int) $conv->conversion_factor;
+            if ($factor < 1) {
+                continue;
+            }
+            $count = intdiv($remaining, $factor);
+            if ($count > 0) {
+                // assume you have a relation to Unit for the name:
+                $unitName = optional($conv->unit)->name ?? "unit";
+                $parts[] = "{$count} {$unitName}(s)";
+                $remaining -= $count * $factor;
+            }
+        }
+
+        // 2) whatever is left is in the base unit:
+        if ($remaining > 0) {
+            // you can grab the base unit name however your schema defines it:
+            $baseUnitId = $conversions->first()->base_unit_id ?? null;
+            $baseName   = optional(Unit::find($baseUnitId))->name ?? "pc";
+            $parts[]    = "{$remaining} {$baseName}(s)";
+        }
+
+        return implode(', ', $parts);
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
@@ -241,6 +286,11 @@ class ProductCart extends Component
             $this->quantity[$product_id],
             $cart_item->options->product_discount ?? 0,
             $this->product_tax[$product_id] ?? null
+        );
+
+        $this->quantityBreakdowns[$product_id] = $this->calculateConversionBreakdown(
+            $product_id,
+            $this->quantity[$product_id]
         );
 
         // Update cart item

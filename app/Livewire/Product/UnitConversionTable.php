@@ -12,6 +12,7 @@ use Modules\Setting\Entities\Unit;
 class UnitConversionTable extends Component
 {
     public array $conversions = [];
+    public array $displayPrices  = [];
     public array $errors = [];
     public array $units = [];
 
@@ -20,6 +21,13 @@ class UnitConversionTable extends Component
         $this->conversions = !empty($conversions)
             ? $conversions
             : old('conversions', []);
+
+        foreach ($this->conversions as $i => $conv) {
+            $this->displayPrices[$i] = $conv['price'] && $conv['price'] !== ''
+                ? $this->formatCurrency($conv['price'])
+                : '';
+        }
+
         $this->errors = session('errors')
             ? session('errors')->getBag('default')->toArray()
             : [];
@@ -37,12 +45,14 @@ class UnitConversionTable extends Component
             'barcode'           => '',
             'price'             => '',  // still empty raw
         ];
+        $this->displayPrices[] = '';
     }
 
-    public function removeConversionRow($index): void
+    public function removeConversionRow(int $i): void
     {
-        unset($this->conversions[$index]);
-        $this->conversions = array_values($this->conversions);
+        unset($this->conversions[$i], $this->displayPrices[$i]);
+        $this->conversions   = array_values($this->conversions);
+        $this->displayPrices = array_values($this->displayPrices);
     }
 
     public function updated($propertyName): void
@@ -54,31 +64,27 @@ class UnitConversionTable extends Component
         ]);
     }
 
-    public function formatPrice(int $index): void
+    public function showRawPrice(int $i): void
     {
-        $raw = $this->conversions[$index]['price'] ?? '';
-
-        // strip out anything but digits and dot
-        $number = (float) preg_replace('/[^\d\.]/', '', $raw);
-
-        // if empty or zero, clear it
-        if ($number === 0.0 && trim($raw) === '') {
-            $this->conversions[$index]['price'] = '';
-            return;
-        }
-
-        // format with commas as thousands sep, dot as decimal, two places
-        $this->conversions[$index]['price'] =
-            'Rp ' . number_format($number, 2, '.', ',');
+        $this->displayPrices[$i] = $this->conversions[$i]['price'] !== ''
+            ? rtrim(rtrim($this->conversions[$i]['price'], '0'), '.')  // 1234.00 → 1234
+            : '';
     }
 
-    public function unformatPrice(int $index): void
+    public function syncPrice(int $i): void  // stays the same
     {
-        $raw = $this->conversions[$index]['price'] ?? '';
-        // strip everything except digits and decimal point
-        $clean = preg_replace('/[^\d\.]/', '', $raw);
-        // put it back so the user sees e.g. "1500000.00" instead of "Rp 1,500,000.00"
-        $this->conversions[$index]['price'] = $clean;
+        $raw   = $this->displayPrices[$i] ?? '';
+        $clean = str_replace(',', '.', preg_replace('/[^\d,\.]/', '', $raw));
+        $num   = $clean === '' ? null : (float) $clean;
+
+        $this->conversions[$i]['price'] = $num ?? '';
+        $this->displayPrices[$i]        = $num === null ? '' : $this->formatCurrency($num);
+    }
+
+    private function formatCurrency(float $amount): string
+    {
+        // “Rp 1.234,56”
+        return 'Rp '.number_format($amount, 2, ',', '.');
     }
 
     public function submitForm(): void

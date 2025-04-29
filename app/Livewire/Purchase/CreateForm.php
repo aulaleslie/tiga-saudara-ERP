@@ -67,9 +67,15 @@ class CreateForm extends Component
 
     public function handleSupplierSelected($supplier)
     {
-        $this->supplier_id = $supplier['id'];
-        $this->supplier_name = $supplier['supplier_name'];
-        $this->updatedSupplierId($supplier['id']);
+        Log::info('Updated supplier id: ', ['$supplier' => $supplier]);
+        if ($supplier) {
+            $this->supplier_id = $supplier['id'];
+            $this->supplier_name = $supplier['supplier_name'];
+            $this->updatedSupplierId($supplier['id']);
+        } else {
+            $this->supplier_id = null;
+            $this->supplier_name = null;
+        }
     }
 
     public function submit()

@@ -73,6 +73,11 @@
 
                             <td class="align-middle text-right">
                                 @include('livewire.includes.product-cart-quantity')
+                                @if(!empty($quantityBreakdowns[$cart_item->id]))
+                                    <div class="text-muted small mt-1">
+                                        {{ $quantityBreakdowns[$cart_item->id] }}
+                                    </div>
+                                @endif
                             </td>
 
                             <td class="align-middle text-center position-relative">

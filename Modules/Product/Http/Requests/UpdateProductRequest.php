@@ -44,8 +44,8 @@ class UpdateProductRequest extends FormRequest
             'serial_number_required' => ['nullable', 'boolean'],
             'barcode' => [
                 'nullable',
-                'digits:13',
-                'regex:/^\d{13}$/',
+                'string',
+                'max:255',
                 'unique:products,barcode,' . $this->product->id,
             ],
 
@@ -92,8 +92,8 @@ class UpdateProductRequest extends FormRequest
             'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
             'conversions.*.barcode' => [
                 'nullable',
-                'digits:13',
-                'regex:/^\d{13}$/',
+                'string',
+                'max:255',
                 function ($attribute, $value, $fail) {
                     $conversions = $this->input('conversions') ?? [];
                     $barcodes = array_column($conversions, 'barcode');
