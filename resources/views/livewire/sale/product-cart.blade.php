@@ -40,7 +40,9 @@
                                 <span class="badge badge-success">{{ $cart_item->options->code }}</span>
                                 @if($cart_item->options->bundle_items)
                                     <br>
-                                    <a class="btn btn-link btn-sm p-0" data-bs-toggle="collapse" href="#bundleCollapse{{ $cart_item->id }}" role="button" aria-expanded="false" aria-controls="bundleCollapse{{ $cart_item->id }}">
+                                    <a class="btn btn-link btn-sm p-0" data-bs-toggle="collapse"
+                                       href="#bundleCollapse{{ $cart_item->id }}" role="button" aria-expanded="false"
+                                       aria-controls="bundleCollapse{{ $cart_item->id }}">
                                         Lihat Paket Penjualan
                                     </a>
                                 @endif
@@ -90,6 +92,11 @@
                                            min="1"
                                            wire:blur="updateQuantity('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')">
                                 </div>
+                                @if(!empty($quantityBreakdowns[$cart_item->id]))
+                                    <div class="text-muted small mt-1">
+                                        {{ $quantityBreakdowns[$cart_item->id] }}
+                                    </div>
+                                @endif
                             </td>
 
                             <td class="align-middle text-center position-relative">
@@ -159,6 +166,12 @@
 
                             <td class="align-middle text-center">
                                 {{ format_currency($cart_item->options->sub_total_before_tax ?? ($cart_item->price * $cart_item->qty - $cart_item->options->product_discount)) }}
+
+                                @if (!empty($priceBreakdowns[$cart_item->id]))
+                                    <div class="text-muted small">
+                                        {{ $priceBreakdowns[$cart_item->id] }}
+                                    </div>
+                                @endif
                             </td>
 
                             <td class="align-middle text-center">

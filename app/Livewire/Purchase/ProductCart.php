@@ -238,6 +238,7 @@ class ProductCart extends Component
         $this->discount_type[$product['id']] = 'fixed';
         $this->item_discount[$product['id']] = 0;
         $this->product_tax[$product['id']] = null; // Initialize per-product tax
+        $this->quantityBreakdowns[$product['id']] = $this->calculateConversionBreakdown($product['id'], 1);
     }
 
     public function removeItem($row_id)

@@ -13,7 +13,9 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductBundleItem;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Setting\Entities\Tax;
+use Modules\Setting\Entities\Unit;
 
 class ProductCart extends Component
 {
@@ -43,6 +45,9 @@ class ProductCart extends Component
 
     public $pendingProduct = null;
     public $bundleOptions = [];
+
+    public $quantityBreakdowns = [];
+    public $priceBreakdowns = [];
 
     protected $rules = [
         'unit_price.*' => 'required|numeric|min:0', // Unit price per row.
@@ -77,6 +82,11 @@ class ProductCart extends Component
 
             foreach ($cart_items as $cart_item) {
                 $this->initializeCartItemAttributes($cart_item);
+
+                $this->quantityBreakdowns[$cart_item->id] = $this->calculateConversionBreakdown(
+                    $cart_item->options->product_id,
+                    $this->quantity[$cart_item->id] ?? $cart_item->qty
+                );
             }
         } else {
             $this->global_discount = 0;
@@ -178,12 +188,26 @@ class ProductCart extends Component
                 // First, get the new unit price using the calculate() method.
                 // This returns the price for a single unit based on the customer's tier.
                 $newPriceCalc = $this->calculate($product);
-                $unitPrice = $newPriceCalc['price'];
+
+                // Apply cascading price logic if needed (override unit price)
+                if (!in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
+                    $productId = $cart_item->options->product_id;
+                    $qty = $this->quantity[$cart_item->id] ?? $cart_item->qty;
+                    $defaultUnitPrice = $newPriceCalc['unit_price']; // use initial tier-based price
+                    $cascadedResult = $this->calculateCascadingPrice($productId, $qty, $defaultUnitPrice);
+                    $newPriceCalc['unit_price'] = $cascadedResult['price'];
+                    $newPriceCalc['price'] = $cascadedResult['price'];
+                    $this->priceBreakdowns[$cart_item->id] = $cascadedResult['breakdown'];
+                } else {
+                    $this->priceBreakdowns[$cart_item->id] = ''; // Clear if not cascading
+                }
+
+                $this->unit_price[$cart_item->id] = $newPriceCalc['unit_price'];
 
                 // Now, use calculateSubtotalAndTax() to properly calculate subtotals based on quantity,
                 // discount, and tax.
                 $calculated = $this->calculateSubtotalAndTax(
-                    $unitPrice,
+                    $newPriceCalc['unit_price'],
                     $cart_item->qty,
                     $cart_item->options->product_discount ?? 0,
                     $this->product_tax[$cart_item->id] ?? null
@@ -286,8 +310,60 @@ class ProductCart extends Component
         ]);
 
         $this->initializeCartItemAttributes($cartItem); // Initialize per-product tax
+        $this->quantityBreakdowns[$cartItem->id] = $this->calculateConversionBreakdown(
+            $product['id'],
+            $this->quantity[$cartItem->id] ?? $cartItem->qty
+        );
 
         return $cartItem->rowId;
+    }
+
+    private function calculateCascadingPrice(int $productId, int $quantity, float $defaultUnitPrice): array
+    {
+        if ($quantity < 1) {
+            return ['price' => $defaultUnitPrice, 'breakdown' => ''];
+        }
+
+        $conversions = ProductUnitConversion::where('product_id', $productId)
+            ->orderByDesc('conversion_factor')
+            ->get();
+
+        $totalCost = 0;
+        $remainingQty = $quantity;
+        $usedQty = 0;
+        $breakdownParts = [];
+
+        foreach ($conversions as $conv) {
+            $factor = (float) $conv->conversion_factor;
+            $price = $conv->price;
+
+            if ($factor < 1 || $price === null) {
+                continue;
+            }
+
+            $unitCount = floor($remainingQty / $factor);
+            if ($unitCount > 0) {
+                $totalCost += $unitCount * $price;
+                $usedQty += $unitCount * $factor;
+                $remainingQty -= $unitCount * $factor;
+
+                $unitLabel = optional($conv->unit)->name ?? 'unit';
+                $breakdownParts[] = "{$unitCount} {$unitLabel}(s) @ " . number_format($price, 0);
+            }
+        }
+
+        if ($remainingQty > 0) {
+            $totalCost += $remainingQty * $defaultUnitPrice;
+            $usedQty += $remainingQty;
+            $breakdownParts[] = "{$remainingQty} pcs @ " . number_format($defaultUnitPrice, 0);
+        }
+
+        $avgPrice = $usedQty > 0 ? round($totalCost / $usedQty, 2) : $defaultUnitPrice;
+
+        return [
+            'price' => $avgPrice,
+            'breakdown' => implode(' + ', $breakdownParts),
+        ];
     }
 
     public function confirmBundleSelection($bundleId): void
@@ -389,6 +465,42 @@ class ProductCart extends Component
         }
     }
 
+    private function calculateConversionBreakdown(int $productId, int $quantity): string
+    {
+        if ($quantity < 1) {
+            return '';
+        }
+
+        $conversions = ProductUnitConversion::with(['unit', 'baseUnit'])
+            ->where('product_id', $productId)
+            ->orderByDesc('conversion_factor')
+            ->get();
+
+        $parts = [];
+        $remaining = $quantity;
+
+        foreach ($conversions as $conv) {
+            $factor = (int) $conv->conversion_factor;
+            if ($factor < 1) {
+                continue;
+            }
+            $count = intdiv($remaining, $factor);
+            if ($count > 0) {
+                $unitName = optional($conv->unit)->name ?? "unit";
+                $parts[] = "{$count} {$unitName}(s)";
+                $remaining -= $count * $factor;
+            }
+        }
+
+        if ($remaining > 0) {
+            $baseUnitId = $conversions->first()->base_unit_id ?? null;
+            $baseName   = optional(Unit::find($baseUnitId))->name ?? "pc";
+            $parts[]    = "{$remaining} {$baseName}(s)";
+        }
+
+        return implode(', ', $parts);
+    }
+
     public function removeItem($row_id)
     {
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
@@ -425,6 +537,19 @@ class ProductCart extends Component
         }
 
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
+
+        if (!in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
+            $productId = $cart_item->options->product_id;
+            $qty = $this->quantity[$id] ?? $cart_item->qty;
+            $defaultUnitPrice = $this->unit_price[$id] ?? $cart_item->price;
+
+            $cascadedResult = $this->calculateCascadingPrice($productId, $qty, $defaultUnitPrice);
+            $this->unit_price[$cart_item->id] = $cascadedResult['price'];
+            $this->priceBreakdowns[$cart_item->id] = $cascadedResult['breakdown'];
+            $cart_item->price = $this->unit_price[$id];
+        } else {
+            $this->priceBreakdowns[$cart_item->id] = ''; // Clear if not cascading
+        }
 
         // First, recalculate the parent product's subtotal (excluding any bundle extras)
         $calculated = $this->calculateSubtotalAndTax(
@@ -472,6 +597,8 @@ class ProductCart extends Component
                 'bundle_items' => $updatedBundleItems,
             ]),
         ]);
+
+        $this->quantityBreakdowns[$id] = $this->calculateConversionBreakdown($cart_item->options->product_id, $this->quantity[$id]);
 
         $this->recalculateCart();
     }
@@ -714,6 +841,14 @@ class ProductCart extends Component
                 'bundle_items' => $updatedBundleItems,
             ]),
         ]);
+
+        if (!empty($this->priceBreakdowns[$id])) {
+            $qty = $cart_item->qty;
+            $unitName = $cart_item->options->unit ?? 'unit';
+
+            $this->priceBreakdowns[$id] = "{$qty} {$unitName} @ " . number_format($new_price, 0);
+        }
+
 
         $this->recalculateCart();
     }
