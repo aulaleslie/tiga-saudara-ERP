@@ -8,7 +8,11 @@ use Livewire\Component;
 class Checkout extends Component
 {
 
-    public $listeners = ['productSelected', 'discountModalRefresh'];
+    public $listeners = [
+        'productSelected',
+        'discountModalRefresh',
+        'customerSelected' => 'setCustomer'
+    ];
 
     public $cart_instance;
     public $customers;
@@ -197,6 +201,16 @@ class Checkout extends Component
         }
 
         return ['price' => $price, 'unit_price' => $unit_price, 'product_tax' => $product_tax, 'sub_total' => $sub_total];
+    }
+
+    public function setCustomer($customer)
+    {
+        $this->customer_id = $customer['id'];
+    }
+
+    public function triggerCustomerModal()
+    {
+        $this->dispatch('openCustomerModal');
     }
 
     public function updateCartOptions($row_id, $product_id, $cart_item, $discount_amount) {

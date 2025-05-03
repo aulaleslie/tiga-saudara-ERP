@@ -18,16 +18,13 @@
                     <label for="customer_id">Pelanggan <span class="text-danger">*</span></label>
                     <div class="input-group">
                         <div class="input-group-prepend">
-                            <a href="{{ route('customers.create') }}" class="btn btn-primary">
+                            <button type="button" class="btn btn-primary" wire:click="triggerCustomerModal">
                                 <i class="bi bi-person-plus"></i>
-                            </a>
+                            </button>
                         </div>
-                        <select wire:model.live="customer_id" id="customer_id" class="form-control">
-                            <option value="" selected>Pilih Pelanggan</option>
-                            @foreach($customers as $customer)
-                                <option value="{{ $customer->id }}">{{ $customer->customer_name }}</option>
-                            @endforeach
-                        </select>
+                        <div class="flex-grow-1">
+                            <livewire:auto-complete.customer-loader />
+                        </div>
                     </div>
                 </div>
 
@@ -143,6 +140,7 @@
 
     {{--Checkout Modal--}}
     @include('livewire.pos.includes.checkout-modal')
+    <livewire:customer.create-modal />
 
 </div>
 
