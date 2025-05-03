@@ -1,4 +1,4 @@
-<div>
+<div class="d-none d-lg-block">
     <div class="card border-0 shadow-sm mt-3">
         <div class="card-body">
             <livewire:pos.filter :categories="$categories"/>

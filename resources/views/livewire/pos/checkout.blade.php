@@ -1,146 +1,213 @@
+@push('page_css')
+    <style>
+        @media (max-width: 767.98px) {
+            .cart-card {
+                border: 1px solid #dee2e6;
+                border-radius: 0.5rem;
+                padding: 1rem;
+                margin-bottom: 1rem;
+            }
+
+            .cart-card .row + .row {
+                margin-top: 0.5rem;
+            }
+
+            .cart-label {
+                font-weight: 600;
+                color: #6c757d;
+            }
+
+            .cart-summary th,
+            .cart-summary td {
+                display: block;
+                text-align: left;
+                padding: 0.25rem 0;
+            }
+
+            .cart-summary tr {
+                margin-bottom: 0.75rem;
+            }
+
+            .cart-summary th {
+                color: #6c757d;
+                font-weight: 600;
+            }
+
+            .cart-summary-total {
+                font-size: 1.1rem;
+                font-weight: bold;
+                color: #007bff;
+            }
+        }
+    </style>
+@endpush
+
 @php use Gloudemans\Shoppingcart\Facades\Cart; @endphp
 <div>
     <div class="card border-0 shadow-sm">
         <div class="card-body">
+
+            {{-- Flash Message --}}
+            @if (session()->has('message'))
+                <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                    <div class="alert-body">
+                        <span>{{ session('message') }}</span>
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">×</span>
+                        </button>
+                    </div>
+                </div>
+            @endif
+
+            {{-- Customer Picker --}}
+            <div class="form-group">
+                <label for="customer_id">Pelanggan <span class="text-danger">*</span></label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <button type="button" class="btn btn-primary" wire:click="triggerCustomerModal"
+                                style="z-index: 1;">
+                            <i class="bi bi-person-plus"></i>
+                        </button>
+                    </div>
+                    <div class="flex-grow-1">
+                        <livewire:auto-complete.customer-loader/>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Cart Items: Mobile --}}
             <div>
-                @if (session()->has('message'))
-                    <div class="alert alert-warning alert-dismissible fade show" role="alert">
-                        <div class="alert-body">
-                            <span>{{ session('message') }}</span>
-                            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                                <span aria-hidden="true">×</span>
-                            </button>
+                @if($cart_items->isNotEmpty())
+                    @foreach($cart_items as $cart_item)
+                        <div class="d-block d-md-none cart-card">
+                            <div class="row">
+                                <div class="col-6 cart-label">Produk</div>
+                                <div class="col-6">
+                                    {{ $cart_item->name }}<br>
+                                    <span class="badge badge-success">{{ $cart_item->options->code }}</span>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-6 cart-label">Harga</div>
+                                <div class="col-6">{{ format_currency($cart_item->price) }}</div>
+                            </div>
+                            <div class="row">
+                                <div class="col-6 cart-label">Jumlah</div>
+                                <div class="col-6">
+                                    @include('livewire.includes.product-cart-quantity')
+                                    @if(!empty($conversion_breakdowns[$cart_item->id]))
+                                        <small class="text-muted">
+                                            ({{ $conversion_breakdowns[$cart_item->id] }})
+                                        </small>
+                                    @endif
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-6 cart-label">Aksi</div>
+                                <div class="col-6 text-right">
+                                    <a href="#" wire:click.prevent="removeItem('{{ $cart_item->rowId }}')">
+                                        <i class="bi bi-x-circle font-2xl text-danger"></i>
+                                    </a>
+                                </div>
+                            </div>
                         </div>
+                    @endforeach
+                @else
+                    <div class="alert alert-warning d-block d-md-none">
+                        Silahkan cari dan pilih produk terlebih dahulu!
                     </div>
                 @endif
+            </div>
 
-                <div class="form-group">
-                    <label for="customer_id">Pelanggan <span class="text-danger">*</span></label>
-                    <div class="input-group">
-                        <div class="input-group-prepend">
-                            <button type="button" class="btn btn-primary" wire:click="triggerCustomerModal">
-                                <i class="bi bi-person-plus"></i>
-                            </button>
-                        </div>
-                        <div class="flex-grow-1">
-                            <livewire:auto-complete.customer-loader />
-                        </div>
-                    </div>
-                </div>
-
-                <div class="table-responsive">
-                    <table class="table">
-                        <thead>
-                        <tr class="text-center">
-                            <th class="align-middle">Produk</th>
-                            <th class="align-middle">Harga</th>
-                            <th class="align-middle">Jumlah</th>
-                            <th class="align-middle">Aksi</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        @if($cart_items->isNotEmpty())
-                            @foreach($cart_items as $cart_item)
-                                <tr>
-                                    <td class="align-middle">
-                                        {{ $cart_item->name }} <br>
-                                        <span class="badge badge-success">
-                                        {{ $cart_item->options->code }}
-                                    </span>
-                                        @include('livewire.includes.product-cart-modal')
-                                    </td>
-
-                                    <td class="align-middle">
-                                        {{ format_currency($cart_item->price) }}
-                                    </td>
-
-                                    <td class="align-middle">
-                                        @include('livewire.includes.product-cart-quantity')
-                                    </td>
-
-                                    <td class="align-middle text-center">
-                                        <a href="#" wire:click.prevent="removeItem('{{ $cart_item->rowId }}')">
-                                            <i class="bi bi-x-circle font-2xl text-danger"></i>
-                                        </a>
-                                    </td>
-                                </tr>
-                            @endforeach
-                        @else
+            {{-- Cart Items: Desktop --}}
+            <div class="table-responsive d-none d-md-block">
+                <table class="table">
+                    <thead>
+                    <tr class="text-center">
+                        <th class="align-middle">Produk</th>
+                        <th class="align-middle">Harga</th>
+                        <th class="align-middle">Jumlah</th>
+                        <th class="align-middle">Aksi</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @if($cart_items->isNotEmpty())
+                        @foreach($cart_items as $cart_item)
                             <tr>
-                                <td colspan="8" class="text-center">
-                        <span class="text-danger">
-                            Silahkan cari dan pilih produk terlebih dahulu!
-                        </span>
+                                <td class="align-middle">
+                                    {{ $cart_item->name }} <br>
+                                    <span class="badge badge-success">{{ $cart_item->options->code }}</span>
+                                </td>
+                                <td class="align-middle">{{ format_currency($cart_item->price) }}</td>
+                                <td class="align-middle">
+                                    @include('livewire.includes.product-cart-quantity')
+                                    @if(!empty($conversion_breakdowns[$cart_item->id]))
+                                        <small class="text-muted">({{ $conversion_breakdowns[$cart_item->id] }})</small>
+                                    @endif
+                                </td>
+                                <td class="align-middle text-center">
+                                    <a href="#" wire:click.prevent="removeItem('{{ $cart_item->rowId }}')">
+                                        <i class="bi bi-x-circle font-2xl text-danger"></i>
+                                    </a>
                                 </td>
                             </tr>
-                        @endif
-                        </tbody>
-                    </table>
-                </div>
+                        @endforeach
+                    @else
+                        <tr>
+                            <td colspan="4" class="text-center">
+                                <span class="text-danger">Silahkan cari dan pilih produk terlebih dahulu!</span>
+                            </td>
+                        </tr>
+                    @endif
+                    </tbody>
+                </table>
             </div>
 
-            <div class="row">
-                <div class="col-md-12">
-                    <div class="table-responsive">
-                        <table class="table table-striped">
-                            <tr>
-                                <th>Pajak Penjualan ({{ $global_tax }}%)</th>
-                                <td>(+) {{ format_currency(Cart::instance($cart_instance)->tax()) }}</td>
-                            </tr>
-                            <tr>
-                                <th>Diskon ({{ $global_discount }}%)</th>
-                                <td>(-) {{ format_currency(Cart::instance($cart_instance)->discount()) }}</td>
-                            </tr>
-                            <tr>
-                                <th>Pengiriman</th>
-                                <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
-                                <td>(+) {{ format_currency($shipping) }}</td>
-                            </tr>
-                            <tr class="text-primary">
-                                <th>Total Keseluruhan</th>
-                                @php
-                                    $total_with_shipping = Cart::instance($cart_instance)->total() + (float) $shipping
-                                @endphp
-                                <th>
-                                    (=) {{ format_currency($total_with_shipping) }}
-                                </th>
-                            </tr>
-                        </table>
-                    </div>
-                </div>
+            {{-- Summary: Desktop --}}
+            <div class="table-responsive d-none d-md-block mt-3">
+                <table class="table table-striped">
+                    <tr>
+                        <th>Diskon ({{ $global_discount }}%)</th>
+                        <td>(-) {{ format_currency(Cart::instance($cart_instance)->discount()) }}</td>
+                    </tr>
+                    <tr class="text-primary">
+                        <th>Total Keseluruhan</th>
+                        @php
+                            $total_with_shipping = Cart::instance($cart_instance)->total()
+                        @endphp
+                        <th>(=) {{ format_currency($total_with_shipping) }}</th>
+                    </tr>
+                </table>
             </div>
 
-            <div class="form-row">
-                <div class="col-lg-4">
-                    <div class="form-group">
-                        <label for="tax_percentage">Pajak Penjualan (%)</label>
-                        <input wire:model.blur="global_tax" type="number" class="form-control" min="0" max="100" value="{{ $global_tax }}" required>
-                    </div>
+            {{-- Summary: Mobile --}}
+            <div class="cart-summary d-block d-md-none mt-3">
+                <div class="mb-2">
+                    <div class="cart-label">Diskon ({{ $global_discount }}%)</div>
+                    <div>(-) {{ format_currency(Cart::instance($cart_instance)->discount()) }}</div>
                 </div>
-                <div class="col-lg-4">
-                    <div class="form-group">
-                        <label for="discount_percentage">Diskon (%)</label>
-                        <input wire:model.blur="global_discount" type="number" class="form-control" min="0" max="100" value="{{ $global_discount }}" required>
-                    </div>
-                </div>
-                <div class="col-lg-4">
-                    <div class="form-group">
-                        <label for="shipping_amount">Pengiriman</label>
-                        <input wire:model.blur="shipping" type="number" class="form-control" min="0" value="0" required step="0.01">
+                <div class="mb-2">
+                    <div class="cart-label">Total Keseluruhan</div>
+                    <div class="cart-summary-total">
+                        (=) {{ format_currency(Cart::instance($cart_instance)->total()) }}
                     </div>
                 </div>
             </div>
 
-            <div class="form-group d-flex justify-content-center flex-wrap mb-0">
-                <button wire:click="resetCart" type="button" class="btn btn-pill btn-danger mr-3"><i class="bi bi-x"></i> Reset</button>
-                <button wire:loading.attr="disabled" wire:click="proceed" type="button" class="btn btn-pill btn-primary" {{  $total_amount == 0 ? 'disabled' : '' }}><i class="bi bi-check"></i> Lanjutkan</button>
+            {{-- Actions --}}
+            <div class="form-group d-flex justify-content-center flex-wrap mb-0 mt-3">
+                <button wire:click="resetCart" type="button" class="btn btn-pill btn-danger mr-3">
+                    <i class="bi bi-x"></i> Reset
+                </button>
+                <button wire:loading.attr="disabled" wire:click="proceed" type="button"
+                        class="btn btn-pill btn-primary" {{ $total_amount == 0 ? 'disabled' : '' }}>
+                    <i class="bi bi-check"></i> Lanjutkan
+                </button>
             </div>
         </div>
     </div>
 
-    {{--Checkout Modal--}}
+    {{-- Modals --}}
     @include('livewire.pos.includes.checkout-modal')
-    <livewire:customer.create-modal />
-
+    <livewire:customer.create-modal/>
 </div>
-

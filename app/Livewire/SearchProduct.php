@@ -16,15 +16,10 @@ class SearchProduct extends Component
     public string $query = '';
     public $search_results;
     public int $how_many = 5;
-    public $locationId;  // Add locationId as a public property
 
-//    protected $listeners = ['locationSelected'];
 
-    public function mount($locationId = null): void
+    public function mount(): void
     {
-        Log::info("locationSelectedMounted: " . $locationId);
-        $this->locationId = $locationId;
-
         $this->search_results = Collection::empty();
     }
 
@@ -43,18 +38,8 @@ class SearchProduct extends Component
             ->take($this->how_many)
             ->get()
             ->map(function ($product) {
-                $quantity = $this->getProductQuantityAtLocation($product->id, $this->locationId);
-                $product->product_quantity = $quantity;  // Adding the calculated quantity to the product object
                 return $product;
             });
-    }
-
-    public function getProductQuantityAtLocation($productId, $locationId): int
-    {
-        return Transaction::where('product_id', $productId)
-            ->where('location_id', $locationId)
-            ->groupBy('product_id', 'location_id')
-            ->sum('quantity');
     }
 
     public function loadMore(): void
@@ -74,11 +59,4 @@ class SearchProduct extends Component
     {
         $this->dispatch('productSelected', $product);
     }
-
-//    public function locationSelected($locationId): void
-//    {
-//        Log::info("locationSelected: " . $locationId);
-//        $this->locationId = $locationId;
-//        $this->updatedQuery();  // Re-run the query with the new locationId
-//    }
 }

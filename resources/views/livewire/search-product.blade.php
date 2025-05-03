@@ -14,7 +14,7 @@
         </div>
     </div>
 
-    <div wire:loading class="card position-absolute mt-1 border-0" style="z-index: 1;left: 0;right: 0;">
+    <div wire:loading class="card position-absolute mt-1 border-0" style="z-index: 1050;left: 0;right: 0;">
         <div class="card-body shadow">
             <div class="d-flex justify-content-center">
                 <div class="spinner-border text-primary" role="status">

@@ -469,7 +469,7 @@ class ProductCart extends Component
     {
         if ($quantity < 1) {
             return '';
-        }
+        }q
 
         $conversions = ProductUnitConversion::with(['unit', 'baseUnit'])
             ->where('product_id', $productId)

@@ -4,6 +4,8 @@ namespace App\Livewire\Pos;
 
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Livewire\Component;
+use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Setting\Entities\Unit;
 
 class Checkout extends Component
 {
@@ -26,6 +28,7 @@ class Checkout extends Component
     public $data;
     public $customer_id;
     public $total_amount;
+    public $conversion_breakdowns = [];
 
     public function mount($cartInstance, $customers) {
         $this->cart_instance = $cartInstance;
@@ -69,6 +72,11 @@ class Checkout extends Component
     }
 
     public function productSelected($product) {
+        if ($product['product_quantity'] == 0) {
+            session()->flash('message', 'Product is out of stock!');
+            return;
+        }
+
         $cart = Cart::instance($this->cart_instance);
 
         $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
@@ -118,12 +126,50 @@ class Checkout extends Component
         Cart::instance($this->cart_instance)->setGlobalDiscount((integer)$this->global_discount);
     }
 
+    private function calculateConversionBreakdown(int $productId, int $quantity): string
+    {
+        if ($quantity < 1) {
+            return '';
+        }
+
+        $conversions = ProductUnitConversion::with(['unit', 'baseUnit'])
+            ->where('product_id', $productId)
+            ->orderByDesc('conversion_factor')
+            ->get();
+
+        $parts = [];
+        $remaining = $quantity;
+
+        foreach ($conversions as $conv) {
+            $factor = (int) $conv->conversion_factor;
+            if ($factor < 1) {
+                continue;
+            }
+            $count = intdiv($remaining, $factor);
+            if ($count > 0) {
+                $unitName = optional($conv->unit)->name ?? "unit";
+                $parts[] = "{$count} {$unitName}(s)";
+                $remaining -= $count * $factor;
+            }
+        }
+
+        if ($remaining > 0) {
+            $baseUnitId = $conversions->first()->base_unit_id ?? null;
+            $baseName   = optional(Unit::find($baseUnitId))->name ?? "pc";
+            $parts[]    = "{$remaining} {$baseName}(s)";
+        }
+
+        return implode(', ', $parts);
+    }
+
     public function updateQuantity($row_id, $product_id) {
         if ($this->check_quantity[$product_id] < $this->quantity[$product_id]) {
             session()->flash('message', 'The requested quantity is not available in stock.');
 
             return;
         }
+
+        $newQty = $this->quantity[$product_id];
 
         Cart::instance($this->cart_instance)->update($row_id, $this->quantity[$product_id]);
 
@@ -141,6 +187,8 @@ class Checkout extends Component
                 'product_discount_type' => $cart_item->options->product_discount_type,
             ]
         ]);
+
+        $this->conversion_breakdowns[$product_id] = $this->calculateConversionBreakdown($product_id, $newQty);
     }
 
     public function updatedDiscountType($value, $name) {
