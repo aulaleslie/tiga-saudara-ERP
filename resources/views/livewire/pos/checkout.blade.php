@@ -166,16 +166,9 @@
             {{-- Summary: Desktop --}}
             <div class="table-responsive d-none d-md-block mt-3">
                 <table class="table table-striped">
-                    <tr>
-                        <th>Diskon ({{ $global_discount }}%)</th>
-                        <td>(-) {{ format_currency(Cart::instance($cart_instance)->discount()) }}</td>
-                    </tr>
                     <tr class="text-primary">
                         <th>Total Keseluruhan</th>
-                        @php
-                            $total_with_shipping = Cart::instance($cart_instance)->total()
-                        @endphp
-                        <th>(=) {{ format_currency($total_with_shipping) }}</th>
+                        <th>(=) {{ format_currency($total_amount) }}</th>
                     </tr>
                 </table>
             </div>
@@ -183,13 +176,9 @@
             {{-- Summary: Mobile --}}
             <div class="cart-summary d-block d-md-none mt-3">
                 <div class="mb-2">
-                    <div class="cart-label">Diskon ({{ $global_discount }}%)</div>
-                    <div>(-) {{ format_currency(Cart::instance($cart_instance)->discount()) }}</div>
-                </div>
-                <div class="mb-2">
                     <div class="cart-label">Total Keseluruhan</div>
                     <div class="cart-summary-total">
-                        (=) {{ format_currency(Cart::instance($cart_instance)->total()) }}
+                        (=) {{ format_currency($total_amount) }}
                     </div>
                 </div>
             </div>
