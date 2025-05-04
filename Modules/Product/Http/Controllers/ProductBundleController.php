@@ -55,41 +55,42 @@ class ProductBundleController extends Controller
     public function store(Request $request, int $productId): RedirectResponse
     {
         $request->validate([
-            'name'                   => 'required|string|max:255',
-            'description'            => 'nullable|string',
-            'active_from'            => 'nullable|date',
-            'active_to'              => 'nullable|date|after_or_equal:active_from',
-            'items'                  => 'required|array',
-            'items.*.product_id'     => 'required|exists:products,id',
-            'items.*.price'          => 'nullable|numeric|min:0',
-            'items.*.quantity'       => 'required|integer|min:1',
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'price' => 'nullable|numeric|min:0',
+            'active_from' => 'nullable|date',
+            'active_to' => 'nullable|date|after_or_equal:active_from',
+            'items' => 'required|array',
+            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.quantity' => 'required|integer|min:1',
         ], [
-            'name.required'                  => 'Nama harus diisi.',
-            'active_to.after_or_equal'       => 'Periode Selesai harus sama atau lebih dari Periode Mulai',
-            'items.required'                 => 'Item harus diisi.',
-            'items.*.product_id.required'    => 'Produk harus dipilih disetiap item.',
-            'items.*.product_id.exists'      => 'Produk yang dipilih tidak ada.',
-            'items.*.quantity.required'      => 'Setiap item harus punya jumlah.',
-            'items.*.quantity.integer'       => 'Jumlah harus berupa angka.',
+            'name.required' => 'Nama harus diisi.',
+            'price.numeric' => 'Harga bundle harus berupa angka.',
+            'active_to.after_or_equal' => 'Periode Selesai harus sama atau lebih dari Periode Mulai',
+            'items.required' => 'Item harus diisi.',
+            'items.*.product_id.required' => 'Produk harus dipilih disetiap item.',
+            'items.*.product_id.exists' => 'Produk yang dipilih tidak ada.',
+            'items.*.quantity.required' => 'Setiap item harus punya jumlah.',
+            'items.*.quantity.integer' => 'Jumlah harus berupa angka.',
         ]);
 
         DB::beginTransaction();
         try {
-            // Create the bundle header record including active period
+            // Create the bundle header record
             $bundle = ProductBundle::create([
                 'parent_product_id' => $productId,
-                'name'              => $request->input('name'),
-                'description'       => $request->input('description'),
-                'active_from'       => $request->input('active_from'),
-                'active_to'         => $request->input('active_to'),
+                'name' => $request->input('name'),
+                'description' => $request->input('description'),
+                'price' => $request->input('price'),
+                'active_from' => $request->input('active_from'),
+                'active_to' => $request->input('active_to'),
             ]);
 
-            // Create each bundle item
+            // Create each bundle item (without price)
             foreach ($request->input('items') as $item) {
                 $bundle->items()->create([
                     'product_id' => $item['product_id'],
-                    'price'      => $item['price'] ?? null,
-                    'quantity'   => $item['quantity'],
+                    'quantity' => $item['quantity'],
                 ]);
             }
 
@@ -122,35 +123,42 @@ class ProductBundleController extends Controller
 
     public function update(Request $request, Product $product, ProductBundle $bundle): RedirectResponse
     {
-        // Validate the request.
         $request->validate([
-            'name'        => 'required|string|max:255',
+            'name' => 'required|string|max:255',
             'description' => 'nullable|string',
+            'price' => 'nullable|numeric|min:0',
             'active_from' => 'nullable|date',
-            'active_to'   => 'nullable|date|after_or_equal:active_from',
-            'items'       => 'required|array',
-            'items.*.id'         => 'sometimes|exists:product_bundle_items,id',
+            'active_to' => 'nullable|date|after_or_equal:active_from',
+            'items' => 'required|array',
             'items.*.product_id' => 'required|exists:products,id',
-            'items.*.price'      => 'nullable|numeric|min:0',
-            'items.*.quantity'   => 'required|integer|min:1',
+            'items.*.quantity' => 'required|integer|min:1',
+        ], [
+            'name.required' => 'Nama harus diisi.',
+            'price.numeric' => 'Harga bundle harus berupa angka.',
+            'active_to.after_or_equal' => 'Periode Selesai harus sama atau lebih dari Periode Mulai',
+            'items.required' => 'Item harus diisi.',
+            'items.*.product_id.required' => 'Produk harus dipilih disetiap item.',
+            'items.*.product_id.exists' => 'Produk yang dipilih tidak ada.',
+            'items.*.quantity.required' => 'Setiap item harus punya jumlah.',
+            'items.*.quantity.integer' => 'Jumlah harus berupa angka.',
         ]);
 
         DB::beginTransaction();
         try {
-            // Update bundle header including active period.
+            // Update bundle header
             $bundle->update([
                 'name'        => $request->input('name'),
                 'description' => $request->input('description'),
+                'price'       => $request->input('price'),
                 'active_from' => $request->input('active_from'),
                 'active_to'   => $request->input('active_to'),
             ]);
 
-            // Option: Delete all existing items and re-create them.
+            // Reset and re-create bundle items
             $bundle->items()->delete();
             foreach ($request->input('items') as $item) {
                 $bundle->items()->create([
                     'product_id' => $item['product_id'],
-                    'price'      => $item['price'] ?? null,
                     'quantity'   => $item['quantity'],
                 ]);
             }

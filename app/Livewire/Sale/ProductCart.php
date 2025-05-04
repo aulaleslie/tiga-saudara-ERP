@@ -369,83 +369,64 @@ class ProductCart extends Component
     public function confirmBundleSelection($bundleId): void
     {
         $cart = Cart::instance($this->cart_instance);
-        $bundle = ProductBundle::find($bundleId);
+        $bundle = ProductBundle::with('items.product')->find($bundleId);
+
         if (!$bundle) {
             session()->flash('message', 'Invalid bundle selected.');
             return;
         }
 
-        // Build the bundle items details array from the selected bundle
+        // Build simplified item list (no price/sub_total per item)
         $selectedBundleItems = [];
-        $bundleItems = ProductBundleItem::where('bundle_id', $bundle->id)->get();
-        foreach ($bundleItems as $bundleItem) {
-            $bundleProduct = Product::find($bundleItem->product_id);
-            if (!$bundleProduct) {
-                continue;
-            }
+        foreach ($bundle->items as $bundleItem) {
             $selectedBundleItems[] = [
                 'bundle_id'       => $bundle->id,
                 'bundle_item_id'  => $bundleItem->id,
-                'product_id'      => $bundleProduct->id,
-                'name'            => $bundleProduct->product_name,
-                'price'           => $bundleItem->price,
-                'quantity'        => $bundleItem->quantity, // base quantity defined in the bundle
-                'sub_total'       => $bundleItem->price * $bundleItem->quantity,
+                'product_id'      => $bundleItem->product->id,
+                'name'            => $bundleItem->product->product_name,
+                'quantity'        => $bundleItem->quantity,
             ];
         }
 
-        // Calculate the total price for the bundle items
-        $bundleTotal = 0;
-        foreach ($selectedBundleItems as $item) {
-            $bundleTotal += $item['sub_total'];
-        }
-
-        // If there's a pending product, add it along with bundle details
         if ($this->pendingProduct) {
-            // Get stock data for the pending product
             $stockData = ProductStock::where('product_id', $this->pendingProduct['id'])
                 ->selectRaw('SUM(quantity_non_tax) as quantity_non_tax, SUM(quantity_tax) as quantity_tax')
                 ->first();
 
-            // Calculate the parent's base price and subtotal
             $parentCalculated = $this->calculate($this->pendingProduct);
-            // Add the bundle total to the parent's subtotal
-            $final_sub_total = $parentCalculated['sub_total'] + $bundleTotal;
-            // Optionally, if you maintain a subtotal_before_tax, you could do a similar calculation:
-            // $final_sub_total_before_tax = $parentCalculated['subtotal_before_tax'] + $bundleTotal;
+            $final_sub_total = $parentCalculated['sub_total'] + $bundle->price;
 
-            // Add the product to the cart with the updated subtotal that includes the bundle items
             $cartItem = $cart->add([
-                'id' => Str::uuid()->toString(), // Unique id for cart row
+                'id' => Str::uuid()->toString(),
                 'name' => $this->pendingProduct['product_name'],
                 'qty' => 1,
-                'price' => $parentCalculated['price'], // parent's price remains unchanged
+                'price' => $final_sub_total, // base product price only
                 'weight' => 1,
                 'options' => [
                     'product_id' => $this->pendingProduct['id'],
                     'product_discount' => 0.00,
                     'product_discount_type' => 'fixed',
-                    'sub_total' => $final_sub_total, // parent's subtotal plus bundle total
+                    'sub_total' => $final_sub_total,
                     'sub_total_before_tax' => $final_sub_total,
                     'code' => $this->pendingProduct['product_code'],
                     'stock' => $this->pendingProduct['product_quantity'],
                     'unit' => $this->pendingProduct['product_unit'],
-                    'product_tax' => null, // Initialize as null
-                    'unit_price' => $parentCalculated['unit_price'],
+                    'product_tax' => null,
+                    'unit_price' => $final_sub_total,
                     'sale_price' => $this->pendingProduct['sale_price'] ?? 0,
                     'tier_1_price' => $this->pendingProduct['tier_1_price'] ?? 0,
                     'tier_2_price' => $this->pendingProduct['tier_2_price'] ?? 0,
                     'quantity_non_tax' => $stockData->quantity_non_tax ?? 0,
                     'quantity_tax' => $stockData->quantity_tax ?? 0,
+                    'bundle_price' => $bundle->price, // 🟢 NEW
                     'bundle_items' => $selectedBundleItems,
+                    'bundle_name' => $bundle->name,
                 ]
             ]);
 
-            // Initialize component arrays for the new cart row
             $this->initializeCartItemAttributes($cartItem);
 
             session()->flash('message', 'Bundle items added successfully.');
-            // Clear pending product and bundle options
             $this->pendingProduct = null;
             $this->bundleOptions = [];
         }
@@ -538,6 +519,7 @@ class ProductCart extends Component
 
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
 
+        // Handle cascading price if customer tier is null
         if (!in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
             $productId = $cart_item->options->product_id;
             $qty = $this->quantity[$id] ?? $cart_item->qty;
@@ -551,7 +533,7 @@ class ProductCart extends Component
             $this->priceBreakdowns[$cart_item->id] = ''; // Clear if not cascading
         }
 
-        // First, recalculate the parent product's subtotal (excluding any bundle extras)
+        // Recalculate subtotal and tax
         $calculated = $this->calculateSubtotalAndTax(
             $this->unit_price[$id] ?? $cart_item->price,
             $this->quantity[$id] ?? 0,
@@ -559,42 +541,20 @@ class ProductCart extends Component
             $this->product_tax[$id] ?? null
         );
 
-        $bundleTotal = 0;
-        $updatedBundleItems = $cart_item->options->bundle_items ?? null;
+        // Use the fixed bundle header price instead of calculating from bundle items
+//        $bundleTotal = $cart_item->options['bundle_price'] ?? 0;
 
-        // If the cart item includes bundle items, update each of them
-        if (is_array($cart_item->options->bundle_items)) {
+        // Update cart item totals
+        $newSubTotal = $calculated['sub_total'];
+        $newSubTotalBeforeTax = $calculated['subtotal_before_tax'];
 
-            $updatedBundleItems = [];
-            foreach ($cart_item->options->bundle_items as $bundleItem) {
-
-                Log::info('called', []);
-                $bundleItemDb = ProductBundleItem::find($bundleItem['bundle_item_id']);
-                // For each bundle item, multiply its defined quantity by the parent's quantity
-                $newBundleQuantity = $bundleItemDb['quantity'] * $this->quantity[$id];
-                $newBundleSubTotal = $bundleItem['price'] * $newBundleQuantity;
-                $bundleTotal += $newBundleSubTotal;
-                // Optionally, store the computed quantity (if you want to display it)
-                $bundleItem['quantity'] = $newBundleQuantity;
-                // Update the bundle item's sub_total to the new calculated value
-                $bundleItem['sub_total'] = $newBundleSubTotal;
-                $updatedBundleItems[] = $bundleItem;
-            }
-        }
-
-        // Adjust the parent's subtotal to include the total from bundle items.
-        // Depending on your business logic, you may also want to update the sub_total_before_tax.
-        $newSubTotal = $calculated['sub_total'] + $bundleTotal;
-        $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
-
-        // Update the cart item with new quantity and recalculated totals
         Cart::instance($this->cart_instance)->update($row_id, [
             'qty' => $this->quantity[$id],
             'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total' => $newSubTotal,
                 'sub_total_before_tax' => $newSubTotalBeforeTax,
-                'tax_amount' => $calculated['tax_amount'], // assuming the tax calculation applies only to the parent product
-                'bundle_items' => $updatedBundleItems,
+                'tax_amount' => $calculated['tax_amount'],
+                // leave 'bundle_items' unchanged (quantity display logic only)
             ]),
         ]);
 
@@ -602,6 +562,7 @@ class ProductCart extends Component
 
         $this->recalculateCart();
     }
+
 
     /**
      * Calculate subtotal and tax for a cart item.
@@ -728,33 +689,9 @@ class ProductCart extends Component
             $this->product_tax[$id] ?? null
         );
 
-        Log::info('SetProductDiscount - Updated Cart Data', [
-            'adjusted_price' => $adjusted_price,
-            'updated_cart_data' => $updated_cart_data,
-        ]);
-
-        // Process bundle items if any
-        $bundleTotal = 0;
-        $updatedBundleItems = $cart_item->options->bundle_items ?? null;
-        if (is_array($cart_item->options->bundle_items)) {
-            $updatedBundleItems = [];
-            foreach ($cart_item->options->bundle_items as $bundleItem) {
-                $bundleItemDb = ProductBundleItem::find($bundleItem['bundle_item_id']);
-                if (!$bundleItemDb) {
-                    Log::warning('Bundle item not found', ['bundle_item_id' => $bundleItem['bundle_item_id']]);
-                    continue;
-                }
-                $newBundleQuantity = $bundleItemDb->quantity * $quantity;
-                $newBundleSubTotal = $bundleItem['price'] * $newBundleQuantity;
-                $bundleTotal += $newBundleSubTotal;
-                $bundleItem['quantity'] = $newBundleQuantity;
-                $bundleItem['sub_total'] = $newBundleSubTotal;
-                $updatedBundleItems[] = $bundleItem;
-            }
-        }
-
-        $newSubTotal = $updated_cart_data['sub_total'] + $bundleTotal;
-        $newSubTotalBeforeTax = $updated_cart_data['subtotal_before_tax'] + $bundleTotal;
+        // ✅ Use fixed bundle header price
+        $newSubTotal = $updated_cart_data['sub_total'];
+        $newSubTotalBeforeTax = $updated_cart_data['subtotal_before_tax'];
 
         Cart::instance($this->cart_instance)->update($row_id, [
             'unit_price' => $this->is_tax_included ? $adjusted_price : $unit_price,
@@ -763,7 +700,6 @@ class ProductCart extends Component
                 'sub_total_before_tax' => $newSubTotalBeforeTax,
                 'product_discount' => $discount_amount,
                 'product_discount_type' => $this->discount_type[$id],
-                'bundle_items' => $updatedBundleItems,
             ]),
         ]);
 
@@ -782,18 +718,19 @@ class ProductCart extends Component
     {
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
 
-        // Validate and set new price
+        // Get the new price (unit price)
         $new_price = $this->unit_price[$id] ?? $cart_item->price;
 
-        // If percentage, recalculate discount amount
+        // Determine discount amount
         $discount_amount = $cart_item->options->product_discount;
         $raw_discount_input = $this->item_discount[$id] ?? 0;
         $sanitized_discount_input = is_numeric($raw_discount_input) ? (float)$raw_discount_input : 0;
+
         if ($this->discount_type[$id] == 'percentage') {
             $discount_amount = $new_price * ($sanitized_discount_input / 100);
         }
 
-        // Calculate parent's updated values
+        // Recalculate totals
         $calculated = $this->calculateSubtotalAndTax(
             $new_price,
             $cart_item->qty,
@@ -801,35 +738,12 @@ class ProductCart extends Component
             $this->product_tax[$id] ?? null
         );
 
-        // Initialize bundle totals
-        $bundleTotal = 0;
-        $updatedBundleItems = $cart_item->options->bundle_items ?? null;
+        // ✅ Use header bundle price, not item prices
+        $bundleTotal = $cart_item->options['bundle_price'] ?? 0;
 
-        // If there are bundle items, update them
-        if (is_array($cart_item->options->bundle_items)) {
-            $updatedBundleItems = [];
-            foreach ($cart_item->options->bundle_items as $bundleItem) {
-                $bundleItemDb = ProductBundleItem::find($bundleItem['bundle_item_id']);
-                if (!$bundleItemDb) {
-                    Log::warning('Bundle item not found', ['bundle_item_id' => $bundleItem['bundle_item_id']]);
-                    continue;
-                }
-                // Recalculate bundle quantity based on the parent's current quantity
-                $newBundleQuantity = $bundleItemDb->quantity * $cart_item->qty;
-                $newBundleSubTotal = $bundleItem['price'] * $newBundleQuantity;
-                $bundleTotal += $newBundleSubTotal;
-                // Update bundle item details
-                $bundleItem['quantity'] = $newBundleQuantity;
-                $bundleItem['sub_total'] = $newBundleSubTotal;
-                $updatedBundleItems[] = $bundleItem;
-            }
-        }
-
-        // Add the bundle total to the parent's calculated subtotal
         $newSubTotal = $calculated['sub_total'] + $bundleTotal;
         $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
 
-        // Update cart item with the new values
         Cart::instance($this->cart_instance)->update($row_id, [
             'price' => $new_price,
             'unit_price' => $new_price,
@@ -838,17 +752,16 @@ class ProductCart extends Component
                 'sub_total_before_tax' => $newSubTotalBeforeTax,
                 'tax_amount' => $calculated['tax_amount'],
                 'product_discount' => $discount_amount,
-                'bundle_items' => $updatedBundleItems,
             ]),
         ]);
 
+        // Update breakdown display if applicable
         if (!empty($this->priceBreakdowns[$id])) {
             $qty = $cart_item->qty;
             $unitName = $cart_item->options->unit ?? 'unit';
 
             $this->priceBreakdowns[$id] = "{$qty} {$unitName} @ " . number_format($new_price, 0);
         }
-
 
         $this->recalculateCart();
     }
@@ -924,35 +837,14 @@ class ProductCart extends Component
                     $tax_id
                 );
 
-                // Process bundle items if present
-                $bundleTotal = 0;
-                $updatedBundleItems = $cart_item->options->bundle_items ?? null;
-                if (is_array($cart_item->options->bundle_items)) {
-                    $updatedBundleItems = [];
-                    foreach ($cart_item->options->bundle_items as $bundleItem) {
-                        $bundleItemDb = ProductBundleItem::find($bundleItem['bundle_item_id']);
-                        if (!$bundleItemDb) {
-                            Log::warning('Bundle item not found', ['bundle_item_id' => $bundleItem['bundle_item_id']]);
-                            continue;
-                        }
-                        $newBundleQuantity = $bundleItemDb->quantity * $cart_item->qty;
-                        $newBundleSubTotal = $bundleItem['price'] * $newBundleQuantity;
-                        $bundleTotal += $newBundleSubTotal;
-                        $bundleItem['quantity'] = $newBundleQuantity;
-                        $bundleItem['sub_total'] = $newBundleSubTotal;
-                        $updatedBundleItems[] = $bundleItem;
-                    }
-                }
-
-                $newSubTotal = $updated_cart_data['sub_total'] + $bundleTotal;
-                $newSubTotalBeforeTax = $updated_cart_data['subtotal_before_tax'] + $bundleTotal;
+                $newSubTotal = $updated_cart_data['sub_total'];
+                $newSubTotalBeforeTax = $updated_cart_data['subtotal_before_tax'];
 
                 Cart::instance($this->cart_instance)->update($row_id, [
                     'options' => array_merge($cart_item->options->toArray(), [
                         'product_tax' => $tax_id,
                         'sub_total' => $newSubTotal,
                         'sub_total_before_tax' => $newSubTotalBeforeTax,
-                        'bundle_items' => $updatedBundleItems,
                     ]),
                 ]);
 
@@ -973,35 +865,14 @@ class ProductCart extends Component
                 $tax_id
             );
 
-            // Process bundle items if present
-            $bundleTotal = 0;
-            $updatedBundleItems = $cart_item->options->bundle_items ?? null;
-            if (is_array($cart_item->options->bundle_items)) {
-                $updatedBundleItems = [];
-                foreach ($cart_item->options->bundle_items as $bundleItem) {
-                    $bundleItemDb = ProductBundleItem::find($bundleItem['bundle_item_id']);
-                    if (!$bundleItemDb) {
-                        Log::warning('Bundle item not found', ['bundle_item_id' => $bundleItem['bundle_item_id']]);
-                        continue;
-                    }
-                    $newBundleQuantity = $bundleItemDb->quantity * $cart_item->qty;
-                    $newBundleSubTotal = $bundleItem['price'] * $newBundleQuantity;
-                    $bundleTotal += $newBundleSubTotal;
-                    $bundleItem['quantity'] = $newBundleQuantity;
-                    $bundleItem['sub_total'] = $newBundleSubTotal;
-                    $updatedBundleItems[] = $bundleItem;
-                }
-            }
-
-            $newSubTotal = $updated_cart_data['sub_total'] + $bundleTotal;
-            $newSubTotalBeforeTax = $updated_cart_data['subtotal_before_tax'] + $bundleTotal;
+            $newSubTotal = $updated_cart_data['sub_total'];
+            $newSubTotalBeforeTax = $updated_cart_data['subtotal_before_tax'];
 
             Cart::instance($this->cart_instance)->update($row_id, [
                 'options' => array_merge($cart_item->options->toArray(), [
                     'product_tax' => $tax_id,
                     'sub_total' => $newSubTotal,
                     'sub_total_before_tax' => $newSubTotalBeforeTax,
-                    'bundle_items' => $updatedBundleItems,
                 ]),
             ]);
 
@@ -1026,33 +897,8 @@ class ProductCart extends Component
             // Calculate subtotal and tax for the parent product
             $calculated = $this->calculateSubtotalAndTax($price, $quantity, $discount, $tax_id);
 
-            // Initialize bundle totals and updated bundle items
-            $bundleTotal = 0;
-            $updatedBundleItems = $cart_item->options->bundle_items ?? null;
-
-            if (is_array($cart_item->options->bundle_items)) {
-                $updatedBundleItems = [];
-                foreach ($cart_item->options->bundle_items as $bundleItem) {
-                    // Retrieve the original bundle item data from the DB
-                    $bundleItemDb = ProductBundleItem::find($bundleItem['bundle_item_id']);
-                    if (!$bundleItemDb) {
-                        Log::warning('Bundle item not found', ['bundle_item_id' => $bundleItem['bundle_item_id']]);
-                        continue;
-                    }
-                    // Calculate the new bundle quantity based on parent's quantity
-                    $newBundleQuantity = $bundleItemDb->quantity * $quantity;
-                    $newBundleSubTotal = $bundleItem['price'] * $newBundleQuantity;
-                    $bundleTotal += $newBundleSubTotal;
-                    // Update bundle item values for display and calculation
-                    $bundleItem['quantity'] = $newBundleQuantity;
-                    $bundleItem['sub_total'] = $newBundleSubTotal;
-                    $updatedBundleItems[] = $bundleItem;
-                }
-            }
-
-            // Include bundle total to the parent's calculated totals
-            $newSubTotal = $calculated['sub_total'] + $bundleTotal;
-            $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
+            $newSubTotal = $calculated['sub_total'];
+            $newSubTotalBeforeTax = $calculated['subtotal_before_tax'];
 
             // Update the cart item with the new totals and bundle details
             Cart::instance($this->cart_instance)->update($row_id, [
@@ -1060,7 +906,6 @@ class ProductCart extends Component
                     'product_tax' => $tax_id,
                     'sub_total' => $newSubTotal,
                     'sub_total_before_tax' => $newSubTotalBeforeTax,
-                    'bundle_items' => $updatedBundleItems,
                 ]),
             ]);
 

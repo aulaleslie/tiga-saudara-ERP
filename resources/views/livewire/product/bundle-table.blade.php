@@ -3,7 +3,6 @@
         <thead>
         <tr>
             <th>Produk</th>
-            <th>Harga (min 0)</th>
             <th>Jumlah (min 1)</th>
             <th>Aksi</th>
         </tr>
@@ -16,24 +15,6 @@
                     @error("items.$index.product_id")
                     <div class="invalid-feedback">{{ $message }}</div>
                     @enderror
-                </td>
-                <td x-data="{ open: false }" class="align-middle text-right">
-                        <span x-show="!open"
-                              @click="open = true;">
-                            {{ format_currency($item['price'] ?? 0) }}
-                        </span>
-                    <!-- Editable input field -->
-                    <div x-show="open" @click.away="open = false">
-                        <input
-                            wire:model.defer="items.{{ $index }}.price"
-                            style="min-width: 40px;"
-                            type="text"
-                            class="form-control text-right"
-                            @keydown.enter="open = false"
-                            wire:blur="updatePrice({{ $index }})"
-                            x-ref="priceInput"
-                        >
-                    </div>
                 </td>
                 <td>
                     <input

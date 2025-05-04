@@ -32,7 +32,7 @@ class BundleTable extends Component
      */
     public function addItem(): void
     {
-        $this->items[] = ['product_id' => null, 'product_name' => '', 'price' => 0, 'quantity' => 1, 'search' => ''];
+        $this->items[] = ['product_id' => null, 'product_name' => '', 'quantity' => 1, 'search' => ''];
     }
 
     /**

@@ -189,23 +189,23 @@
                             <tr class="collapse" id="bundleCollapse{{ $cart_item->id }}">
                                 <td colspan="9" class="p-0">
                                     <div class="card card-body">
-                                        <h6>Paket Penjualan</h6>
+                                        <h6 class="mb-2">Paket Penjualan</h6>
+                                        <p class="mb-2">
+                                            <strong>Nama Paket:</strong> {{ $cart_item->options->bundle_name ?? '-' }} <br>
+                                            <strong>Harga Paket:</strong> {{ format_currency($cart_item->options->bundle_price ?? 0) }}
+                                        </p>
                                         <table class="table table-sm table-bordered mb-0">
                                             <thead>
                                             <tr>
                                                 <th>Nama Barang</th>
-                                                <th>Harga</th>
                                                 <th>Jumlah</th>
-                                                <th>Subtotal</th>
                                             </tr>
                                             </thead>
                                             <tbody>
                                             @foreach($cart_item->options->bundle_items as $bundleItem)
                                                 <tr>
                                                     <td>{{ $bundleItem['name'] }}</td>
-                                                    <td>{{ format_currency($bundleItem['price']) }}</td>
                                                     <td>{{ $bundleItem['quantity'] }}</td>
-                                                    <td>{{ format_currency($bundleItem['sub_total']) }}</td>
                                                 </tr>
                                             @endforeach
                                             </tbody>
