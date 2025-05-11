@@ -1,4 +1,7 @@
-<div class="modal fade" id="checkoutModal" tabindex="-1" role="dialog" aria-labelledby="checkoutModalLabel" aria-hidden="true">
+@php use Gloudemans\Shoppingcart\Facades\Cart; @endphp
+<div class="modal fade" id="checkoutModal" tabindex="-1" role="dialog"
+     aria-labelledby="checkoutModalLabel" aria-hidden="true"
+     wire:ignore.self>
     <div class="modal-dialog modal-lg" role="document">
         <div class="modal-content">
             <div class="modal-header">
@@ -28,28 +31,32 @@
                             <input type="hidden" value="{{ $global_tax }}" name="tax_percentage">
                             <input type="hidden" value="{{ $global_discount }}" name="discount_percentage">
                             <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
+                            <input type="hidden" name="payment_method_id" value="{{ $selected_payment_method_id }}">
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="total_amount">Total Amount <span class="text-danger">*</span></label>
-                                        <input id="total_amount" type="text" class="form-control" name="total_amount" value="{{ $total_amount }}" readonly required>
+                                        <label for="total_amount">Total Amount <span
+                                                class="text-danger">*</span></label>
+                                        <input id="total_amount" type="text" class="form-control" name="total_amount"
+                                               value="{{ $total_amount }}" readonly required>
                                     </div>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="paid_amount">Received Amount <span class="text-danger">*</span></label>
-                                        <input id="paid_amount" type="text" class="form-control" name="paid_amount" value="{{ $total_amount }}" required>
+                                        <label for="paid_amount">Received Amount <span
+                                                class="text-danger">*</span></label>
+                                        <input id="paid_amount" type="text" class="form-control" name="paid_amount"
+                                               value="{{ $total_amount }}" required>
                                     </div>
                                 </div>
                             </div>
                             <div class="form-group">
                                 <label for="payment_method">Payment Method <span class="text-danger">*</span></label>
-                                <select class="form-control" name="payment_method" id="payment_method" required>
-                                    <option value="Cash">Cash</option>
-                                    <option value="Credit Card">Credit Card</option>
-                                    <option value="Bank Transfer">Bank Transfer</option>
-                                    <option value="Cheque">Cheque</option>
-                                    <option value="Other">Other</option>
+                                <select wire:model="selected_payment_method_id" class="form-control" id="payment_method" required>
+                                    <option value="">-- Pilih Metode Pembayaran --</option>
+                                    @foreach($paymentMethods as $method)
+                                        <option value="{{ $method->id }}">{{ $method->name }}</option>
+                                    @endforeach
                                 </select>
                             </div>
                             <div class="form-group">
@@ -83,11 +90,8 @@
                                     </tr>
                                     <tr class="text-primary">
                                         <th>Grand Total</th>
-                                        @php
-                                            $total_with_shipping = Cart::instance($cart_instance)->total() + (float) $shipping
-                                        @endphp
                                         <th>
-                                            (=) {{ format_currency($total_with_shipping) }}
+                                            (=) {{ format_currency(Cart::instance($cart_instance)->total()) }}
                                         </th>
                                     </tr>
                                 </table>

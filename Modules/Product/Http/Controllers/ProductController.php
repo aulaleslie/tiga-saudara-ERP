@@ -191,7 +191,7 @@ class ProductController extends Controller
         abort_if(Gate::denies('show_products'), 403);
 
         $baseUnit = $product->baseUnit;
-        $conversions = $product->conversions;
+        $conversions = $product->conversions()->with('unit')->get();
 
         if ($baseUnit && $conversions->isNotEmpty()) {
             $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();

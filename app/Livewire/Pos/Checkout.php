@@ -3,9 +3,12 @@
 namespace App\Livewire\Pos;
 
 use Gloudemans\Shoppingcart\Facades\Cart;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Unit;
 
 class Checkout extends Component
@@ -23,6 +26,7 @@ class Checkout extends Component
     public $shipping;
     public $quantity;
     public $check_quantity;
+    public $unit_price;
     public $discount_type;
     public $item_discount;
     public $data;
@@ -30,6 +34,10 @@ class Checkout extends Component
     public $customer_tier;
     public $total_amount;
     public $conversion_breakdowns = [];
+    public $pendingProduct = null;
+    public $bundleOptions = [];
+    public $paymentMethods = [];
+    public $selected_payment_method_id = null;
 
     public function mount($cartInstance, $customers)
     {
@@ -40,9 +48,13 @@ class Checkout extends Component
         $this->shipping = 0.00;
         $this->check_quantity = [];
         $this->quantity = [];
+        $this->unit_price = [];
         $this->discount_type = [];
         $this->item_discount = [];
         $this->total_amount = 0;
+
+        session('setting_id');
+        $this->paymentMethods = PaymentMethod::where('setting_id', session('setting_id'))->get();
     }
 
     public function hydrate()
@@ -91,45 +103,128 @@ class Checkout extends Component
             return;
         }
 
-        $cart = Cart::instance($this->cart_instance);
+        // Check for bundles
+        $bundles = ProductBundle::with('items.product')
+            ->where('parent_product_id', $product['id'])
+            ->get();
 
-        $exists = $cart->search(fn($cartItem, $rowId) => $cartItem->id == $product['id']);
-
-        if ($exists->isNotEmpty()) {
-            session()->flash('message', 'Product exists in the cart!');
+        if ($bundles->isNotEmpty()) {
+            $this->pendingProduct = $product;
+            $this->bundleOptions = $bundles;
+            $this->dispatch('showBundleSelectionModal', $this->pendingProduct, $this->bundleOptions);
             return;
         }
 
-        $calculated = $this->calculate($product, 1);
+        $cartKey = $this->generateCartItemKey($product['id'], null);
+        $cart = Cart::instance($this->cart_instance);
+        $exists = $cart->search(fn($item) => $item->id === $cartKey);
 
-        $cart->add([
-            'id' => $product['id'],
+        if ($exists->isNotEmpty()) {
+            $rowId = $exists->first()->rowId;
+            $newQty = $exists->first()->qty + (int) $product['conversion_factor'];
+            $this->quantity[$cartKey] = $newQty;
+            $this->check_quantity[$cartKey] = $product['product_quantity'];
+            $this->updateQuantity($rowId, $cartKey);
+            return;
+        }
+
+        $this->addProduct($product, null);
+    }
+
+    public function addProduct($product, $bundle = null)
+    {
+        $cartKey = $this->generateCartItemKey($product['id'], $bundle['id'] ?? null);
+        $convertedQty = (int) $product['conversion_factor'];
+        $calculated = $this->calculate($product, $convertedQty);
+
+        $final_sub_total = $calculated['sub_total'];
+        $bundle_items = [];
+        $bundle_price = 0;
+        $bundle_name = null;
+
+        if ($bundle) {
+            $bundle_price = $bundle['price'];
+            $bundle_name = $bundle['name'];
+            $final_sub_total += $bundle_price;
+
+            foreach ($bundle['items'] as $item) {
+                $bundle_items[] = [
+                    'bundle_id' => $bundle['id'],
+                    'bundle_item_id' => $item['id'],
+                    'product_id' => $item['product_id'],
+                    'name' => $item['product']['product_name'],
+                    'quantity' => $item['quantity'],
+                ];
+            }
+        }
+
+        Cart::instance($this->cart_instance)->add([
+            'id' => $cartKey,
             'name' => $product['product_name'],
-            'qty' => 1,
-            'price' => $calculated['unit_price'],
+            'qty' => $convertedQty,
+            'price' => $final_sub_total,
             'weight' => 1,
             'options' => [
                 'product_discount' => 0.00,
                 'product_discount_type' => 'fixed',
-                'sub_total' => $calculated['sub_total'],
+                'sub_total' => $final_sub_total,
                 'code' => $product['product_code'],
                 'stock' => $product['product_quantity'],
-                'unit' => $product['product_unit'],
                 'product_tax' => 0,
                 'unit_price' => $calculated['unit_price'],
+                'bundle_items' => $bundle_items,
+                'bundle_price' => $bundle_price,
+                'bundle_name' => $bundle_name,
             ],
         ]);
 
-        $this->check_quantity[$product['id']] = $product['product_quantity'];
-        $this->quantity[$product['id']] = 1;
-        $this->discount_type[$product['id']] = 'fixed';
-        $this->item_discount[$product['id']] = 0;
+        $this->check_quantity[$cartKey] = $product['product_quantity'];
+        $this->quantity[$cartKey] = $convertedQty;
+        $this->discount_type[$cartKey] = 'fixed';
+        $this->item_discount[$cartKey] = 0;
         $this->total_amount = $this->calculateTotal();
+    }
+
+    public function confirmBundleSelection($bundleId)
+    {
+        $bundle = ProductBundle::with('items.product')->find($bundleId);
+        if (!$bundle || !$this->pendingProduct) {
+            session()->flash('message', 'Invalid bundle selected.');
+            return;
+        }
+
+        $cartKey = $this->generateCartItemKey($this->pendingProduct['id'], $bundle->id);
+        $cart = Cart::instance($this->cart_instance);
+        $exists = $cart->search(fn($item) => $item->id === $cartKey);
+
+        if ($exists->isNotEmpty()) {
+            $rowId = $exists->first()->rowId;
+            $newQty = $exists->first()->qty + (int) $this->pendingProduct['conversion_factor'];
+            $this->quantity[$cartKey] = $newQty;
+            $this->check_quantity[$cartKey] = $this->pendingProduct['product_quantity'];
+            $this->updateQuantity($rowId, $cartKey);
+            $this->pendingProduct = null;
+            $this->bundleOptions = [];
+            return;
+        }
+
+        $this->addProduct($this->pendingProduct, $bundle->toArray());
+        $this->pendingProduct = null;
+        $this->bundleOptions = [];
     }
 
     public function removeItem($row_id)
     {
+        $cart_item = Cart::instance($this->cart_instance)->get($row_id);
+        $cart_key = $cart_item->id;
+
         Cart::instance($this->cart_instance)->remove($row_id);
+
+        unset($this->quantity[$cart_key]);
+        unset($this->check_quantity[$cart_key]);
+        unset($this->unit_price[$cart_key]);
+        unset($this->discount_type[$cart_key]);
+        unset($this->item_discount[$cart_key]);
     }
 
     public function updatedGlobalTax()
@@ -142,14 +237,15 @@ class Checkout extends Component
         Cart::instance($this->cart_instance)->setGlobalDiscount((int) $this->global_discount);
     }
 
-    public function updateQuantity($row_id, $product_id)
+    public function updateQuantity($row_id, $cart_key)
     {
-        if ($this->check_quantity[$product_id] < $this->quantity[$product_id]) {
+        if ($this->check_quantity[$cart_key] < $this->quantity[$cart_key]) {
             session()->flash('message', 'The requested quantity is not available in stock.');
             return;
         }
 
-        $newQty = $this->quantity[$product_id];
+        $newQty = $this->quantity[$cart_key];
+        $product_id = explode('-', $cart_key)[0]; // extract product ID
         $product = Product::find($product_id);
         if (!$product) return;
 
@@ -158,13 +254,15 @@ class Checkout extends Component
         Cart::instance($this->cart_instance)->update($row_id, [
             'qty' => $newQty,
             'price' => $calculated['unit_price'],
-            'options' => array_merge(Cart::instance($this->cart_instance)->get($row_id)->options->toArray(), [
-                'unit_price' => $calculated['unit_price'],
-                'sub_total' => $calculated['sub_total'],
-            ]),
+            'options' => array_merge(
+                Cart::instance($this->cart_instance)->get($row_id)->options->toArray(), [
+                    'unit_price' => $calculated['unit_price'],
+                    'sub_total' => $calculated['sub_total'],
+                ]
+            ),
         ]);
 
-        $this->conversion_breakdowns[$product_id] = $this->calculateConversionBreakdown($product_id, $newQty);
+        $this->conversion_breakdowns[$cart_key] = $this->calculateConversionBreakdown($product_id, $newQty);
         $this->total_amount = $this->calculateTotal();
     }
 
@@ -173,26 +271,31 @@ class Checkout extends Component
         $this->item_discount[$name] = 0;
     }
 
-    public function discountModalRefresh($product_id, $row_id)
+    public function discountModalRefresh($cart_key, $row_id)
     {
-        $this->updateQuantity($row_id, $product_id);
+        $this->updateQuantity($row_id, $cart_key);
     }
 
-    public function setProductDiscount($row_id, $product_id)
+    public function setProductDiscount($row_id, $cart_key)
     {
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
 
-        $discount = $this->discount_type[$product_id] === 'fixed'
-            ? $this->item_discount[$product_id]
-            : ($cart_item->price + $cart_item->options->product_discount) * ($this->item_discount[$product_id] / 100);
+        $discount = $this->discount_type[$cart_key] === 'fixed'
+            ? $this->item_discount[$cart_key]
+            : ($cart_item->price + $cart_item->options->product_discount) * ($this->item_discount[$cart_key] / 100);
 
         Cart::instance($this->cart_instance)->update($row_id, [
             'price' => ($cart_item->price + $cart_item->options->product_discount) - $discount,
         ]);
 
-        $this->updateCartOptions($row_id, $product_id, $cart_item, $discount);
+        $this->updateCartOptions($row_id, $cart_key, $cart_item, $discount);
 
-        session()->flash('discount_message' . $product_id, 'Discount added to the product!');
+        session()->flash('discount_message' . $cart_key, 'Discount added to the product!');
+    }
+
+    private function generateCartItemKey($productId, $bundleId = null): string
+    {
+        return $bundleId ? "{$productId}-bundle-{$bundleId}" : (string) $productId;
     }
 
     public function calculate($product, $qty = 1)
@@ -317,13 +420,13 @@ class Checkout extends Component
         $this->dispatch('openCustomerModal');
     }
 
-    public function updateCartOptions($row_id, $product_id, $cart_item, $discount_amount)
+    public function updateCartOptions($row_id, $cart_key, $cart_item, $discount_amount)
     {
         Cart::instance($this->cart_instance)->update($row_id, [
             'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total' => $cart_item->price * $cart_item->qty,
                 'product_discount' => $discount_amount,
-                'product_discount_type' => $this->discount_type[$product_id],
+                'product_discount_type' => $this->discount_type[$cart_key],
             ]),
         ]);
     }
