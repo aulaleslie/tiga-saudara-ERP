@@ -102,6 +102,10 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    <button type="submit" formaction="{{ route('app.pos.store-as-quotation') }}"
+                            class="btn btn-warning">
+                        Simpan Sebagai Quotation
+                    </button>
                     <button type="submit" class="btn btn-primary">Submit</button>
                 </div>
             </form>

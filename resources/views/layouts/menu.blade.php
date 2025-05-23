@@ -18,11 +18,31 @@
 
 <li class="c-sidebar-nav-divider"></li>
 
-<li class="c-sidebar-nav-item">
-    <a class="c-sidebar-nav-link" href="#">
-        <i class="c-sidebar-nav-icon bbi bi-bank" style="line-height: 1;"></i> Kas & Bank
-    </a>
-</li>
+@can('access_reports')
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.mekari-converter.*') ? 'c-show' : '' }}">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+            <i class="c-sidebar-nav-icon bi bi-file-earmark-spreadsheet" style="line-height: 1;"></i> Laporan
+        </a>
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.mekari-converter.*') ? 'c-active' : '' }}"
+                   href="{{ route('reports.mekari-converter.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-arrow-repeat" style="line-height: 1;"></i> Mekari Converter
+                </a>
+            </li>
+            {{-- Add more report links here if needed --}}
+        </ul>
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.mekari-invoice-generator.*') ? 'c-active' : '' }}"
+                   href="{{ route('reports.mekari-invoice-generator.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-arrow-repeat" style="line-height: 1;"></i> Mekari Invoice Generator
+                </a>
+            </li>
+            {{-- Add more report links here if needed --}}
+        </ul>
+    </li>
+@endcan
 
 @can('sale.access')
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('sales.*') || request()->routeIs('sale-payments*') ? 'c-show' : '' }}">

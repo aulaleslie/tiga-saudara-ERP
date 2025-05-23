@@ -2,15 +2,17 @@
 
 namespace Modules\Sale\Http\Controllers;
 
+use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
-use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
 use Modules\Sale\Http\Requests\StorePosSaleRequest;
@@ -96,5 +98,79 @@ class PosController extends Controller
         toast('POS Sale Created!', 'success');
 
         return redirect()->route('sales.index');
+    }
+
+    public function storeAsQuotation(Request $request)
+    {
+        $cart = Cart::instance('sale');
+
+        if ($cart->count() == 0) {
+            return back()->withErrors(['cart' => 'Cart is empty'])->withInput();
+        }
+
+        DB::beginTransaction();
+        try {
+            $customer = Customer::findOrFail($request->customer_id);
+            $sale = Sale::create([
+                'date' => now(),
+                'due_date' => now()->addDays(7), // or null if N/A
+                'customer_id' => $customer->id,
+                'customer_name' => $customer->customer_name,
+                'tax_percentage' => $request->tax_percentage ?? 0,
+                'discount_percentage' => $request->discount_percentage ?? 0,
+                'shipping_amount' => $request->shipping_amount ?? 0,
+                'total_amount' => $request->total_amount,
+                'paid_amount' => 0,
+                'due_amount' => $request->total_amount,
+                'status' => Sale::STATUS_DRAFTED,
+                'payment_status' => 'unpaid',
+                'payment_method' => '', // leave blank if unknown
+                'note' => $request->note ?? '',
+                'setting_id' => session('setting_id'),
+                'is_tax_included' => false,
+            ]);
+
+            foreach ($cart->content() as $item) {
+                $saleDetail = SaleDetails::create([
+                    'sale_id' => $sale->id,
+                    'product_id' => $item->id,
+                    'product_name' => $item->name,
+                    'product_code' => $item->options['code'],
+                    'quantity' => $item->qty,
+                    'price' => $item->price,
+                    'unit_price' => $item->options['unit_price'],
+                    'sub_total' => $item->options['sub_total'],
+                    'product_discount_amount' => $item->options['product_discount'],
+                    'product_discount_type' => $item->options['product_discount_type'],
+                    'product_tax_amount' => 0,
+                    'tax_id' => $item->options['product_tax'],
+                ]);
+
+                if (!empty($item->options['bundle_items'])) {
+                    foreach ($item->options['bundle_items'] as $bundleItem) {
+                        SaleBundleItem::create([
+                            'sale_detail_id' => $saleDetail->id,
+                            'sale_id' => $sale->id,
+                            'bundle_id' => $bundleItem['bundle_id'] ?? null,
+                            'bundle_item_id' => $bundleItem['bundle_item_id'] ?? null,
+                            'product_id' => $bundleItem['product_id'],
+                            'name' => $bundleItem['name'],
+                            'price' => $bundleItem['price'] ?? 0,
+                            'quantity' => $bundleItem['quantity'],
+                            'sub_total' => $bundleItem['sub_total'] ?? 0,
+                        ]);
+                    }
+                }
+            }
+
+            DB::commit();
+            $cart->destroy();
+
+            return redirect()->route('sales.index')->with('message', 'Quotation created successfully!');
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to create quotation from POS', ['error' => $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to save quotation.'])->withInput();
+        }
     }
 }

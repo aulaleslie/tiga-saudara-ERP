@@ -35,8 +35,8 @@ return [
 
     'pdf' => [
         'enabled' => true,
-        'binary'  => env('WKHTML_PDF_BINARY', 'C:\\PROGRA~1\\wkhtmltopdf\\bin\\WKHTML~2.EXE'),
-//        'binary'  => base_path('vendor/bin/wkhtmltopdf-amd64'),
+//        'binary'  => env('WKHTML_PDF_BINARY', 'C:\\PROGRA~1\\wkhtmltopdf\\bin\\WKHTML~2.EXE'),
+        'binary'  => '/usr/bin/wkhtmltopdf',
         'timeout' => false,
         'options' => [
             'enable-local-file-access' => true,

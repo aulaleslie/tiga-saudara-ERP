@@ -11,6 +11,9 @@
 |
 */
 
+use Illuminate\Support\Facades\Route;
+use Modules\Reports\Http\Controllers\MekariConverterController;
+
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Profit Loss Report
     Route::get('/profit-loss-report', 'ReportsController@profitLossReport')
@@ -30,4 +33,30 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Purchases Return Report
     Route::get('/purchases-return-report', 'ReportsController@purchasesReturnReport')
         ->name('purchases-return-report.index');
+
+    Route::get('/mekari-converter', [MekariConverterController::class, 'convertMekariReport'])->name('reports.mekari-converter.index');
+    Route::post('/mekari-converter', [MekariConverterController::class, 'handleMekariReport'])->name('reports.mekari-converter.handle');
+
+    Route::prefix('reports')->middleware(['web', 'auth'])->group(function () {
+        Route::get('/invoice-generator', [MekariConverterController::class, 'showForm'])->name('reports.mekari-invoice-generator.index');
+        Route::post('/invoice-generator', [MekariConverterController::class, 'generate'])->name('reports.mekari-invoice-generator.generate');
+    });
+
+    Route::get('/test-pdf', function () {
+        $pdf = \PDF::loadView('reports::mekari-invoice-generator.invoice-pdf', [
+            'invoiceNo' => 'JL.2025.9999',
+            'invoiceDate' => now()->format('d/m/Y'),
+            'customer' => ['*DisplayName' => 'PT. TEST CUSTOMER', 'TaxNumber' => '00.000.000.0-000.000'],
+            'items' => collect([
+                ['Produk' => 'Laptop A', 'Kuantitas' => 2, 'Satuan' => 'PCS', 'Harga Satuan' => 5000000, 'Jumlah Tagihan' => 10000000],
+                ['Produk' => 'Mouse B', 'Kuantitas' => 1, 'Satuan' => 'PCS', 'Harga Satuan' => 250000, 'Jumlah Tagihan' => 250000],
+            ]),
+            'taxes' => collect([
+                ['Produk' => 'Pajak 11%', 'Jumlah Tagihan' => 1127500]
+            ]),
+            'total' => 11275000,
+        ]);
+
+        return $pdf->stream('test-invoice.pdf');
+    });
 });

@@ -12,6 +12,9 @@
 */
 
 use Illuminate\Support\Facades\Route;
+use Modules\People\Entities\Customer;
+use Modules\Sale\Entities\Sale;
+use Modules\Sale\Http\Controllers\PosController;
 use Modules\Sale\Http\Controllers\SaleController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
@@ -19,11 +22,13 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //POS
     Route::get('/app/pos', 'PosController@index')->name('app.pos.index');
     Route::post('/app/pos', 'PosController@store')->name('app.pos.store');
+    Route::post('/pos/store-as-quotation', [PosController::class, 'storeAsQuotation'])->name('app.pos.store-as-quotation');
+
 
     //Generate PDF
     Route::get('/sales/pdf/{id}', function ($id) {
-        $sale = \Modules\Sale\Entities\Sale::findOrFail($id);
-        $customer = \Modules\People\Entities\Customer::findOrFail($sale->customer_id);
+        $sale = Sale::findOrFail($id);
+        $customer = Customer::findOrFail($sale->customer_id);
 
         $pdf = \PDF::loadView('sale::print', [
             'sale' => $sale,
@@ -34,7 +39,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     })->name('sales.pdf');
 
     Route::get('/sales/pos/pdf/{id}', function ($id) {
-        $sale = \Modules\Sale\Entities\Sale::findOrFail($id);
+        $sale = Sale::findOrFail($id);
 
         $pdf = \PDF::loadView('sale::print-pos', [
             'sale' => $sale,
