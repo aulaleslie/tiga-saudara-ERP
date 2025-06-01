@@ -26,7 +26,9 @@ class ExpenseCategoriesController extends Controller
             'category_description' => 'nullable|string|max:1000'
         ]);
 
+        $currentSettingId = session('setting_id');
         ExpenseCategory::create([
+            'setting_id' => $currentSettingId,
             'category_name' => $request->category_name,
             'category_description' => $request->category_description
         ]);

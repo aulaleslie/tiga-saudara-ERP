@@ -21,7 +21,8 @@ class ExpenseCategoriesDataTable extends DataTable
     }
 
     public function query(ExpenseCategory $model) {
-        return $model->newQuery()->withCount('expenses');
+        $currentSettingId = session('setting_id');
+        return $model->newQuery()->where('setting_id', $currentSettingId)->withCount('expenses');
     }
 
     public function html() {

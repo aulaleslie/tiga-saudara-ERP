@@ -38,7 +38,10 @@ class ExpenseController extends Controller
             'details' => 'nullable|string|max:1000'
         ]);
 
+        $currentSettingId = session('setting_id');
+
         Expense::create([
+            'setting_id' => $currentSettingId,
             'date' => $request->date,
             'category_id' => $request->category_id,
             'amount' => $request->amount,
