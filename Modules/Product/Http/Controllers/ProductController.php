@@ -505,6 +505,11 @@ class ProductController extends Controller
             // Assuming the product ID is passed in the request or retrieved from session
             $product = Product::findOrFail($request->route('product_id'));
 
+            $product->update([
+                'product_quantity' => $validatedData['quantity'],
+                'broken_quantity' => $validatedData['broken_quantity_tax'] + $validatedData['broken_quantity_non_tax'],
+            ]);
+
             // Create a transaction for product stock initialization
             Transaction::create([
                 'product_id' => $product->id,
@@ -535,6 +540,7 @@ class ProductController extends Controller
                 'broken_quantity_non_tax' => $validatedData['broken_quantity_non_tax'],  // Broken quantity without tax
                 'broken_quantity_tax' => $validatedData['broken_quantity_tax'],  // Broken quantity with tax
                 'sale_price' => $product->sale_price,  // Sale price
+                'broken_quantity' => 0,
             ]);
 
             DB::commit();

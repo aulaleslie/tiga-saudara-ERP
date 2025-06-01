@@ -29,7 +29,6 @@ class InputSerialNumbersRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'location_id' => ['required', 'integer', 'exists:locations,id'],
             'serial_numbers' => ['required', 'array'],
             'serial_numbers.*' => ['required', 'string', 'max:255', 'distinct', 'unique:product_serial_numbers,serial_number'], // Ensure uniqueness in the table
             'tax_ids' => ['nullable', 'array'],
