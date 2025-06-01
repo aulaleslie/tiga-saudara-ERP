@@ -648,70 +648,63 @@ class ProductCart extends Component
         $this->setProductDiscount($row_id, $id);
     }
 
-    public function setProductDiscount($row_id, $id): void
+    public function setProductDiscount($row_id, $product_id): void
     {
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
-        $unit_price = $this->unit_price[$id] ?? $cart_item->price;
+
+        $unit_price = $this->unit_price[$product_id] ?? $cart_item->price;
         $quantity = $cart_item->qty;
 
-        Log::info('SetProductDiscount - Initial Values', [
-            'row_id' => $row_id,
-            'id' => $id,
-            'unit_price' => $unit_price,
-            'quantity' => $quantity,
-            'current_discount' => $cart_item->options['product_discount'] ?? 0,
-        ]);
-
-        $raw_discount_input = $this->item_discount[$id] ?? 0;
-        $sanitized_discount_input = is_numeric($raw_discount_input) ? (float)$raw_discount_input : 0;
+        $raw_input = $this->item_discount[$product_id] ?? 0;
+        $input = is_numeric($raw_input) ? (float) $raw_input : 0;
 
         $discount_amount = 0;
-        if ($this->discount_type[$id] == 'fixed') {
-            $discount_amount = $sanitized_discount_input;
-        } elseif ($this->discount_type[$id] == 'percentage') {
-            $discount_amount = $unit_price * ($sanitized_discount_input / 100);
+
+        if ($this->discount_type[$product_id] === 'percentage') {
+            if ($input > 100) {
+                $input = 100;
+                $this->item_discount[$product_id] = 100;
+                session()->flash('message', 'Diskon tidak boleh lebih dari 100%');
+            } elseif ($input < 0) {
+                $input = 0;
+                $this->item_discount[$product_id] = 0;
+                session()->flash('message', 'Diskon tidak boleh kurang dari 0%');
+            }
+
+            $discount_amount = $unit_price * ($input / 100);
+        } else { // fixed
+            if ($input > $unit_price) {
+                $input = $unit_price;
+                $this->item_discount[$product_id] = $unit_price;
+                session()->flash('message', 'Diskon tidak boleh lebih besar dari harga satuan!');
+            } elseif ($input < 0) {
+                $input = 0;
+                $this->item_discount[$product_id] = 0;
+                session()->flash('message', 'Diskon tidak boleh kurang dari 0!');
+            }
+
+            $discount_amount = $input;
         }
 
-        if ($discount_amount > $unit_price) {
-            $discount_amount = $unit_price;
-        }
-
-        Log::info('SetProductDiscount - Calculated Discount', [
-            'discount_amount' => $discount_amount,
-            'discount_type' => $this->discount_type[$id],
-        ]);
-
-        $adjusted_price = $unit_price;
-        $updated_cart_data = $this->calculateSubtotalAndTax(
-            $adjusted_price,
+        $calculated = $this->calculateSubtotalAndTax(
+            $unit_price,
             $quantity,
             $discount_amount,
-            $this->product_tax[$id] ?? null
+            $this->product_tax[$product_id] ?? null
         );
 
-        // ✅ Use fixed bundle header price
-        $newSubTotal = $updated_cart_data['sub_total'];
-        $newSubTotalBeforeTax = $updated_cart_data['subtotal_before_tax'];
-
         Cart::instance($this->cart_instance)->update($row_id, [
-            'unit_price' => $this->is_tax_included ? $adjusted_price : $unit_price,
+            'unit_price' => $unit_price,
             'options' => array_merge($cart_item->options->toArray(), [
-                'sub_total' => $newSubTotal,
-                'sub_total_before_tax' => $newSubTotalBeforeTax,
+                'sub_total' => $calculated['sub_total'],
+                'sub_total_before_tax' => $calculated['subtotal_before_tax'],
                 'product_discount' => $discount_amount,
-                'product_discount_type' => $this->discount_type[$id],
+                'product_discount_type' => $this->discount_type[$product_id],
             ]),
         ]);
 
         $this->recalculateCart();
-        session()->flash('discount_message' . $id, 'Discount applied to the product!');
-
-        Log::info('SetProductDiscount - Final Update', [
-            'row_id' => $row_id,
-            'id' => $id,
-            'product_discount' => $discount_amount,
-            'updated_cart_data' => $updated_cart_data,
-        ]);
+        session()->flash('discount_message' . $product_id, 'Diskon berhasil diterapkan!');
     }
 
     public function updatePrice($row_id, $id)
@@ -929,6 +922,31 @@ class ProductCart extends Component
 
     public function updateGlobalDiscount(): void
     {
+        $cart_items = Cart::instance($this->cart_instance)->content();
+        $total_sub_total = 0;
+
+        foreach ($cart_items as $item) {
+            $total_sub_total += $item->options->sub_total ?? 0;
+        }
+
+        if ($this->global_discount_type === 'percentage') {
+            if ($this->global_discount > 100) {
+                $this->global_discount = 100;
+                session()->flash('message', 'Diskon global tidak boleh lebih dari 100%');
+            } elseif ($this->global_discount < 0) {
+                $this->global_discount = 0;
+                session()->flash('message', 'Diskon global tidak boleh kurang dari 0%');
+            }
+        } else { // fixed
+            if ($this->global_discount > $total_sub_total) {
+                $this->global_discount = $total_sub_total;
+                session()->flash('message', 'Diskon global tidak boleh melebihi total!');
+            } elseif ($this->global_discount < 0) {
+                $this->global_discount = 0;
+                session()->flash('message', 'Diskon global tidak boleh kurang dari 0!');
+            }
+        }
+
         $this->recalculateCart();
     }
 }
