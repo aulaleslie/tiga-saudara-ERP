@@ -83,7 +83,7 @@
                                 <tr>
                                     <th>Nilai Stok</th>
                                     <td>
-                                        HARGA BELI: {{ format_currency($product->purchase_price * $product->product_quantity) }} /
+                                        HARGA BELI: {{ format_currency($product->average_purchase_price * $product->product_quantity) }} /
                                         HARGA JUAL: {{ format_currency($product->sale_price * $product->product_quantity) }}
                                     </td>
                                 </tr>

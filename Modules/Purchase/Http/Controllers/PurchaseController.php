@@ -518,15 +518,20 @@ class PurchaseController extends Controller
 
     private function updateAveragePurchasePrice(Product $product, $newPrice, $receivedQuantity)
     {
-        $currentTotalValue = $product->average_purchase_price * $product->product_quantity;
+        $previousQuantity = $product->product_quantity - $receivedQuantity;
+
+        // Sanity check to prevent negative or division-by-zero errors
+        $previousQuantity = max($previousQuantity, 0);
+
+        $currentTotalValue = $product->average_purchase_price * $previousQuantity;
         $newTotalValue = $newPrice * $receivedQuantity;
 
-        $newTotalQuantity = $product->product_quantity + $receivedQuantity;
+        $newTotalQuantity = $previousQuantity + $receivedQuantity;
 
         if ($newTotalQuantity > 0) {
             $newAveragePrice = ($currentTotalValue + $newTotalValue) / $newTotalQuantity;
         } else {
-            $newAveragePrice = $newPrice; // Default to new price if no previous stock
+            $newAveragePrice = $newPrice;
         }
 
         $product->update(['average_purchase_price' => $newAveragePrice]);
