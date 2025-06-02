@@ -252,41 +252,42 @@
         <!-- End Product Bundles -->
 
         <!-- Serial Numbers -->
-        <div class="card mt-4">
-            <div class="card-header">
-                <h5>Serial Numbers</h5>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-bordered table-striped">
-                        <thead>
-                        <tr>
-                            <th>Serial Number</th>
-                            <th>Lokasi</th>
-                            <th>Pajak</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        @forelse($serialNumbers as $serial)
+        @if ($product->serial_number_required)
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5>Serial Numbers</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-striped">
+                            <thead>
                             <tr>
-                                <td>{{ $serial->serial_number }}</td>
-                                <td>{{ $serial->location->name ?? 'N/A' }}</td>
-                                <td>{{ $serial->tax->name ?? 'N/A' }}</td>
+                                <th>Serial Number</th>
+                                <th>Lokasi</th>
+                                <th>Pajak</th>
                             </tr>
-                        @empty
-                            <tr>
-                                <td colspan="3" class="text-center">No serial numbers found.</td>
-                            </tr>
-                        @endforelse
-                        </tbody>
-                    </table>
-                    <div class="mt-3">
-                        <a href="{{ route('products.index') }}" class="btn btn-secondary">Kembali</a>
+                            </thead>
+                            <tbody>
+                            @forelse($serialNumbers as $serial)
+                                <tr>
+                                    <td>{{ $serial->serial_number }}</td>
+                                    <td>{{ $serial->location->name ?? 'N/A' }}</td>
+                                    <td>{{ $serial->tax->name ?? 'N/A' }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="3" class="text-center">No serial numbers found.</td>
+                                </tr>
+                            @endforelse
+                            </tbody>
+                        </table>
+                        <div class="mt-3">
+                            <a href="{{ route('products.index') }}" class="btn btn-secondary">Kembali</a>
+                        </div>
                     </div>
-
                 </div>
             </div>
-        </div>
+        @endif
         <!-- End Serial Numbers -->
     </div>
 @endsection

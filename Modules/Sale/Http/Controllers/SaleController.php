@@ -493,7 +493,7 @@ class SaleController extends Controller
             'dispatch_date' => 'required|date',
             'dispatchedQuantities' => 'required|array',
             'selectedLocations' => 'required|array',
-            'selectedSerialNumbers' => 'required|array',
+            'selectedSerialNumbers' => 'nullable|array',
             'stockAtLocations' => 'required|array',
         ]);
 
