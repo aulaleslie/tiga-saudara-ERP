@@ -33,6 +33,11 @@ class Sale extends Model
         return $this->hasMany(SalePayment::class, 'sale_id', 'id');
     }
 
+    public function saleDispatches(): HasMany
+    {
+        return $this->hasMany(Dispatch::class);
+    }
+
     public static function boot(): void
     {
         parent::boot();

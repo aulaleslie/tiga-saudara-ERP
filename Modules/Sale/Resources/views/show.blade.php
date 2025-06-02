@@ -145,6 +145,83 @@
                 </div>
             </div>
 
+            <!-- Dispatch Details -->
+            @if($sale->saleDispatches->isNotEmpty())
+                <div class="row mt-4">
+                    <div class="col-lg-12">
+                        <h5 class="mb-2 border-bottom pb-2">Pengeluaran Barang:</h5>
+                        <table class="table table-striped">
+                            <thead>
+                            <tr>
+                                <th>Tanggal</th>
+                                <th>Kode Produk</th>
+                                <th>Nama Produk</th>
+                                <th>Lokasi</th>
+                                <th>Jumlah</th>
+                                <th>Serial Number</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            @foreach($sale->saleDispatches as $dispatch)
+                                @foreach($dispatch->details as $detail)
+                                    <tr>
+                                        <td>{{ \Carbon\Carbon::parse($dispatch->dispatch_date)->format('d M Y') }}</td>
+                                        <td>{{ $detail->product->product_code ?? '-' }}</td>
+                                        <td>{{ $detail->product->product_name ?? '-' }}</td>
+                                        <td>{{ $detail->location->name ?? '-' }}</td>
+                                        <td>{{ $detail->dispatched_quantity }}</td>
+                                        <td>
+                                            @if($detail->serial_numbers)
+                                                {{ implode(', ', json_decode($detail->serial_numbers, true)) }}
+                                            @else
+                                                -
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endif
+
+            @if($sale->salePayments->isNotEmpty())
+                <div class="row mt-4">
+                    <div class="col-lg-12">
+                        <h5 class="mb-2 border-bottom pb-2">Pembayaran:</h5>
+                        <table class="table table-bordered">
+                            <thead>
+                            <tr>
+                                <th>Tanggal</th>
+                                <th>Referensi</th>
+                                <th>Jumlah</th>
+                                <th>Metode</th>
+                                <th>Lampiran</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            @foreach($sale->payments as $payment)
+                                <tr>
+                                    <td>{{ \Carbon\Carbon::parse($payment->date)->format('d M Y') }}</td>
+                                    <td>{{ $payment->reference }}</td>
+                                    <td>{{ format_currency($payment->amount) }}</td>
+                                    <td>{{ $payment->paymentMethod->name ?? '-' }}</td>
+                                    <td>
+                                        @if($payment->getFirstMediaUrl('attachments'))
+                                            <a href="{{ $payment->getFirstMediaUrl('attachments') }}" target="_blank">Lihat</a>
+                                        @else
+                                            Tidak ada
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endif
+
             <div class="card-footer text-end">
                 @if ($sale->status === Sale::STATUS_DRAFTED)
                     <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline">

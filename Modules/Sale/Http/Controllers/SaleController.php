@@ -212,8 +212,13 @@ class SaleController extends Controller
     {
         abort_if(Gate::denies('show_sales'), 403);
 
-        // Eager load saleDetails and their related bundleItems
-        $sale->load('saleDetails.bundleItems');
+        $sale->load([
+            'saleDetails.bundleItems',
+            'saleDispatches.details',
+            'saleDispatches.details.product',
+            'saleDispatches.details.location',
+            'salePayments.paymentMethod'
+        ]);
 
         $customer = Customer::findOrFail($sale->customer_id);
 
