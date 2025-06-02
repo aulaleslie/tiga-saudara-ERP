@@ -2,29 +2,25 @@
 
 namespace Modules\Product\Http\Requests;
 
-use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Contracts\Validation\Validator as BaseValidator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Validator;
 
 class InitializeProductStockRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
-     *
-     * @return bool
      */
     public function authorize(): bool
     {
-        // Check if the user has permission to create products
         return Gate::allows('create_products');
     }
 
     /**
      * Get the validation rules that apply to the request.
-     *
-     * @return array
      */
     public function rules(): array
     {
@@ -35,24 +31,32 @@ class InitializeProductStockRequest extends FormRequest
             'broken_quantity_non_tax' => ['required', 'integer', 'min:0'],
             'broken_quantity_tax' => ['required', 'integer', 'min:0'],
             'location_id' => ['required', 'integer', 'exists:locations,id'],
-
-            // Custom rule to validate that the total of the quantities is equal to the overall quantity
-            'total_quantity_check' => function ($attribute, $value, $fail) {
-                $totalQuantity = $this->input('quantity');
-                $sumOfQuantities = $this->input('quantity_non_tax') + $this->input('quantity_tax')
-                    + $this->input('broken_quantity_non_tax') + $this->input('broken_quantity_tax');
-
-                if ($sumOfQuantities !== (int)$totalQuantity) {
-                    $fail('Jumlah total stok (termasuk non-tax, tax, dan broken) harus sama dengan jumlah stok yang dimasukkan.');
-                }
-            },
         ];
     }
 
     /**
+     * Add custom validator for total quantity check.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            $quantity = (int) $this->input('quantity');
+            $sum = (int) $this->input('quantity_non_tax')
+                + (int) $this->input('quantity_tax')
+                + (int) $this->input('broken_quantity_non_tax')
+                + (int) $this->input('broken_quantity_tax');
+
+            if ($sum !== $quantity) {
+                $validator->errors()->add(
+                    'quantity',
+                    'Jumlah total stok (non-PPN, PPN, dan stok rusak) harus sama dengan jumlah stok yang dimasukkan.'
+                );
+            }
+        });
+    }
+
+    /**
      * Customize the error messages.
-     *
-     * @return array
      */
     public function messages(): array
     {
@@ -80,11 +84,8 @@ class InitializeProductStockRequest extends FormRequest
 
     /**
      * Handle a failed validation attempt.
-     *
-     * @param Validator $validator
-     * @throws HttpResponseException
      */
-    protected function failedValidation(Validator $validator)
+    protected function failedValidation(BaseValidator $validator): void
     {
         Log::info('Validation input:', $this->input());
         Log::error('Validation failed', $validator->errors()->toArray());
