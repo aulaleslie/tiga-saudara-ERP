@@ -639,6 +639,9 @@ class ProductCart extends Component
 
     public function updateGlobalDiscount(): void
     {
+        $raw = $this->global_discount;
+        $this->global_discount = is_numeric($raw) ? (float) $raw : 0;
+
         $total_sub_total = 0;
         $cart_items = Cart::instance($this->cart_instance)->content();
 
