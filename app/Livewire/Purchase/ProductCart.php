@@ -167,6 +167,9 @@ class ProductCart extends Component
             $total_sub_total += $sub_total;
         }
 
+        $raw = $this->global_discount;
+        $this->global_discount = is_numeric($raw) ? (float) $raw : 0;
+
         // Calculate global discount amount
         if ($this->global_discount_type == 'percentage') {
             $global_discount_amount = $total_sub_total * ($this->global_discount/100);
