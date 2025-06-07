@@ -169,6 +169,12 @@
                         }
                     }
                 });
+
+                input.addEventListener('blur', function () {
+                    if (this.value !== '') {
+                        this.value = parseInt(this.value || 0, 10);
+                    }
+                });
             });
         });
 
