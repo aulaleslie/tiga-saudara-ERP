@@ -389,7 +389,7 @@ class AdjustmentController extends Controller
                         'after_quantity_at_location' => $product->product_quantity,
                         'current_quantity' => $product->product_quantity,
                         'quantity_tax' => 0,
-                        'quantity_non_tax' => 0,
+                        'quantity_non_tax' => $product->product_quantity,
                         'broken_quantity' => 0,
                         'broken_quantity_tax' => 0,
                         'broken_quantity_non_tax' => 0,
