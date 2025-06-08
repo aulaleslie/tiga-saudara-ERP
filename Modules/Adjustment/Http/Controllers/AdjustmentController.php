@@ -358,7 +358,16 @@ class AdjustmentController extends Controller
 
                 // Ensure product stock exists
                 if (!$productStock) {
-                    throw new \Exception("Product stock not found for product {$product->id} at location {$locationId}");
+                    $productStock = ProductStock::create([
+                        'product_id' => $product->id,
+                        'location_id' => $locationId,
+                        'quantity' => 0,
+                        'quantity_tax' => 0,
+                        'quantity_non_tax' => 0,
+                        'broken_quantity' => 0,
+                        'broken_quantity_tax' => 0,
+                        'broken_quantity_non_tax' => 0,
+                    ]);
                 }
 
                 if ($adjustment->type === 'normal') {
@@ -374,12 +383,23 @@ class AdjustmentController extends Controller
                         'setting_id' => session('setting_id'),
                         'type' => 'ADJ',
                         'quantity' => $quantityChange,
+                        'previous_quantity' => 0,
+                        'previous_quantity_at_location' => 0,
+                        'after_quantity' => $product->product_quantity,
+                        'after_quantity_at_location' => $product->product_quantity,
                         'current_quantity' => $product->product_quantity,
+                        'quantity_tax' => 0,
+                        'quantity_non_tax' => 0,
                         'broken_quantity' => 0,
+                        'broken_quantity_tax' => 0,
+                        'broken_quantity_non_tax' => 0,
                         'location_id' => $locationId,
                         'user_id' => auth()->id(),
                         'reason' => 'Adjustment approved',
                     ]);
+
+                    $productStock->increment('quantity', $quantityChange);
+
                 } elseif ($adjustment->type === 'breakage') {
                     // Handle Breakage Adjustment
 
