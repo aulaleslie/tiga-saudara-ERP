@@ -36,6 +36,9 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     Route::get('/mekari-converter', [MekariConverterController::class, 'convertMekariReport'])->name('reports.mekari-converter.index');
     Route::post('/mekari-converter', [MekariConverterController::class, 'handleMekariReport'])->name('reports.mekari-converter.handle');
+    Route::post('/mekari-converter/xlsx', [MekariConverterController::class, 'handleXlsxReport'])->name('reports.mekari-converter.xlsx.handle');
+    Route::post('/mekari-converter/convert-filtered-csv-to-xlsx', [MekariConverterController::class, 'convertFilteredCsvToFormattedXlsx'])
+        ->name('reports.mekari-converter.formatted-xlsx');
 
     Route::prefix('reports')->middleware(['web', 'auth'])->group(function () {
         Route::get('/invoice-generator', [MekariConverterController::class, 'showForm'])->name('reports.mekari-invoice-generator.index');

@@ -20,7 +20,7 @@
                     <div class="card-body">
                         @if ($errors->any())
                             <div class="alert alert-danger">
-                                {{ $errors->first('report_file') }}
+                                {{ $errors->first('report_file') }} {{ $errors->first('filtered_csv') }}
                             </div>
                         @endif
 
@@ -31,8 +31,19 @@
                                 <input type="file" class="form-control" name="report_file" id="report_file" accept=".csv" required>
                             </div>
                             <button type="submit" class="btn btn-primary">
-                                Convert & Download
+                                Filter Pajak Saja & Download CSV
                             </button>
+                        </form>
+
+                        <hr class="my-4">
+
+                        <form method="POST" action="{{ route('reports.mekari-converter.formatted-xlsx') }}" enctype="multipart/form-data" class="mt-4">
+                            @csrf
+                            <div class="mb-3">
+                                <label for="filtered_csv">Upload Filtered CSV</label>
+                                <input type="file" name="filtered_csv" class="form-control" required accept=".csv">
+                            </div>
+                            <button type="submit" class="btn btn-success mt-2">Convert ke XLSX</button>
                         </form>
                     </div>
                 </div>

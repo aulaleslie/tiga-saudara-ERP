@@ -29,8 +29,12 @@ class PurchaseReturnTable extends Component
 
     public function resetTable($supplier): void
     {
-        Log::info('supplier', ['supplier' => $supplier]);
-        $this->supplier_id = $supplier['id'];
+        if ($supplier) {
+            Log::info('Updated supplier id: ', ['$supplier' => $supplier]);
+            $this->supplier_id = $supplier['id'];
+        } else {
+            $this->supplier_id = null;
+        }
         $this->rows = []; // Clear table when supplier changes
     }
 

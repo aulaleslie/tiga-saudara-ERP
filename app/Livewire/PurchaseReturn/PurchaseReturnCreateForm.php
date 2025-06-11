@@ -19,7 +19,7 @@ class PurchaseReturnCreateForm extends Component
     public $note;
 
     protected $listeners = [
-        'supplierSelected' => 'supplierUpdated',
+        'supplierSelected' => 'handleSupplierSelected',
         'updateRows' => 'handleUpdatedRows', // Receive row updates from table
     ];
 
@@ -28,11 +28,14 @@ class PurchaseReturnCreateForm extends Component
         $this->date = now()->format('Y-m-d');
     }
 
-    public function supplierUpdated($supplier): void
+    public function handleSupplierSelected($supplier)
     {
-        $this->supplier_id = $supplier['id'];
-        $this->rows = []; // Reset product rows when supplier changes
-        Log::info("Supplier updated: ", ["supplier_id" => $this->supplier_id]);
+        if ($supplier) {
+            Log::info('Updated supplier id: ', ['$supplier' => $supplier]);
+            $this->supplier_id = $supplier['id'];
+        } else {
+            $this->supplier_id = null;
+        }
     }
 
     public function handleUpdatedRows($updatedRows): void
