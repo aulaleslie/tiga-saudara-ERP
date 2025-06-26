@@ -300,7 +300,7 @@ class MekariConverterController extends Controller
         }
     }
 
-    public function convertFilteredCsvToFormattedXlsx(Request $request)
+    public function convertFilteredCsvToFormattedXlsx(Request $request): StreamedResponse
     {
         $request->validate([
             'filtered_csv' => 'required|file|mimes:csv,txt',

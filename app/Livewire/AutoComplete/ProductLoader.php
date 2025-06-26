@@ -56,7 +56,10 @@ class ProductLoader extends Component
                 ->take($this->how_many)
                 ->get();
         } else {
-            $this->dispatch('productSelected', null);
+            $this->dispatch('productSelected', [
+                'index'   => $this->index,
+                'product' => null,
+            ]);
         }
     }
 
@@ -83,7 +86,10 @@ class ProductLoader extends Component
     {
         $this->selectedProduct = null;
         $this->query = '';
-        $this->dispatch('productSelected', null);
+        $this->dispatch('productSelected', [
+            'index'   => $this->index,
+            'product' => null,
+        ]);
     }
 
     public function loadMore(): void

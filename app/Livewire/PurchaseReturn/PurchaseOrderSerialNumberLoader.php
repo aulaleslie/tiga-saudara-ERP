@@ -20,21 +20,24 @@ class PurchaseOrderSerialNumberLoader extends Component
     public $isFocused = false;
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
+    public $location_id;
 
     protected $listeners = [
         'purchaseOrderSelected' => 'updatePurchaseOrderRow',
     ];
 
-    public function mount($index, $product_id, $purchase_id = null): void
+    public function mount($index, $product_id, $purchase_id = null, $location_id = null): void
     {
+        $this->index = $index;
         $this->product_id = $product_id;
         $this->purchase_id = $purchase_id;
-        $this->index = $index;
+        $this->location_id = $location_id;
 
         Log::info("serial number row", [
             'index' => $this->index,
             'product_id' => $this->product_id,
             'purchase_id' => $this->purchase_id,
+            'location_id' => $this->location_id,
         ]);
     }
 
@@ -57,6 +60,10 @@ class PurchaseOrderSerialNumberLoader extends Component
         if ($this->query && $this->product_id) {
             $serial_number_query = ProductSerialNumber::query();
 
+            if ($this->location_id) {
+                $serial_number_query->where('location_id', $this->location_id);
+            }
+
             // Filter for specific purchase_id (exclude broken products)
             if ($this->purchase_id) {
                 $serial_number_query->whereIn('received_note_detail_id', function ($query) {
@@ -69,7 +76,8 @@ class PurchaseOrderSerialNumberLoader extends Component
 
             $serial_number_query
                 ->where('product_id', $this->product_id)
-                ->where('serial_number', 'like', '%' . $this->query . '%');
+                ->where('serial_number', 'like', '%' . $this->query . '%')
+                ->whereNull('dispatch_detail_id');
 
             $this->query_count = $serial_number_query->count();
             $this->search_results = $serial_number_query->limit($this->how_many)->get();

@@ -34,10 +34,10 @@
             <!-- Payment Term -->
             <div class="col-lg-6 mb-3">
                 <label for="payment_term">Term Pembayaran <span class="text-danger">*</span></label>
-                <select id="payment_term" class="form-control" wire:model="payment_term">
+                <select id="payment_term" class="form-control" wire:model.lazy="payment_term">
                     <option value="">Pilih Term Pembayaran</option>
                     @foreach($paymentTerms as $term)
-                        <option value="{{ $term->id }}">{{ $term->name }}</option>
+                        <option value="{{ (int) $term->id }}">{{ $term->name }}</option>
                     @endforeach
                 </select>
                 @error('payment_term')

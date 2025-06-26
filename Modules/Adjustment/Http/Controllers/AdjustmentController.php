@@ -2,6 +2,7 @@
 
 namespace Modules\Adjustment\Http\Controllers;
 
+use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
@@ -56,42 +57,82 @@ class AdjustmentController extends Controller
     }
 
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request)
     {
-        abort_if(Gate::denies('create_adjustments'), 403);
-
-        $request->validate([
-            'reference' => 'required|string|max:255',
+        Log::info('[Adjustment] Incoming store request:', $request->all());
+        $validated = $request->validate([
+            'reference' => 'required|string',
             'date' => 'required|date',
-            'note' => 'nullable|string|max:1000',
-            'product_ids' => 'required',
-            'quantities' => 'required',
-            'types' => 'required',
-            'location_id' => 'required|exists:locations,id', // Ensure location_id is provided and valid
+            'location_id' => 'required|exists:locations,id',
+            'product_ids' => 'required|array',
+            'quantities_tax' => 'required|array',
+            'quantities_tax.*' => 'nullable|integer|min:0',
+            'quantities_non_tax' => 'required|array',
+            'quantities_non_tax.*' => 'nullable|integer|min:0',
+            'serial_numbers' => 'nullable|array',
+            'is_taxables' => 'nullable|array',
+            'note' => 'nullable|string',
         ]);
 
-        DB::transaction(function () use ($request) {
+        DB::beginTransaction();
+        try {
             $adjustment = Adjustment::create([
-                'date' => $request->date,
-                'note' => $request->note,
-                'type' => 'normal',  // Save the adjustment type
-                'status' => 'pending',  // Set status to pending
-                'location_id' => $request->location_id,  // Record the location_id
+                'reference' => $validated['reference'],
+                'date' => $validated['date'],
+                'location_id' => $validated['location_id'],
+                'note' => $validated['note'] ?? null,
             ]);
 
-            foreach ($request->product_ids as $key => $id) {
+            foreach ($validated['product_ids'] as $index => $productId) {
+                $serials = $validated['serial_numbers'][$index] ?? [];
+
+                $serialIds = collect($serials)->pluck('id')->toArray();
+
+                // Validate: all serials must exist and not be dispatched
+                $validSerials = ProductSerialNumber::whereIn('id', $serialIds)
+                    ->whereNull('dispatch_detail_id')
+                    ->pluck('id')
+                    ->toArray();
+
+                if (count($validSerials) !== count($serialIds)) {
+                    throw new Exception("Beberapa serial number tidak valid atau telah dikirim (product index: {$index}).");
+                }
+
+                $product = Product::findOrFail($productId);
+
+                // Use provided quantities
+                $quantityTax = (int) ($validated['quantities_tax'][$index] ?? 0);
+                $quantityNonTax = (int) ($validated['quantities_non_tax'][$index] ?? 0);
+
+                // If serial required, double-check the count based on taxable flags
+                if ($product->serial_number_required) {
+                    $calculatedTax = collect($serials)->filter(fn($s) => !empty($s['taxable']))->count();
+                    $calculatedNonTax = count($serials) - $calculatedTax;
+
+                    if ($calculatedTax !== $quantityTax || $calculatedNonTax !== $quantityNonTax) {
+                        throw new Exception("Mismatch between input quantities and serial number breakdown for product {$product->product_name}.");
+                    }
+                }
+
                 AdjustedProduct::create([
-                    'adjustment_id' => $adjustment->id,
-                    'product_id' => $id,
-                    'quantity' => $request->quantities[$key],
-                    'type' => $request->types[$key]
+                    'adjustment_id'      => $adjustment->id,
+                    'product_id'         => $productId,
+                    'quantity'           => $quantityTax + $quantityNonTax,
+                    'quantity_tax'       => $quantityTax,
+                    'quantity_non_tax'   => $quantityNonTax,
+                    'serial_numbers'     => json_encode($serials), // Store full structure (id + taxable)
+                    'is_taxable'         => $validated['is_taxables'][$index] ?? 0,
+                    'type'               => 'sub',
                 ]);
             }
-        });
 
-        toast('Penyesuaian Dibuat!', 'success');
-
-        return redirect()->route('adjustments.index');
+            DB::commit();
+            return redirect()->route('adjustments.index')->with('success', 'Penyesuaian berhasil disimpan.');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            report($e);
+            return back()->withErrors(['message' => 'Gagal menyimpan penyesuaian.'])->withInput();
+        }
     }
 
     public function storeBreakage(Request $request): RedirectResponse
@@ -450,7 +491,7 @@ class AdjustmentController extends Controller
                                 $productStock->decrement('quantity_non_tax', $quantityToAdjust);
                                 $productStock->increment('broken_quantity_non_tax', $quantityToAdjust);
                             } else {
-                                throw new \Exception("Insufficient non-taxable stock for product {$product->id} at location {$locationId}");
+                                throw new Exception("Insufficient non-taxable stock for product {$product->id} at location {$locationId}");
                             }
                         }
                     }
@@ -509,7 +550,7 @@ class AdjustmentController extends Controller
             DB::commit();
             toast('Adjustment Approved!', 'success');
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             DB::rollBack();
             Log::error('Adjustment approval failed', ['error' => $e->getMessage()]);
             session()->flash('error', 'Failed to approve adjustment. Please try again.');

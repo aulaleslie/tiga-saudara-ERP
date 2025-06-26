@@ -43,7 +43,7 @@ class PurchasePaymentsDataTable extends DataTable
     }
 
     public function query(PurchasePayment $model) {
-        return $model->newQuery()->byPurchase()->with('purchase');
+        return $model->newQuery()->byPurchase()->with(['purchase', 'paymentMethod']);
     }
 
     public function html() {

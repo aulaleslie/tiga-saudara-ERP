@@ -48,15 +48,19 @@ class CreateForm extends Component
 
     public function updatedPaymentTerm($value): void
     {
+        $this->payment_term = (int) $value;
         $this->updateDueDateFromPaymentTerm();
     }
 
     private function updateDueDateFromPaymentTerm(): void
     {
-        $term = PaymentTerm::find($this->payment_term);
-        if ($term) {
-            $date = Carbon::parse($this->date);
-            $this->due_date = $date->addDays($term->longevity)->format('Y-m-d');
+        $termId = (int) $this->payment_term;
+        if ($termId) {
+            $term = PaymentTerm::find($termId);
+            if ($term) {
+                $date = Carbon::parse($this->date);
+                $this->due_date = $date->addDays($term->longevity)->format('Y-m-d');
+            }
         }
     }
 

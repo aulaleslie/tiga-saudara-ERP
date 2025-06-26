@@ -6,6 +6,7 @@ use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 
@@ -36,7 +37,8 @@ class SearchProduct extends Component
         }
 
         // Fetch products based on the query and setting_id
-        $this->search_results = Product::where('stock_managed', true)
+        $this->search_results = Product::with('baseUnit')
+            ->where('stock_managed', true)
             ->where('setting_id', $this->settingId)
             ->where(function ($query) {
                 $query->where('product_name', 'like', '%' . $this->query . '%')
@@ -61,6 +63,9 @@ class SearchProduct extends Component
 
     public function selectProduct($product): void
     {
+        Log::info('product', [
+            'product' => $product,
+        ]);
         $this->dispatch('productSelected', $product);
     }
 }
