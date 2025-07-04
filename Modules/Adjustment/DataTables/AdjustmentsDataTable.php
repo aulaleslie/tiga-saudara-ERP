@@ -29,7 +29,9 @@ class AdjustmentsDataTable extends DataTable
 
     public function query(Adjustment $model): Builder
     {
-        return $model->newQuery()->withCount('adjustedProducts');
+        return $model->newQuery()
+            ->withCount('adjustedProducts')
+            ->orderByDesc('created_at');
     }
 
     public function html(): \Yajra\DataTables\Html\Builder

@@ -21,9 +21,11 @@ class CreateForm extends Component
     public $due_date;
     public $payment_term;
     public $note;
+    public array $tags = [];
     public $listeners = [
         'supplierSelected' => 'handleSupplierSelected',
         'confirmSubmit' => 'submit',
+        'tagsUpdated' => 'handleTagsUpdated',
     ];
 
     public $paymentTerms = [];
@@ -44,6 +46,11 @@ class CreateForm extends Component
             $this->updateDueDateFromPaymentTerm();
         }
 //        Log::info("Updated supplier id: ", ['supplier_id' => $value]);
+    }
+
+    public function handleTagsUpdated(array $tags)
+    {
+        $this->tags = $tags;
     }
 
     public function updatedPaymentTerm($value): void
@@ -150,6 +157,8 @@ class CreateForm extends Component
                 'is_tax_included' => false,
                 'payment_method' => '',
             ]);
+
+            $purchase->syncTags($this->tags);
 
             foreach ($cartItems as $item) {
                 $product_tax_amount = $item->options['sub_total'] - ($item->options['sub_total_before_tax'] ?? 0);

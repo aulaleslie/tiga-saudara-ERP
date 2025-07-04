@@ -223,27 +223,48 @@ class AdjustmentController extends Controller
     {
         abort_if(Gate::denies('show_adjustments'), 403);
 
-        $adjustment->load(['adjustedProducts.product']);
+        $adjustment->load(['adjustedProducts.product', 'location']);
 
         foreach ($adjustment->adjustedProducts as $adjustedProduct) {
-            // Process Serial Numbers
-            if (!empty($adjustedProduct->serial_numbers)) {
-                $serialNumberIds = json_decode($adjustedProduct->serial_numbers, true);
+            $product = $adjustedProduct->product;
 
-                if (is_array($serialNumberIds)) {
-                    $adjustedProduct->serialNumbers = ProductSerialNumber::whereIn('id', $serialNumberIds)
-                        ->pluck('serial_number')
-                        ->toArray();
-                } else {
-                    $adjustedProduct->serialNumbers = [];
-                }
-            } else {
-                $adjustedProduct->serialNumbers = [];
-            }
+            // Parse stored serial info
+            $rawSerials = json_decode($adjustedProduct->serial_numbers, true) ?? [];
+            $serialIds = collect($rawSerials)->pluck('id')->toArray();
+
+            // Load full serial info
+            $serialMap = ProductSerialNumber::whereIn('id', $serialIds)
+                ->get(['id', 'serial_number', 'tax_id'])
+                ->keyBy('id');
+
+            // Map serials: include serial number + taxable label
+            $adjustedProduct->serialNumbers = collect($rawSerials)->map(function ($item) use ($serialMap) {
+                $serial = $serialMap[$item['id']] ?? null;
+                $isTaxable = !empty($item['taxable']) || ($serial?->tax_id);
+                return [
+                    'serial_number' => $serial?->serial_number ?? 'N/A',
+                    'tax_label' => $isTaxable ? 'Kena Pajak' : 'Tidak Kena Pajak'
+                ];
+            });
+
+            // 🔍 Fetch current product stock info at the adjustment's location
+            $stock = ProductStock::where('product_id', $product->id)
+                ->where('location_id', $adjustment->location_id)
+                ->first();
+
+            $adjustedProduct->stock_info = [
+                'quantity' => $stock->quantity ?? 0,
+                'quantity_tax' => $stock->quantity_tax ?? 0,
+                'quantity_non_tax' => $stock->quantity_non_tax ?? 0,
+                'broken_quantity_tax' => $stock->broken_quantity_tax ?? 0,
+                'broken_quantity_non_tax' => $stock->broken_quantity_non_tax ?? 0,
+                'unit' => $product->baseUnit->unit_name ?? '',
+            ];
         }
 
         return view('adjustment::show', compact('adjustment'));
     }
+
 
 
     public function edit(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application

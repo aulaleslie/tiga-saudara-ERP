@@ -170,7 +170,12 @@ class AdjustmentProductTable extends Component
 
     public function removeProduct($key): void
     {
-        unset($this->products[$key]);
+        unset($this->products[$key], $this->quantities[$key], $this->serialNumberErrors[$key]);
+
+        // Reindex arrays to prevent Livewire rendering issues
+        $this->products = array_values($this->products);
+        $this->quantities = array_values($this->quantities);
+        $this->serialNumberErrors = array_values($this->serialNumberErrors);
     }
 
     public function locationSelected($locationId): void
@@ -237,11 +242,29 @@ class AdjustmentProductTable extends Component
 
     public function removeSerialNumber($index, $serialIndex)
     {
-        if (isset($this->products[$index]['serial_numbers'][$serialIndex])) {
-            unset($this->products[$index]['serial_numbers'][$serialIndex]);
-            $this->products[$index]['serial_numbers'] = array_values($this->products[$index]['serial_numbers']);
-            Log::info("Removed serial number at index {$serialIndex} for row {$index}");
+        if (!isset($this->products[$index]['serial_numbers'][$serialIndex])) {
+            return;
         }
+
+        $serial = $this->products[$index]['serial_numbers'][$serialIndex];
+        $isTaxable = $serial['taxable'] ?? false;
+
+        // Remove the serial number
+        unset($this->products[$index]['serial_numbers'][$serialIndex]);
+        $this->products[$index]['serial_numbers'] = array_values($this->products[$index]['serial_numbers']);
+
+        // Adjust quantity
+        if (!isset($this->quantities[$index])) {
+            $this->quantities[$index] = ['tax' => 0, 'non_tax' => 0];
+        }
+
+        if ($isTaxable) {
+            $this->quantities[$index]['tax'] = max(0, $this->quantities[$index]['tax'] - 1);
+        } else {
+            $this->quantities[$index]['non_tax'] = max(0, $this->quantities[$index]['non_tax'] - 1);
+        }
+
+        Log::info("Removed serial number at index {$serialIndex} for row {$index}");
     }
 
     protected function getProductQuantity($productId)

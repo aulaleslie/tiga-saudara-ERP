@@ -62,10 +62,10 @@
                                     <td>{{ $adjustment->reference }}</td>
                                 </tr>
                                 <tr>
+                                    <th>Lokasi</th>
+                                    <td>{{ $adjustment->location->name ?? '-' }}</td>
                                     <th>Jenis Penyesuaian</th>
-                                    <td colspan="3">
-                                        {{ strtoupper($adjustment->type) }} <!-- Assuming type is 'breakage' or 'normal' -->
-                                    </td>
+                                    <td>{{ strtoupper($adjustment->type) }}</td>
                                 </tr>
                             </table>
                         </div>
@@ -85,10 +85,9 @@
                                 <tr>
                                     <th>Nama Produk</th>
                                     <th>Kode Produk</th>
-                                    <th>Kuantitas</th>
-                                    <th>Jenis</th>
+                                    <th>Stok</th>
+                                    <th>Kuantitas Terhitung</th>
                                     <th>Serial Numbers</th>
-                                    <th>Kena Pajak</th> <!-- Only if serial_number_required = false -->
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -96,32 +95,25 @@
                                     <tr>
                                         <td>{{ $adjustedProduct->product->product_name }}</td>
                                         <td>{{ $adjustedProduct->product->product_code }}</td>
-                                        <td>{{ $adjustedProduct->quantity }}</td>
-                                        <td>
-                                            @if($adjustedProduct->type == 'add')
-                                                (+) Penambahan
-                                            @else
-                                                (-) Pengurangan
-                                            @endif
+                                        <td class="text-center">
+                                            <span class="badge badge-info">
+                                                {{ $adjustedProduct->stock_info['quantity'] }} {{ $adjustedProduct->stock_info['unit'] }}
+                                            </span>
+                                            <span class="d-inline-block"
+                                                  data-bs-toggle="tooltip"
+                                                  data-bs-placement="top"
+                                                  title="Stok Pajak: {{ $adjustedProduct->stock_info['quantity_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Stok Non-Pajak: {{ $adjustedProduct->stock_info['quantity_non_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Rusak Pajak: {{ $adjustedProduct->stock_info['broken_quantity_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Rusak Non-Pajak: {{ $adjustedProduct->stock_info['broken_quantity_non_tax'] }} {{ $adjustedProduct->stock_info['unit'] }}">
+                                                <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
+                                            </span>
                                         </td>
+                                        <td class="text-center">{{ $adjustedProduct->quantity }}</td>
                                         <td>
                                             @if(!empty($adjustedProduct->serialNumbers))
-                                                <ul class="mb-0">
+                                                <ol class="mb-0 ps-3">
                                                     @foreach($adjustedProduct->serialNumbers as $serial)
-                                                        <li>{{ $serial }}</li>
+                                                        <li>{{ $serial['serial_number'] }} - {{ $serial['tax_label'] }}</li>
                                                     @endforeach
-                                                </ul>
-                                            @else
-                                                <span class="text-muted">N/A</span>
-                                            @endif
-                                        </td>
-                                        <td class="text-center">
-                                            @if(empty($adjustedProduct->serialNumbers))
-                                                @if($adjustedProduct->is_taxable)
-                                                    <span class="badge badge-success">Ya</span>
-                                                @else
-                                                    <span class="badge badge-secondary">Tidak</span>
-                                                @endif
+                                                </ol>
                                             @else
                                                 <span class="text-muted">N/A</span>
                                             @endif

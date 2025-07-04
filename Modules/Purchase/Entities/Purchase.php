@@ -7,10 +7,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\People\Entities\Supplier;
 use Modules\Setting\Entities\Tax;
+use OwenIt\Auditing\Contracts\Auditable;
+use Spatie\Tags\HasTags;
 
-class Purchase extends Model
+class Purchase extends Model implements Auditable
 {
     use HasFactory;
+    use \OwenIt\Auditing\Auditable;
+    use HasTags;
 
     protected $fillable = [
         'date',

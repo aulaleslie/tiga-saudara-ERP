@@ -43,6 +43,11 @@
                 @error('payment_term')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
+
+            <div class="col-lg-6 mb-3">
+                <label for="tags">Tag Pembelian</label>
+                <livewire:utils.tag-selector :initial-tags="$tags ?? []" />
+            </div>
         </div>
 
         <!-- Product Cart -->

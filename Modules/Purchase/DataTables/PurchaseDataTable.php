@@ -56,18 +56,37 @@ class PurchaseDataTable extends DataTable
             ->addColumn('payment_status', function ($data) {
                 return view('purchase::partials.payment-status', compact('data'));
             })
+            ->addColumn('tags', function ($data) {
+                return $data->tags->map(function ($tag) {
+                    return '<span class="badge bg-info text-white fs-6 me-1">' . e($tag->name) . '</span>';
+                })->implode(' ');
+            })
             ->addColumn('action', function ($data) {
                 return view('purchase::partials.actions', compact('data'));
             })
-            ->rawColumns(['reference_hyperlink']);
+            ->rawColumns(['reference_hyperlink', 'tags']);
     }
 
-    public function query(Purchase $model) {
-        $query = $model->newQuery()->with('supplier');
+    public function query(Purchase $model)
+    {
+        $query = $model->newQuery()->with(['supplier', 'tags']);
 
         if ($this->request()->has('supplier_id') && $this->request()->get('supplier_id')) {
             $supplier_id = $this->request()->get('supplier_id');
             $query->where('supplier_id', $supplier_id);
+        }
+
+        // Handle global search on tags (MySQL-compatible)
+        if ($search = $this->request()->get('search')['value'] ?? null) {
+            $query->where(function ($q) use ($search) {
+                $q->where('reference', 'like', "%{$search}%")
+                    ->orWhereHas('supplier', function ($q) use ($search) {
+                        $q->where('supplier_name', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('tags', function ($q) use ($search) {
+                        $q->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(name, '$.\"en\"')) LIKE ?", ["%{$search}%"]);
+                    });
+            });
         }
 
         return $query;
@@ -129,6 +148,12 @@ class PurchaseDataTable extends DataTable
             Column::computed('payment_status')
                 ->title('Status Pembayaran')
                 ->className('text-center align-middle'),
+
+            Column::computed('tags')
+                ->title('Tag')
+                ->className('text-center align-middle')
+                ->orderable(false)
+                ->searchable(false),
 
             Column::computed('action')
                 ->title('Aksi')

@@ -27,7 +27,6 @@
                 <th class="align-middle">No</th>
                 <th class="align-middle">Nama Produk</th>
                 <th class="align-middle">Kode Produk</th>
-                <th class="align-middle">Stok</th>
                 <th class="align-middle">Satuan</th>
                 <th class="align-middle">Kuantitas Non Pajak</th>
                 <th class="align-middle">Kuantitas Pajak</th>
@@ -42,17 +41,6 @@
                         <td class="align-middle">{{ $key + 1 }}</td>
                         <td class="align-middle">{{ $product['product_name'] ?? $product['product']['product_name'] }}</td>
                         <td class="align-middle">{{ $product['product_code'] ?? $product['product']['product_code'] }}</td>
-                        <td class="align-middle text-center">
-                                <span class="badge badge-info">
-                                    {{ $product['quantity_tax'] + $product['quantity_non_tax'] }} {{ $product['unit'] }}
-                                </span>
-                            <span class="d-inline-block"
-                                  data-bs-toggle="tooltip"
-                                  data-bs-placement="top"
-                                  title="Stok Pajak: {{ $product['quantity_tax'] }} {{ $product['unit'] }} | Stok Non-Pajak: {{ $product['quantity_non_tax'] }} {{ $product['unit'] }} | Rusak Pajak: {{ $product['broken_quantity_tax'] }} {{ $product['unit'] }} | Rusak Non-Pajak: {{ $product['broken_quantity_non_tax'] }} {{ $product['unit'] }}">
-                                    <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
-                                </span>
-                        </td>
                         <input type="hidden" name="product_ids[]"
                                value="{{ $product['product']['id'] ?? $product['id'] }}">
                         <td class="align-middle">{{ $product['unit'] }}</td>
