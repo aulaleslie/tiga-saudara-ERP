@@ -11,8 +11,10 @@
 |
 */
 
+use App\Livewire\Reports\PurchaseReport;
 use Illuminate\Support\Facades\Route;
 use Modules\Reports\Http\Controllers\MekariConverterController;
+use Modules\Reports\Http\Controllers\PurchaseReportController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Profit Loss Report
@@ -43,6 +45,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::prefix('reports')->middleware(['web', 'auth'])->group(function () {
         Route::get('/invoice-generator', [MekariConverterController::class, 'showForm'])->name('reports.mekari-invoice-generator.index');
         Route::post('/invoice-generator', [MekariConverterController::class, 'generate'])->name('reports.mekari-invoice-generator.generate');
+
+        Route::get('/purchase-report', [PurchaseReportController::class, 'index'])
+            ->name('reports.purchase-report.index')
+            ->middleware('can:access_reports');
     });
 
     Route::get('/test-pdf', function () {
@@ -62,4 +68,5 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
         return $pdf->stream('test-invoice.pdf');
     });
+
 });

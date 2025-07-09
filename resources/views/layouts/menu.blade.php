@@ -10,12 +10,6 @@
     </a>
 </li>
 
-<li class="c-sidebar-nav-item">
-    <a class="c-sidebar-nav-link" href="#">
-        <i class="c-sidebar-nav-icon bbi bi-pie-chart" style="line-height: 1;"></i> Laporan
-    </a>
-</li>
-
 <li class="c-sidebar-nav-divider"></li>
 
 @can('access_reports')
@@ -30,7 +24,6 @@
                     <i class="c-sidebar-nav-icon bi bi-arrow-repeat" style="line-height: 1;"></i> Mekari Converter
                 </a>
             </li>
-            {{-- Add more report links here if needed --}}
         </ul>
         <ul class="c-sidebar-nav-dropdown-items">
             <li class="c-sidebar-nav-item">
@@ -39,7 +32,14 @@
                     <i class="c-sidebar-nav-icon bi bi-arrow-repeat" style="line-height: 1;"></i> Mekari Invoice Generator
                 </a>
             </li>
-            {{-- Add more report links here if needed --}}
+        </ul>
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.purchase-report.index') ? 'c-active' : '' }}"
+                   href="{{ route('reports.purchase-report.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-clipboard-data" style="line-height: 1;"></i> Laporan Pembelian
+                </a>
+            </li>
         </ul>
     </li>
 @endcan

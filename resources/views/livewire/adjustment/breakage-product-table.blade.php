@@ -51,10 +51,19 @@
                         </td>
                         <input type="hidden" name="product_ids[]" value="{{ $product['product']['id'] ?? $product['id'] }}">
                         <td class="align-middle">
-                            <input type="number" name="quantities[]" min="1" class="form-control"
-                                   value="{{ old("quantities.$key", $product['quantity'] ?? 1) }}">
-                            @if (empty($product['serial_number_required']))
-                                <div class="form-check">
+                            @if (!empty($product['serial_number_required']))
+                                <input type="number"
+                                       name="quantities[]"
+                                       class="form-control"
+                                       wire:model.defer="products.{{ $key }}.quantity"
+                                       readonly>
+                            @else
+                                <input type="number"
+                                       name="quantities[]"
+                                       min="1"
+                                       class="form-control"
+                                       wire:model.defer="products.{{ $key }}.quantity">
+                                <div class="form-check mt-1">
                                     <input type="hidden" name="is_taxables[{{ $key }}]" value="0">
                                     <input type="checkbox"
                                            name="is_taxables[{{ $key }}]"

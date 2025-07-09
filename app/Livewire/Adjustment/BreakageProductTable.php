@@ -167,6 +167,7 @@ class BreakageProductTable extends Component
             }
 
             $this->products[$index]['serial_numbers'][] = $serialNumber;
+            $this->products[$index]['quantity'] = count($this->products[$index]['serial_numbers']);
             Log::info("Serial number added for row {$index}", ['serial_number' => $serialNumber]);
         }
     }
@@ -176,6 +177,7 @@ class BreakageProductTable extends Component
         if (isset($this->products[$index]['serial_numbers'][$serialIndex])) {
             unset($this->products[$index]['serial_numbers'][$serialIndex]);
             $this->products[$index]['serial_numbers'] = array_values($this->products[$index]['serial_numbers']);
+            $this->products[$index]['quantity'] = count($this->products[$index]['serial_numbers']);
             Log::info("Removed serial number at index {$serialIndex} for row {$index}");
         }
     }

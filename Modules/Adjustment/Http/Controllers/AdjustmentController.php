@@ -20,6 +20,7 @@ use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Tax;
 
 class AdjustmentController extends Controller
 {
@@ -223,7 +224,10 @@ class AdjustmentController extends Controller
     {
         abort_if(Gate::denies('show_adjustments'), 403);
 
-        $adjustment->load(['adjustedProducts.product', 'location']);
+        $adjustment->load([
+            'adjustedProducts.product.baseUnit',
+            'location'
+        ]);
 
         foreach ($adjustment->adjustedProducts as $adjustedProduct) {
             $product = $adjustedProduct->product;
@@ -240,7 +244,8 @@ class AdjustmentController extends Controller
             // Map serials: include serial number + taxable label
             $adjustedProduct->serialNumbers = collect($rawSerials)->map(function ($item) use ($serialMap) {
                 $serial = $serialMap[$item['id']] ?? null;
-                $isTaxable = !empty($item['taxable']) || ($serial?->tax_id);
+                $isTaxable = !empty($item['taxable']) && (int) $item['taxable'] === 1;
+
                 return [
                     'serial_number' => $serial?->serial_number ?? 'N/A',
                     'tax_label' => $isTaxable ? 'Kena Pajak' : 'Tidak Kena Pajak'
@@ -271,6 +276,9 @@ class AdjustmentController extends Controller
     {
         abort_if(Gate::denies('edit_adjustments'), 403);
 
+        // ✅ Add this
+        $adjustment->load('adjustedProducts.product.baseUnit');
+
         return view('adjustment::edit', compact('adjustment'));
     }
 
@@ -279,39 +287,66 @@ class AdjustmentController extends Controller
     {
         abort_if(Gate::denies('edit_adjustments'), 403);
 
-        $request->validate([
+        $validated = $request->validate([
             'reference' => 'required|string|max:255',
             'date' => 'required|date',
+            'location_id' => 'required|exists:locations,id',
+            'product_ids' => 'required|array',
+            'quantities_tax' => 'required|array',
+            'quantities_tax.*' => 'nullable|integer|min:0',
+            'quantities_non_tax' => 'required|array',
+            'quantities_non_tax.*' => 'nullable|integer|min:0',
+            'serial_numbers' => 'nullable|array',
+            'is_taxables' => 'nullable|array',
             'note' => 'nullable|string|max:1000',
-            'product_ids' => 'required',
-            'quantities' => 'required',
-            'types' => 'required'
         ]);
 
 
-        DB::transaction(function () use ($request, $adjustment) {
+        DB::transaction(function () use ($validated, $adjustment) {
             $adjustment->update([
-                'reference' => $request->reference,
-                'date' => $request->date,
-                'note' => $request->note
+                'reference' => $validated['reference'],
+                'date' => $validated['date'],
+                'note' => $validated['note'] ?? null
             ]);
 
-            foreach ($adjustment->adjustedProducts as $adjustedProduct) {
-                $adjustedProduct->delete();
-            }
+            $adjustment->adjustedProducts()->delete();
 
-            foreach ($request->product_ids as $key => $id) {
-                // Convert serial_numbers array to JSON (ensuring it's an array)
-                $serialNumbersJson = isset($request->serial_numbers[$key])
-                    ? json_encode($request->serial_numbers[$key])
-                    : json_encode([]);
+            foreach ($validated['product_ids'] as $index => $productId) {
+                $serials = $validated['serial_numbers'][$index] ?? [];
+
+                $serialIds = collect($serials)->pluck('id')->toArray();
+                $validSerials = ProductSerialNumber::whereIn('id', $serialIds)
+                    ->whereNull('dispatch_detail_id')
+                    ->pluck('id')
+                    ->toArray();
+
+                if (count($validSerials) !== count($serialIds)) {
+                    throw new Exception("Beberapa serial number tidak valid atau telah dikirim (product index: {$index}).");
+                }
+
+                $product = Product::findOrFail($productId);
+
+                $quantityTax = (int) ($validated['quantities_tax'][$index] ?? 0);
+                $quantityNonTax = (int) ($validated['quantities_non_tax'][$index] ?? 0);
+
+                if ($product->serial_number_required) {
+                    $calculatedTax = collect($serials)->filter(fn($s) => !empty($s['taxable']))->count();
+                    $calculatedNonTax = count($serials) - $calculatedTax;
+
+                    if ($calculatedTax !== $quantityTax || $calculatedNonTax !== $quantityNonTax) {
+                        throw new Exception("Mismatch between input quantities and serial number breakdown for product {$product->product_name}.");
+                    }
+                }
 
                 AdjustedProduct::create([
                     'adjustment_id' => $adjustment->id,
-                    'product_id' => $id,
-                    'quantity' => $request->quantities[$key],
+                    'product_id' => $productId,
+                    'quantity' => $quantityTax + $quantityNonTax,
+                    'quantity_tax' => $quantityTax,
+                    'quantity_non_tax' => $quantityNonTax,
+                    'serial_numbers' => json_encode($serials),
+                    'is_taxable' => $validated['is_taxables'][$index] ?? 0,
                     'type' => 'sub',
-                    'serial_numbers' => $serialNumbersJson, // Store as JSON array
                 ]);
             }
         });
@@ -432,36 +467,58 @@ class AdjustmentController extends Controller
                     ]);
                 }
 
-                if ($adjustment->type === 'normal') {
-                    // Handle Normal Adjustment
-                    $quantityChange = $adjustedProduct->type == 'sub' ? -$quantityToAdjust : $quantityToAdjust;
+                if ($product->serial_number_required) {
+                    $rawSerials = json_decode($adjustedProduct->serial_numbers, true) ?? [];
+                    $serialIdsInDoc = collect($rawSerials)->pluck('id')->toArray();
 
-                    // Update product quantity
-                    $product->increment('product_quantity', $quantityChange);
+                    // Get all valid serials from DB
+                    $serialsInDb = ProductSerialNumber::whereIn('id', $serialIdsInDoc)
+                        ->where('product_id', $product->id)
+                        ->get();
 
-                    // Log transaction for normal adjustment
-                    Transaction::create([
-                        'product_id' => $product->id,
-                        'setting_id' => session('setting_id'),
-                        'type' => 'ADJ',
-                        'quantity' => $quantityChange,
-                        'previous_quantity' => 0,
-                        'previous_quantity_at_location' => 0,
-                        'after_quantity' => $product->product_quantity,
-                        'after_quantity_at_location' => $product->product_quantity,
-                        'current_quantity' => $product->product_quantity,
-                        'quantity_tax' => 0,
-                        'quantity_non_tax' => $product->product_quantity,
-                        'broken_quantity' => 0,
-                        'broken_quantity_tax' => 0,
-                        'broken_quantity_non_tax' => 0,
-                        'location_id' => $locationId,
-                        'user_id' => auth()->id(),
-                        'reason' => 'Adjustment approved',
-                    ]);
+                    // Load latest tax record (assumes tax table has created_at)
+                    $latestTax = Tax::orderByDesc('created_at')->first();
 
-                    $productStock->increment('quantity', $quantityChange);
+                    foreach ($rawSerials as $serialData) {
+                        $serial = $serialsInDb->firstWhere('id', $serialData['id']);
 
+                        if (!$serial) {
+                            continue; // Skip if serial not found
+                        }
+
+                        $isTaxable = !empty($serialData['taxable']) && (int)$serialData['taxable'] === 1;
+
+                        if ($isTaxable) {
+                            // Set tax_id only if missing
+                            if (!$serial->tax_id && $latestTax) {
+                                $serial->tax_id = $latestTax->id;
+                                $serial->save();
+                            }
+                        } else {
+                            // Ensure tax_id is null
+                            if ($serial->tax_id !== null) {
+                                $serial->tax_id = null;
+                                $serial->save();
+                            }
+                        }
+                    }
+
+                    // Delete unmatched serial numbers
+                    $existingSerials = ProductSerialNumber::where('product_id', $product->id)
+                        ->where('location_id', $locationId)
+                        ->whereNull('dispatch_detail_id')
+                        ->pluck('id')
+                        ->toArray();
+
+                    $serialsToDelete = array_diff($existingSerials, $serialIdsInDoc);
+
+                    if (!empty($serialsToDelete)) {
+                        ProductSerialNumber::whereIn('id', $serialsToDelete)->delete();
+
+                        Log::info("Deleted unmatched serials for product {$product->product_code}", [
+                            'deleted_ids' => $serialsToDelete,
+                        ]);
+                    }
                 } elseif ($adjustment->type === 'breakage') {
                     // Handle Breakage Adjustment
 

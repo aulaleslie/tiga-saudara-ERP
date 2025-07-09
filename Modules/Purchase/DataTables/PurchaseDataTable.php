@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\DataTables;
 
+use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Entities\Purchase;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
@@ -84,10 +85,18 @@ class PurchaseDataTable extends DataTable
                         $q->where('supplier_name', 'like', "%{$search}%");
                     })
                     ->orWhereHas('tags', function ($q) use ($search) {
-                        $q->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(name, '$.\"en\"')) LIKE ?", ["%{$search}%"]);
+                        $q->whereRaw(
+                            "LOWER(JSON_UNQUOTE(JSON_EXTRACT(CAST(name AS JSON), '$.en'))) LIKE ?",
+                            ['%' . strtolower($search) . '%']
+                        );
                     });
             });
         }
+
+        Log::info('Purchase Query SQL: ' . $query->toSql());
+        Log::info('Purchase Query Bindings: ', $query->getBindings());
+
+        Log::info('Sample Query Result:', $query->get()->toArray());
 
         return $query;
     }
@@ -100,7 +109,7 @@ class PurchaseDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(10)
+            ->orderBy(11)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),

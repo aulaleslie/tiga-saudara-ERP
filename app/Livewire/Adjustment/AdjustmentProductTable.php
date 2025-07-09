@@ -65,6 +65,15 @@ class AdjustmentProductTable extends Component
                     'is_taxable' => $adjustedProduct['is_taxable'] ?? 0,
                 ];
             }, $adjustedProducts);
+
+            $this->quantities = collect($adjustedProducts)->mapWithKeys(function ($item, $index) {
+                return [
+                    $index => [
+                        'tax' => (int) ($item['quantity_tax'] ?? 0),
+                        'non_tax' => (int) ($item['quantity_non_tax'] ?? 0),
+                    ]
+                ];
+            })->toArray();
         } elseif (!empty($product_ids) && !empty($quantities)) {
             // Restore product selection from validation error
             foreach ($product_ids as $key => $product_id) {
