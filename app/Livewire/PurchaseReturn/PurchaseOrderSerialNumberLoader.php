@@ -21,17 +21,19 @@ class PurchaseOrderSerialNumberLoader extends Component
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
     public $location_id;
+    public $is_broken = false;
 
     protected $listeners = [
         'purchaseOrderSelected' => 'updatePurchaseOrderRow',
     ];
 
-    public function mount($index, $product_id, $purchase_id = null, $location_id = null): void
+    public function mount($index, $product_id, $purchase_id = null, $location_id = null, $is_broken = null): void
     {
         $this->index = $index;
         $this->product_id = $product_id;
         $this->purchase_id = $purchase_id;
         $this->location_id = $location_id;
+        $this->is_broken = $is_broken;
 
         Log::info("serial number row", [
             'index' => $this->index,
@@ -62,6 +64,10 @@ class PurchaseOrderSerialNumberLoader extends Component
 
             if ($this->location_id) {
                 $serial_number_query->where('location_id', $this->location_id);
+            }
+
+            if ($this->is_broken) {
+                $serial_number_query->where('is_broken', true);
             }
 
             // Filter for specific purchase_id (exclude broken products)

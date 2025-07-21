@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Create Adjustment')
+@section('title', 'Buat Penyesuaian Barang Rusak')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
@@ -47,7 +47,7 @@
 
                             <div class="form-row">
                                 <div class="col-lg-12">
-                                    <livewire:search-product />
+                                    <livewire:purchase.search-product />
                                 </div>
                             </div>
 

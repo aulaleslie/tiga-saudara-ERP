@@ -232,19 +232,33 @@ class AdjustmentController extends Controller
         foreach ($adjustment->adjustedProducts as $adjustedProduct) {
             $product = $adjustedProduct->product;
 
-            // Parse stored serial info
             $rawSerials = json_decode($adjustedProduct->serial_numbers, true) ?? [];
-            $serialIds = collect($rawSerials)->pluck('id')->toArray();
 
-            // Load full serial info
+            // 🔎 Detect format
+            $isBreakage = $adjustment->type === 'breakage';
+
+            // 🆔 Extract IDs from either format
+            $serialIds = collect($rawSerials)->map(function ($item) use ($isBreakage) {
+                return $isBreakage ? $item : $item['id'];
+            })->toArray();
+
+            // 📦 Load serials from DB
             $serialMap = ProductSerialNumber::whereIn('id', $serialIds)
                 ->get(['id', 'serial_number', 'tax_id'])
                 ->keyBy('id');
 
-            // Map serials: include serial number + taxable label
-            $adjustedProduct->serialNumbers = collect($rawSerials)->map(function ($item) use ($serialMap) {
-                $serial = $serialMap[$item['id']] ?? null;
-                $isTaxable = !empty($item['taxable']) && (int) $item['taxable'] === 1;
+            // 🔁 Build unified display data
+            $adjustedProduct->serialNumbers = collect($serialIds)->map(function ($id, $index) use ($serialMap, $rawSerials, $isBreakage) {
+                $serial = $serialMap[$id] ?? null;
+
+                $isTaxable = false;
+
+                if ($isBreakage) {
+                    // Use tax_id from DB
+                    $isTaxable = $serial?->tax_id !== null;
+                } else {
+                    $isTaxable = !empty($rawSerials[$index]['taxable']) && $rawSerials[$index]['taxable'] == '1';
+                }
 
                 return [
                     'serial_number' => $serial?->serial_number ?? 'N/A',
@@ -252,7 +266,7 @@ class AdjustmentController extends Controller
                 ];
             });
 
-            // 🔍 Fetch current product stock info at the adjustment's location
+            // 📦 Stock info (same as before)
             $stock = ProductStock::where('product_id', $product->id)
                 ->where('location_id', $adjustment->location_id)
                 ->first();
@@ -439,63 +453,69 @@ class AdjustmentController extends Controller
 
     public function approve(Adjustment $adjustment): RedirectResponse
     {
-        DB::beginTransaction();
+        Log::info('[Adjustment] Approving adjustment (full)', $adjustment->toArray());
+        Log::info('[Adjustment] Approving adjustment details (full)', $adjustment->adjustedProducts->load('product')->toArray());
 
+        if ($adjustment->type === 'normal') {
+            return $this->approveNormal($adjustment);
+        } elseif ($adjustment->type === 'breakage') {
+            return $this->approveBreakage($adjustment);
+        }
+
+        session()->flash('error', 'Unknown adjustment type.');
+        return redirect()->route('adjustments.index');
+    }
+
+    public function approveNormal(Adjustment $adjustment): RedirectResponse
+    {
         try {
+            DB::beginTransaction();
+            $settingId = session('setting_id');
+            $latestTax = Tax::orderByDesc('created_at')->first();
+
             foreach ($adjustment->adjustedProducts as $adjustedProduct) {
-                $product = Product::findOrFail($adjustedProduct->product_id);
+                $product = $adjustedProduct->product;
                 $locationId = $adjustment->location_id;
-                $quantityToAdjust = $adjustedProduct->quantity;
 
-                // Lock product stock at the specific location
-                $productStock = ProductStock::where('product_id', $product->id)
-                    ->where('location_id', $locationId)
-                    ->lockForUpdate()
-                    ->first();
+                $productStock = ProductStock::firstOrNew([
+                    'product_id' => $product->id,
+                    'location_id' => $locationId,
+                ]);
 
-                // Ensure product stock exists
-                if (!$productStock) {
-                    $productStock = ProductStock::create([
-                        'product_id' => $product->id,
-                        'location_id' => $locationId,
-                        'quantity' => 0,
-                        'quantity_tax' => 0,
-                        'quantity_non_tax' => 0,
-                        'broken_quantity' => 0,
-                        'broken_quantity_tax' => 0,
-                        'broken_quantity_non_tax' => 0,
-                    ]);
-                }
+                // 🧮 Capture previous values before mutation
+                $prev_quantity_tax = $productStock->quantity_tax ?? 0;
+                $prev_quantity_non_tax = $productStock->quantity_non_tax ?? 0;
+                $prev_broken_tax = $productStock->broken_quantity_tax ?? 0;
+                $prev_broken_non_tax = $productStock->broken_quantity_non_tax ?? 0;
+
+                $quantityTax = 0;
+                $quantityNonTax = 0;
 
                 if ($product->serial_number_required) {
                     $rawSerials = json_decode($adjustedProduct->serial_numbers, true) ?? [];
                     $serialIdsInDoc = collect($rawSerials)->pluck('id')->toArray();
 
-                    // Get all valid serials from DB
                     $serialsInDb = ProductSerialNumber::whereIn('id', $serialIdsInDoc)
                         ->where('product_id', $product->id)
-                        ->get();
-
-                    // Load latest tax record (assumes tax table has created_at)
-                    $latestTax = Tax::orderByDesc('created_at')->first();
+                        ->where('location_id', $locationId)
+                        ->whereNull('dispatch_detail_id')
+                        ->get()
+                        ->keyBy('id');
 
                     foreach ($rawSerials as $serialData) {
-                        $serial = $serialsInDb->firstWhere('id', $serialData['id']);
-
-                        if (!$serial) {
-                            continue; // Skip if serial not found
-                        }
+                        $serial = $serialsInDb[$serialData['id']] ?? null;
+                        if (!$serial) continue;
 
                         $isTaxable = !empty($serialData['taxable']) && (int)$serialData['taxable'] === 1;
 
                         if ($isTaxable) {
-                            // Set tax_id only if missing
+                            $quantityTax++;
                             if (!$serial->tax_id && $latestTax) {
                                 $serial->tax_id = $latestTax->id;
                                 $serial->save();
                             }
                         } else {
-                            // Ensure tax_id is null
+                            $quantityNonTax++;
                             if ($serial->tax_id !== null) {
                                 $serial->tax_id = null;
                                 $serial->save();
@@ -503,7 +523,12 @@ class AdjustmentController extends Controller
                         }
                     }
 
-                    // Delete unmatched serial numbers
+                    // Set recalculated stock
+                    $productStock->quantity_tax = $quantityTax;
+                    $productStock->quantity_non_tax = $quantityNonTax;
+                    $productStock->save();
+
+                    // Remove unmatched serials from DB
                     $existingSerials = ProductSerialNumber::where('product_id', $product->id)
                         ->where('location_id', $locationId)
                         ->whereNull('dispatch_detail_id')
@@ -511,128 +536,187 @@ class AdjustmentController extends Controller
                         ->toArray();
 
                     $serialsToDelete = array_diff($existingSerials, $serialIdsInDoc);
-
                     if (!empty($serialsToDelete)) {
                         ProductSerialNumber::whereIn('id', $serialsToDelete)->delete();
-
                         Log::info("Deleted unmatched serials for product {$product->product_code}", [
                             'deleted_ids' => $serialsToDelete,
                         ]);
                     }
-                } elseif ($adjustment->type === 'breakage') {
-                    // Handle Breakage Adjustment
 
-                    // Capture previous values for logging
-                    $previous_quantity_tax = $productStock->quantity_tax;
-                    $previous_quantity_non_tax = $productStock->quantity_non_tax;
-                    $previous_broken_quantity_tax = $productStock->broken_quantity_tax;
-                    $previous_broken_quantity_non_tax = $productStock->broken_quantity_non_tax;
+                } else {
+                    // Directly assign non-serial quantities
+                    $productStock->quantity_tax = $adjustedProduct->quantity_tax;
+                    $productStock->quantity_non_tax = $adjustedProduct->quantity_non_tax;
+                    $productStock->save();
 
-                    if ($product->serial_number_required) {
-                        // Handle Serial Numbered Product
-                        $serialNumberIds = json_decode($adjustedProduct->serial_numbers, true) ?? [];
-                        $taxableSerialCount = ProductSerialNumber::whereIn('id', $serialNumberIds)
-                            ->whereNotNull('tax_id') // Count taxable serials
-                            ->count();
-
-                        $nonTaxableSerialCount = count($serialNumberIds) - $taxableSerialCount;
-
-                        // Mark serial numbers as broken
-                        ProductSerialNumber::whereIn('id', $serialNumberIds)
-                            ->update(['is_broken' => true]);
-
-                        // Reduce stock accordingly
-                        $productStock->decrement('quantity_tax', $taxableSerialCount);
-                        $productStock->increment('broken_quantity_tax', $taxableSerialCount);
-
-                        $productStock->decrement('quantity_non_tax', $nonTaxableSerialCount);
-                        $productStock->increment('broken_quantity_non_tax', $nonTaxableSerialCount);
-                    } else {
-                        // Handle Non-Serial Numbered Product using is_taxable flag
-                        if ($adjustedProduct->is_taxable) {
-                            // Deduct from tax-tracked stock
-                            if ($quantityToAdjust <= $productStock->quantity_tax) {
-                                $productStock->decrement('quantity_tax', $quantityToAdjust);
-                                $productStock->increment('broken_quantity_tax', $quantityToAdjust);
-                            } else {
-                                // Deduct from tax-tracked stock first, then non-tax
-                                $remainingBreakage = $quantityToAdjust - $productStock->quantity_tax;
-                                $productStock->increment('broken_quantity_tax', $productStock->quantity_tax);
-                                $productStock->decrement('quantity_tax', $productStock->quantity_tax);
-
-                                $productStock->increment('broken_quantity_non_tax', $remainingBreakage);
-                                $productStock->decrement('quantity_non_tax', $remainingBreakage);
-                            }
-                        } else {
-                            // Deduct only from non-taxable stock
-                            if ($quantityToAdjust <= $productStock->quantity_non_tax) {
-                                $productStock->decrement('quantity_non_tax', $quantityToAdjust);
-                                $productStock->increment('broken_quantity_non_tax', $quantityToAdjust);
-                            } else {
-                                throw new Exception("Insufficient non-taxable stock for product {$product->id} at location {$locationId}");
-                            }
-                        }
-                    }
-
-                    // Capture after values for logging
-                    $after_quantity_tax = $productStock->quantity_tax;
-                    $after_quantity_non_tax = $productStock->quantity_non_tax;
-                    $after_broken_quantity_tax = $productStock->broken_quantity_tax;
-                    $after_broken_quantity_non_tax = $productStock->broken_quantity_non_tax;
-
-                    // Log breakage transaction
-                    Transaction::create([
-                        'product_id' => $product->id,
-                        'setting_id' => session('setting_id'),
-                        'type' => 'ADJ',
-                        'quantity' => $quantityToAdjust,
-
-                        // 📌 Capture previous values
-                        'previous_quantity' => $previous_quantity_tax + $previous_quantity_non_tax, // ✅ Total quantity before
-                        'after_quantity' => $after_quantity_tax + $after_quantity_non_tax, // ✅ Total quantity after
-                        'previous_quantity_at_location' => $productStock->quantity, // ✅ Stock before at location
-                        'after_quantity_at_location' => $productStock->quantity, // ✅ Stock after at location (unchanged)
-
-                        // 📌 Stock quantities after the breakage update
-                        'current_quantity' => $productStock->quantity, // ✅ Unchanged global stock
-                        'broken_quantity' => $productStock->broken_quantity_tax + $productStock->broken_quantity_non_tax, // ✅ Total broken
-
-                        // 📌 New breakage adjustments
-                        'broken_quantity_tax' => $productStock->broken_quantity_tax, // ✅ Broken taxable quantity
-                        'broken_quantity_non_tax' => $productStock->broken_quantity_non_tax, // ✅ Broken non-taxable quantity
-                        'quantity_non_tax' => $after_quantity_non_tax, // ✅ Remaining non-tax stock
-                        'quantity_tax' => $after_quantity_tax, // ✅ Remaining tax stock
-
-                        'location_id' => $locationId,
-                        'user_id' => auth()->id(),
-                        'reason' => 'Breakage adjustment approved',
-
-                        // 📌 Capture previous and after values for integrity checking
-                        'previous_quantity_tax' => $previous_quantity_tax,
-                        'after_quantity_tax' => $after_quantity_tax,
-                        'previous_quantity_non_tax' => $previous_quantity_non_tax,
-                        'after_quantity_non_tax' => $after_quantity_non_tax,
-                        'previous_broken_quantity_tax' => $previous_broken_quantity_tax,
-                        'after_broken_quantity_tax' => $after_broken_quantity_tax,
-                        'previous_broken_quantity_non_tax' => $previous_broken_quantity_non_tax,
-                        'after_broken_quantity_non_tax' => $after_broken_quantity_non_tax,
-                    ]);
-
-                    $product->increment('broken_quantity', $quantityToAdjust);
+                    $quantityTax = $adjustedProduct->quantity_tax;
+                    $quantityNonTax = $adjustedProduct->quantity_non_tax;
                 }
+
+                // 🧮 After values
+                $after_quantity_tax = $productStock->quantity_tax ?? 0;
+                $after_quantity_non_tax = $productStock->quantity_non_tax ?? 0;
+
+                // 🧾 Log the transaction
+                Transaction::create([
+                    'product_id' => $product->id,
+                    'setting_id' => $settingId,
+                    'type' => 'ADJ',
+                    'quantity' => $adjustedProduct->quantity,
+
+                    'previous_quantity' => $prev_quantity_tax + $prev_quantity_non_tax,
+                    'after_quantity' => $after_quantity_tax + $after_quantity_non_tax,
+                    'previous_quantity_at_location' => $prev_quantity_tax + $prev_quantity_non_tax,
+                    'after_quantity_at_location' => $after_quantity_tax + $after_quantity_non_tax,
+
+                    'quantity_tax' => $after_quantity_tax,
+                    'quantity_non_tax' => $after_quantity_non_tax,
+                    'broken_quantity_tax' => $productStock->broken_quantity_tax ?? 0,
+                    'broken_quantity_non_tax' => $productStock->broken_quantity_non_tax ?? 0,
+                    'broken_quantity' => ($productStock->broken_quantity_tax ?? 0) + ($productStock->broken_quantity_non_tax ?? 0),
+                    'current_quantity' => $after_quantity_tax + $after_quantity_non_tax,
+
+                    'location_id' => $locationId,
+                    'user_id' => auth()->id(),
+                    'reason' => 'Normal adjustment approved',
+
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
             }
 
-            // Update adjustment status to approved
             $adjustment->update(['status' => 'approved']);
 
             DB::commit();
             toast('Adjustment Approved!', 'success');
-
         } catch (Exception $e) {
             DB::rollBack();
             Log::error('Adjustment approval failed', ['error' => $e->getMessage()]);
             session()->flash('error', 'Failed to approve adjustment. Please try again.');
             toast('Error Approving Adjustment!', 'error');
+        }
+
+        return redirect()->route('adjustments.index');
+    }
+
+    public function approveBreakage(Adjustment $adjustment): RedirectResponse
+    {
+        try {
+            DB::beginTransaction();
+            foreach ($adjustment->adjustedProducts as $adjustedProduct) {
+                $product = $adjustedProduct->product;
+                $locationId = $adjustment->location_id;
+                $quantityToAdjust = $adjustedProduct->quantity;
+
+                $productStock = ProductStock::where('product_id', $product->id)
+                    ->where('location_id', $locationId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                // 🧮 Capture previous values
+                $prev_quantity_tax = $productStock->quantity_tax ?? 0;
+                $prev_quantity_non_tax = $productStock->quantity_non_tax ?? 0;
+                $prev_broken_tax = $productStock->broken_quantity_tax ?? 0;
+                $prev_broken_non_tax = $productStock->broken_quantity_non_tax ?? 0;
+
+                $after_quantity_tax = $prev_quantity_tax;
+                $after_quantity_non_tax = $prev_quantity_non_tax;
+                $after_broken_tax = $prev_broken_tax;
+                $after_broken_non_tax = $prev_broken_non_tax;
+
+                if ($product->serial_number_required) {
+                    $serialIds = json_decode($adjustedProduct->serial_numbers, true) ?? [];
+
+                    $serials = ProductSerialNumber::whereIn('id', $serialIds)
+                        ->where('product_id', $product->id)
+                        ->where('location_id', $locationId)
+                        ->get();
+
+                    $taxableCount = $serials->whereNotNull('tax_id')->count();
+                    $nonTaxableCount = count($serials) - $taxableCount;
+
+                    // Mark serials as broken
+                    ProductSerialNumber::whereIn('id', $serialIds)
+                        ->update(['is_broken' => true]);
+
+                    // Adjust stock
+                    $productStock->decrement('quantity_tax', $taxableCount);
+                    $productStock->decrement('quantity_non_tax', $nonTaxableCount);
+                    $productStock->increment('broken_quantity_tax', $taxableCount);
+                    $productStock->increment('broken_quantity_non_tax', $nonTaxableCount);
+
+                    $after_quantity_tax -= $taxableCount;
+                    $after_quantity_non_tax -= $nonTaxableCount;
+                    $after_broken_tax += $taxableCount;
+                    $after_broken_non_tax += $nonTaxableCount;
+                } else {
+                    $isTaxable = $adjustedProduct->is_taxable;
+
+                    if ($isTaxable) {
+                        if ($quantityToAdjust > $productStock->quantity_tax) {
+                            throw new \Exception("Insufficient taxable stock for product {$product->product_name}");
+                        }
+
+                        $productStock->decrement('quantity_tax', $quantityToAdjust);
+                        $productStock->increment('broken_quantity_tax', $quantityToAdjust);
+
+                        $after_quantity_tax -= $quantityToAdjust;
+                        $after_broken_tax += $quantityToAdjust;
+                    } else {
+                        if ($quantityToAdjust > $productStock->quantity_non_tax) {
+                            throw new \Exception("Insufficient non-taxable stock for product {$product->product_name}");
+                        }
+
+                        $productStock->decrement('quantity_non_tax', $quantityToAdjust);
+                        $productStock->increment('broken_quantity_non_tax', $quantityToAdjust);
+
+                        $after_quantity_non_tax -= $quantityToAdjust;
+                        $after_broken_non_tax += $quantityToAdjust;
+                    }
+                }
+
+                // Save updated stock
+                $productStock->save();
+
+                // Log breakage as transaction
+                Transaction::create([
+                    'product_id' => $product->id,
+                    'setting_id' => session('setting_id'),
+                    'type' => 'ADJ',
+                    'quantity' => $quantityToAdjust,
+
+                    'previous_quantity' => $prev_quantity_tax + $prev_quantity_non_tax,
+                    'after_quantity' => $after_quantity_tax + $after_quantity_non_tax,
+                    'previous_quantity_at_location' => $prev_quantity_tax + $prev_quantity_non_tax,
+                    'after_quantity_at_location' => $after_quantity_tax + $after_quantity_non_tax,
+
+                    'quantity_tax' => $after_quantity_tax,
+                    'quantity_non_tax' => $after_quantity_non_tax,
+                    'broken_quantity_tax' => $after_broken_tax,
+                    'broken_quantity_non_tax' => $after_broken_non_tax,
+                    'broken_quantity' => $after_broken_tax + $after_broken_non_tax,
+                    'current_quantity' => $after_quantity_tax + $after_quantity_non_tax,
+
+                    'location_id' => $locationId,
+                    'user_id' => auth()->id(),
+                    'reason' => 'Breakage adjustment approved',
+
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Optional: also increment broken_quantity in `products` table
+                $product->increment('broken_quantity', $quantityToAdjust);
+            }
+
+            $adjustment->update(['status' => 'approved']);
+            DB::commit();
+            toast('Breakage Adjustment Approved!', 'success');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Breakage adjustment approval failed', ['error' => $e->getMessage()]);
+            session()->flash('error', 'Failed to approve breakage adjustment.');
+            toast('Error Approving Breakage Adjustment!', 'error');
         }
 
         return redirect()->route('adjustments.index');

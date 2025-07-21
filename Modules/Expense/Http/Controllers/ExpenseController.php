@@ -48,7 +48,7 @@ class ExpenseController extends Controller
             'details' => $request->details
         ]);
 
-        toast('Expense Created!', 'success');
+        toast('Pengeluaran telah dibuat!', 'success');
 
         return redirect()->route('expenses.index');
     }

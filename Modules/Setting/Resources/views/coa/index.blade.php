@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Chart of Accounts')
+@section('title', 'Akun Jurnal')
 
 @section('third_party_stylesheets')
     <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css">
@@ -79,7 +79,7 @@
                 {
                     extend: 'print',
                     text: '<i class="bi bi-printer-fill"></i> Print',
-                    title: "Chart of Accounts",
+                    title: "Akun Jurnal",
                     exportOptions: {
                         columns: [0, 1, 2, 3, 4, 5]
                     },

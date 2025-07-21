@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Create Unit')
+@section('title', 'Buat Unit')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">

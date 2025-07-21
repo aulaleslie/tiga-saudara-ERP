@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Create Customer')
+@section('title', 'Buat Pelanggan')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">

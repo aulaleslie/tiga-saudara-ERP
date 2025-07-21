@@ -79,7 +79,7 @@ class PurchasePaymentsController extends Controller
             ]);
         });
 
-        toast('Purchase Payment Created!', 'success');
+        toast('Pembayaran berhasil dibuat!', 'success');
         return redirect()->route('purchases.index');
     }
 

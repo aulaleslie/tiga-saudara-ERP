@@ -25,8 +25,11 @@
                             :index="$index"
                             :supplier_id="$supplier_id"
                             wire:key="product-{{ $index }}"/>
-                        @if(isset($validationErrors["rows.$index.product_id"]))
+                        @if(!empty($validationErrors["rows.$index.product_id"]))
                             <span class="text-danger">{{ $validationErrors["rows.$index.product_id"][0] }}</span>
+                        @endif
+                        @if(!empty($validationErrors["rows.$index.serial_numbers"]))
+                            <span class="text-danger">{{ $validationErrors["rows.$index.serial_numbers"][0] }}</span>
                         @endif
                     </td>
                     <td class="text-center">
@@ -35,12 +38,27 @@
                         </span>
                     </td>
                     <td class="text-center">
-                        <input type="number" class="form-control text-center rounded shadow-sm"
-                               wire:model.defer="rows.{{ $index }}.quantity"
-                               min="1" style="max-width: 80px;">
+                        @if (!empty($row['serial_number_required']))
+                            {{-- Quantity Display (Read-only) --}}
+                            <input type="number"
+                                   class="form-control text-center rounded shadow-sm bg-light"
+                                   style="min-width: 40px; max-width: 90px;"
+                                   wire:model.defer="rows.{{ $index }}.quantity"
+                                   readonly>
+                        @else
+                            {{-- Editable Quantity --}}
+                            <input type="number"
+                                   class="form-control text-center rounded shadow-sm"
+                                   style="min-width: 40px; max-width: 90px;"
+                                   wire:model="rows.{{ $index }}.quantity"
+                                   wire:blur="emitUpdatedQuantity({{ $index }})">
+                        @endif
                         @error("rows.".$index.".quantity")
                         <span class="text-danger">{{ $message }}</span>
                         @enderror
+                        @if(!empty($validationErrors["rows.$index.quantity"]))
+                            <span class="text-danger">{{ $validationErrors["rows.$index.quantity"][0] }}</span>
+                        @endif
                     </td>
                     <td>
                         @if (!empty($row['product_id']))
@@ -71,6 +89,51 @@
                         </button>
                     </td>
                 </tr>
+
+                @if (!empty($row['serial_number_required']))
+                    <tr>
+                        <td colspan="7">
+                            <div class="p-3 border rounded bg-light">
+                                <strong>Serial Numbers</strong>
+
+                                {{-- Serial Number Loader --}}
+                                <livewire:purchase-return.purchase-order-serial-number-loader
+                                    :index="$index"
+                                    :product_id="$row['product_id']"
+                                    :is_broken="true"
+                                    wire:key="serial-number-{{ $index }}" />
+
+                                @error("rows.{$index}.serial_numbers")
+                                <span class="text-danger">{{ $message }}</span>
+                                @enderror
+
+                                {{-- Serial Numbers Table --}}
+                                <table class="table table-sm mt-2">
+                                    <thead>
+                                    <tr>
+                                        <th>Serial Number</th>
+                                        <th class="text-center" style="width: 5%;">Remove</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody>
+                                    @foreach ($row['serial_numbers'] ?? [] as $serialIndex => $serialNumber)
+                                        <tr>
+                                            <td>{{ $serialNumber['serial_number'] }}</td>
+                                            <td class="text-center">
+                                                <button type="button"
+                                                        class="btn btn-danger btn-sm rounded-circle"
+                                                        wire:click="removeSerialNumber({{ $index }}, {{ $serialIndex }})">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>
+                @endif
             @endforeach
             </tbody>
         </table>

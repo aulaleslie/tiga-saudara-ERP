@@ -2,12 +2,16 @@
 
 namespace App\Livewire\PurchaseReturn;
 
+use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 
@@ -79,63 +83,70 @@ class PurchaseReturnCreateForm extends Component
         ];
     }
 
+    /**
+     * @throws ValidationException
+     */
     public function submit()
     {
-        Log::info("Before Validation: ", [
-            'supplier_id' => $this->supplier_id,
-            'date' => $this->date,
-            'rows' => $this->rows
-        ]);
-
-        $this->validate();
-
-        // Ensure no duplicate products
-        $productIds = array_column($this->rows, 'product_id');
-        if (count($productIds) !== count(array_unique($productIds))) {
-            $this->addError('rows', 'Tidak boleh ada produk yang sama dalam daftar retur.');
-            return;
-        }
+        Log::info('All public $this properties on submit:', get_object_vars($this));
 
         try {
-            DB::beginTransaction();
-
-            // Create the Purchase Return Record
-            $purchaseReturn = PurchaseReturn::create([
+            Validator::make(['supplier_id' => $this->supplier_id,
                 'date' => $this->date,
-                'supplier_id' => $this->supplier_id,
-                'supplier_name'=> '',
-                'status' => 'DRAFT', // Default document status
-                'total_amount' => 0,
-                'paid_amount' => 0,
-                'due_amount' => 0,
-                'payment_method' => '',
-                'payment_status' => '',
-                'note' => $this->note,
-            ]);
+                'rows' => $this->rows,
+            ], $this->rules(), $this->messages())
+                ->after(function ($validator) {
+                    foreach ($this->rows as $index => $row) {
+                        $qty = (int) ($row['quantity'] ?? 0);
+                        $broken = (int) ($row['product_quantity'] ?? 0);
 
-            foreach ($this->rows as $row) {
-                if (empty($row['product_id']) || empty($row['quantity']) || empty($row['purchase_order_id'])) {
-                    continue;
-                }
+                        if ($qty > $broken) {
+                            $validator->errors()->add("rows.$index.quantity", "Jumlah retur tidak boleh melebihi stok rusak ({$broken}).");
+                        }
 
-                PurchaseReturnDetail::create([
-                    'purchase_return_id' => $purchaseReturn->id,
-                    'product_id' => $row['product_id'],
-                    'po_id' => $row['purchase_order_id'],
-                ]);
-            }
+                        if ($row['serial_number_required'] && empty($row['serial_numbers'])) {
+                            $validator->errors()->add("rows.$index.serial_numbers", "Produk memerlukan nomor seri.");
+                        }
 
-            DB::commit();
+                        // ✅ SERIAL UNIQUENESS CHECK (see below)
+                        if (!empty($row['serial_numbers'])) {
+                            $serial_numbers = collect($row['serial_numbers'])->map(function ($item) {
+                                return is_array($item) ? ($item['serial_number'] ?? null) : $item;
+                            })->filter()->unique()->values()->all();
 
-            session()->flash('message', 'Purchase return successfully saved as draft!');
-            redirect()->route('purchase-returns.index');
-            return;
+                            // Fetch matching serials from DB (only broken ones)
+                            $existing = ProductSerialNumber::whereIn('serial_number', $serial_numbers)
+                                ->where('is_broken', true)
+                                ->pluck('serial_number')
+                                ->unique()
+                                ->values()
+                                ->all();
 
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Error saving purchase return: ', ['error' => $e->getMessage()]);
-            $this->addError('form', 'Terjadi kesalahan saat menyimpan retur pembelian.');
-            return;
+                            // ✅ Check if all match exactly
+                            $missing = array_diff($serial_numbers, $existing);
+                            $extra   = array_diff($existing, $serial_numbers);
+
+                            if (!empty($missing) || !empty($extra)) {
+                                $validator->errors()->add(
+                                    "rows.$index.serial_numbers",
+                                    "Nomor seri tidak valid atau tidak rusak: " .
+                                    implode(', ', array_merge($missing, $extra))
+                                );
+                            }
+
+                        }
+                    }
+                })
+                ->validate();
+
+            Log::info("Form submitted");
+            $this->dispatch('updateTableErrors', []);
+            // continue with saving...
+
+        } catch (ValidationException $e) {
+            Log::error('updateTableErrors', $e->validator->errors()->getMessages());
+            $this->dispatch('updateTableErrors', $e->validator->errors()->getMessages());
+//            throw $e; // rethrow for Livewire to show errors too
         }
     }
 

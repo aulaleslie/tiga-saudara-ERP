@@ -7,18 +7,36 @@ use Pusher\PusherException;
 
 if (!function_exists('settings')) {
     function settings() {
-        // Get the default setting ID from the session
         $currentSettingId = session('setting_id');
+        $userSettings = session('user_settings');
 
-        // Ensure the setting ID exists in the session
-        if (!$currentSettingId) {
-            return null; // or handle the case where no setting ID is available
+        // If session is empty, repopulate from DB
+        if (empty($userSettings) || !is_iterable($userSettings) || count($userSettings) === 0) {
+            if (auth()->check()) {
+                $user = auth()->user();
+
+                if ($user->hasRole('Super Admin')) {
+                    $userSettings = Setting::orderBy('id')->get();
+                } else {
+                    $userSettings = $user->settings()->orderBy('id')->get();
+                }
+
+                session(['user_settings' => $userSettings]);
+
+                // Set current setting ID if not present
+                if (!$currentSettingId && $userSettings->isNotEmpty()) {
+                    $currentSettingId = $userSettings->first()->id;
+                    session(['setting_id' => $currentSettingId]);
+                }
+            }
         }
 
-        // Use the default setting ID as part of the cache key
+        if (!$currentSettingId) {
+            return null;
+        }
+
         $cacheKey = 'settings_' . $currentSettingId;
 
-        // Retrieve settings from the cache or fetch and cache them
         $settings = cache()->remember($cacheKey, 24 * 60, function () use ($currentSettingId) {
             return Setting::findOrFail($currentSettingId);
         });

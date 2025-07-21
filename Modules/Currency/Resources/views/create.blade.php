@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Create Currency')
+@section('title', 'Buat Mata Uang')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
@@ -18,7 +18,7 @@
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Create Currency <i class="bi bi-check"></i></button>
+                        <button class="btn btn-primary">Buat Mata Uang <i class="bi bi-check"></i></button>
                     </div>
                 </div>
                 <div class="col-lg-12">

@@ -51,7 +51,7 @@
                                 </div>
                             </div>
                             <div class="form-group">
-                                <label for="payment_method">Payment Method <span class="text-danger">*</span></label>
+                                <label for="payment_method">Metode Pembayaran <span class="text-danger">*</span></label>
                                 <select wire:model="selected_payment_method_id" class="form-control" id="payment_method" required>
                                     <option value="">-- Pilih Metode Pembayaran --</option>
                                     @foreach($paymentMethods as $method)

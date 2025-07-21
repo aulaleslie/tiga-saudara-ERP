@@ -4,6 +4,7 @@ namespace Modules\PurchasesReturn\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Modules\People\Entities\Supplier;
 
 class PurchaseReturn extends Model
 {
@@ -72,5 +73,9 @@ class PurchaseReturn extends Model
 
     public function getDiscountAmountAttribute($value) {
         return $value / 100;
+    }
+
+    public function supplier() {
+        return $this->belongsTo(Supplier::class, 'supplier_id', 'id');
     }
 }

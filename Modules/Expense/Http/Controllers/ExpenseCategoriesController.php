@@ -33,7 +33,7 @@ class ExpenseCategoriesController extends Controller
             'category_description' => $request->category_description
         ]);
 
-        toast('Expense Category Created!', 'success');
+        toast('Kategori Pengeluaran berhasil dibuat!', 'success');
 
         return redirect()->route('expense-categories.index');
     }

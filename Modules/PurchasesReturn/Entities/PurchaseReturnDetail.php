@@ -5,6 +5,7 @@ namespace Modules\PurchasesReturn\Entities;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Product\Entities\Product;
+use Modules\Purchase\Entities\Purchase;
 
 class PurchaseReturnDetail extends Model
 {
@@ -40,5 +41,9 @@ class PurchaseReturnDetail extends Model
 
     public function getProductTaxAmountAttribute($value) {
         return $value / 100;
+    }
+
+    public function purchase() {
+        return $this->belongsTo(Purchase::class, 'po_id', 'id');
     }
 }

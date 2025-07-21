@@ -2,6 +2,9 @@
 
 namespace App\Livewire\PurchaseReturn;
 
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
@@ -47,7 +50,7 @@ class PurchaseReturnTable extends Component
         $this->rows[] = [
             'product_id' => null,
             'product_name' => '',
-            'quantity' => 1,
+            'quantity' => 0,
             'purchase_order_id' => null,
             'purchase_order_date' => '',
             'purchase_price' => null,
@@ -98,21 +101,25 @@ class PurchaseReturnTable extends Component
     public function handleValidationErrors($errors)
     {
         $this->validationErrors = $errors;
-        Log::info("Table received errors: ", ['errors' => $errors]);
-        $this->render();
+    }
+
+    public function emitUpdatedQuantity($index): void
+    {
+        $this->dispatch('updateRows', $this->rows);
     }
 
     public function updateSerialNumberRow($index, $serialNumber): void
     {
-        if (isset($this->rows[$index]) && $this->rows[$index]['serial_number_required']) {
-            if (in_array($serialNumber, $this->rows[$index]['serial_numbers'])) {
-                session()->flash('message', "Serial number '{$serialNumber}' is already added for this product.");
-                return;
-            }
-
-            $this->rows[$index]['serial_numbers'][] = $serialNumber;
-            Log::info("Serial number added for row {$index}", ['serial_number' => $serialNumber]);
+        if (!isset($this->rows[$index]) || !$this->rows[$index]['serial_number_required']) {
+            return;
         }
+
+        if (!in_array($serialNumber, $this->rows[$index]['serial_numbers'])) {
+            $this->rows[$index]['serial_numbers'][] = $serialNumber;
+        }
+
+        // ✅ Sync quantity
+        $this->rows[$index]['quantity'] = count($this->rows[$index]['serial_numbers']);
 
         $this->dispatch('updateRows', $this->rows);
     }
@@ -121,22 +128,17 @@ class PurchaseReturnTable extends Component
     {
         if (isset($this->rows[$index]['serial_numbers'][$serialIndex])) {
             unset($this->rows[$index]['serial_numbers'][$serialIndex]);
-            // Re-index array to avoid gaps
             $this->rows[$index]['serial_numbers'] = array_values($this->rows[$index]['serial_numbers']);
-
-            Log::info("Removed serial number at index {$serialIndex} for row {$index}");
         }
+
+        // ✅ Sync quantity
+        $this->rows[$index]['quantity'] = count($this->rows[$index]['serial_numbers']);
 
         $this->dispatch('updateRows', $this->rows);
     }
 
-    public function render()
+    public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        Log::info(
-            "Table render called: ", [
-                'errors' => $this->getErrorBag()->messages()
-            ]
-        );
         return view('livewire.purchase-return.purchase-return-table');
     }
 }

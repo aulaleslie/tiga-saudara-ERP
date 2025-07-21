@@ -1,11 +1,11 @@
 @extends('layouts.app')
 
-@section('title', 'Edit Chart of Account')
+@section('title', 'Ubah Akun Jurnal')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('chart-of-account.index') }}">Chart of Accounts</a></li>
+        <li class="breadcrumb-item"><a href="{{ route('chart-of-account.index') }}">Akun Jurnal</a></li>
         <li class="breadcrumb-item active">Edit</li>
     </ol>
 @endsection
