@@ -21,6 +21,7 @@ class PurchaseReturnCreateForm extends Component
     public $date;
     public $rows = []; // Centralized rows state
     public $note;
+    public $grand_total = 0;
 
     protected $listeners = [
         'supplierSelected' => 'handleSupplierSelected',
@@ -45,6 +46,8 @@ class PurchaseReturnCreateForm extends Component
     public function handleUpdatedRows($updatedRows): void
     {
         $this->rows = $updatedRows;
+        $this->grand_total = collect($this->rows)
+            ->sum(fn($row) => isset($row['total']) ? (int) $row['total'] : 0);
         Log::info("Rows updated: ", $this->rows);
     }
 
@@ -96,7 +99,9 @@ class PurchaseReturnCreateForm extends Component
                 'rows' => $this->rows,
             ], $this->rules(), $this->messages())
                 ->after(function ($validator) {
+                    $productIds = [];
                     foreach ($this->rows as $index => $row) {
+                        $productId = $row['product_id'] ?? null;
                         $qty = (int) ($row['quantity'] ?? 0);
                         $broken = (int) ($row['product_quantity'] ?? 0);
 
@@ -106,6 +111,14 @@ class PurchaseReturnCreateForm extends Component
 
                         if ($row['serial_number_required'] && empty($row['serial_numbers'])) {
                             $validator->errors()->add("rows.$index.serial_numbers", "Produk memerlukan nomor seri.");
+                        }
+
+                        if (!is_null($productId)) {
+                            if (in_array($productId, $productIds)) {
+                                $validator->errors()->add("rows.$index.product_id", "Produk ini sudah dipilih sebelumnya.");
+                            } else {
+                                $productIds[] = $productId;
+                            }
                         }
 
                         // ✅ SERIAL UNIQUENESS CHECK (see below)
@@ -122,7 +135,6 @@ class PurchaseReturnCreateForm extends Component
                                 ->values()
                                 ->all();
 
-                            // ✅ Check if all match exactly
                             $missing = array_diff($serial_numbers, $existing);
                             $extra   = array_diff($existing, $serial_numbers);
 
@@ -141,12 +153,58 @@ class PurchaseReturnCreateForm extends Component
 
             Log::info("Form submitted");
             $this->dispatch('updateTableErrors', []);
-            // continue with saving...
 
+            DB::beginTransaction();
+
+            // Create Purchase Return
+            $purchaseReturn = PurchaseReturn::create([
+                'date' => $this->date,
+                'supplier_id' => $this->supplier_id,
+                'supplier_name' => optional($this->rows[0])['supplier_name'] ?? 'N/A',
+                'total_amount' => $this->grand_total,
+                'paid_amount' => 0,
+                'due_amount' => $this->grand_total,
+                'status' => 'PENDING',
+                'payment_status' => 'UNPAID',
+                'payment_method' => '',
+                'note' => $this->note,
+            ]);
+
+            foreach ($this->rows as $row) {
+                $serialNumberIds = collect($row['serial_numbers'] ?? [])
+                    ->map(fn($sn) => is_array($sn) ? $sn['id'] ?? null : null)
+                    ->filter()
+                    ->values()
+                    ->all();
+
+                PurchaseReturnDetail::create([
+                    'purchase_return_id' => $purchaseReturn->id,
+                    'po_id' => $row['purchase_order_id'] ?? null,
+                    'product_id' => $row['product_id'],
+                    'product_name' => $row['product_name'],
+                    'product_code' => $row['product_code'] ?? '',
+                    'quantity' => $row['quantity'],
+                    'unit_price' => (int) $row['purchase_price'],
+                    'price' => (int) $row['purchase_price'], // Optional: same as unit_price
+                    'sub_total' => $row['total'],
+                    'product_discount_amount' => 0,
+                    'product_tax_amount' => 0,
+                    'serial_number_ids' => !empty($serialNumberIds) ? json_encode($serialNumberIds) : null,
+                ]);
+            }
+
+            DB::commit();
+
+            session()->flash('success', 'Retur pembelian berhasil disimpan.');
+            return redirect()->route('purchase-returns.index');
         } catch (ValidationException $e) {
             Log::error('updateTableErrors', $e->validator->errors()->getMessages());
             $this->dispatch('updateTableErrors', $e->validator->errors()->getMessages());
-//            throw $e; // rethrow for Livewire to show errors too
+            return null;
+        } catch (Exception $e) {
+            Log::error('Failed to save purchase return', ['message' => $e->getMessage()]);
+            session()->flash('error', 'Terjadi kesalahan saat menyimpan retur pembelian.');
+            return null;
         }
     }
 

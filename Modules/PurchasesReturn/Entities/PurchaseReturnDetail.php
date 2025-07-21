@@ -24,23 +24,23 @@ class PurchaseReturnDetail extends Model
     }
 
     public function getPriceAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getUnitPriceAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getSubTotalAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getProductDiscountAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getProductTaxAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function purchase() {

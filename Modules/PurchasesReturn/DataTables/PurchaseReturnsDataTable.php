@@ -2,17 +2,22 @@
 
 namespace Modules\PurchasesReturn\DataTables;
 
+use Illuminate\Database\Eloquent\Builder;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
+use Yajra\DataTables\EloquentDataTable;
+use Yajra\DataTables\Exceptions\Exception;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class PurchaseReturnsDataTable extends DataTable
 {
 
-    public function dataTable($query) {
+    /**
+     * @throws Exception
+     */
+    public function dataTable($query): EloquentDataTable
+    {
         return datatables()
             ->eloquent($query)
             ->addColumn('total_amount', function ($data) {
@@ -23,6 +28,9 @@ class PurchaseReturnsDataTable extends DataTable
             })
             ->addColumn('due_amount', function ($data) {
                 return format_currency($data->due_amount);
+            })
+            ->addColumn('supplier_name', function ($data) {
+                return optional($data->supplier)->supplier_name ?? '-';
             })
             ->addColumn('status', function ($data) {
                 return view('purchasesreturn::partials.status', compact('data'));
@@ -35,11 +43,13 @@ class PurchaseReturnsDataTable extends DataTable
             });
     }
 
-    public function query(PurchaseReturn $model) {
-        return $model->newQuery();
+    public function query(PurchaseReturn $model): Builder
+    {
+        return $model->newQuery()->with('supplier');
     }
 
-    public function html() {
+    public function html(): \Yajra\DataTables\Html\Builder
+    {
         return $this->builder()
             ->setTableId('purchase-returns-table')
             ->columns($this->getColumns())
@@ -60,7 +70,8 @@ class PurchaseReturnsDataTable extends DataTable
             );
     }
 
-    protected function getColumns() {
+    protected function getColumns(): array
+    {
         return [
             Column::make('reference')
                 ->className('text-center align-middle'),

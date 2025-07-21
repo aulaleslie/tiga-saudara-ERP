@@ -56,9 +56,17 @@ class PurchaseReturnTable extends Component
             'purchase_price' => null,
             'serial_numbers' => [],
             'serial_number_required' => false,
+            'total' => 0,
         ];
 
         $this->dispatch('updateRows', $this->rows);
+    }
+
+    protected function computeRowTotal(&$row): void
+    {
+        $price = (int) ($row['purchase_price'] ?? 0);
+        $qty = (int) ($row['quantity'] ?? 0);
+        $row['total'] = $price * $qty;
     }
 
     public function updateProductRow($index, $product): void
@@ -70,6 +78,7 @@ class PurchaseReturnTable extends Component
             $this->rows[$index]['product_quantity'] = $product['broken_quantity'];
             $this->rows[$index]['serial_number_required'] = $product['serial_number_required'];
             $this->rows[$index]['serial_numbers'] = [];
+            $this->computeRowTotal($this->rows[$index]);
         }
 
         $this->dispatch('updateRows', $this->rows);
@@ -83,6 +92,7 @@ class PurchaseReturnTable extends Component
 
             $purchase_detail = PurchaseDetail::where('purchase_id', $purchase['id'])->where('product_id', $this->rows[$index]['product_id'])->first();
             $this->rows[$index]['purchase_price'] = $purchase_detail['price'];
+            $this->computeRowTotal($this->rows[$index]);
         }
 
         $this->dispatch('updateRows', $this->rows);
@@ -105,6 +115,7 @@ class PurchaseReturnTable extends Component
 
     public function emitUpdatedQuantity($index): void
     {
+        $this->computeRowTotal($this->rows[$index]);
         $this->dispatch('updateRows', $this->rows);
     }
 
@@ -120,6 +131,7 @@ class PurchaseReturnTable extends Component
 
         // ✅ Sync quantity
         $this->rows[$index]['quantity'] = count($this->rows[$index]['serial_numbers']);
+        $this->computeRowTotal($this->rows[$index]);
 
         $this->dispatch('updateRows', $this->rows);
     }
@@ -133,6 +145,7 @@ class PurchaseReturnTable extends Component
 
         // ✅ Sync quantity
         $this->rows[$index]['quantity'] = count($this->rows[$index]['serial_numbers']);
+        $this->computeRowTotal($this->rows[$index]);
 
         $this->dispatch('updateRows', $this->rows);
     }

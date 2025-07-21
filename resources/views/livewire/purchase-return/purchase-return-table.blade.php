@@ -9,6 +9,7 @@
                 <th style="width: 20%">Nomor Purchase Order</th>
                 <th style="width: 10%">Tanggal Purchase Order</th>
                 <th style="width: 10%">Harga Saat Beli/Harga Beli Terakhir</th>
+                <th style="width: 10%">Total</th>
                 <th style="width: 5%">
                     <button type="button" class="btn btn-success btn-sm rounded-circle shadow-sm"
                             wire:click="addProductRow">
@@ -19,7 +20,7 @@
             </thead>
             <tbody>
             @foreach ($rows as $index => $row)
-                <tr>
+                <tr class="bg-white">
                     <td>
                         <livewire:purchase-return.product-search-purchase-return
                             :index="$index"
@@ -82,6 +83,11 @@
                             {{ !empty($row['purchase_price']) ? 'Rp ' . number_format($row['purchase_price'], 0, ',', '.') . ',-' : '-' }}
                         </span>
                     </td>
+                    <td class="text-end">
+                        <span class="fw-bold text-dark">
+                            {{ isset($row['total']) ? 'Rp ' . number_format($row['total'], 0, ',', '.') . ',-' : '-' }}
+                        </span>
+                    </td>
                     <td class="text-center">
                         <button type="button" class="btn btn-danger btn-sm rounded-circle shadow-sm"
                                 wire:click="removeProductRow({{ $index }})">
@@ -91,11 +97,9 @@
                 </tr>
 
                 @if (!empty($row['serial_number_required']))
-                    <tr>
-                        <td colspan="7">
+                    <tr class="bg-white">
+                        <td colspan="8">
                             <div class="p-3 border rounded bg-light">
-                                <strong>Serial Numbers</strong>
-
                                 {{-- Serial Number Loader --}}
                                 <livewire:purchase-return.purchase-order-serial-number-loader
                                     :index="$index"
@@ -119,7 +123,7 @@
                                     @foreach ($row['serial_numbers'] ?? [] as $serialIndex => $serialNumber)
                                         <tr>
                                             <td>{{ $serialNumber['serial_number'] }}</td>
-                                            <td class="text-center">
+                                            <td class="text-center text-black-50">
                                                 <button type="button"
                                                         class="btn btn-danger btn-sm rounded-circle"
                                                         wire:click="removeSerialNumber({{ $index }}, {{ $serialIndex }})">

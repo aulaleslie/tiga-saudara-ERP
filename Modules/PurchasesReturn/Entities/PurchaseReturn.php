@@ -4,6 +4,7 @@ namespace Modules\PurchasesReturn\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\People\Entities\Supplier;
 
 class PurchaseReturn extends Model
@@ -52,30 +53,31 @@ class PurchaseReturn extends Model
     }
 
     public function getShippingAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getPaidAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getTotalAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getDueAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getTaxAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
     public function getDiscountAmountAttribute($value) {
-        return $value / 100;
+        return $value;
     }
 
-    public function supplier() {
+    public function supplier(): BelongsTo
+    {
         return $this->belongsTo(Supplier::class, 'supplier_id', 'id');
     }
 }

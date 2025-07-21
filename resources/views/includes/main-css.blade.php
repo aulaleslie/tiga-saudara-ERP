@@ -39,4 +39,8 @@
     .select2-container--default .select2-selection--single .select2-selection__arrow b {
         margin-top: 2px;
     }
+
+    .text-uppercase {
+        text-transform: uppercase;
+    }
 </style>

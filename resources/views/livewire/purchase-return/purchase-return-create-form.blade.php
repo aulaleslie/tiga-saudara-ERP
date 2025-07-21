@@ -25,6 +25,14 @@
         @error('rows') <span class="text-danger">{{ $message }}</span> @enderror
         <livewire:purchase-return.purchase-return-table />
 
+        @if ($grand_total > 0)
+            <div class="mt-3 text-end">
+                <h5 class="fw-bold">
+                    Grand Total: <span class="text-success">Rp {{ number_format($grand_total, 0, ',', '.') }},-</span>
+                </h5>
+            </div>
+        @endif
+
         {{-- Note Input --}}
         <div class="form-group mt-3">
             <label for="note">Catatan</label>
