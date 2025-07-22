@@ -12,6 +12,7 @@
 */
 
 use App\Events\PrintJobEvent;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Modules\People\Entities\Supplier;
@@ -24,23 +25,27 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/purchases/datatable', [PurchaseController::class, 'datatable'])->name('datatable.purchases');
     //Generate PDF
     Route::get('/purchases/pdf/{id}', function ($id) {
-        $purchase = Purchase::findOrFail($id);
-        $supplier = Supplier::findOrFail($purchase->supplier_id);
+        // Ambil data purchase + relasi supplier + details + product
+        $purchase = Purchase::with([
+            'supplier',
+            'purchaseDetails.product', // join ke produk agar dapat nama/unit jika perlu
+            'purchaseDetails.product.baseUnit'
+        ])->findOrFail($id);
 
-        Log::info("Caller: ", ["htmlContent" => "test"]);
-        Log::info("Caller: ", ["type" => "a4"]);
-        Log::info("Caller: ", ["userId", auth()->id()]);
-
-        trigger_pusher_event('print-jobs.' . auth()->id(), 'PrintJobDispatched', [
-            'type' => 'thermal',
-            'content' => 'Test'
+        // Optional: Logging untuk debug
+        Log::info("Data", [
+            'purchase' => $purchase->toArray(),
+            'supplier' => $purchase->supplier->toArray(),
+            'details'  => $purchase->purchaseDetails->toArray(),
         ]);
-        $pdf = \PDF::loadView('purchase::print', [
-            'purchase' => $purchase,
-            'supplier' => $supplier,
-        ])->setPaper('a4');
 
-        return $pdf->stream('purchase-'. $purchase->reference .'.pdf');
+        // Kirim ke view untuk PDF
+        $pdf = Pdf::loadView('purchase::print', [
+            'purchase' => $purchase,
+            'supplier' => $purchase->supplier,
+            'details'  => $purchase->purchaseDetails,
+        ]);
+        return $pdf->stream('purchase-order-'.$purchase->reference.'.pdf');
     })->name('purchases.pdf');
 
     //Purchases
