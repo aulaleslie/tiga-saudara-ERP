@@ -22,12 +22,13 @@ class PurchaseOrderSerialNumberLoader extends Component
     public $how_many = 10; // Limit for search results
     public $location_id;
     public $is_broken = false;
+    public $is_transfer = false;
 
     protected $listeners = [
         'purchaseOrderSelected' => 'updatePurchaseOrderRow',
     ];
 
-    public function mount($index, $product_id, $purchase_id = null, $location_id = null, $is_broken = null): void
+    public function mount($index, $product_id, $purchase_id = null, $location_id = null, $is_broken = null, $is_transfer = null): void
     {
         $this->index = $index;
         $this->product_id = $product_id;
@@ -40,6 +41,8 @@ class PurchaseOrderSerialNumberLoader extends Component
             'product_id' => $this->product_id,
             'purchase_id' => $this->purchase_id,
             'location_id' => $this->location_id,
+            'is_broken' => $this->is_broken,
+            'is_transfer' => $this->is_transfer,
         ]);
     }
 
@@ -62,28 +65,45 @@ class PurchaseOrderSerialNumberLoader extends Component
         if ($this->query && $this->product_id) {
             $serial_number_query = ProductSerialNumber::query();
 
-            if ($this->location_id) {
-                $serial_number_query->where('location_id', $this->location_id);
-            }
+            // If is_transfer is true, location_id must exist,
+            // Only show serial numbers with dispatch_detail_id IS NULL and correct location
+            if ($this->is_transfer) {
+                if (!$this->location_id) {
+                    // If location is not set, no result
+                    $this->search_results = [];
+                    $this->query_count = 0;
+                    return;
+                }
+                $serial_number_query->where('location_id', $this->location_id)
+                    ->whereNull('dispatch_detail_id')
+                    ->where('product_id', $this->product_id)
+                    ->where('serial_number', 'like', '%' . $this->query . '%');
+                // Optionally, add more filters if needed for transfer
+            } else {
+                // Standard logic for purchase return, not transfer
+                if ($this->location_id) {
+                    $serial_number_query->where('location_id', $this->location_id);
+                }
 
-            if ($this->is_broken) {
-                $serial_number_query->where('is_broken', true);
-            }
+                if ($this->is_broken) {
+                    $serial_number_query->where('is_broken', true);
+                }
 
-            // Filter for specific purchase_id (exclude broken products)
-            if ($this->purchase_id) {
-                $serial_number_query->whereIn('received_note_detail_id', function ($query) {
-                    $query->select('rnd.id')
-                        ->from('received_note_details as rnd')
-                        ->join('purchase_details as pd', 'rnd.po_detail_id', '=', 'pd.id')
-                        ->where('pd.purchase_id', $this->purchase_id);
-                });
-            }
+                // Filter for specific purchase_id (exclude broken products)
+                if ($this->purchase_id) {
+                    $serial_number_query->whereIn('received_note_detail_id', function ($query) {
+                        $query->select('rnd.id')
+                            ->from('received_note_details as rnd')
+                            ->join('purchase_details as pd', 'rnd.po_detail_id', '=', 'pd.id')
+                            ->where('pd.purchase_id', $this->purchase_id);
+                    });
+                }
 
-            $serial_number_query
-                ->where('product_id', $this->product_id)
-                ->where('serial_number', 'like', '%' . $this->query . '%')
-                ->whereNull('dispatch_detail_id');
+                $serial_number_query
+                    ->where('product_id', $this->product_id)
+                    ->where('serial_number', 'like', '%' . $this->query . '%')
+                    ->whereNull('dispatch_detail_id');
+            }
 
             $this->query_count = $serial_number_query->count();
             $this->search_results = $serial_number_query->limit($this->how_many)->get();

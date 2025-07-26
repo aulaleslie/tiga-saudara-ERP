@@ -11,14 +11,21 @@ use Modules\Product\Entities\Transaction;
 
 class TransferProductTable extends Component
 {
-    protected $listeners = ['productSelected'];
+    protected $listeners = [
+        'productSelected',
+        'serialNumberSelected',
+    ];
 
     public $products;
     public $hasAdjustments;
     public $locationId;
 
-    public function mount($existingProducts = null, $locationId = null): void
+    public function mount($existingProducts = null, $locationId = null, $originLocationId = null): void
     {
+        Log::info('TransferProductTable', [
+            'originLocationId' => $originLocationId,
+            'locationId' => $locationId,
+        ]);
         $this->products = [];
         $this->locationId = $locationId;
 
@@ -45,18 +52,19 @@ class TransferProductTable extends Component
     {
         Log::info('product', $product);
 
-        switch ($this->hasAdjustments) {
-            case false:
-            case true:
-                if (in_array($product, $this->products)) {
-                    return session()->flash('message', 'Already exists in the product list!');
-                }
-                break;
-            default:
-                return session()->flash('message', 'Something went wrong!');
+        if (collect($this->products)->contains('id', $product['id'] ?? $product['product']['id'] ?? null)) {
+            session()->flash('message', 'Already exists in the product list!');
+            return;
         }
 
-        array_push($this->products, $product);
+        // Add serial tracking fields
+        $product['serial_number_required'] = $product['serial_number_required'] ?? false;
+        $product['serial_numbers'] = [];
+        if ($product['serial_number_required']) {
+            $product['quantity'] = 0;
+        }
+
+        $this->products[] = $product;
     }
 
     public function removeProduct($key)
@@ -82,5 +90,27 @@ class TransferProductTable extends Component
         }
 
         return 0;
+    }
+
+    public function serialNumberSelected($index, $serialNumber): void
+    {
+        if (isset($this->products[$index]) && $this->products[$index]['serial_number_required']) {
+            // Prevent duplicates
+            if (collect($this->products[$index]['serial_numbers'])->contains('id', $serialNumber['id'])) {
+                session()->flash('message', "Serial number '{$serialNumber['serial_number']}' already selected.");
+                return;
+            }
+            $this->products[$index]['serial_numbers'][] = $serialNumber;
+            $this->products[$index]['quantity'] = count($this->products[$index]['serial_numbers']);
+        }
+    }
+
+    public function removeSerialNumber($index, $serialIndex): void
+    {
+        if (isset($this->products[$index]['serial_numbers'][$serialIndex])) {
+            unset($this->products[$index]['serial_numbers'][$serialIndex]);
+            $this->products[$index]['serial_numbers'] = array_values($this->products[$index]['serial_numbers']);
+            $this->products[$index]['quantity'] = count($this->products[$index]['serial_numbers']);
+        }
     }
 }

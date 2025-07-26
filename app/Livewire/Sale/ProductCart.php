@@ -522,11 +522,15 @@ class ProductCart extends Component
 
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
 
-        // Handle cascading price if customer tier is null
         if (!in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
             $productId = $cart_item->options->product_id;
             $qty = $this->quantity[$id] ?? $cart_item->qty;
-            $defaultUnitPrice = $this->unit_price[$id] ?? $cart_item->price;
+
+            // 🚨 Get the true base price, not from $this->unit_price!
+            $defaultUnitPrice = $cart_item->options->sale_price
+                ?? $cart_item->options->unit_price
+                ?? $cart_item->price
+                ?? 0;
 
             $cascadedResult = $this->calculateCascadingPrice($productId, $qty, $defaultUnitPrice);
             $this->unit_price[$cart_item->id] = $cascadedResult['price'];

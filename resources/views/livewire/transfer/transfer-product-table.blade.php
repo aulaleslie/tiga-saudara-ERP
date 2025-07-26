@@ -40,7 +40,19 @@
                         </td>
                         <input type="hidden" name="product_ids[]" value="{{ $product['product']['id'] ?? $product['id'] }}">
                         <td class="align-middle">
-                            <input type="number" name="quantities[]" min="1" class="form-control" value="{{ $product['quantity'] ?? 1 }}">
+                            @if (!empty($product['serial_number_required']))
+                                <input type="number"
+                                       name="quantities[]"
+                                       class="form-control"
+                                       wire:model.defer="products.{{ $key }}.quantity"
+                                       readonly>
+                            @else
+                                <input type="number"
+                                       name="quantities[]"
+                                       min="1"
+                                       class="form-control"
+                                       wire:model.defer="products.{{ $key }}.quantity">
+                            @endif
                         </td>
                         <td class="align-middle text-center">
                             <button type="button" class="btn btn-danger" wire:click="removeProduct({{ $key }})">
@@ -48,6 +60,50 @@
                             </button>
                         </td>
                     </tr>
+
+                    @if (!empty($product['serial_number_required']))
+                        <tr>
+                            <td colspan="6">
+                                <div class="p-3 border rounded bg-light">
+                                    <strong>Serial Numbers</strong>
+                                    {{-- You need a serial number picker here. Example: --}}
+                                    <livewire:purchase-return.purchase-order-serial-number-loader
+                                        :index="$key"
+                                        :product_id="$product['id'] ?? $product['product']['id']"
+                                        :location_id="$locationId"
+                                        :is_transfer="true"
+                                        wire:key="serial-number-{{ $key }}" />
+
+                                    @error("products.{$key}.serial_numbers")
+                                    <span class="text-danger">{{ $message }}</span>
+                                    @enderror
+
+                                    <table class="table table-sm mt-2">
+                                        <thead>
+                                        <tr>
+                                            <th>Serial Number</th>
+                                            <th class="text-center" style="width: 5%;">Remove</th>
+                                        </tr>
+                                        </thead>
+                                        <tbody>
+                                        @foreach ($product['serial_numbers'] ?? [] as $serialIndex => $serialNumber)
+                                            <tr>
+                                                <td>{{ $serialNumber['serial_number'] }}</td>
+                                                <input type="hidden" name="serial_numbers[{{ $key }}][]" value="{{ $serialNumber['id'] }}">
+                                                <td class="text-center">
+                                                    <button type="button" class="btn btn-danger btn-sm rounded-circle"
+                                                            wire:click="removeSerialNumber({{ $key }}, {{ $serialIndex }})">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                    @endif
                 @endforeach
             @else
                 <tr>

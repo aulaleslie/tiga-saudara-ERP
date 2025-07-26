@@ -59,7 +59,8 @@ class PurchaseDataTable extends DataTable
             })
             ->addColumn('tags', function ($data) {
                 return $data->tags->map(function ($tag) {
-                    return '<span class="badge bg-info text-white fs-6 me-1">' . e($tag->name) . '</span>';
+                    $tagName = is_array($tag->name) ? ($tag->name['en'] ?? reset($tag->name)) : $tag->name;
+                    return '<span class="badge bg-info text-white fs-6 me-1">' . e($tagName) . '</span>';
                 })->implode(' ');
             })
             ->addColumn('action', function ($data) {
@@ -86,7 +87,7 @@ class PurchaseDataTable extends DataTable
                     })
                     ->orWhereHas('tags', function ($q) use ($search) {
                         $q->whereRaw(
-                            "LOWER(JSON_UNQUOTE(JSON_EXTRACT(CAST(name AS JSON), '$.en'))) LIKE ?",
+                            "LOWER(JSON_UNQUOTE(JSON_EXTRACT(name, '$.en'))) LIKE ?",
                             ['%' . strtolower($search) . '%']
                         );
                     });

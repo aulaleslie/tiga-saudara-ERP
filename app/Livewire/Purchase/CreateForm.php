@@ -158,6 +158,9 @@ class CreateForm extends Component
                 'payment_method' => '',
             ]);
 
+            Log::info('Purchase Submit', [
+                'tags' => $this->tags,
+            ]);
             $purchase->syncTags($this->tags);
 
             foreach ($cartItems as $item) {

@@ -51,7 +51,7 @@
                 <div class="card-body shadow">
                     <div class="alert alert-warning mb-0">
                         Tag tidak ditemukan.
-                        <button wire:click="createTag" class="btn btn-sm btn-outline-primary float-end">Buat "{{ $query }}"</button>
+                        <button wire:click="createTag" type="button" class="btn btn-sm btn-outline-primary float-end">Buat "{{ $query }}"</button>
                     </div>
                 </div>
             </div>

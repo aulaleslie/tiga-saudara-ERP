@@ -51,7 +51,7 @@ class TagSelector extends Component
 
     public function createTag()
     {
-        $tag = Tag::findOrCreate($this->query, 'en');
+        $tag = Tag::findOrCreate($this->query, null, 'en');
         $this->selectTag($tag->name);
     }
 
