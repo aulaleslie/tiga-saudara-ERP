@@ -24,10 +24,12 @@ class EditForm extends Component
     public $purchase;
 
     public $paymentTerms = [];
+    public array $tags = [];
 
     protected $listeners = [
         'supplierSelected' => 'handleSupplierSelected',
         'confirmSubmit' => 'submit',
+        'tagsUpdated' => 'handleTagsUpdated',
     ];
 
     public function mount($purchaseId): void
@@ -43,7 +45,14 @@ class EditForm extends Component
         $this->note = $this->purchase->note;
         $this->paymentTerms = PaymentTerm::where('setting_id', session('setting_id'))->get();
 
+        $this->tags = $this->purchase->tags->pluck('name')->toArray();
+
         $this->restoreCart();
+    }
+
+    public function handleTagsUpdated(array $tags)
+    {
+        $this->tags = $tags;
     }
 
     public function restoreCart(): void
@@ -80,6 +89,8 @@ class EditForm extends Component
             'due_date' => 'required|date|after_or_equal:date',
             'payment_term' => 'required|exists:payment_terms,id',
             'note' => 'nullable|string|max:1000',
+            'tags' => 'nullable|array',
+            'tags.*' => 'string|max:50',
         ], [
             'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
             'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
@@ -108,6 +119,8 @@ class EditForm extends Component
                 if (!empty($updateData)) {
                     $purchase->update($updateData);
                 }
+
+                $this->purchase->syncTags($this->tags);
 
                 // Remove old details
                 $purchase->purchaseDetails()->delete();
