@@ -1,14 +1,14 @@
-@can('edit_suppliers')
+@can('suppliers.edit')
     <a href="{{ route('suppliers.edit', $data->id) }}" class="btn btn-info btn-sm">
         <i class="bi bi-pencil"></i>
     </a>
 @endcan
-@can('show_suppliers')
+@can('suppliers.show')
     <a href="{{ route('suppliers.show', $data->id) }}" class="btn btn-primary btn-sm">
         <i class="bi bi-eye"></i>
     </a>
 @endcan
-@can('delete_suppliers')
+@can('suppliers.delete')
     <button id="delete" class="btn btn-danger btn-sm" onclick="
         event.preventDefault();
         if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {

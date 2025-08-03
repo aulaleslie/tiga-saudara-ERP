@@ -15,6 +15,7 @@ class ChartofAccountController extends Controller
 {
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('chartOfAccounts.access'), 403);
         $coa = ChartOfAccount::with('parentAccount')->get();
         return view('setting::coa.index', [
             'coa' => $coa
@@ -23,7 +24,7 @@ class ChartofAccountController extends Controller
 
     public function create()
     {
-        abort_if(Gate::denies('create_account'), 403);
+        abort_if(Gate::denies('chartOfAccounts.create'), 403);
         return view('setting::coa.create', [
             'parent_accounts' => ChartOfAccount::whereNull('parent_account_id')->get(),
             'taxes' => \Modules\Setting\Entities\Tax::all(),
@@ -32,7 +33,7 @@ class ChartofAccountController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        abort_if(Gate::denies('create_account'), 403);
+        abort_if(Gate::denies('chartOfAccounts.create'), 403);
 
         $request->validate([
             'name' => 'required|string|unique:chart_of_accounts,name',
@@ -53,7 +54,7 @@ class ChartofAccountController extends Controller
 
     public function show($id): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('show_account'), 403);
+        abort_if(Gate::denies('chartOfAccounts.show'), 403);
 
         $account = ChartOfAccount::findOrFail($id); // Fetch the account
         return view('setting::coa.show', compact('account'));
@@ -61,7 +62,7 @@ class ChartofAccountController extends Controller
 
     public function edit($id): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('edit_account'), 403);
+        abort_if(Gate::denies('chartOfAccounts.edit'), 403);
 
         $account = ChartOfAccount::findOrFail($id); // Fetch the account
         return view('setting::coa.edit', [
@@ -73,7 +74,7 @@ class ChartofAccountController extends Controller
 
     public function update(Request $request, $id): RedirectResponse
     {
-        abort_if(Gate::denies('edit_account'), 403);
+        abort_if(Gate::denies('chartOfAccounts.edit'), 403);
 
         $account = ChartOfAccount::findOrFail($id); // Fetch the account
 
@@ -94,7 +95,7 @@ class ChartofAccountController extends Controller
 
     public function destroy($id): RedirectResponse
     {
-        abort_if(Gate::denies('delete_account'), 403);
+        abort_if(Gate::denies('chartOfAccounts.delete'), 403);
 
         $account = ChartOfAccount::findOrFail($id); // Fetch the account
         $account->delete(); // Delete the account

@@ -19,8 +19,6 @@ class SearchProduct extends Component
 
     public $locationId;  // Add locationId as a public property
 
-    protected $listeners = ['locationsConfirmed'];
-
     public function mount($locationId = null): void
     {
         $this->search_results = Collection::empty();
@@ -80,11 +78,5 @@ class SearchProduct extends Component
     public function selectProduct($product): void
     {
         $this->dispatch('productSelected', $product);
-    }
-
-    public function locationsConfirmed($originLocationId): void
-    {
-        $this->locationId = $originLocationId;
-        $this->updatedQuery();  // Re-run the query with the new locationId
     }
 }

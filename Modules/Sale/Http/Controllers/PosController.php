@@ -7,6 +7,7 @@ use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Category;
@@ -21,6 +22,7 @@ class PosController extends Controller
 {
 
     public function index() {
+        abort_if(Gate::denies('pos.access'), 403);
         Cart::instance('sale')->destroy();
 
         $customers = Customer::all();
@@ -31,6 +33,7 @@ class PosController extends Controller
 
 
     public function store(StorePosSaleRequest $request) {
+        abort_if(Gate::denies('pos.access'), 403);
         DB::transaction(function () use ($request) {
             $due_amount = $request->total_amount - $request->paid_amount;
 
@@ -102,6 +105,7 @@ class PosController extends Controller
 
     public function storeAsQuotation(Request $request)
     {
+        abort_if(Gate::denies('pos.access'), 403);
         $cart = Cart::instance('sale');
 
         if ($cart->count() == 0) {

@@ -6,10 +6,6 @@ use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
-namespace App\Http\Controllers;
-
-use Illuminate\Http\Request;
-
 class PrintController extends Controller
 {
     // Print 80mm Receipt

@@ -9,7 +9,7 @@ class BarcodeController extends Controller
 {
 
     public function printBarcode() {
-        abort_if(Gate::denies('print_barcodes'), 403);
+        abort_if(Gate::denies('barcodes.print'), 403);
 
         return view('product::barcode.index');
     }

@@ -19,11 +19,11 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
-                        @canany('customer.create')
+                        @can('customers.create')
                         <a href="{{ route('customers.create') }}" class="btn btn-primary">
                             Tambahkan Pelanggan <i class="bi bi-plus"></i>
                         </a>
-                        @endcanany
+                        @endcan
 
                         <hr>
 

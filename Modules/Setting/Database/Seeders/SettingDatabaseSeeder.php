@@ -22,8 +22,8 @@ class SettingDatabaseSeeder extends Seeder
             'default_currency_id' => 1,
             'default_currency_position' => 'prefix',
             'footer_text' => 'Tiga Saudara ERP © 2021',
-            'company_address' => 'Bima, NTB'
+            'company_address' => 'Bima, NTB',
+            'document_prefix' => 'TS'
         ]);
-        $this->call(PaymentMethodPermissionsSeeder::class);
     }
 }

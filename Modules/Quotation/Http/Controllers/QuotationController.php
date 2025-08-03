@@ -19,7 +19,7 @@ class QuotationController extends Controller
 {
 
     public function index(QuotationsDataTable $dataTable) {
-        abort_if(Gate::denies('access_quotations'), 403);
+        abort_if(Gate::denies('quotations.access'), 403);
 
         return $dataTable->render('quotation::index');
     }

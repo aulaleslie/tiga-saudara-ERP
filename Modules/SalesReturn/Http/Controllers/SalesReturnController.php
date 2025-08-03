@@ -19,14 +19,14 @@ class SalesReturnController extends Controller
 {
 
     public function index(SaleReturnsDataTable $dataTable) {
-        abort_if(Gate::denies('rsale.access'), 403);
+        abort_if(Gate::denies('saleReturns.access'), 403);
 
         return $dataTable->render('salesreturn::index');
     }
 
 
     public function create() {
-        abort_if(Gate::denies('rsale.create'), 403);
+        abort_if(Gate::denies('saleReturns.create'), 403);
 
         Cart::instance('sale_return')->destroy();
 
@@ -35,6 +35,7 @@ class SalesReturnController extends Controller
 
 
     public function store(StoreSaleReturnRequest $request) {
+        abort_if(Gate::denies('saleReturns.create'), 403);
         DB::transaction(function () use ($request) {
             $due_amount = $request->total_amount - $request->paid_amount;
 
@@ -107,7 +108,7 @@ class SalesReturnController extends Controller
 
 
     public function show(SaleReturn $sale_return) {
-        abort_if(Gate::denies('show_sale_returns'), 403);
+        abort_if(Gate::denies('saleReturns.show'), 403);
 
         $customer = Customer::findOrFail($sale_return->customer_id);
 
@@ -116,7 +117,7 @@ class SalesReturnController extends Controller
 
 
     public function edit(SaleReturn $sale_return) {
-        abort_if(Gate::denies('rsale.edit'), 403);
+        abort_if(Gate::denies('saleReturns.edit'), 403);
 
         $sale_return_details = $sale_return->saleReturnDetails;
 
@@ -148,6 +149,7 @@ class SalesReturnController extends Controller
 
 
     public function update(UpdateSaleReturnRequest $request, SaleReturn $sale_return) {
+        abort_if(Gate::denies('saleReturns.edit'), 403);
         DB::transaction(function () use ($request, $sale_return) {
             $due_amount = $request->total_amount - $request->paid_amount;
 
@@ -221,7 +223,7 @@ class SalesReturnController extends Controller
 
 
     public function destroy(SaleReturn $sale_return) {
-        abort_if(Gate::denies('rsale.delete'), 403);
+        abort_if(Gate::denies('saleReturns.delete'), 403);
 
         $sale_return->delete();
 

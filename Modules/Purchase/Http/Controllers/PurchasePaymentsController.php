@@ -16,7 +16,7 @@ class PurchasePaymentsController extends Controller
 {
 
     public function index($purchase_id, PurchasePaymentsDataTable $dataTable) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.access'), 403);
 
         $purchase = Purchase::findOrFail($purchase_id);
 
@@ -25,7 +25,7 @@ class PurchasePaymentsController extends Controller
 
 
     public function create($purchase_id) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.create'), 403);
 
         $purchase = Purchase::findOrFail($purchase_id);
 
@@ -35,7 +35,7 @@ class PurchasePaymentsController extends Controller
 
 
     public function store(Request $request) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.create'), 403);
 
 
         $purchase = Purchase::findOrFail($request->purchase_id);
@@ -85,7 +85,7 @@ class PurchasePaymentsController extends Controller
 
 
     public function edit($purchase_id, PurchasePayment $purchasePayment) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.edit'), 403);
 
         $purchase = Purchase::findOrFail($purchase_id);
 
@@ -94,7 +94,7 @@ class PurchasePaymentsController extends Controller
 
 
     public function update(Request $request, PurchasePayment $purchasePayment) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.edit'), 403);
 
         $request->validate([
             'date' => 'required|date',
@@ -141,7 +141,7 @@ class PurchasePaymentsController extends Controller
 
 
     public function destroy(PurchasePayment $purchasePayment) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.delete'), 403);
 
         $purchasePayment->delete();
 

@@ -1,17 +1,17 @@
-@can('show_transfers')
+@can('stockTransfers.show')
     <a href="{{ route('transfers.show', $data->id) }}" class="btn btn-primary btn-sm">
         <i class="bi bi-eye"></i>
     </a>
 @endcan
 
 @if ($data->status === 'PENDING')
-    @can('edit_transfers')
+    @can('stockTransfers.edit')
         <a href="{{ route('transfers.edit', $data->id) }}" class="btn btn-info btn-sm">
             <i class="bi bi-pencil"></i>
         </a>
     @endcan
 
-    @can('delete_transfers')
+    @can('stockTransfers.delete')
         <button id="delete" class="btn btn-danger btn-sm" onclick="
             event.preventDefault();
             if (confirm('Are you sure you want to delete this transfer?')) {

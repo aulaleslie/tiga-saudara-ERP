@@ -14,9 +14,5 @@ class UserDatabaseSeeder extends Seeder
      */
     public function run()
     {
-        $this->call(PermissionSeeder_B3::class);
-        $this->call(PermissionsSeeder_B4::class);
-        $this->call(PermissionsSeeder_PaymentTerm::class);
-        $this->call(PurchaseApprovalTableSeeder::class);
     }
 }

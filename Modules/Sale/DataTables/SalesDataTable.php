@@ -55,7 +55,10 @@ class SalesDataTable extends DataTable
     public function query(Sale $model)
     {
         // Load customer relationship.
-        return $model->newQuery()->with('customer')->orderBy('id', 'desc');
+        $settingId = session('setting_id');
+        return $model->newQuery()->with('customer')
+            ->where('setting_id', $settingId)
+            ->orderBy('id', 'desc');
     }
 
     public function html()

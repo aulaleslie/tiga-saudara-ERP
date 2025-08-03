@@ -16,7 +16,7 @@ class InitializeProductStockRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return Gate::allows('create_products');
+        return Gate::allows('products.create');
     }
 
     /**

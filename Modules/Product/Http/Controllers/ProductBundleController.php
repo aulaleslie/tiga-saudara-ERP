@@ -8,6 +8,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
@@ -22,6 +23,7 @@ class ProductBundleController extends Controller
      */
     public function index(int $productId): View
     {
+        abort_if(Gate::denies('products.bundle.access'), 403);
         $product = Product::findOrFail($productId);
         // Load bundles along with their items and the bundled products
         $bundles = $product->bundles()->with('items.product')->get();
@@ -37,6 +39,7 @@ class ProductBundleController extends Controller
      */
     public function create(int $productId): View
     {
+        abort_if(Gate::denies('products.bundle.create'), 403);
         $product = Product::findOrFail($productId);
         // Retrieve a list of products that can be bundled.
         // You might want to exclude the parent product itself.
@@ -54,6 +57,7 @@ class ProductBundleController extends Controller
      */
     public function store(Request $request, int $productId): RedirectResponse
     {
+        abort_if(Gate::denies('products.bundle.create'), 403);
         $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -106,6 +110,7 @@ class ProductBundleController extends Controller
 
     public function edit(Product $product, ProductBundle $bundle): View
     {
+        abort_if(Gate::denies('products.bundle.edit'), 403);
         // Optionally, ensure that the bundle actually belongs to the product.
         if ($bundle->parent_product_id !== $product->id) {
             abort(404);
@@ -123,6 +128,7 @@ class ProductBundleController extends Controller
 
     public function update(Request $request, Product $product, ProductBundle $bundle): RedirectResponse
     {
+        abort_if(Gate::denies('products.bundle.edit'), 403);
         $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -175,6 +181,7 @@ class ProductBundleController extends Controller
 
     public function destroy(Product $product, ProductBundle $bundle): RedirectResponse
     {
+        abort_if(Gate::denies('products.bundle.delete'), 403);
         if ($bundle->parent_product_id !== $product->id) {
             abort(404);
         }

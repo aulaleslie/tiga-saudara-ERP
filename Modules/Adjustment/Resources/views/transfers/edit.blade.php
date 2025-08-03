@@ -80,11 +80,11 @@
 
                                 <!-- Update button to submit the form -->
                                 <div class="col-md-12 mt-4 text-right">
-                                    @canany('tfstock.edit')
+                                    @can('stockTransfers.edit')
                                     <button type="submit" class="btn btn-primary">
                                         Update Transfer <i class="bi bi-check"></i>
                                     </button>
-                                    @endcanany
+                                    @endcan
                                 </div>
                             </div>
                         </form>

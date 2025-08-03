@@ -74,11 +74,11 @@
                                 <a href="{{ route('adjustments.index') }}" class="btn btn-secondary mr-2">
                                     Kembali
                                 </a>
-                                @canany('break.create')
+                                @can('adjustments.breakage.create')
                                     <button type="submit" class="btn btn-primary">
                                         Buat Penyesuaian Barang Rusak <i class="bi bi-check"></i>
                                     </button>
-                                @endcanany
+                                @endcan
                             </div>
                         </form>
                     </div>

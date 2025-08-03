@@ -37,7 +37,7 @@ class SaleController extends Controller
 
     public function index(SalesDataTable $dataTable)
     {
-        abort_if(Gate::denies('sale.access'), 403);
+        abort_if(Gate::denies('sales.access'), 403);
 
         return $dataTable->render('sale::index');
     }
@@ -45,7 +45,7 @@ class SaleController extends Controller
 
     public function create(Request $request): Factory|\Illuminate\Foundation\Application|View|Application
     {
-        abort_if(Gate::denies('sale.create'), 403);
+        abort_if(Gate::denies('sales.create'), 403);
 
         if (! $request->session()->hasOldInput()) {
             Cart::instance('sale')->destroy();
@@ -64,6 +64,7 @@ class SaleController extends Controller
 
     public function store(StoreSaleRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('sales.create'), 403);
         Log::info('REQUEST', [
             'request' => $request->all(),
             'cart' => Cart::instance('sale')->content()->toArray()
@@ -210,7 +211,7 @@ class SaleController extends Controller
 
     public function show(Sale $sale)
     {
-        abort_if(Gate::denies('show_sales'), 403);
+        abort_if(Gate::denies('sales.show'), 403);
 
         $sale->load([
             'saleDetails.bundleItems',
@@ -228,7 +229,7 @@ class SaleController extends Controller
 
     public function edit(Sale $sale)
     {
-        abort_if(Gate::denies('sale.edit'), 403);
+        abort_if(Gate::denies('sales.edit'), 403);
 
         // Ensure the related bundle items are loaded for each sale detail.
         $sale->load('saleDetails.bundleItems');
@@ -307,6 +308,7 @@ class SaleController extends Controller
 
     public function update(UpdateSaleRequest $request, Sale $sale)
     {
+        abort_if(Gate::denies('sales.edit'), 403);
         DB::transaction(function () use ($request, $sale) {
 
             $due_amount = $request->total_amount - $request->paid_amount;
@@ -381,6 +383,7 @@ class SaleController extends Controller
 
     public function updateStatus(Request $request, Sale $sale): RedirectResponse
     {
+        abort_unless(Gate::any(['sales.edit', 'sales.approval']), 403);
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
                     Sale::STATUS_WAITING_APPROVAL,
@@ -404,7 +407,7 @@ class SaleController extends Controller
 
     public function destroy(Sale $sale)
     {
-        abort_if(Gate::denies('sale.delete'), 403);
+        abort_if(Gate::denies('sales.delete'), 403);
 
         $sale->delete();
 
@@ -415,6 +418,7 @@ class SaleController extends Controller
 
     public function dispatch(Sale $sale)
     {
+        abort_if(Gate::denies('sales.dispatch'), 403);
         $currentSettingId = session('setting_id');
         $locations = Location::where('setting_id', $currentSettingId)->get();
 
@@ -490,6 +494,7 @@ class SaleController extends Controller
 
     public function storeDispatch(Request $request, Sale $sale): RedirectResponse
     {
+        abort_if(Gate::denies('sales.dispatch'), 403);
         Log::info('Store dispatch request', [
             'request' => $request->all()
         ]);

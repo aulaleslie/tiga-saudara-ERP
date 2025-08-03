@@ -1,3 +1,4 @@
+@php use Illuminate\Support\Carbon; @endphp
 <div>
     <div class="d-flex justify-content-between align-items-center mb-2">
         <div>
@@ -44,10 +45,13 @@
         @forelse ($purchases as $purchase)
             <tr>
                 <td>
-                    <a href="{{ route('purchases.show', $purchase->id) }}">{{ $purchase->reference }}</a>
+                    <a href="{{ route('purchases.show', $purchase->id) }}"
+                       target="_blank" rel="noopener noreferrer">
+                        {{ $purchase->reference }}
+                    </a>
                 </td>
                 <td>
-                    {{ \Illuminate\Support\Carbon::parse($purchase->date)->format('d M Y') }}
+                    {{ Carbon::parse($purchase->date)->format('d M Y') }}
                 </td>
                 <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
                 <td>{{ format_currency($purchase->total_amount) }}</td>
@@ -63,7 +67,9 @@
                 <td>@include('purchase::partials.actions', ['data' => $purchase])</td>
             </tr>
         @empty
-            <tr><td colspan="8">No data found.</td></tr>
+            <tr>
+                <td colspan="8">No data found.</td>
+            </tr>
         @endforelse
         </tbody>
     </table>

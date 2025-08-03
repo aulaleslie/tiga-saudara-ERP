@@ -16,7 +16,7 @@ use Modules\Setting\Entities\PaymentMethod;
 class SalePaymentsController extends Controller
 {
     public function index($sale_id, SalePaymentsDataTable $dataTable) {
-        abort_if(Gate::denies('access_sale_payments'), 403);
+        abort_if(Gate::denies('salePayments.access'), 403);
 
         $sale = Sale::findOrFail($sale_id);
 
@@ -24,7 +24,7 @@ class SalePaymentsController extends Controller
     }
 
     public function create($sale_id) {
-        abort_if(Gate::denies('access_sale_payments'), 403);
+        abort_if(Gate::denies('salePayments.create'), 403);
 
         $sale = Sale::findOrFail($sale_id);
         // Retrieve payment methods for the current setting.
@@ -34,7 +34,7 @@ class SalePaymentsController extends Controller
     }
 
     public function store(Request $request) {
-        abort_if(Gate::denies('access_sale_payments'), 403);
+        abort_if(Gate::denies('salePayments.create'), 403);
 
         // Retrieve sale to determine due amount.
         $sale = Sale::findOrFail($request->sale_id);
@@ -93,7 +93,7 @@ class SalePaymentsController extends Controller
     }
 
     public function edit($sale_id, SalePayment $salePayment) {
-        abort_if(Gate::denies('access_sale_payments'), 403);
+        abort_if(Gate::denies('salePayments.edit'), 403);
 
         $sale = Sale::findOrFail($sale_id);
         // Retrieve payment methods for the current setting.
@@ -103,7 +103,7 @@ class SalePaymentsController extends Controller
     }
 
     public function update(Request $request, SalePayment $salePayment) {
-        abort_if(Gate::denies('access_sale_payments'), 403);
+        abort_if(Gate::denies('salePayments.edit'), 403);
 
         // Retrieve sale to check due amount.
         $sale = $salePayment->sale;
@@ -162,7 +162,7 @@ class SalePaymentsController extends Controller
     }
 
     public function destroy(SalePayment $salePayment) {
-        abort_if(Gate::denies('access_sale_payments'), 403);
+        abort_if(Gate::denies('salePayments.delete'), 403);
 
         $salePayment->delete();
 

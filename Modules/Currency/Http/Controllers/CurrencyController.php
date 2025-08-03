@@ -13,21 +13,21 @@ class CurrencyController extends Controller
 {
 
     public function index(CurrencyDataTable $dataTable) {
-        abort_if(Gate::denies('access_currencies'), 403);
+        abort_if(Gate::denies('currencies.access'), 403);
 
         return $dataTable->render('currency::index');
     }
 
 
     public function create() {
-        abort_if(Gate::denies('create_currencies'), 403);
+        abort_if(Gate::denies('currencies.create'), 403);
 
         return view('currency::create');
     }
 
 
     public function store(Request $request) {
-        abort_if(Gate::denies('create_currencies'), 403);
+        abort_if(Gate::denies('currencies.create'), 403);
 
         $request->validate([
             'currency_name' => 'required|string|max:255',
@@ -54,14 +54,14 @@ class CurrencyController extends Controller
 
 
     public function edit(Currency $currency) {
-        abort_if(Gate::denies('edit_currencies'), 403);
+        abort_if(Gate::denies('currencies.edit'), 403);
 
         return view('currency::edit', compact('currency'));
     }
 
 
     public function update(Request $request, Currency $currency) {
-        abort_if(Gate::denies('edit_currencies'), 403);
+        abort_if(Gate::denies('currencies.edit'), 403);
 
         $request->validate([
             'currency_name' => 'required|string|max:255',
@@ -88,7 +88,7 @@ class CurrencyController extends Controller
 
 
     public function destroy(Currency $currency) {
-        abort_if(Gate::denies('delete_currencies'), 403);
+        abort_if(Gate::denies('currencies.delete'), 403);
 
         $currency->delete();
 

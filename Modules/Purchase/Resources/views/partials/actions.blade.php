@@ -3,7 +3,7 @@
         <i class="bi bi-three-dots-vertical"></i>
     </button>
     <div class="dropdown-menu">
-        @can('purchase.create')
+        @can('purchases.create')
             @if($data->status === 'RECEIVED')
                 <a href="{{ route('purchase-payments.index', $data->id) }}" class="dropdown-item">
                     <i class="bi bi-cash-coin mr-2 text-warning" style="line-height: 1;"></i> Lihat Pembayaran
@@ -17,7 +17,7 @@
             @endif
         @endcan
 
-        @can('purchase.edit')
+        @can('purchases.edit')
             @if($data->status === 'DRAFTED')
                 <a href="{{ route('purchases.edit', $data->id) }}" class="dropdown-item">
                     <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Ubah
@@ -25,13 +25,13 @@
             @endif
         @endcan
 
-        @can('purchase.view')
+        @can('purchases.view')
             <a href="{{ route('purchases.show', $data->id) }}" class="dropdown-item">
                 <i class="bi bi-eye mr-2 text-info" style="line-height: 1;"></i> Rincian
             </a>
         @endcan
 
-        @can('purchase.delete')
+        @can('purchases.delete')
             @if($data->status === 'DRAFTED')
                 <button id="delete" class="dropdown-item" onclick="
                     event.preventDefault();

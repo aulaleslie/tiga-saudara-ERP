@@ -17,14 +17,14 @@ class MekariConverterController extends Controller
 {
     public function convertMekariReport()
     {
-        abort_if(Gate::denies('access_reports'), 403);
+        abort_if(Gate::denies('reports.access'), 403);
 
         return view('reports::mekari-converter.index');
     }
 
     public function handleMekariReport(Request $request)
     {
-        abort_if(Gate::denies('access_reports'), 403);
+        abort_if(Gate::denies('reports.access'), 403);
 
         $request->validate([
             'report_file' => 'required|file|mimes:csv,txt',
@@ -79,13 +79,13 @@ class MekariConverterController extends Controller
 
     public function showForm()
     {
-        abort_if(Gate::denies('access_reports'), 403);
+        abort_if(Gate::denies('reports.access'), 403);
         return view('reports::mekari-invoice-generator.index');
     }
 
     public function generate(Request $request)
     {
-        abort_if(Gate::denies('access_reports'), 403);
+        abort_if(Gate::denies('reports.access'), 403);
 
         $request->validate([
             'sales_csv' => 'required|file|mimes:csv,txt',
@@ -157,7 +157,7 @@ class MekariConverterController extends Controller
 
     public function handleXlsxReport(Request $request)
     {
-        abort_if(Gate::denies('access_reports'), 403);
+        abort_if(Gate::denies('reports.access'), 403);
 
         try {
             $request->validate([
@@ -302,6 +302,7 @@ class MekariConverterController extends Controller
 
     public function convertFilteredCsvToFormattedXlsx(Request $request): StreamedResponse
     {
+        abort_if(Gate::denies('reports.access'), 403);
         $request->validate([
             'filtered_csv' => 'required|file|mimes:csv,txt',
         ]);

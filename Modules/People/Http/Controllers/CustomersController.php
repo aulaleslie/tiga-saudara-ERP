@@ -12,13 +12,14 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Customer;
+use Modules\Purchase\Entities\PaymentTerm;
 
 class CustomersController extends Controller
 {
 
     public function index(CustomersDataTable $dataTable)
     {
-        abort_if(Gate::denies('customer.access'), 403);
+        abort_if(Gate::denies('customers.access'), 403);
 
         return $dataTable->render('people::customers.index');
     }
@@ -26,9 +27,9 @@ class CustomersController extends Controller
 
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('customer.create'), 403);
+        abort_if(Gate::denies('customers.create'), 403);
 
-        $paymentTerms = \Modules\Purchase\Entities\PaymentTerm::all(); // Ambil semua PaymentTerm
+        $paymentTerms = PaymentTerm::all(); // Ambil semua PaymentTerm
         return view('people::customers.create', compact('paymentTerms'));
     }
 
@@ -36,7 +37,7 @@ class CustomersController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        abort_if(Gate::denies('create_customers'), 403);
+        abort_if(Gate::denies('customers.create'), 403);
 
         // Validate the request data
         $request->validate([
@@ -108,7 +109,7 @@ class CustomersController extends Controller
 
     public function show(Customer $customer): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('show_customers'), 403);
+        abort_if(Gate::denies('customers.show'), 403);
         $customer->load('paymentTerm');
         return view('people::customers.show', compact('customer'));
     }
@@ -116,16 +117,16 @@ class CustomersController extends Controller
 
     public function edit(Customer $customer): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('edit_customers'), 403);
+        abort_if(Gate::denies('customers.edit'), 403);
 
-        $paymentTerms = \Modules\Purchase\Entities\PaymentTerm::all(); // Ambil semua PaymentTerm
+        $paymentTerms = PaymentTerm::all(); // Ambil semua PaymentTerm
         return view('people::customers.edit', compact('customer', 'paymentTerms'));
     }
 
 
     public function update(Request $request, Customer $customer): RedirectResponse
     {
-        abort_if(Gate::denies('customer.edit'), 403);
+        abort_if(Gate::denies('customers.edit'), 403);
 
         $request->validate([
             'contact_name' => 'required|string|max:255',
@@ -172,7 +173,7 @@ class CustomersController extends Controller
 
     public function destroy(Customer $customer): RedirectResponse
     {
-        abort_if(Gate::denies('customer.delete'), 403);
+        abort_if(Gate::denies('customers.delete'), 403);
 
         $customer->delete();
 

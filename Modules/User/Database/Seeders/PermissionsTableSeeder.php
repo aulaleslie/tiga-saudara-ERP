@@ -3,141 +3,239 @@
 namespace Modules\User\Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 class PermissionsTableSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     *
-     * @return void
-     */
     public function run()
     {
         $permissions = [
-            //User Mangement
-            'edit_own_profile',
-            'access_user_management',
-            //Dashboard
-            'show_total_stats',
-            'show_month_overview',
-            'show_weekly_sales_purchases',
-            'show_monthly_cashflow',
+            // Adjustments
+            'adjustments.access',
+            'adjustments.approval',
+            'adjustments.breakage.approval',
+            'adjustments.breakage.create',
+            'adjustments.breakage.edit',
+            'adjustments.create',
+            'adjustments.delete',
+            'adjustments.edit',
+            'adjustments.show',
+            'adjustments.reject',
+
+            // Barcode
+            'barcodes.print',
+
+            // Brands
+            'brands.access',
+            'brands.create',
+            'brands.edit',
+            'brands.delete',
+            'brands.view',
+
+            // Businesses
+            'businesses.access',
+            'businesses.create',
+            'businesses.edit',
+            'businesses.delete',
+            'businesses.show',
+
+            // Categories
+            'categories.access',
+            'categories.create',
+            'categories.edit',
+            'categories.delete',
+
+            // Chart of Accounts
+            'chartOfAccounts.access',
+            'chartOfAccounts.create',
+            'chartOfAccounts.edit',
+            'chartOfAccounts.delete',
+            'chartOfAccounts.show',
+
+            // Currencies
+            'currencies.access',
+            'currencies.create',
+            'currencies.edit',
+            'currencies.delete',
+
+            // Customers
+            'customers.access',
+            'customers.create',
+            'customers.edit',
+            'customers.delete',
+            'customers.show',
+
+            // Expense Categories
+            'expenseCategories.access',
+            'expenseCategories.create',
+            'expenseCategories.edit',
+            'expenseCategories.delete',
+
+            // Expenses
+            'expenses.access',
+            'expenses.create',
+            'expenses.edit',
+            'expenses.delete',
+
+            // Journals
+            'journals.access',
+            'journals.create',
+            'journals.edit',
+            'journals.delete',
+            'journals.show',
+
+            // Locations
+            'locations.access',
+            'locations.create',
+            'locations.edit',
+
+            // Payment Methods / Terms
+            'paymentMethods.access',
+            'paymentMethods.create',
+            'paymentMethods.edit',
+            'paymentMethods.delete',
+            'paymentTerms.access',
+            'paymentTerms.create',
+            'paymentTerms.edit',
+            'paymentTerms.delete',
+
+            // POS
+            'pos.access',
+            'pos.create',
+
+            // Products & bundles
+            'products.access',
+            'products.create',
+            'products.edit',
+            'products.delete',
+            'products.show',
+            'products.bundle.access',
+            'products.bundle.create',
+            'products.bundle.edit',
+            'products.bundle.delete',
+
+            // Profiles
+            'profiles.edit',
+
+            // Purchases & related
+            'purchases.access',
+            'purchases.create',
+            'purchases.edit',
+            'purchases.delete',
+            'purchases.show',
+            'purchases.receive',
+            'purchases.approval',
+            'purchases.view',
+            'purchaseReports.access',
+
+            // Purchase Payments
+            'purchasePayments.access',
+            'purchasePayments.create',
+            'purchasePayments.edit',
+            'purchasePayments.delete',
+
+            // Purchase Returns & Payments
+            'purchaseReturns.access',
+            'purchaseReturns.create',
+            'purchaseReturns.edit',
+            'purchaseReturns.delete',
+            'purchaseReturns.show',
+            'purchaseReturnPayments.access',
+            'purchaseReturnPayments.create',
+            'purchaseReturnPayments.edit',
+            'purchaseReturnPayments.delete',
+            'purchaseReturnPayments.show',
+
+            // Reports / Settings
+            'reports.access',
+            'settings.access',
+            'settings.edit',
+
+            // Stock Transfers
+            'stockTransfers.access',
+            'stockTransfers.create',
+            'stockTransfers.edit',
+            'stockTransfers.delete',
+            'stockTransfers.show',
+            'stockTransfers.dispatch',
+            'stockTransfers.receive',
+            'stockTransfers.approval',
+
+            // Suppliers
+            'suppliers.access',
+            'suppliers.create',
+            'suppliers.edit',
+            'suppliers.delete',
+            'suppliers.show',
+
+            // Taxes
+            'taxes.access',
+            'taxes.create',
+            'taxes.edit',
+            'taxes.delete',
+
+            // Units
+            'units.access',
+            'units.create',
+            'units.edit',
+            'units.delete',
+
+            // Users / Roles
+            'users.access',
+            'users.create',
+            'users.edit',
+            'users.delete',
+            'roles.access',
+            'roles.create',
+            'roles.edit',
+            'roles.delete',
+
+            // Sale Payments / Returns
+            'salePayments.access',
+            'salePayments.create',
+            'salePayments.edit',
+            'salePayments.delete',
+            'saleReturnPayments.access',
+            'saleReturnPayments.create',
+            'saleReturnPayments.edit',
+            'saleReturnPayments.delete',
+            'salePayments.show',
+
+            // Sale Returns / Sales
+            'saleReturns.access',
+            'saleReturns.create',
+            'saleReturns.edit',
+            'saleReturns.delete',
+            'saleReturns.show',
+            'sales.access',
+            'sales.create',
+            'sales.edit',
+            'sales.delete',
+            'sales.dispatch',
+            'sales.show',
+            'sales.approval',
+
+            // Notifications / Misc
             'show_notifications',
-            //Products
-            'access_products',
-            'create_products',
-            'show_products',
-            'edit_products',
-            'delete_products',
-
-            //Stock Adjustments
-            'adjustment.access',
-            'adjustment.create',
-            'adjustment.view',
-            'adjustment.edit',
-            'adjustment.delete',
-            //Brand
-            //Product Categories
-            'access_product_categories',
-            //customer
-            //supplier
-            //Barcode Printing
-            'print_barcodes',
-            //Adjustments
-            //Quotaions
-            'access_quotations',
-            'create_quotations',
-            'show_quotations',
-            'edit_quotations',
-            'delete_quotations',
-            //Create Sale From Quotation
-            'create_quotation_sales',
-            //Send Quotation On Email
-            'send_quotation_mails',
-            //Expenses
-            'access_expenses',
-            'create_expenses',
-            'edit_expenses',
-            'delete_expenses',
-            //Expense Categories
-            'access_expense_categories',
-            //Customers
-            'access_customers',
-            'create_customers',
-            'show_customers',
-            'edit_customers',
-            'delete_customers',
-            //Suppliers
-            'access_suppliers',
-            'create_suppliers',
-            'show_suppliers',
-            'edit_suppliers',
-            'delete_suppliers',
-            //Sales
-            'access_sales',
-            'create_sales',
-            'show_sales',
-            'edit_sales',
-            'delete_sales',
-            //POS Sale
-            'create_pos_sales',
-            //Sale Payments
-            'access_sale_payments',
-            //Sale Returns
-            'access_sale_returns',
-            'create_sale_returns',
-            'show_sale_returns',
-            'edit_sale_returns',
-            'delete_sale_returns',
-            //Sale Return Payments
-            'access_sale_return_payments',
-            //Purchases
-            'access_purchases',
-            'create_purchases',
-            'show_purchases',
-            'edit_purchases',
-            'delete_purchases',
-            //Purchase Payments
-            'access_purchase_payments',
-            //Purchase Returns
-            'access_purchase_returns',
-            'create_purchase_returns',
-            'show_purchase_returns',
-            'edit_purchase_returns',
-            'delete_purchase_returns',
-            //Purchase Return Payments
-            'access_purchase_return_payments',
-            //Reports
-            'access_reports',
-            //Currencies
-            'access_currencies',
-            'create_currencies',
-            'edit_currencies',
-            'delete_currencies',
-            //Settings
-            'access_settings',
-
-            'crud_bussiness',
-
-            //lokasi
-            //Units
-            'access_units'
         ];
 
-        foreach ($permissions as $permission) {
-            Permission::create([
-                'name' => $permission
-            ]);
-        }
+        // Normalize & dedupe
+        $permissions = array_values(array_unique($permissions));
 
-        $role = Role::create([
-            'name' => 'Admin'
-        ]);
+        DB::transaction(function () use ($permissions) {
+            // ensure canonical permissions exist
+            foreach ($permissions as $permission) {
+                Permission::firstOrCreate(['name' => $permission]);
+            }
 
-        $role->givePermissionTo($permissions);
-        $role->revokePermissionTo('access_user_management');
+            // delete any permission not in canonical list
+            Permission::whereNotIn('name', $permissions)->delete();
+
+            // sync admin role to exactly this set
+            $role = Role::firstOrCreate(['name' => 'Admin']);
+            $role->syncPermissions($permissions);
+        });
     }
 }

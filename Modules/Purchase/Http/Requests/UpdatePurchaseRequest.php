@@ -35,6 +35,6 @@ class UpdatePurchaseRequest extends FormRequest
      */
     public function authorize()
     {
-        return Gate::allows('purchase.edit');
+        return Gate::allows('purchases.edit');
     }
 }

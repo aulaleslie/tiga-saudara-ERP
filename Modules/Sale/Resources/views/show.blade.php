@@ -235,7 +235,7 @@
                     </a>
                 @endif
 
-                @can('sale.approval')
+                @can('sales.approval')
                     @if ($sale->status === Sale::STATUS_WAITING_APPROVAL)
                         <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline">
                             @csrf
@@ -252,7 +252,7 @@
                     @endif
                 @endcan
 
-                @can('sale.receiving')
+                @can('sales.dispatch')
                     @if ($sale->status === Sale::STATUS_APPROVED || $sale->status === Sale::STATUS_DISPATCHED_PARTIALLY)
                         <a href="{{ route('sales.dispatch', $sale->id) }}" class="btn btn-primary">
                             Keluarkan

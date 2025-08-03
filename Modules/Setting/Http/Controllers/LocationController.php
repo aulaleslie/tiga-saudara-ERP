@@ -2,12 +2,14 @@
 
 namespace Modules\Setting\Http\Controllers;
 
-use App\Http\Controllers\Controller;
+use Modules\Setting\Http\Controllers\Controller;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
+use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Location;
 
 class LocationController extends Controller
@@ -17,6 +19,7 @@ class LocationController extends Controller
      */
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('locations.access'), 403);
         $currentSettingId = session('setting_id');
         $locations = Location::where('setting_id', $currentSettingId)->get();
 
@@ -30,6 +33,7 @@ class LocationController extends Controller
      */
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('locations.create'), 403);
         return view('setting::locations.create');
     }
 
@@ -38,6 +42,7 @@ class LocationController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        abort_if(Gate::denies('locations.create'), 403);
         $request->validate([
             'name' => 'required|string|max:255',
         ]);
@@ -57,6 +62,7 @@ class LocationController extends Controller
      */
     public function edit(Location $location): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('locations.edit'), 403);
         return view('setting::locations.edit', [
             'location' => $location
         ]);
@@ -67,6 +73,7 @@ class LocationController extends Controller
      */
     public function update(Request $request, Location $location): RedirectResponse
     {
+        abort_if(Gate::denies('locations.edit'), 403);
         $request->validate([
             'name' => 'required|string|max:255',
         ]);
@@ -85,7 +92,24 @@ class LocationController extends Controller
      */
     public function destroy(Location $location): RedirectResponse
     {
-        // TODO hapus lokasi hanya dapat dilakukan jika tidak ada produk tersisa di dalam lokasi ini
+        abort_if(Gate::denies('locations.edit'), 403);
+
+        $hasStock = ProductStock::where('location_id', $location->id)
+            ->where(function ($q) {
+                $q->where('quantity', '>', 0)
+                    ->orWhere('broken_quantity', '>', 0)
+                    ->orWhere('quantity_tax', '>', 0)
+                    ->orWhere('quantity_non_tax', '>', 0)
+                    ->orWhere('broken_quantity_tax', '>', 0)
+                    ->orWhere('broken_quantity_non_tax', '>', 0);
+            })
+            ->exists();
+
+        if ($hasStock) {
+            toast('Lokasi tidak bisa dihapus: masih ada stok di lokasi ini.', 'error');
+            return redirect()->route('locations.index');
+        }
+
         $location->delete();
 
         toast('Lokasi Berhasil dihapus!', 'warning');

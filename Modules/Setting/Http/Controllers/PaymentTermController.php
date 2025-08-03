@@ -8,6 +8,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Gate;
 use Modules\Purchase\Entities\PaymentTerm;
 
 class PaymentTermController extends Controller
@@ -18,6 +19,7 @@ class PaymentTermController extends Controller
      */
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('paymentTerms.access'), 403);
         $currentSettingId = session('setting_id');
         $payment_terms = PaymentTerm::where('setting_id', $currentSettingId)->get();
 
@@ -32,6 +34,7 @@ class PaymentTermController extends Controller
      */
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('paymentTerms.create'), 403);
         return view('setting::payment_terms.create');
     }
 
@@ -42,6 +45,7 @@ class PaymentTermController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        abort_if(Gate::denies('paymentTerms.create'), 403);
         $request->validate([
             'name' => 'required|string|max:255|unique:payment_terms,name,NULL,id,setting_id,' . session('setting_id'),
             'longevity' => 'required|numeric|gt:0',
@@ -65,6 +69,7 @@ class PaymentTermController extends Controller
      */
     public function edit(PaymentTerm $payment_term): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('paymentTerms.edit'), 403);
         return view('setting::payment_terms.edit', [
             'payment_term' => $payment_term
         ]);
@@ -78,6 +83,7 @@ class PaymentTermController extends Controller
      */
     public function update(Request $request, PaymentTerm $payment_term): RedirectResponse
     {
+        abort_if(Gate::denies('paymentTerms.edit'), 403);
         $request->validate([
             'name' => 'required|string|max:255|unique:payment_terms,name,' . $payment_term->id . ',id,setting_id,' . session('setting_id'),
             'longevity' => 'required|numeric|gt:0',
@@ -100,6 +106,7 @@ class PaymentTermController extends Controller
      */
     public function destroy(PaymentTerm $payment_term): RedirectResponse
     {
+        abort_if(Gate::denies('paymentTerms.delete'), 403);
         $payment_term->delete();
 
         toast('Term Pembayaran Berhasil dihapus!', 'warning');

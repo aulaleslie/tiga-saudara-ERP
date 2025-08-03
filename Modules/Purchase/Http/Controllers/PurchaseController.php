@@ -36,7 +36,7 @@ class PurchaseController extends Controller
 
     public function index(PurchaseDataTable $dataTable)
     {
-        abort_if(Gate::denies('purchase.access'), 403);
+        abort_if(Gate::denies('purchases.access'), 403);
 
         return $dataTable->render('purchase::index');
     }
@@ -44,7 +44,7 @@ class PurchaseController extends Controller
 
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('purchase.create'), 403);
+        abort_if(Gate::denies('purchases.create'), 403);
 
         // Clear the purchase cart
         Cart::instance('purchase')->destroy();
@@ -63,6 +63,7 @@ class PurchaseController extends Controller
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('purchases.create'), 403);
         if (Cart::instance('purchase')->count() == 0) {
             return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
         }
@@ -136,7 +137,7 @@ class PurchaseController extends Controller
 
     public function show(Purchase $purchase, PurchasePaymentsDataTable $dataTable)
     {
-        abort_if(Gate::denies('purchase.view'), 403);
+        abort_if(Gate::denies('purchases.show'), 403);
 
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 
@@ -155,7 +156,7 @@ class PurchaseController extends Controller
 
     public function edit(Purchase $purchase)
     {
-        abort_if(Gate::denies('purchase.edit'), 403);
+        abort_if(Gate::denies('purchases.edit'), 403);
 
         // Retrieve the current setting_id from the session
         $setting_id = session('setting_id');
@@ -217,6 +218,7 @@ class PurchaseController extends Controller
 
     public function update(UpdatePurchaseRequest $request, Purchase $purchase)
     {
+        abort_if(Gate::denies('purchases.edit'), 403);
         Log::info('Cart count at start of update:', ['count' => Cart::instance('purchase')->count()]);
         if (Cart::instance('purchase')->count() == 0) {
             return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
@@ -277,7 +279,7 @@ class PurchaseController extends Controller
 
     public function destroy(Purchase $purchase)
     {
-        abort_if(Gate::denies('purchase.delete'), 403);
+        abort_if(Gate::denies('purchases.delete'), 403);
 
         $purchase->delete();
 
@@ -288,6 +290,7 @@ class PurchaseController extends Controller
 
     public function updateStatus(Request $request, Purchase $purchase): RedirectResponse
     {
+        abort_unless(Gate::any(['purchases.edit', 'purchases.approval']), 403);
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
                     Purchase::STATUS_WAITING_APPROVAL,
@@ -315,6 +318,8 @@ class PurchaseController extends Controller
 
     public function receive(Purchase $purchase): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('purchases.receive'), 403);
+
         $currentSettingId = session('setting_id');
         $locations = Location::where('setting_id', $currentSettingId)->get();
 
@@ -329,6 +334,8 @@ class PurchaseController extends Controller
 
     public function storeReceive(Request $request, Purchase $purchase): RedirectResponse
     {
+        abort_if(Gate::denies('purchases.receive'), 403);
+
         $data = $request->validate([
             'received.*' => 'nullable|integer|min:0',
             'notes.*' => 'nullable|string|max:255',
@@ -539,6 +546,8 @@ class PurchaseController extends Controller
 
     public function showReceivings($purchase_id, PurchaseReceivingsDataTable $dataTable)
     {
+        abort_if(Gate::denies('purchases.receive'), 403);
+
         $purchase = Purchase::findOrFail($purchase_id);
         return $dataTable->render('purchase::receivings.index', compact('purchase'));
     }

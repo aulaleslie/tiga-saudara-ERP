@@ -16,7 +16,7 @@ class SettingController extends Controller
 {
 
     public function index() {
-        abort_if(Gate::denies('access_settings'), 403);
+        abort_if(Gate::denies('settings.access'), 403);
 
         $currentSettingId = session('setting_id');
         $settings = Setting::findOrFail($currentSettingId);
@@ -26,14 +26,13 @@ class SettingController extends Controller
 
 
     public function update(StoreSettingsRequest $request) {
+        abort_if(Gate::denies('settings.edit'), 403);
         Setting::firstOrFail()->update([
             'company_name' => $request->company_name,
             'company_email' => $request->company_email,
             'company_phone' => $request->company_phone,
-            'notification_email' => $request->notification_email,
             'company_address' => $request->company_address,
-            'default_currency_id' => $request->default_currency_id,
-            'default_currency_position' => $request->default_currency_position,
+            'document_prefix' => $request->document_prefix,
         ]);
 
         cache()->forget('settings');
@@ -45,6 +44,7 @@ class SettingController extends Controller
 
 
     public function updateSmtp(StoreSmtpSettingsRequest $request) {
+        abort_if(Gate::denies('settings.edit'), 403);
         $toReplace = array(
             'MAIL_MAILER='.env('MAIL_HOST'),
             'MAIL_HOST="'.env('MAIL_HOST').'"',

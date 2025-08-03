@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Modules\Currency\Entities\Currency;
 use Modules\Setting\DataTables\BusinessDataTable;
 use Modules\Setting\Entities\Setting;
 
@@ -17,7 +18,8 @@ class BusinessController extends Controller
      */
     public function index(BusinessDataTable $dataTable)
     {
-        abort_if(Gate::denies('access_settings'), 403);
+
+        abort_if(Gate::denies('businesses.access'), 403);
 
         return $dataTable->render('setting::businesses.index');
     }
@@ -27,7 +29,7 @@ class BusinessController extends Controller
      */
     public function create()
     {
-        abort_if(Gate::denies('access_settings'), 403);
+        abort_if(Gate::denies('businesses.create'), 403);
 
         return view('setting::businesses.create');
     }
@@ -37,16 +39,22 @@ class BusinessController extends Controller
      */
     public function store(Request $request)
     {
+        abort_if(Gate::denies('businesses.create'), 403);
         $currentYear = date("Y");
         $footer_text = "$request->company_name © $currentYear";
+
+        $currency = Currency::first();
+        $currencyId = $request->default_currency_id ?: optional($currency)->id;
+
         Setting::create([
             'company_name' => $request->company_name,
             'company_email' => $request->company_email,
             'company_phone' => $request->company_phone,
             'notification_email' => $request->company_email,
             'company_address' => $request->company_address,
-            'default_currency_id' => $request->default_currency_id,
-            'default_currency_position' => $request->default_currency_position,
+            'default_currency_id' => $currencyId,
+            'default_currency_position' => 'prefix',
+            'document_prefix' => $request->document_prefix,
             'footer_text' => $footer_text,
         ]);
 
@@ -68,6 +76,7 @@ class BusinessController extends Controller
      */
     public function show($id)
     {
+        abort_if(Gate::denies('businesses.show'), 403);
         return view('setting::show');
     }
 
@@ -76,7 +85,7 @@ class BusinessController extends Controller
      */
     public function edit(Setting $business)
     {
-        abort_if(Gate::denies('access_settings'), 403);
+        abort_if(Gate::denies('businesses.edit'), 403);
 
         return view('setting::businesses.edit', compact('business'));
     }
@@ -86,14 +95,19 @@ class BusinessController extends Controller
      */
     public function update(Request $request, Setting $business)
     {
+        abort_if(Gate::denies('businesses.edit'), 403);
+        $currency = Currency::first();
+        $currencyId = $request->default_currency_id ?: optional($currency)->id;
+
        $business->update([
             'company_name' => $request->company_name,
             'company_email' => $request->company_email,
             'company_phone' => $request->company_phone,
             'notification_email' => $request->company_email,
             'company_address' => $request->company_address,
-            'default_currency_id' => $request->default_currency_id,
-            'default_currency_position' => $request->default_currency_position,
+            'default_currency_id' => $currencyId,
+            'default_currency_position' => 'prefix',
+           'document_prefix' => $request->document_prefix,
         ]);
 
         if (auth()->user()->hasRole('Super Admin')) {
@@ -114,7 +128,7 @@ class BusinessController extends Controller
      */
     public function destroy(Setting $business): RedirectResponse
     {
-        abort_if(Gate::denies('access_settings'), 403);
+        abort_if(Gate::denies('businesses.delete'), 403);
         // Check if the setting ID is 1
         if ($business->id == 1) {
             // Toast a warning message
@@ -142,8 +156,9 @@ class BusinessController extends Controller
         return redirect()->route('businesses.index');
     }
 
-    public function updateActiveBusiness(Request $request)
+    public function updateActiveBusiness(Request $request): RedirectResponse
     {
+        abort_if(Gate::denies('businesses.edit'), 403);
         $settingId = $request->input('setting_id');
 
         // Update the session with the new setting ID

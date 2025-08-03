@@ -1,9 +1,9 @@
-@can('access_sale_payments')
+@can('salePayments.edit')
     <a href="{{ route('purchase-payments.edit', [$data->purchase->id, $data->id]) }}" class="btn btn-info btn-sm">
         <i class="bi bi-pencil"></i>
     </a>
 @endcan
-@can('access_sale_payments')
+@can('salePayments.delete')
     <button id="delete" class="btn btn-danger btn-sm" onclick="
         event.preventDefault();
         if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {

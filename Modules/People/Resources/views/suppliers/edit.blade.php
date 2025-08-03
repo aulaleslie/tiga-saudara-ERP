@@ -22,9 +22,9 @@
                         <a href="{{ route('suppliers.index') }}" class="btn btn-secondary mr-2">
                             Kembali
                         </a>
-                        @canany('supplier.edit')
+                        @can('suppliers.edit')
                         <button class="btn btn-primary">Perbaharui Pemasok <i class="bi bi-check"></i></button>
-                        @endcanany
+                        @endcan
                     </div>
                 </div>
 

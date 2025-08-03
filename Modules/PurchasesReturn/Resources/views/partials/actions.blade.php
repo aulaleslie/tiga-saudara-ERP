@@ -3,13 +3,13 @@
         <i class="bi bi-three-dots-vertical"></i>
     </button>
     <div class="dropdown-menu">
-        @can('access_purchase_return_payments')
+        @can('purchaseReturnPayments.show')
             <a href="{{ route('purchase-return-payments.index', $data->id) }}" class="dropdown-item">
                 <i class="bi bi-cash-coin mr-2 text-warning" style="line-height: 1;"></i> Show Payments
             </a>
         @endcan
 
-        @can('access_purchase_return_payments')
+        @can('purchaseReturnPayments.create')
             @if(Str::startsWith($data->status, 'APPROVED') && $data->due_amount > 0)
                 <a href="{{ route('purchase-return-payments.create', $data->id) }}" class="dropdown-item">
                     <i class="bi bi-plus-circle-dotted mr-2 text-success" style="line-height: 1;"></i> Add Payment
@@ -17,7 +17,7 @@
             @endif
         @endcan
 
-        @can('edit_purchase_returns')
+        @can('purchaseReturns.edit')
             @if($data->status === 'PENDING')
                 <a href="{{ route('purchase-returns.edit', $data->id) }}" class="dropdown-item">
                     <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Edit
@@ -25,13 +25,13 @@
             @endif
         @endcan
 
-        @can('show_purchase_returns')
+        @can('purchaseReturns.show')
             <a href="{{ route('purchase-returns.show', $data->id) }}" class="dropdown-item">
                 <i class="bi bi-eye mr-2 text-info" style="line-height: 1;"></i> Details
             </a>
         @endcan
 
-        @can('delete_purchase_return')
+        @can('purchaseReturns.delete')
             @if($data->status === 'PENDING')
                 <button id="delete" class="dropdown-item" onclick="
                     event.preventDefault();

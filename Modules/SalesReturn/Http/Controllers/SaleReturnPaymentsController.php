@@ -14,7 +14,7 @@ class SaleReturnPaymentsController extends Controller
 {
 
     public function index($sale_return_id, SaleReturnPaymentsDataTable $dataTable) {
-        abort_if(Gate::denies('access_sale_return_payments'), 403);
+        abort_if(Gate::denies('saleReturnPayments.access'), 403);
 
         $sale_return = SaleReturn::findOrFail($sale_return_id);
 
@@ -23,7 +23,7 @@ class SaleReturnPaymentsController extends Controller
 
 
     public function create($sale_return_id) {
-        abort_if(Gate::denies('access_sale_return_payments'), 403);
+        abort_if(Gate::denies('saleReturnPayments.create'), 403);
 
         $sale_return = SaleReturn::findOrFail($sale_return_id);
 
@@ -32,7 +32,7 @@ class SaleReturnPaymentsController extends Controller
 
 
     public function store(Request $request) {
-        abort_if(Gate::denies('access_sale_return_payments'), 403);
+        abort_if(Gate::denies('saleReturnPayments.create'), 403);
 
         $request->validate([
             'date' => 'required|date',
@@ -79,7 +79,7 @@ class SaleReturnPaymentsController extends Controller
 
 
     public function edit($sale_return_id, SaleReturnPayment $saleReturnPayment) {
-        abort_if(Gate::denies('access_sale_return_payments'), 403);
+        abort_if(Gate::denies('saleReturnPayments.edit'), 403);
 
         $sale_return = SaleReturn::findOrFail($sale_return_id);
 
@@ -88,7 +88,7 @@ class SaleReturnPaymentsController extends Controller
 
 
     public function update(Request $request, SaleReturnPayment $saleReturnPayment) {
-        abort_if(Gate::denies('access_sale_return_payments'), 403);
+        abort_if(Gate::denies('saleReturnPayments.edit'), 403);
 
         $request->validate([
             'date' => 'required|date',
@@ -135,7 +135,7 @@ class SaleReturnPaymentsController extends Controller
 
 
     public function destroy(SaleReturnPayment $saleReturnPayment) {
-        abort_if(Gate::denies('access_sale_return_payments'), 403);
+        abort_if(Gate::denies('saleReturnPayments.delete'), 403);
 
         $saleReturnPayment->delete();
 

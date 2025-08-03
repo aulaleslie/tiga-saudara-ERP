@@ -36,7 +36,7 @@ class ProductController extends Controller
 
     public function index(ProductDataTable $dataTable)
     {
-        abort_if(Gate::denies('access_products'), 403);
+        abort_if(Gate::denies('products.access'), 403);
 
         return $dataTable->render('product::products.index');
     }
@@ -44,7 +44,7 @@ class ProductController extends Controller
 
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('create_products'), 403);
+        abort_if(Gate::denies('products.create'), 403);
 
         $currentSettingId = session('setting_id');
 
@@ -160,6 +160,7 @@ class ProductController extends Controller
      */
     public function store(StoreProductInfoRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         $validatedData = $request->validated();
 
         // Use the handleProductCreation method to create the product and get the product object
@@ -177,6 +178,7 @@ class ProductController extends Controller
      */
     public function storeProductAndRedirectToInitializeProductStock(StoreProductInfoRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         $validatedData = $request->validated();
 
         $product = $this->handleProductCreation($validatedData); // Retrieve the created product
@@ -188,7 +190,7 @@ class ProductController extends Controller
 
     public function show(Product $product): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('show_products'), 403);
+        abort_if(Gate::denies('products.show'), 403);
 
         $baseUnit = $product->baseUnit;
         $conversions = $product->conversions()->with('unit')->get();
@@ -233,7 +235,7 @@ class ProductController extends Controller
 
     public function edit(Product $product): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('edit_products'), 403);
+        abort_if(Gate::denies('products.edit'), 403);
 
         $currentSettingId = session('setting_id');
 
@@ -256,6 +258,7 @@ class ProductController extends Controller
 
     public function update(UpdateProductRequest $request, Product $product): RedirectResponse
     {
+        abort_if(Gate::denies('products.edit'), 403);
         $validatedData = $request->validated();
 
         // Ensure brand_id and category_id are either NULL or valid
@@ -320,7 +323,7 @@ class ProductController extends Controller
 
     public function destroy(Product $product): RedirectResponse
     {
-        abort_if(Gate::denies('delete_products'), 403);
+        abort_if(Gate::denies('products.delete'), 403);
 
         $product->delete();
 
@@ -331,6 +334,7 @@ class ProductController extends Controller
 
     public function uploadPage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('products.create'), 403);
         // Get the current setting ID from the session
         $currentSettingId = session('setting_id');
 
@@ -343,6 +347,7 @@ class ProductController extends Controller
 
     public function upload(Request $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         // Validate the request
         $request->validate([
             'file' => 'required|mimes:csv,txt',
@@ -468,6 +473,7 @@ class ProductController extends Controller
 
     public function initializeProductStock(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('products.create'), 403);
         $product = Product::findOrFail($request->product_id);
 
         // Fetch the locations from the database
@@ -484,11 +490,13 @@ class ProductController extends Controller
 
     public function storeInitialProductStock(InitializeProductStockRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         return $this->handleStockInitialization($request, 'products.index');
     }
 
     public function storeInitialProductStockAndRedirectToInputSerialNumbers(InitializeProductStockRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         return $this->handleStockInitialization($request, 'products.inputSerialNumbers', [
             'product_id' => $request->route('product_id'),
             'location_id' => $request->input('location_id'),
@@ -497,6 +505,7 @@ class ProductController extends Controller
 
     private function handleStockInitialization(InitializeProductStockRequest $request, string $redirectRoute, array $routeParams = []): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         $validatedData = $request->validated();
 
         DB::beginTransaction();
@@ -573,6 +582,7 @@ class ProductController extends Controller
 
     public function storeSerialNumbers(InputSerialNumbersRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         DB::beginTransaction();
 
         try {
@@ -603,6 +613,7 @@ class ProductController extends Controller
 
     public function search(Request $request): JsonResponse
     {
+        abort_if(Gate::denies('products.access'), 403);
         $search = $request->input('q');
         $products = Product::where('product_name', 'LIKE', "%{$search}%")
             ->select('id', 'product_name as text')

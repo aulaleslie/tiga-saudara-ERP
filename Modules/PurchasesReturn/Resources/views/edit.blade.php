@@ -90,11 +90,11 @@
                             </div>
 
                             <div class="mt-3">
-                                @canany('rpurchase.edit')
+                                @can('purchaseReturns.edit')
                                 <button type="submit" class="btn btn-primary">
                                    Perbaharui Retur Pembelian <i class="bi bi-check"></i>
                                 </button>
-                                @endcanany
+                                @endcan
                                     <a href="{{ route('purchase-returns.index') }}" class="btn btn-secondary">Kembali</a>
                             </div>
                         </form>

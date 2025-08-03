@@ -12,21 +12,21 @@ use Spatie\Permission\Models\Role;
 class RolesController extends Controller
 {
     public function index(RolesDataTable $dataTable) {
-        abort_if(Gate::denies('role.access'), 403);
+        abort_if(Gate::denies('roles.access'), 403);
 
         return $dataTable->render('user::roles.index');
     }
 
 
     public function create() {
-        abort_if(Gate::denies('role.create'), 403);
+        abort_if(Gate::denies('roles.create'), 403);
 
         return view('user::roles.create');
     }
 
 
     public function store(Request $request) {
-        abort_if(Gate::denies('role.create'), 403);
+        abort_if(Gate::denies('roles.create'), 403);
 
         $request->validate([
             'name' => 'required|string|max:255',
@@ -46,14 +46,14 @@ class RolesController extends Controller
 
 
     public function edit(Role $role) {
-        abort_if(Gate::denies('role.edit'), 403);
+        abort_if(Gate::denies('roles.edit'), 403);
 
         return view('user::roles.edit', compact('role'));
     }
 
 
     public function update(Request $request, Role $role) {
-        abort_if(Gate::denies('role.edit'), 403);
+        abort_if(Gate::denies('roles.edit'), 403);
 
         $request->validate([
             'name' => 'required|string|max:255',
@@ -73,7 +73,7 @@ class RolesController extends Controller
 
 
     public function destroy(Role $role) {
-        abort_if(Gate::denies('role.delete'), 403);
+        abort_if(Gate::denies('roles.delete'), 403);
 
         $role->delete();
 

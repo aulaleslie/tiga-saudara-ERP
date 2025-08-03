@@ -1,9 +1,9 @@
-@can('edit_currencies')
+@can('currencies.edit')
     <a href="{{ route('currencies.edit', $data->id) }}" class="btn btn-info btn-sm">
         <i class="bi bi-pencil"></i>
     </a>
 @endcan
-@can('delete_currencies')
+@can('currencies.delete')
     <button id="delete" class="btn btn-danger btn-sm" onclick="
         event.preventDefault();
         if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {

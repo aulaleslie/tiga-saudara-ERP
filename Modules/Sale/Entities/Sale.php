@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\People\Entities\Customer;
+use Modules\Setting\Entities\Setting;
 
 class Sale extends Model
 {
@@ -60,8 +61,15 @@ class Sale extends Model
                 $nextNumber = $lastNumber + 1;
             }
 
-            // Generate the new reference ID
-            $model->reference = make_reference_id('SL', $year, $month, $nextNumber);
+            $prefix = 'SL';
+            $settingId = session('setting_id');
+            $setting = $settingId ? Setting::find($settingId) : null;
+
+            if ($setting && $setting->document_prefix) {
+                $prefix = $setting->document_prefix . '-SL';
+            }
+
+            $model->reference = make_reference_id($prefix, $year, $month, $nextNumber);
         });
     }
 

@@ -2,14 +2,13 @@
 
 namespace Modules\Adjustment\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
-use Illuminate\Http\Response;
+use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Gate;
 use Modules\Adjustment\DataTables\StockTransfersDataTable;
 use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferProduct;
@@ -26,6 +25,7 @@ class TransferStockController extends Controller
      */
     public function index(StockTransfersDataTable $dataTable)
     {
+        abort_if(Gate::denies('stockTransfers.access'), 403);
         return $dataTable->render('adjustment::transfers.index');
     }
 
@@ -34,6 +34,7 @@ class TransferStockController extends Controller
      */
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('stockTransfers.create'), 403);
         $currentSettingId = session('setting_id');
         $currentSetting = Setting::find($currentSettingId);
         $settings = Setting::all();
@@ -48,6 +49,7 @@ class TransferStockController extends Controller
      */
     public function store(StockTransferRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('stockTransfers.create'), 403);
         // Get validated data
         $validated = $request->validated();
 
@@ -80,6 +82,7 @@ class TransferStockController extends Controller
      */
     public function show(Transfer $transfer): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('stockTransfers.show'), 403);
         // Load related data (origin, destination, products)
         $transfer->load([
             'originLocation.setting', // Load the setting for origin location
@@ -99,6 +102,7 @@ class TransferStockController extends Controller
      */
     public function approve(Transfer $transfer): RedirectResponse
     {
+        abort_unless(Gate::any(['stockTransfers.edit', 'stockTransfers.approval']), 403);
         // Update the transfer status, approved, and approval time
         $transfer->update([
             'status' => 'APPROVED',
@@ -119,6 +123,7 @@ class TransferStockController extends Controller
      */
     public function reject(Transfer $transfer): RedirectResponse
     {
+        abort_unless(Gate::any(['stockTransfers.edit', 'stockTransfers.approval']), 403);
         // Update the transfer status, rejected, and rejection time
         $transfer->update([
             'status' => 'REJECTED',
@@ -139,6 +144,7 @@ class TransferStockController extends Controller
      */
     public function dispatchShipment(Transfer $transfer): RedirectResponse
     {
+        abort_if(Gate::denies('stockTransfers.dispatch'), 403);
         // Update the transfer status to DISPATCHED and set the dispatcher and timestamp
         $transfer->update([
             'status' => 'DISPATCHED',
@@ -164,7 +170,6 @@ class TransferStockController extends Controller
                 'after_quantity_at_location' => $currentQuantity,
                 'quantity_tax' => 0,
                 'quantity_non_tax' => 0,
-                'broken_quantity' => 0,
                 'broken_quantity_tax' => 0,
                 'broken_quantity_non_tax' => 0,
                 'location_id' => $transfer->originLocation->id,
@@ -191,6 +196,7 @@ class TransferStockController extends Controller
      */
     public function receive(Transfer $transfer): RedirectResponse
     {
+        abort_if(Gate::denies('stockTransfers.receive'), 403);
         // Update the transfer status to RECEIVED and set the received by and timestamp
         $transfer->update([
             'status' => 'RECEIVED',
@@ -242,6 +248,7 @@ class TransferStockController extends Controller
      */
     public function edit(Transfer $transfer): View|Application|Factory|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('stockTransfers.edit'), 403);
         // Load the necessary data for the form
         $currentSetting = $transfer->originLocation->setting;
         $settings = Setting::all();
@@ -263,6 +270,7 @@ class TransferStockController extends Controller
      */
     public function update(UpdateStockTransferRequest $request, Transfer $transfer): RedirectResponse
     {
+        abort_if(Gate::denies('stockTransfers.edit'), 403);
         // Get validated data
         $validated = $request->validated();
 
@@ -289,6 +297,7 @@ class TransferStockController extends Controller
      */
     public function destroy(Transfer $transfer): RedirectResponse
     {
+        abort_if(Gate::denies('stockTransfers.delete'), 403);
         // Check if the transfer can be deleted (optional logic to check if the status is allowed for deletion)
         if ($transfer->status !== 'PENDING') {
             return redirect()->route('transfers.index')->with('error', 'Only pending transfers can be deleted.');

@@ -48,7 +48,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
         Route::get('/purchase-report', [PurchaseReportController::class, 'index'])
             ->name('reports.purchase-report.index')
-            ->middleware('can:access_reports');
+            ->middleware('can:reports.access');
     });
 
     Route::get('/test-pdf', function () {

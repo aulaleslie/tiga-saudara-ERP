@@ -231,7 +231,7 @@
                                 </a>
                             @endif
 
-                            @can('purchase.approval')
+                            @can('purchases.approval')
                                 @if ($purchase->status === Purchase::STATUS_WAITING_APPROVAL)
                                     <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
                                         @csrf
@@ -248,7 +248,7 @@
                                 @endif
                             @endcan
 
-                            @can('purchase.receiving')
+                            @can('purchases.receive')
                                 @if ($purchase->status === Purchase::STATUS_APPROVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY)
                                     <a href="{{ route('purchases.receive', $purchase->id) }}" class="btn btn-primary">
                                         Menerima

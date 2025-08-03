@@ -18,7 +18,7 @@ class InputSerialNumbersRequest extends FormRequest
     public function authorize(): bool
     {
         // Check if the user has permission to create products
-        return Gate::allows('create_products');
+        return Gate::allows('products.create');
     }
 
     /**

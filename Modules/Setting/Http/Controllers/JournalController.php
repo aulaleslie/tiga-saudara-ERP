@@ -8,6 +8,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
 use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\Journal;
@@ -17,6 +18,7 @@ class JournalController extends Controller
     // Display a list of journals
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('journals.access'), 403);
         $journals = Journal::with('items')->latest()->paginate(10);
         return view('setting::journals.index', compact('journals'));
     }
@@ -24,6 +26,7 @@ class JournalController extends Controller
     // Show form for creating a new journal
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('journals.create'), 403);
         // Get Chart of Accounts to populate the dropdowns in the form
         $accounts = ChartOfAccount::all();
         return view('setting::journals.create', compact('accounts'));
@@ -32,6 +35,7 @@ class JournalController extends Controller
     // Store a new journal with nested journal items
     public function store(Request $request): RedirectResponse
     {
+        abort_if(Gate::denies('journals.create'), 403);
         $rules = [
             'transaction_date'                    => 'required|date',
             'description'                         => 'nullable|string',
@@ -109,6 +113,7 @@ class JournalController extends Controller
     // Display a single journal with its items
     public function show($id): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('journals.show'), 403);
         $journal = Journal::with('items.chartOfAccount')->findOrFail($id);
         return view('setting::journals.show', compact('journal'));
     }
@@ -116,6 +121,7 @@ class JournalController extends Controller
     // Show form for editing a journal and its items
     public function edit($id): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('journals.edit'), 403);
         $journal = Journal::with('items')->findOrFail($id);
         $accounts = ChartOfAccount::all();
         return view('setting::journals.edit', compact('journal', 'accounts'));
@@ -124,6 +130,7 @@ class JournalController extends Controller
     // Update a journal and its items
     public function update(Request $request, $id): RedirectResponse
     {
+        abort_if(Gate::denies('journals.edit'), 403);
         // Similar validation as store
         $rules = [
             'transaction_date'                    => 'required|date',
@@ -200,6 +207,7 @@ class JournalController extends Controller
     // Delete a journal along with its items
     public function destroy($id): RedirectResponse
     {
+        abort_if(Gate::denies('journals.delete'), 403);
         $journal = Journal::findOrFail($id);
         $journal->delete();
         return redirect()->route('journals.index')

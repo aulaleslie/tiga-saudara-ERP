@@ -202,7 +202,7 @@
         <div class="card mt-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5>Paket Penjualan</h5>
-                @can('edit_products')
+                @can('products.bundle.create')
                     <a href="{{ route('products.bundle.create', $product->id) }}" class="btn btn-secondary btn-sm">Tambah Paket</a>
                 @endcan
             </div>
@@ -232,7 +232,7 @@
                                     </tbody>
                                 </table>
                             </div>
-                            @can('edit_products')
+                            @can('products.bundle.edit')
                                 <a href="{{ route('products.bundle.edit', [$product->id, $bundle->id]) }}" class="btn btn-info btn-sm">Ubah Paket</a>
                                 <form action="{{ route('products.bundle.destroy', [$product->id, $bundle->id]) }}" method="POST" style="display:inline;">
                                     @csrf

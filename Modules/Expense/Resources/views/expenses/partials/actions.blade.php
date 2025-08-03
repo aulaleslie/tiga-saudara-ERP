@@ -1,9 +1,9 @@
-@can('edit_expenses')
+@can('expenses.edit')
 <a href="{{ route('expenses.edit', $data->id) }}" class="btn btn-info btn-sm">
     <i class="bi bi-pencil"></i>
 </a>
 @endcan
-@can('delete_expenses')
+@can('expenses.delete')
 <button id="delete" class="btn btn-danger btn-sm" onclick="
     event.preventDefault();
     if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {

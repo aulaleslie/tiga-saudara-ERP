@@ -11,7 +11,7 @@
 @section('content')
     <div class="container-fluid">
         <div class="row">
-            @can('show_total_income')
+            @can('reports.access')
                 <div class="col-md-6 col-lg-4">
                     <div class="card border-0">
                         <div class="card-body p-0 d-flex align-items-center shadow-sm">
@@ -27,7 +27,7 @@
                 </div>
             @endcan
 
-            @can('show_total_sales')
+            @can('reports.access')
                 <div class="col-md-6 col-lg-4">
                     <div class="card border-0">
                         <div class="card-body p-0 d-flex align-items-center shadow-sm">
@@ -43,7 +43,7 @@
                 </div>
             @endcan
 
-            @can('show_total_purchase')
+            @can('reports.access')
                 <div class="col-md-6 col-lg-4">
                     <div class="card border-0">
                         <div class="card-body p-0 d-flex align-items-center shadow-sm">
@@ -74,38 +74,34 @@
 {{--            </div>--}}
         </div>
 
-        @can('show_weekly_sales_purchases|show_month_overview')
+        @can('reports.access')
             <div class="row mb-4">
-                @can('show_weekly_sales_purchases')
-                    <div class="col-lg-7">
-                        <div class="card border-0 shadow-sm h-100">
-                            <div class="card-header">
-                                Penjualan & Pembelian 7 Hari Terakhir
-                            </div>
-                            <div class="card-body">
-                                <canvas id="salesPurchasesChart"></canvas>
+                <div class="col-lg-7">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header">
+                            Penjualan & Pembelian 7 Hari Terakhir
+                        </div>
+                        <div class="card-body">
+                            <canvas id="salesPurchasesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-5">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header">
+                            Sekilas tentang {{ now()->format('F, Y') }}
+                        </div>
+                        <div class="card-body d-flex justify-content-center">
+                            <div class="chart-container" style="position: relative; height:auto; width:280px">
+                                <canvas id="currentMonthChart"></canvas>
                             </div>
                         </div>
                     </div>
-                @endcan
-                @can('show_month_overview')
-                    <div class="col-lg-5">
-                        <div class="card border-0 shadow-sm h-100">
-                            <div class="card-header">
-                                Sekilas tentang {{ now()->format('F, Y') }}
-                            </div>
-                            <div class="card-body d-flex justify-content-center">
-                                <div class="chart-container" style="position: relative; height:auto; width:280px">
-                                    <canvas id="currentMonthChart"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                @endcan
+                </div>
             </div>
         @endcan
 
-        @can('show_monthly_cashflow')
+        @can('reports.access')
             <div class="row">
                 <div class="col-lg-12">
                     <div class="card border-0 shadow-sm">

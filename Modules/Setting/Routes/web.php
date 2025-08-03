@@ -11,7 +11,7 @@
 |
 */
 
-use App\Http\Controllers\PrintController;
+use Modules\Setting\Http\Controllers\PrintController;
 use Illuminate\Support\Facades\Route;
 use Modules\Setting\Http\Controllers\BusinessController;
 use Modules\Setting\Http\Controllers\JournalController;

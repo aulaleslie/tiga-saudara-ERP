@@ -27,7 +27,7 @@ class AdjustmentController extends Controller
 
     public function index(AdjustmentsDataTable $dataTable)
     {
-        abort_if(Gate::denies('access_adjustments'), 403);
+        abort_if(Gate::denies('adjustments.access'), 403);
 
         return $dataTable->render('adjustment::index');
     }
@@ -35,7 +35,7 @@ class AdjustmentController extends Controller
 
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('create_adjustments'), 403);
+        abort_if(Gate::denies('adjustments.create'), 403);
 
         $currentSettingId = session('setting_id');
 
@@ -47,7 +47,7 @@ class AdjustmentController extends Controller
 
     public function createBreakage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('break.create'), 403);
+        abort_if(Gate::denies('adjustments.breakage.create'), 403);
 
         $currentSettingId = session('setting_id');
 
@@ -60,6 +60,7 @@ class AdjustmentController extends Controller
 
     public function store(Request $request)
     {
+        abort_if(Gate::denies('adjustments.create'), 403);
         Log::info('[Adjustment] Incoming store request:', $request->all());
         $validated = $request->validate([
             'reference' => 'required|string',
@@ -138,7 +139,7 @@ class AdjustmentController extends Controller
 
     public function storeBreakage(Request $request): RedirectResponse
     {
-        abort_if(Gate::denies('break.create'), 403);
+        abort_if(Gate::denies('adjustments.breakage.create'), 403);
 
         $request->validate([
             'reference' => 'required|string|max:255',
@@ -222,7 +223,7 @@ class AdjustmentController extends Controller
 
     public function show(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('show_adjustments'), 403);
+        abort_if(Gate::denies('adjustments.show'), 403);
 
         $adjustment->load([
             'adjustedProducts.product.baseUnit',
@@ -288,7 +289,7 @@ class AdjustmentController extends Controller
 
     public function edit(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('edit_adjustments'), 403);
+        abort_if(Gate::denies('adjustments.edit'), 403);
 
         // ✅ Add this
         $adjustment->load('adjustedProducts.product.baseUnit');
@@ -299,7 +300,7 @@ class AdjustmentController extends Controller
 
     public function update(Request $request, Adjustment $adjustment): RedirectResponse
     {
-        abort_if(Gate::denies('edit_adjustments'), 403);
+        abort_if(Gate::denies('adjustments.edit'), 403);
 
         $validated = $request->validate([
             'reference' => 'required|string|max:255',
@@ -372,7 +373,7 @@ class AdjustmentController extends Controller
 
     public function editBreakage(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('break.edit'), 403);
+        abort_if(Gate::denies('adjustments.breakage.edit'), 403);
 
         $adjustment->load(['adjustedProducts.product']);
 
@@ -389,7 +390,7 @@ class AdjustmentController extends Controller
 
     public function updateBreakage(Request $request, Adjustment $adjustment): RedirectResponse
     {
-        abort_if(Gate::denies('break.edit'), 403);
+        abort_if(Gate::denies('adjustments.breakage.edit'), 403);
 
         $request->validate([
             'date' => 'required|date',
@@ -442,7 +443,7 @@ class AdjustmentController extends Controller
 
     public function destroy(Adjustment $adjustment)
     {
-        abort_if(Gate::denies('delete_adjustments'), 403);
+        abort_if(Gate::denies('adjustments.delete'), 403);
 
         $adjustment->delete();
 
@@ -453,6 +454,7 @@ class AdjustmentController extends Controller
 
     public function approve(Adjustment $adjustment): RedirectResponse
     {
+        abort_unless(Gate::any(['adjustments.approval', 'adjustments.breakage.approval']), 403);
         Log::info('[Adjustment] Approving adjustment (full)', $adjustment->toArray());
         Log::info('[Adjustment] Approving adjustment details (full)', $adjustment->adjustedProducts->load('product')->toArray());
 
@@ -468,6 +470,7 @@ class AdjustmentController extends Controller
 
     public function approveNormal(Adjustment $adjustment): RedirectResponse
     {
+        abort_if(Gate::denies('adjustments.approval'), 403);
         try {
             DB::beginTransaction();
             $settingId = session('setting_id');
@@ -601,6 +604,7 @@ class AdjustmentController extends Controller
 
     public function approveBreakage(Adjustment $adjustment): RedirectResponse
     {
+        abort_if(Gate::denies('adjustments.breakage.approval'), 403);
         try {
             DB::beginTransaction();
             foreach ($adjustment->adjustedProducts as $adjustedProduct) {
@@ -724,6 +728,7 @@ class AdjustmentController extends Controller
 
     public function reject(Adjustment $adjustment): RedirectResponse
     {
+        abort_if(Gate::denies('adjustments.approval'), 403);
         // Update the status of the adjustment to 'rejected'
         $adjustment->update(['status' => 'rejected']);
 

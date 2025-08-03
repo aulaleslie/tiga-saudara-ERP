@@ -3,29 +3,29 @@
         <i class="bi bi-three-dots-vertical"></i>
     </button>
     <div class="dropdown-menu">
-        @can('access_sale_payments')
+        @can('salePayments.show')
             <a href="{{ route('sale-return-payments.index', $data->id) }}" class="dropdown-item">
                 <i class="bi bi-cash-coin mr-2 text-warning" style="line-height: 1;"></i> Show Payments
             </a>
         @endcan
-        @can('access_sale_payments')
+        @can('salePayments.create')
             @if($data->due_amount > 0)
                 <a href="{{ route('sale-return-payments.create', $data->id) }}" class="dropdown-item">
                     <i class="bi bi-plus-circle-dotted mr-2 text-success" style="line-height: 1;"></i> Add Payment
                 </a>
             @endif
         @endcan
-        @can('edit_sales')
+        @can('sales.edit')
             <a href="{{ route('sale-returns.edit', $data->id) }}" class="dropdown-item">
                 <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Edit
             </a>
         @endcan
-        @can('show_sales')
+        @can('sales.show')
             <a href="{{ route('sale-returns.show', $data->id) }}" class="dropdown-item">
                 <i class="bi bi-eye mr-2 text-info" style="line-height: 1;"></i> Details
             </a>
         @endcan
-        @can('delete_sales')
+        @can('sales.delete')
             <button id="delete" class="dropdown-item" onclick="
                 event.preventDefault();
                 if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {

@@ -9,6 +9,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Gate;
 use Modules\Setting\Entities\Tax;
 
 class TaxController extends Controller
@@ -19,6 +20,7 @@ class TaxController extends Controller
      */
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('taxes.access'), 403);
         $currentSettingId = session('setting_id');
         $taxes = Tax::where('setting_id', $currentSettingId)->get();
 
@@ -33,6 +35,7 @@ class TaxController extends Controller
      */
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('taxes.create'), 403);
         return view('setting::taxes.create');
     }
 
@@ -43,6 +46,7 @@ class TaxController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        abort_if(Gate::denies('taxes.create'), 403);
         $request->validate([
             'name' => 'required|string|max:255|unique:taxes,name,NULL,id,setting_id,' . session('setting_id'),
             'value' => 'required|numeric|gt:0|lte:100',
@@ -66,6 +70,7 @@ class TaxController extends Controller
      */
     public function edit(Tax $tax): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('taxes.edit'), 403);
         return view('setting::taxes.edit', [
             'tax' => $tax
         ]);
@@ -79,6 +84,7 @@ class TaxController extends Controller
      */
     public function update(Request $request, Tax $tax): RedirectResponse
     {
+        abort_if(Gate::denies('taxes.edit'), 403);
         $request->validate([
             'name' => 'required|string|max:255|unique:taxes,name,' . $tax->id . ',id,setting_id,' . session('setting_id'),
             'value' => 'required|numeric|gt:0|lte:100',
@@ -101,6 +107,7 @@ class TaxController extends Controller
      */
     public function destroy(Tax $tax): RedirectResponse
     {
+        abort_if(Gate::denies('taxes.delete'), 403);
         $tax->delete();
 
         toast('Pajak Berhasil dihapus!', 'warning');

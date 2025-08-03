@@ -2,115 +2,83 @@
 
 namespace App\Livewire\Transfer;
 
-use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
-use Illuminate\Foundation\Application;
-use Illuminate\Support\Facades\Log;
 use Livewire\Component;
-use Modules\Product\Entities\Transaction;
+use Modules\Product\Entities\ProductStock;
 
 class TransferProductTable extends Component
 {
     protected $listeners = [
         'productSelected',
-        'serialNumberSelected',
+        'locationsConfirmed' => 'resetOnNewLocations',
     ];
 
-    public $products;
-    public $hasAdjustments;
-    public $locationId;
+    public $products = [];
+    public $originLocationId;
+    public $destinationLocationId;
 
-    public function mount($existingProducts = null, $locationId = null, $originLocationId = null): void
+    /**
+     * Mount with the two location IDs passed in via wire:key
+     */
+    public function mount($originLocationId = null, $destinationLocationId = null): void
     {
-        Log::info('TransferProductTable', [
-            'originLocationId' => $originLocationId,
-            'locationId' => $locationId,
-        ]);
-        $this->products = [];
-        $this->locationId = $locationId;
-
-        if ($existingProducts) {
-            $this->hasAdjustments = true;
-            $this->products = array_map(function ($adjustedProduct) {
-                return $adjustedProduct['product'];
-            }, $existingProducts);
-
-            if ($this->locationId) {
-                $this->updateProductQuantitiesByLocation();
-            }
-        } else {
-            $this->hasAdjustments = false;
-        }
+        $this->originLocationId      = $originLocationId;
+        $this->destinationLocationId = $destinationLocationId;
+        $this->products              = [];
     }
 
-    public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    /**
+     * Clear the table whenever parent confirms new locations
+     */
+    public function resetOnNewLocations(array $payload): void
     {
-        return view('livewire.transfer.transfer-product-table');
+        $this->originLocationId      = $payload['originLocationId'];
+        $this->destinationLocationId = $payload['destinationLocationId'];
+        $this->products              = [];
     }
 
-    public function productSelected($product)
+    /**
+     * Add a product (with its stock snapshot) to the table
+     */
+    public function productSelected(array $product): void
     {
-        Log::info('product', $product);
-
-        if (collect($this->products)->contains('id', $product['id'] ?? $product['product']['id'] ?? null)) {
+        // avoid duplicates
+        if (collect($this->products)->contains('id', $product['id'] ?? null)) {
             session()->flash('message', 'Already exists in the product list!');
             return;
         }
 
-        // Add serial tracking fields
-        $product['serial_number_required'] = $product['serial_number_required'] ?? false;
-        $product['serial_numbers'] = [];
-        if ($product['serial_number_required']) {
-            $product['quantity'] = 0;
-        }
+        // load that product's stock record at the origin location
+        $stock = ProductStock::where('product_id', $product['id'])
+            ->where('location_id', $this->originLocationId)
+            ->first();
+
+        // merge in all the relevant stock columns
+        $product['stock'] = [
+            'total'                    => $stock->quantity                  ?? 0,
+            'quantity_tax'             => $stock->quantity_tax              ?? 0,
+            'quantity_non_tax'         => $stock->quantity_non_tax          ?? 0,
+            'broken_quantity_tax'      => $stock->broken_quantity_tax       ?? 0,
+            'broken_quantity_non_tax'  => $stock->broken_quantity_non_tax   ?? 0,
+        ];
+
+        // initialize transfer inputs
+        $product['quantity_tax']             = 0;
+        $product['quantity_non_tax']         = 0;
+        $product['broken_quantity_tax']      = 0;
+        $product['broken_quantity_non_tax']  = 0;
 
         $this->products[] = $product;
     }
 
-    public function removeProduct($key)
+    public function removeProduct(int $key): void
     {
         unset($this->products[$key]);
+        $this->products = array_values($this->products);
     }
 
-    protected function updateProductQuantitiesByLocation(): void
+    public function render(): View
     {
-        foreach ($this->products as &$product) {
-            $product['product_quantity'] = $this->getProductQuantity($product['id']);
-        }
-    }
-
-    protected function getProductQuantity($productId)
-    {
-        if ($this->locationId) {
-            // Query to get the latest quantity for the product in the specified location
-            return Transaction::where('product_id', $productId)
-                ->where('location_id', $this->locationId)
-                ->groupBy('product_id', 'location_id')
-                ->sum('quantity');
-        }
-
-        return 0;
-    }
-
-    public function serialNumberSelected($index, $serialNumber): void
-    {
-        if (isset($this->products[$index]) && $this->products[$index]['serial_number_required']) {
-            // Prevent duplicates
-            if (collect($this->products[$index]['serial_numbers'])->contains('id', $serialNumber['id'])) {
-                session()->flash('message', "Serial number '{$serialNumber['serial_number']}' already selected.");
-                return;
-            }
-            $this->products[$index]['serial_numbers'][] = $serialNumber;
-            $this->products[$index]['quantity'] = count($this->products[$index]['serial_numbers']);
-        }
-    }
-
-    public function removeSerialNumber($index, $serialIndex): void
-    {
-        if (isset($this->products[$index]['serial_numbers'][$serialIndex])) {
-            unset($this->products[$index]['serial_numbers'][$serialIndex]);
-            $this->products[$index]['serial_numbers'] = array_values($this->products[$index]['serial_numbers']);
-            $this->products[$index]['quantity'] = count($this->products[$index]['serial_numbers']);
-        }
+        return view('livewire.transfer.transfer-product-table');
     }
 }

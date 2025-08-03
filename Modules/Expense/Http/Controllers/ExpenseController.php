@@ -14,21 +14,21 @@ class ExpenseController extends Controller
 {
 
     public function index(ExpensesDataTable $dataTable) {
-        abort_if(Gate::denies('access_expenses'), 403);
+        abort_if(Gate::denies('expenses.access'), 403);
 
         return $dataTable->render('expense::expenses.index');
     }
 
 
     public function create() {
-        abort_if(Gate::denies('create_expenses'), 403);
+        abort_if(Gate::denies('expenses.create'), 403);
 
         return view('expense::expenses.create');
     }
 
 
     public function store(Request $request) {
-        abort_if(Gate::denies('create_expenses'), 403);
+        abort_if(Gate::denies('expenses.create'), 403);
 
         $request->validate([
             'date' => 'required|date',
@@ -55,14 +55,14 @@ class ExpenseController extends Controller
 
 
     public function edit(Expense $expense) {
-        abort_if(Gate::denies('edit_expenses'), 403);
+        abort_if(Gate::denies('expenses.edit'), 403);
 
         return view('expense::expenses.edit', compact('expense'));
     }
 
 
     public function update(Request $request, Expense $expense) {
-        abort_if(Gate::denies('edit_expenses'), 403);
+        abort_if(Gate::denies('expenses.edit'), 403);
 
         $request->validate([
             'date' => 'required|date',
@@ -87,7 +87,7 @@ class ExpenseController extends Controller
 
 
     public function destroy(Expense $expense) {
-        abort_if(Gate::denies('delete_expenses'), 403);
+        abort_if(Gate::denies('expenses.delete'), 403);
 
         $expense->delete();
 

@@ -7,13 +7,12 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\Product\Entities\Product;
 use Modules\Quotation\Entities\Quotation;
-use Modules\Quotation\Http\Requests\StoreQuotationSaleRequest;
 
 class QuotationSalesController extends Controller
 {
 
     public function __invoke(Quotation $quotation) {
-        abort_if(Gate::denies('create_quotation_sales'), 403);
+        abort_if(Gate::denies('quotations.create'), 403);
 
         $quotation_details = $quotation->quotationDetails;
 

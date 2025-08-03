@@ -23,7 +23,7 @@
                 </a>
 
                 @if($adjustment->status === 'pending')
-                    @can('approve_adjustments')
+                    @can('adjustments.approval')
                         <form action="{{ route('adjustments.approve', $adjustment) }}" method="POST"
                               class="d-inline">
                             @csrf
@@ -34,7 +34,7 @@
                         </form>
                     @endcan
 
-                    @can('reject_adjustments')
+                    @can('adjustments.reject')
                         <form action="{{ route('adjustments.reject', $adjustment) }}" method="POST"
                               class="d-inline">
                             @csrf

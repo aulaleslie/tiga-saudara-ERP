@@ -13,7 +13,7 @@ class PaymentMethodController extends Controller
 {
     public function index()
     {
-        abort_if(Gate::denies('payment_method.access'), 403);
+        abort_if(Gate::denies('paymentMethods.access'), 403);
         // Get payment methods filtered by setting_id
         $paymentMethods = PaymentMethod::with('chartOfAccount')->where('setting_id', session('setting_id'))->get();
 
@@ -22,7 +22,7 @@ class PaymentMethodController extends Controller
 
     public function create()
     {
-        abort_if(Gate::denies('payment_method.create'), 403);
+        abort_if(Gate::denies('paymentMethods.create'), 403);
         // Get chart of accounts for the dropdown
         $chartOfAccounts = ChartOfAccount::where('setting_id', session('setting_id'))->get();
 
@@ -31,7 +31,7 @@ class PaymentMethodController extends Controller
 
     public function store(Request $request)
     {
-        abort_if(Gate::denies('payment_method.create'), 403);
+        abort_if(Gate::denies('paymentMethods.create'), 403);
         // Validate the request
         $request->validate([
             'name' => 'required|string|max:255',
@@ -51,7 +51,7 @@ class PaymentMethodController extends Controller
 
     public function edit(PaymentMethod $paymentMethod)
     {
-        abort_if(Gate::denies('payment_method.edit'), 403);
+        abort_if(Gate::denies('paymentMethods.edit'), 403);
         // Get chart of accounts for the dropdown
         $chartOfAccounts = ChartOfAccount::where('setting_id', session('setting_id'))->get();
 
@@ -60,7 +60,7 @@ class PaymentMethodController extends Controller
 
     public function update(Request $request, PaymentMethod $paymentMethod)
     {
-        abort_if(Gate::denies('payment_method.edit'), 403);
+        abort_if(Gate::denies('paymentMethods.edit'), 403);
         // Validate the request
         $request->validate([
             'name' => 'required|string|max:255',
@@ -79,7 +79,7 @@ class PaymentMethodController extends Controller
 
     public function destroy(PaymentMethod $paymentMethod)
     {
-        abort_if(Gate::denies('payment_method.delete'), 403);
+        abort_if(Gate::denies('paymentMethods.delete'), 403);
         // Delete the payment method
         $paymentMethod->delete();
 

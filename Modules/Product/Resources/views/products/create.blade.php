@@ -13,13 +13,11 @@
                         <x-button label="Tambah Produk" icon="bi-check"/>
 
                         <!-- Show when stock_managed is checked -->
-                        @canany('create_products')
-                            <button type="submit" class="btn btn-primary ml-2" id="stock-initiate-btn"
-                                    formaction="{{ route('products.storeProductAndRedirectToInitializeProductStock') }}"
-                                    style="display: none;">
-                                Tambah Produk & Lanjut Inisiasi Stock
-                            </button>
-                        @endcanany
+                        <button type="submit" class="btn btn-primary ml-2" id="stock-initiate-btn"
+                                formaction="{{ route('products.storeProductAndRedirectToInitializeProductStock') }}"
+                                style="display: none;">
+                            Tambah Produk & Lanjut Inisiasi Stock
+                        </button>
                     </div>
                 </div>
 

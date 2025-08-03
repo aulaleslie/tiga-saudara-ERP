@@ -49,26 +49,9 @@
                             <div class="form-row">
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="default_currency_id">Pengaturan Mata Uang <span
+                                        <label for="document_prefix">Prefix Dokumen <span
                                                 class="text-danger">*</span></label>
-                                        <select name="default_currency_id" id="default_currency_id" class="form-control"
-                                                required>
-                                            @foreach(Currency::all() as $currency)
-                                                <option
-                                                    value="{{ $currency->id }}">{{ $currency->currency_name }}</option>
-                                            @endforeach
-                                        </select>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="default_currency_position">Pengaturan Posisi Mata Uang <span
-                                                class="text-danger">*</span></label>
-                                        <select name="default_currency_position" id="default_currency_position"
-                                                class="form-control" required>
-                                            <option value="prefix">Prefix</option>
-                                            <option value="suffix">Suffix</option>
-                                        </select>
+                                        <input type="email" class="form-control" name="document_prefix" required>
                                     </div>
                                 </div>
                             </div>

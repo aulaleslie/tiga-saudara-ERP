@@ -5,6 +5,7 @@ namespace Modules\User\Http\Controllers;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Modules\Upload\Entities\Upload;
@@ -14,11 +15,13 @@ class ProfileController extends Controller
 {
 
     public function edit() {
+        abort_if(Gate::denies('profiles.edit'), 403);
         return view('user::profile');
     }
 
 
     public function update(Request $request) {
+        abort_if(Gate::denies('profiles.edit'), 403);
         $request->validate([
             'name'  => 'required|string|max:255',
             'email' => 'required|email|unique:users,email,' . auth()->id()
@@ -52,6 +55,7 @@ class ProfileController extends Controller
     }
 
     public function updatePassword(Request $request) {
+        abort_if(Gate::denies('profiles.edit'), 403);
         $request->validate([
             'current_password'  => ['required', 'max:255', new MatchCurrentPassword()],
             'password' => 'required|min:8|max:255|confirmed'

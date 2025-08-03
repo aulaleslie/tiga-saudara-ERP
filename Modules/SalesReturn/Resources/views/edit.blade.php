@@ -90,11 +90,11 @@
                             </div>
 
                             <div class="mt-3">
-                                @canany('rsale.edit')
+                                @can('saleReturns.edit')
                                 <button type="submit" class="btn btn-primary">
                                     Perbaharui Retur Penjualan <i class="bi bi-check"></i>
                                 </button>
-                                @endcanany
+                                @endcan
                             </div>
                         </form>
                     </div>
