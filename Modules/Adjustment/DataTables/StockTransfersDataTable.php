@@ -41,11 +41,20 @@ class StockTransfersDataTable extends DataTable
     {
         $settingId = session('setting_id');
 
-        // Filter transfers where originLocation's setting_id equals the current setting_id
         return $model->newQuery()
             ->with('originLocation', 'destinationLocation')
-            ->whereHas('originLocation.setting', function ($query) use ($settingId) {
-                $query->where('id', $settingId);
+            ->where(function($q) use ($settingId) {
+                // 1) All transfers where current setting is the ORIGIN
+                $q->whereHas('originLocation.setting', function ($q1) use ($settingId) {
+                    $q1->where('id', $settingId);
+                })
+                    // 2) OR: transfers where current setting is the DESTINATION AND status is DISPATCHED
+                    ->orWhere(function($q2) use ($settingId) {
+                        $q2->whereHas('destinationLocation.setting', function ($q3) use ($settingId) {
+                            $q3->where('id', $settingId);
+                        })
+                            ->where('status', 'DISPATCHED');
+                    });
             });
     }
 

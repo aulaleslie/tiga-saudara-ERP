@@ -83,15 +83,24 @@ class TransferStockController extends Controller
     public function show(Transfer $transfer): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('stockTransfers.show'), 403);
-        // Load related data (origin, destination, products)
+
         $transfer->load([
-            'originLocation.setting', // Load the setting for origin location
-            'destinationLocation.setting', // Load the setting for destination location
+            'originLocation.setting',
+            'destinationLocation.setting',
             'products.product',
         ]);
 
-        // Return the view with the transfer data
-        return view('adjustment::transfers.show', compact('transfer'));
+        $currentSettingId = session('setting_id');
+
+        // compute once in the backend
+        $isOrigin      = $currentSettingId === $transfer->originLocation->setting->id;
+        $isDestination = $currentSettingId === $transfer->destinationLocation->setting->id;
+
+        return view('adjustment::transfers.show', compact(
+            'transfer',
+            'isOrigin',
+            'isDestination'
+        ));
     }
 
     /**

@@ -17,9 +17,7 @@
                 <div class="card">
                     <div class="card-body">
                         <h5 class="card-title">Transfer Information</h5>
-
-                        <!-- Transfer Info -->
-                        <table class="table table-bordered">
+                        <table class="table table-bordered mb-4">
                             <tr>
                                 <th>Transfer Date:</th>
                                 <td>{{ $transfer->created_at->format('Y-m-d H:i:s') }}</td>
@@ -27,14 +25,14 @@
                             <tr>
                                 <th>Origin Location:</th>
                                 <td>
-                                    {{ $transfer->originLocation->name ?? '-' }} <br>
+                                    {{ $transfer->originLocation->name ?? '-' }}<br>
                                     <small>{{ $transfer->originLocation->setting->company_name ?? '-' }}</small>
                                 </td>
                             </tr>
                             <tr>
                                 <th>Destination Location:</th>
                                 <td>
-                                    {{ $transfer->destinationLocation->name ?? '-' }} <br>
+                                    {{ $transfer->destinationLocation->name ?? '-' }}<br>
                                     <small>{{ $transfer->destinationLocation->setting->company_name ?? '-' }}</small>
                                 </td>
                             </tr>
@@ -46,80 +44,100 @@
                                 <th>Created By:</th>
                                 <td>{{ $transfer->createdBy->name ?? '-' }}</td>
                             </tr>
-                            @if ($transfer->approver)
+                            @if($transfer->approver)
                                 <tr>
                                     <th>Approved By:</th>
                                     <td>{{ $transfer->approver->name }}</td>
                                 </tr>
                             @endif
-                            @if ($transfer->dispatcher)
+                            @if($transfer->dispatcher)
                                 <tr>
                                     <th>Dispatched By:</th>
                                     <td>{{ $transfer->dispatcher->name }}</td>
                                 </tr>
                             @endif
+                            @if($transfer->receiver)
+                                <tr>
+                                    <th>Received By:</th>
+                                    <td>{{ $transfer->receiver->name }}</td>
+                                </tr>
+                            @endif
                         </table>
 
-                        <h5 class="card-title mt-4">Products</h5>
-
-                        <!-- Products Table -->
+                        <h5 class="card-title">Products</h5>
                         <table class="table table-bordered">
                             <thead>
                             <tr>
                                 <th>#</th>
-                                <th>Product Name</th>
-                                <th>Product Code</th>
-                                <th>Quantity</th>
+                                <th>Name</th>
+                                <th>Code</th>
+                                <th class="text-center">Tax</th>
+                                <th class="text-center">Non-Tax</th>
+                                <th class="text-center">Broken Tax</th>
+                                <th class="text-center">Broken Non-Tax</th>
+                                <th class="text-center">Total</th>
                             </tr>
                             </thead>
                             <tbody>
-                            @foreach($transfer->products as $key => $product)
+                            @foreach($transfer->products as $i => $item)
+                                @php
+                                    $qt  = $item->quantity_tax;
+                                    $qn  = $item->quantity_non_tax;
+                                    $bqt = $item->quantity_broken_tax;
+                                    $bqn = $item->quantity_broken_non_tax;
+                                    $total = $qt + $qn + $bqt + $bqn;
+                                @endphp
                                 <tr>
-                                    <td>{{ $key + 1 }}</td>
-                                    <td>{{ $product->product->product_name }}</td>
-                                    <td>{{ $product->product->product_code }}</td>
-                                    <td>{{ $product->quantity }}</td>
+                                    <td>{{ $i + 1 }}</td>
+                                    <td>{{ $item->product->product_name }}</td>
+                                    <td>{{ $item->product->product_code }}</td>
+                                    <td class="text-center">{{ $qt }}</td>
+                                    <td class="text-center">{{ $qn }}</td>
+                                    <td class="text-center">{{ $bqt }}</td>
+                                    <td class="text-center">{{ $bqn }}</td>
+                                    <td class="text-center">{{ $total }}</td>
                                 </tr>
                             @endforeach
                             </tbody>
                         </table>
 
-                        <!-- Action Buttons: Approve, Reject, Dispatch, Receive -->
-                        @if ($transfer->status === 'PENDING')
-                            <div class="mt-4">
-                                <form action="{{ route('transfers.approve', $transfer->id) }}" method="POST" style="display:inline-block;">
-                                    @csrf
-                                    @method('POST')
-                                    <button type="submit" class="btn btn-success">Approve</button>
-                                </form>
+                        <div class="mt-4">
+                            {{-- Approve/Reject: only DESTINATION on PENDING --}}
+                            @if($transfer->status === 'PENDING' && $isDestination)
+                                @canany(['stockTransfers.edit','stockTransfers.approval'])
+                                    <form action="{{ route('transfers.approve', $transfer) }}" method="POST" class="d-inline">
+                                        @csrf
+                                        <button class="btn btn-success">Approve</button>
+                                    </form>
+                                    <form action="{{ route('transfers.reject', $transfer) }}" method="POST" class="d-inline">
+                                        @csrf
+                                        <button class="btn btn-danger">Reject</button>
+                                    </form>
+                                @endcanany
 
-                                <form action="{{ route('transfers.reject', $transfer->id) }}" method="POST" style="display:inline-block;">
-                                    @csrf
-                                    @method('POST')
-                                    <button type="submit" class="btn btn-danger">Reject</button>
-                                </form>
-                            </div>
-                        @elseif ($transfer->status === 'APPROVED')
-                            <div class="mt-4">
-                                <form action="{{ route('transfers.dispatch', $transfer->id) }}" method="POST" style="display:inline-block;">
-                                    @csrf
-                                    @method('POST')
-                                    <button type="submit" class="btn btn-primary">Dispatch</button>
-                                </form>
-                            </div>
-                        @elseif ($transfer->status === 'DISPATCHED' && $transfer->originLocation->setting->id === $transfer->destinationLocation->setting->id)
-                            <div class="mt-4">
-                                <form action="{{ route('transfers.receive', $transfer->id) }}" method="POST" style="display:inline-block;">
-                                    @csrf
-                                    @method('POST')
-                                    <button type="submit" class="btn btn-success">Receive</button>
-                                </form>
-                            </div>
-                        @endif
+                                {{-- Dispatch: only ORIGIN on APPROVED --}}
+                            @elseif($transfer->status === 'APPROVED' && $isOrigin)
+                                @can('stockTransfers.dispatch')
+                                    <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                        @csrf
+                                        <button class="btn btn-primary">Dispatch</button>
+                                    </form>
+                                @endcan
 
-                        <a href="{{ route('transfers.index') }}" class="btn btn-secondary mt-4">
-                            Back to Transfers
-                        </a>
+                                {{-- Receive: only DESTINATION on DISPATCHED --}}
+                            @elseif($transfer->status === 'DISPATCHED' && $isDestination)
+                                @can('stockTransfers.receive')
+                                    <form action="{{ route('transfers.receive', $transfer) }}" method="POST" class="d-inline">
+                                        @csrf
+                                        <button class="btn btn-success">Receive</button>
+                                    </form>
+                                @endcan
+                            @endif
+
+                            <a href="{{ route('transfers.index') }}" class="btn btn-secondary ml-2">
+                                Back to Transfers
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
