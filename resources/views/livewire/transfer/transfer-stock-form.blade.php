@@ -13,6 +13,11 @@
                     label="Lokasi Asal"
                     eventName="originLocationSelected"
                 />
+                @if(!empty($selfManagedValidationErrors['origin_location']))
+                    <span class="text-danger">
+                        {{ $selfManagedValidationErrors['origin_location'] }}
+                    </span>
+                @endif
             </div>
 
             <div class="col-md-6">
@@ -24,6 +29,11 @@
                     :exclude="$originLocation"
                     :key="'destination-'.$originLocation"
                 />
+                @if(!empty($selfManagedValidationErrors['destination_location']))
+                    <span class="text-danger">
+                        {{ $selfManagedValidationErrors['destination_location'] }}
+                    </span>
+                @endif
             </div>
         </div>
 
@@ -32,6 +42,12 @@
                 :locationId="$originLocation"
                 wire:key="search-product-{{ $originLocation ?? 'none' }}"
             />
+
+            @if(!empty($selfManagedValidationErrors['rows']))
+                <div class="alert alert-danger">
+                    {{ $selfManagedValidationErrors['rows'] }}
+                </div>
+            @endif
             <livewire:transfer.transfer-product-table
                 :originLocationId="$originLocation"
                 :destinationLocationId="$destinationLocation"
@@ -45,7 +61,6 @@
                 <button
                     type="submit"
                     class="btn btn-success"
-                    {{-- disable & show spinner while submit() is running --}}
                     wire:loading.attr="disabled"
                     wire:target="submit"
                 >
@@ -53,6 +68,5 @@
                 </button>
             </div>
         @endcan
-
     </form>
 </div>

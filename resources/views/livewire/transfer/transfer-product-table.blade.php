@@ -1,4 +1,3 @@
-{{-- resources/views/livewire/transfer/transfer-product-table.blade.php --}}
 <div>
     @if (session()->has('message'))
         <div class="alert alert-warning alert-dismissible fade show" role="alert">
@@ -32,11 +31,13 @@
 
                     <td>
                         {{ $p['product_name'] }}
-                        <div>
-                            <span class="badge badge-secondary">
-                                {{ $p['product_code'] }}
+                        <div><span class="badge badge-secondary">{{ $p['product_code'] }}</span></div>
+
+                        @if(!empty($tableValidationErrors["row.{$i}"]))
+                            <span class="text-danger small">
+                                {{ $tableValidationErrors["row.{$i}"] }}
                             </span>
-                        </div>
+                        @endif
                     </td>
 
                     <td class="text-center">
@@ -47,42 +48,32 @@
                         </span>
                     </td>
 
-                    <td>
-                        <input
-                            type="number"
-                            min="0"
-                            class="form-control"
-                            name="quantity_tax[]"
-                            wire:model.defer="products.{{ $i }}.quantity_tax"
-                        >
-                    </td>
-                    <td>
-                        <input
-                            type="number"
-                            min="0"
-                            class="form-control"
-                            name="quantity_non_tax[]"
-                            wire:model.defer="products.{{ $i }}.quantity_non_tax"
-                        >
-                    </td>
-                    <td>
-                        <input
-                            type="number"
-                            min="0"
-                            class="form-control"
-                            name="broken_quantity_tax[]"
-                            wire:model.defer="products.{{ $i }}.broken_quantity_tax"
-                        >
-                    </td>
-                    <td>
-                        <input
-                            type="number"
-                            min="0"
-                            class="form-control"
-                            name="broken_quantity_non_tax[]"
-                            wire:model.defer="products.{{ $i }}.broken_quantity_non_tax"
-                        >
-                    </td>
+                    @php
+                        $fields = [
+                            'quantity_tax'             => 'Jumlah Pajak',
+                            'quantity_non_tax'         => 'Jumlah Non Pajak',
+                            'broken_quantity_tax'      => 'Rusak Pajak',
+                            'broken_quantity_non_tax'  => 'Rusak Non Pajak',
+                        ];
+                    @endphp
+
+                    @foreach($fields as $field => $label)
+                        <td>
+                            <input
+                                type="number"
+                                min="0"
+                                class="form-control"
+                                wire:model.lazy="products.{{ $i }}.{{ $field }}"
+                            >
+
+                            {{-- field-level error --}}
+                            @if(isset($tableValidationErrors["row.{$i}.{$field}"]))
+                                <div class="text-danger small mt-1">
+                                    {{ $tableValidationErrors["row.{$i}.{$field}"] }}
+                                </div>
+                            @endif
+                        </td>
+                    @endforeach
 
                     <td class="text-center">
                         <button
