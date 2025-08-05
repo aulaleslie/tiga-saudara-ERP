@@ -2,8 +2,12 @@
 
 namespace App\Livewire\Transfer;
 
+use Exception;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\Adjustment\Entities\Transfer;
+use Modules\Adjustment\Entities\TransferProduct;
 use Modules\Setting\Entities\Setting;
 
 class TransferStockForm extends Component
@@ -64,6 +68,7 @@ class TransferStockForm extends Component
         $this->selfManagedValidationErrors = [];
         $tableErrors = [];
 
+        // emit any existing table errors (will be reset below if none)
         $this->dispatch('tableValidationErrors', $tableErrors);
 
         // validate origin and destination
@@ -74,7 +79,7 @@ class TransferStockForm extends Component
             $this->selfManagedValidationErrors['destination_location'] = 'Silakan pilih Lokasi Tujuan.';
         }
 
-        // now validate rows separately
+        // validate rows
         if (empty($this->rows)) {
             $this->selfManagedValidationErrors['rows'] = 'Silakan pilih minimal satu produk.';
         } else {
@@ -83,9 +88,9 @@ class TransferStockForm extends Component
                 $qn  = $row['quantity_non_tax']        ?? 0;
                 $bqt = $row['broken_quantity_tax']     ?? 0;
                 $bqn = $row['broken_quantity_non_tax'] ?? 0;
-                $totalTransfer = $qt + $qn + $bqt + $bqn;
+                $total = $qt + $qn + $bqt + $bqn;
 
-                if ($totalTransfer <= 0) {
+                if ($total <= 0) {
                     $tableErrors["row.{$i}"] = "Jumlah keseluruhan produk harus lebih besar dari 0.";
                 }
                 if ($qt > ($row['stock']['quantity_tax'] ?? 0)) {
@@ -107,16 +112,58 @@ class TransferStockForm extends Component
             }
         }
 
-        // if row validation errors, emit event and abort
-        if (!empty($tableErrors) || ! empty($this->selfManagedValidationErrors)) {
-            if (!empty($tableErrors)) {
+        // abort on validation errors
+        if (! empty($tableErrors) || ! empty($this->selfManagedValidationErrors)) {
+            if (! empty($tableErrors)) {
                 $this->dispatch('tableValidationErrors', $tableErrors);
             }
             return;
         }
 
-        // All validations passed
-        // TODO: Save logic
+        // all validations passed → persist data
+        DB::beginTransaction();
+
+        try {
+            // 1) create the transfer header
+            $transfer = Transfer::create([
+                'origin_location_id'      => $this->originLocation,
+                'destination_location_id' => $this->destinationLocation,
+                'created_by'              => auth()->id(),
+                'status'                  => 'PENDING',
+            ]);
+
+            // 2) create each transfer_product row
+            foreach ($this->rows as $row) {
+                $qt  = $row['quantity_tax']            ?? 0;
+                $qn  = $row['quantity_non_tax']        ?? 0;
+                $bqt = $row['broken_quantity_tax']     ?? 0;
+                $bqn = $row['broken_quantity_non_tax'] ?? 0;
+                $total = $qt + $qn + $bqt + $bqn;
+
+                TransferProduct::create([
+                    'transfer_id'               => $transfer->id,
+                    'product_id'                => $row['id'],
+                    'quantity'                  => $total,
+                    'quantity_tax'              => $qt,
+                    'quantity_non_tax'          => $qn,
+                    'quantity_broken_tax'       => $bqt,
+                    'quantity_broken_non_tax'   => $bqn,
+                    // serial_numbers left null here; will be filled at dispatch
+                ]);
+            }
+
+            DB::commit();
+
+            // 3) reset form and show success
+            toast('Transfer Stok Dibuat!', 'success');
+            //
+            return redirect()->route('transfers.index');
+        }
+        catch (Exception $e) {
+            DB::rollback();
+            Log::error('Transfer submit error', ['error' => $e->getMessage()]);
+            session()->flash('message', 'Terjadi kesalahan saat mengajukan transfer.');
+        }
     }
 
     public function render()

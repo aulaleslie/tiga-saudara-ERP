@@ -115,7 +115,6 @@ class TransferProductTable extends Component
      */
     public function onTableValidationErrors(array $errors): void
     {
-        Log::info('errors', $errors);
         $this->tableValidationErrors = $errors;
     }
 
