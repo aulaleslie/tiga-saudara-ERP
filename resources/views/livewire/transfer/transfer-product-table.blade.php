@@ -97,7 +97,7 @@
             @empty
                 <tr>
                     <td colspan="8" class="text-center text-muted">
-                        Please search & select products!
+                        Silahkan cari dan pilih produk!
                     </td>
                 </tr>
             @endforelse

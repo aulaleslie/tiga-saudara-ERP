@@ -20,55 +20,61 @@ class Transfer extends Model
         'approved_by',
         'rejected_by',
         'dispatched_by',
+        'received_by',
         'status',
-        'created_at',
+        'transfer_date',
         'approved_at',
         'rejected_at',
         'dispatched_at',
-        'transfer_date',
+        'received_at',
+    ];
+
+    protected $casts = [
+        'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
+        'dispatched_at' => 'datetime',
+        'received_at' => 'datetime',
     ];
 
     /**
      * Relationships
      */
 
-    // Creator of the transfer
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    // Approval of the transfer
     public function approvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
     }
 
-    // Rejected By of the transfer
     public function rejectedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'rejected_by');
     }
 
-    // Dispatcher of the transfer
     public function dispatchedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'dispatched_by');
     }
 
-    // Origin Location of the transfer
+    public function receivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by');
+    }
+
     public function originLocation(): BelongsTo
     {
         return $this->belongsTo(Location::class, 'origin_location_id');
     }
 
-    // Destination Location of the transfer
     public function destinationLocation(): BelongsTo
     {
         return $this->belongsTo(Location::class, 'destination_location_id');
     }
 
-    // Products in this transfer
     public function products(): HasMany
     {
         return $this->hasMany(TransferProduct::class);

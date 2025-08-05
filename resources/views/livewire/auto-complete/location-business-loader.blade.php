@@ -11,7 +11,7 @@
                 class="form-control"
                 wire:focus="$set('isFocused', true)"
                 wire:blur="resetQueryAfterDelay"
-                placeholder="Type location name or code...">
+                placeholder="Ketik nama lokasi...">
         </div>
     </div>
 

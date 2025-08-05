@@ -43,21 +43,6 @@ class TransferStockForm extends Component
         }
     }
 
-    public function confirmSelections()
-    {
-        if (! $this->selectedBusiness || ! $this->originLocation || ! $this->destinationLocation) {
-            $this->addError('form', 'Please select both origin and destination.');
-            return;
-        }
-
-
-        // Let your child tables know
-        $this->emit('locationsConfirmed', [
-            'originLocationId'      => $this->originLocation,
-            'destinationLocationId' => $this->destinationLocation,
-        ]);
-    }
-
     public function render()
     {
         return view('livewire.transfer.transfer-stock-form');
