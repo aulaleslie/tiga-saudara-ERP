@@ -15,8 +15,15 @@ class PurchaseTable extends Component
     public $perPage = 10;
     public $sortField = 'created_at';
     public $sortDirection = 'desc';
+    public $settingId;
 
     protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection'];
+
+    public function mount($settingId = null)
+    {
+        // if you pass it in from the parent, use that; otherwise, fall back to the logged-in user’s
+        $this->settingId = $settingId ?? session('setting_id');
+    }
 
     public function updatedSearch()
     {
@@ -50,6 +57,7 @@ class PurchaseTable extends Component
     {
         $query = Purchase::query()
             ->with(['supplier', 'tags'])
+            ->where('setting_id', $this->settingId)
             ->when($this->search, function ($q) {
                 $q->where(function ($qq) {
                     $search = $this->search;

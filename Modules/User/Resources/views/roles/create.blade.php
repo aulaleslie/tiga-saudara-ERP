@@ -56,153 +56,235 @@
                                         'Dashboard' => [
                                             'show_notifications' => 'Notifications',
                                         ],
+
                                         'Penjualan' => [
-                                            'sales.access' => 'Hak Akses',
-                                            'sales.create' => 'Buat',
-                                            'sales.edit' => 'Ubah',
-                                            'sales.delete' => 'Hapus',
+                                            'sales.access'   => 'Hak Akses',
+                                            'sales.create'   => 'Buat',
+                                            'sales.edit'     => 'Ubah',
+                                            'sales.delete'   => 'Hapus',
                                             'sales.dispatch' => 'Kirim',
-                                            'sales.show' => 'Lihat',
+                                            'sales.show'     => 'Lihat',
                                             'sales.approval' => 'Persetujuan',
                                         ],
+
                                         'Retur Penjualan' => [
                                             'saleReturns.access' => 'Hak Akses',
                                             'saleReturns.create' => 'Buat',
-                                            'saleReturns.edit' => 'Ubah',
+                                            'saleReturns.edit'   => 'Ubah',
                                             'saleReturns.delete' => 'Hapus',
-                                            'saleReturns.show' => 'Lihat',
+                                            'saleReturns.show'   => 'Lihat',
                                         ],
+
+                                        'Pembayaran Penjualan' => [
+                                            'salePayments.access' => 'Akses Pembayaran Penjualan',
+                                            'salePayments.create' => 'Buat Pembayaran Penjualan',
+                                            'salePayments.edit'   => 'Ubah Pembayaran Penjualan',
+                                            'salePayments.delete' => 'Hapus Pembayaran Penjualan',
+                                            'salePayments.show'   => 'Lihat Pembayaran Penjualan',
+                                        ],
+
+                                        'Pembayaran Retur Penjualan' => [
+                                            'saleReturnPayments.access' => 'Akses Pembayaran Retur Penjualan',
+                                            'saleReturnPayments.create' => 'Buat Pembayaran Retur Penjualan',
+                                            'saleReturnPayments.edit'   => 'Ubah Pembayaran Retur Penjualan',
+                                            'saleReturnPayments.delete' => 'Hapus Pembayaran Retur Penjualan',
+                                        ],
+
                                         'Pembelian' => [
-                                            'purchases.access' => 'Hak Akses',
-                                            'purchases.create' => 'Buat',
-                                            'purchases.edit' => 'Ubah',
-                                            'purchases.delete' => 'Hapus',
-                                            'purchases.show' => 'Lihat',
-                                            'purchases.receive' => 'Penerimaan',
+                                            'purchases.access'   => 'Hak Akses',
+                                            'purchases.create'   => 'Buat',
+                                            'purchases.edit'     => 'Ubah',
+                                            'purchases.delete'   => 'Hapus',
+                                            'purchases.show'     => 'Lihat',
+                                            'purchases.receive'  => 'Penerimaan',
                                             'purchases.approval' => 'Persetujuan',
-                                            'purchases.view' => 'Lihat Detail',
+                                            'purchases.view'     => 'Lihat Detail',
                                         ],
+
+                                        'Laporan Pembelian' => [
+                                            'purchaseReports.access' => 'Akses Laporan Pembelian',
+                                        ],
+
+                                        'Pembayaran Pembelian' => [
+                                            'purchasePayments.access' => 'Akses Pembayaran Pembelian',
+                                            'purchasePayments.create' => 'Buat Pembayaran Pembelian',
+                                            'purchasePayments.edit'   => 'Ubah Pembayaran Pembelian',
+                                            'purchasePayments.delete' => 'Hapus Pembayaran Pembelian',
+                                        ],
+
                                         'Retur Pembelian' => [
                                             'purchaseReturns.access' => 'Hak Akses',
                                             'purchaseReturns.create' => 'Buat',
-                                            'purchaseReturns.edit' => 'Ubah',
+                                            'purchaseReturns.edit'   => 'Ubah',
                                             'purchaseReturns.delete' => 'Hapus',
-                                            'purchaseReturns.show' => 'Lihat',
+                                            'purchaseReturns.show'   => 'Lihat',
                                         ],
+
+                                        'Pembayaran Retur Pembelian' => [
+                                            'purchaseReturnPayments.access' => 'Akses Pembayaran Retur Pembelian',
+                                            'purchaseReturnPayments.create' => 'Buat Pembayaran Retur Pembelian',
+                                            'purchaseReturnPayments.edit'   => 'Ubah Pembayaran Retur Pembelian',
+                                            'purchaseReturnPayments.delete' => 'Hapus Pembayaran Retur Pembelian',
+                                            'purchaseReturnPayments.show'   => 'Lihat Pembayaran Retur Pembelian',
+                                        ],
+
                                         'Penyesuaian Stok' => [
-                                            'adjustments.access' => 'Hak Akses',
-                                            'adjustments.create' => 'Buat',
-                                            'adjustments.edit' => 'Ubah',
-                                            'adjustments.delete' => 'Hapus',
-                                            'adjustments.show' => 'Lihat',
-                                            'adjustments.approval' => 'Persetujuan',
-                                            'adjustments.breakage.create' => 'Breakage Buat',
-                                            'adjustments.breakage.edit' => 'Breakage Ubah',
-                                            'adjustments.breakage.approval' => 'Breakage Persetujuan',
-                                            'adjustments.reject' => 'Tolak',
+                                            'adjustments.access'               => 'Hak Akses',
+                                            'adjustments.create'               => 'Buat',
+                                            'adjustments.edit'                 => 'Ubah',
+                                            'adjustments.delete'               => 'Hapus',
+                                            'adjustments.show'                 => 'Lihat',
+                                            'adjustments.approval'             => 'Persetujuan',
+                                            'adjustments.breakage.create'      => 'Breakage Buat',
+                                            'adjustments.breakage.edit'        => 'Breakage Ubah',
+                                            'adjustments.breakage.approval'    => 'Breakage Persetujuan',
+                                            'adjustments.reject'               => 'Tolak',
                                         ],
+
                                         'Transfer Stok' => [
-                                            'stockTransfers.access' => 'Hak Akses',
-                                            'stockTransfers.create' => 'Buat',
-                                            'stockTransfers.edit' => 'Ubah',
-                                            'stockTransfers.delete' => 'Hapus',
-                                            'stockTransfers.show' => 'Lihat',
+                                            'stockTransfers.access'   => 'Hak Akses',
+                                            'stockTransfers.create'   => 'Buat',
+                                            'stockTransfers.edit'     => 'Ubah',
+                                            'stockTransfers.delete'   => 'Hapus',
+                                            'stockTransfers.show'     => 'Lihat',
                                             'stockTransfers.dispatch' => 'Kirim',
-                                            'stockTransfers.receive' => 'Terima',
+                                            'stockTransfers.receive'  => 'Terima',
                                             'stockTransfers.approval' => 'Persetujuan',
                                         ],
+
                                         'Produk' => [
-                                            'products.access' => 'Akses',
-                                            'products.create' => 'Buat',
-                                            'products.edit' => 'Ubah',
-                                            'products.delete' => 'Hapus',
-                                            'products.show' => 'Lihat',
-                                            'products.bundle.access' => 'Bundle Akses',
-                                            'products.bundle.create' => 'Bundle Buat',
-                                            'products.bundle.edit' => 'Bundle Ubah',
-                                            'products.bundle.delete' => 'Bundle Hapus',
-                                            'barcodes.print' => 'Print Barcodes',
+                                            'products.access'           => 'Akses',
+                                            'products.create'           => 'Buat',
+                                            'products.edit'             => 'Ubah',
+                                            'products.delete'           => 'Hapus',
+                                            'products.show'             => 'Lihat',
+                                            'products.bundle.access'    => 'Bundle Akses',
+                                            'products.bundle.create'    => 'Bundle Buat',
+                                            'products.bundle.edit'      => 'Bundle Ubah',
+                                            'products.bundle.delete'    => 'Bundle Hapus',
+                                            'barcodes.print'            => 'Print Barcodes',
                                         ],
+
                                         'Merek' => [
                                             'brands.access' => 'Hak Akses',
                                             'brands.create' => 'Buat',
-                                            'brands.edit' => 'Ubah',
+                                            'brands.edit'   => 'Ubah',
                                             'brands.delete' => 'Hapus',
-                                            'brands.view' => 'Lihat',
+                                            'brands.view'   => 'Lihat',
                                         ],
+
+                                        'Kategori' => [
+                                            'categories.access' => 'Akses Kategori',
+                                            'categories.create' => 'Buat Kategori',
+                                            'categories.edit'   => 'Ubah Kategori',
+                                            'categories.delete' => 'Hapus Kategori',
+                                        ],
+
                                         'Pelanggan' => [
                                             'customers.access' => 'Hak Akses',
                                             'customers.create' => 'Buat',
-                                            'customers.edit' => 'Ubah',
+                                            'customers.edit'   => 'Ubah',
                                             'customers.delete' => 'Hapus',
-                                            'customers.show' => 'Lihat',
+                                            'customers.show'   => 'Lihat',
                                         ],
+
                                         'Pemasok' => [
                                             'suppliers.access' => 'Hak Akses',
                                             'suppliers.create' => 'Buat',
-                                            'suppliers.edit' => 'Ubah',
+                                            'suppliers.edit'   => 'Ubah',
                                             'suppliers.delete' => 'Hapus',
-                                            'suppliers.show' => 'Lihat',
+                                            'suppliers.show'   => 'Lihat',
                                         ],
-                                        'Peran & Ijin' => [
-                                            'roles.access' => 'Hak Akses',
-                                            'roles.create' => 'Buat',
-                                            'roles.edit' => 'Ubah',
-                                            'roles.delete' => 'Hapus',
+
+                                        'Jurnal' => [
+                                            'journals.access' => 'Akses Jurnal',
+                                            'journals.create' => 'Buat Jurnal',
+                                            'journals.edit'   => 'Ubah Jurnal',
+                                            'journals.delete' => 'Hapus Jurnal',
+                                            'journals.show'   => 'Lihat Jurnal',
                                         ],
-                                        'Pengguna' => [
-                                            'users.access' => 'Hak Akses',
-                                            'users.create' => 'Buat',
-                                            'users.edit' => 'Ubah',
-                                            'users.delete' => 'Hapus',
+
+                                        'POS' => [
+                                            'pos.access' => 'Akses POS',
+                                            'pos.create' => 'Buat POS',
                                         ],
+
+                                        'Bisnis' => [
+                                            'businesses.access' => 'Akses Bisnis',
+                                            'businesses.create' => 'Buat Bisnis',
+                                            'businesses.edit'   => 'Ubah Bisnis',
+                                            'businesses.delete' => 'Hapus Bisnis',
+                                            'businesses.show'   => 'Lihat Bisnis',
+                                        ],
+
                                         'Pengaturan / Laporan' => [
                                             'settings.access' => 'Akses Pengaturan',
-                                            'settings.edit' => 'Ubah Pengaturan',
-                                            'reports.access' => 'Akses Laporan',
+                                            'settings.edit'   => 'Ubah Pengaturan',
+                                            'reports.access'  => 'Akses Laporan',
                                         ],
+
                                         'Mata Uang' => [
                                             'currencies.access' => 'Akses',
                                             'currencies.create' => 'Buat',
-                                            'currencies.edit' => 'Ubah',
+                                            'currencies.edit'   => 'Ubah',
                                             'currencies.delete' => 'Hapus',
                                         ],
+
+                                        'Pajak' => [
+                                            'taxes.access' => 'Akses Pajak',
+                                            'taxes.create' => 'Buat Pajak',
+                                            'taxes.edit'   => 'Ubah Pajak',
+                                            'taxes.delete' => 'Hapus Pajak',
+                                        ],
+
+                                        'Unit' => [
+                                            'units.access' => 'Akses Unit',
+                                            'units.create' => 'Buat Unit',
+                                            'units.edit'   => 'Ubah Unit',
+                                            'units.delete' => 'Hapus Unit',
+                                        ],
+
                                         'Kategori Pengeluaran' => [
                                             'expenseCategories.access' => 'Akses',
                                             'expenseCategories.create' => 'Buat',
-                                            'expenseCategories.edit' => 'Ubah',
+                                            'expenseCategories.edit'   => 'Ubah',
                                             'expenseCategories.delete' => 'Hapus',
                                         ],
+
                                         'Pengeluaran' => [
                                             'expenses.access' => 'Akses',
                                             'expenses.create' => 'Buat',
-                                            'expenses.edit' => 'Ubah',
+                                            'expenses.edit'   => 'Ubah',
                                             'expenses.delete' => 'Hapus',
                                         ],
+
                                         'Lokasi' => [
                                             'locations.access' => 'Akses',
                                             'locations.create' => 'Buat',
-                                            'locations.edit' => 'Ubah',
+                                            'locations.edit'   => 'Ubah',
                                         ],
+
                                         'Metode / Syarat Pembayaran' => [
                                             'paymentMethods.access' => 'Akses Metode Pembayaran',
                                             'paymentMethods.create' => 'Buat Metode Pembayaran',
-                                            'paymentMethods.edit' => 'Ubah Metode Pembayaran',
+                                            'paymentMethods.edit'   => 'Ubah Metode Pembayaran',
                                             'paymentMethods.delete' => 'Hapus Metode Pembayaran',
-                                            'paymentTerms.access' => 'Akses Syarat Pembayaran',
-                                            'paymentTerms.create' => 'Buat Syarat Pembayaran',
-                                            'paymentTerms.edit' => 'Ubah Syarat Pembayaran',
-                                            'paymentTerms.delete' => 'Hapus Syarat Pembayaran',
+                                            'paymentTerms.access'   => 'Akses Syarat Pembayaran',
+                                            'paymentTerms.create'   => 'Buat Syarat Pembayaran',
+                                            'paymentTerms.edit'     => 'Ubah Syarat Pembayaran',
+                                            'paymentTerms.delete'   => 'Hapus Syarat Pembayaran',
                                         ],
+
                                         'Profil' => [
                                             'profiles.edit' => 'Ubah Profil',
                                         ],
+
                                         'Mata Uang & Lainnya' => [
                                             'chartOfAccounts.access' => 'Akses COA',
                                             'chartOfAccounts.create' => 'Buat COA',
-                                            'chartOfAccounts.edit' => 'Ubah COA',
+                                            'chartOfAccounts.edit'   => 'Ubah COA',
                                             'chartOfAccounts.delete' => 'Hapus COA',
-                                            'chartOfAccounts.show' => 'Lihat COA',
+                                            'chartOfAccounts.show'   => 'Lihat COA',
                                         ],
                                     ];
                                 @endphp
