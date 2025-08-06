@@ -23,7 +23,9 @@ class SettingDatabaseSeeder extends Seeder
             'default_currency_position' => 'prefix',
             'footer_text' => 'Tiga Saudara ERP © 2021',
             'company_address' => 'Bima, NTB',
-            'document_prefix' => 'TS'
+            'document_prefix' => 'TS',
+            'purchase_prefix_document' => 'PR',
+            'sale_prefix_document' => 'SL'
         ]);
     }
 }

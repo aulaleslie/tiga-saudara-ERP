@@ -55,6 +55,8 @@ class BusinessController extends Controller
             'default_currency_id' => $currencyId,
             'default_currency_position' => 'prefix',
             'document_prefix' => $request->document_prefix,
+            'purchase_prefix_document' => $request->purchase_prefix_document,
+            'sale_prefix_document' => $request->sale_prefix_document,
             'footer_text' => $footer_text,
         ]);
 
@@ -108,6 +110,8 @@ class BusinessController extends Controller
             'default_currency_id' => $currencyId,
             'default_currency_position' => 'prefix',
            'document_prefix' => $request->document_prefix,
+           'purchase_prefix_document' => $request->purchase_prefix_document,
+           'sale_prefix_document' => $request->sale_prefix_document,
         ]);
 
         if (auth()->user()->hasRole('Super Admin')) {

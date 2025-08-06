@@ -30,7 +30,14 @@ class EditForm extends Component
         'supplierSelected' => 'handleSupplierSelected',
         'confirmSubmit' => 'submit',
         'tagsUpdated' => 'handleTagsUpdated',
+        'shippingUpdated'        => 'handleShippingUpdated',
+        'globalDiscountUpdated'  => 'handleGlobalDiscountUpdated',
+        'taxIncludedUpdated'    => 'handleTaxIncludedUpdated',
     ];
+
+    public $shipping = 0;
+    public $global_discount = 0;
+    public $is_tax_included = false;
 
     public function mount($purchaseId): void
     {
@@ -81,6 +88,21 @@ class EditForm extends Component
         }
     }
 
+    public function handleShippingUpdated($shipping)
+    {
+        $this->shipping = $shipping;
+    }
+
+    public function handleGlobalDiscountUpdated($discount)
+    {
+        $this->global_discount = $discount;
+    }
+
+    public function handleTaxIncludedUpdated(bool $included)
+    {
+        $this->is_tax_included = $included;
+    }
+
     public function submit()
     {
         $this->validate([
@@ -108,9 +130,38 @@ class EditForm extends Component
             DB::transaction(function () {
                 $purchase = $this->purchase; // already loaded in mount()
 
+                $cartItems = Cart::instance('purchase')->content();
+
+                $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
+                $shipping = $this->shipping;
+                $discount_amount = $this->global_discount > 100 ? $this->global_discount : 0;
+                $discount_percentage = $this->global_discount > 100 ? 0 : $this->global_discount;
+                $tax_amount = 0;
+
+                foreach ($cartItems as $item) {
+                    $sub_total = $item->options['sub_total'] ?? 0;
+                    $sub_total_before_tax = $item->options['sub_total_before_tax'] ?? 0;
+                    $tax_amount += ($sub_total - $sub_total_before_tax);
+                }
+
+                if ($discount_percentage > 0) {
+                    $global_discount_amount = $total_sub_total * ($discount_percentage/100);
+                } else {
+                    $global_discount_amount = $discount_amount;
+                }
+
+                $total_amount = $total_sub_total - $global_discount_amount + $shipping;
+
                 $updateData = array_filter([
                     'date' => $this->date !== $purchase->date ? $this->date : null,
                     'due_date' => $this->due_date !== $purchase->due_date ? $this->due_date : null,
+                    'discount_percentage' => $discount_percentage,
+                    'discount_amount' => $discount_amount,
+                    'shipping_amount' => $shipping,
+                    'tax_amount' => $tax_amount,
+                    'total_amount' => $total_amount,
+                    'due_amount' => $total_amount,
+                    'is_tax_included' => $this->is_tax_included,
                     'supplier_id' => $this->supplier_id !== $purchase->supplier_id ? $this->supplier_id : null,
                     'note' => $this->note !== $purchase->note ? $this->note : null,
                     'payment_term_id' => $this->payment_term !== $purchase->payment_term_id ? $this->payment_term : null,
@@ -126,7 +177,7 @@ class EditForm extends Component
                 $purchase->purchaseDetails()->delete();
 
                 // Re-add from cart
-                foreach (Cart::instance('purchase')->content() as $item) {
+                foreach ($cartItems as $item) {
                     $product_tax_amount = $item->options['sub_total'] - ($item->options['sub_total_before_tax'] ?? 0);
 
                     $purchase->purchaseDetails()->create([

@@ -54,6 +54,20 @@
                                         <input type="email" class="form-control" name="document_prefix" required>
                                     </div>
                                 </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="purchase_prefix_document">Prefix Dokumen Pembelian <span
+                                                class="text-danger">*</span></label>
+                                        <input type="email" class="form-control" name="purchase_prefix_document" required>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="sale_prefix_document">Prefix Dokumen Penjualan <span
+                                                class="text-danger">*</span></label>
+                                        <input type="email" class="form-control" name="sale_prefix_document" required>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-row">

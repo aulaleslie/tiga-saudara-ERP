@@ -26,9 +26,16 @@ class CreateForm extends Component
         'supplierSelected' => 'handleSupplierSelected',
         'confirmSubmit' => 'submit',
         'tagsUpdated' => 'handleTagsUpdated',
+        'shippingUpdated'        => 'handleShippingUpdated',
+        'globalDiscountUpdated'  => 'handleGlobalDiscountUpdated',
+        'taxIncludedUpdated'    => 'handleTaxIncludedUpdated',
     ];
 
     public $paymentTerms = [];
+
+    public $shipping = 0;
+    public $global_discount = 0;
+    public $is_tax_included = false;
 
     public function mount()
     {
@@ -89,6 +96,21 @@ class CreateForm extends Component
         }
     }
 
+    public function handleShippingUpdated($shipping)
+    {
+        $this->shipping = $shipping;
+    }
+
+    public function handleGlobalDiscountUpdated($discount)
+    {
+        $this->global_discount = $discount;
+    }
+
+    public function handleTaxIncludedUpdated(bool $included)
+    {
+        $this->is_tax_included = $included;
+    }
+
     public function submit()
     {
         $this->validate([
@@ -124,8 +146,9 @@ class CreateForm extends Component
             // Global discount and tax calculations
             $cartItems = $cart->content();
             $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
-            $global_discount = 0; // Assume Livewire handles this if needed
-            $shipping = 0; // Same here
+            $shipping = $this->shipping;
+            $discount_amount = $this->global_discount > 100 ? $this->global_discount : 0;
+            $discount_percentage = $this->global_discount > 100 ? 0 : $this->global_discount;
             $tax_amount = 0;
 
             foreach ($cartItems as $item) {
@@ -134,14 +157,20 @@ class CreateForm extends Component
                 $tax_amount += ($sub_total - $sub_total_before_tax);
             }
 
-            $total_amount = $total_sub_total - $global_discount + $shipping;
+            if ($discount_percentage > 0) {
+                $global_discount_amount = $total_sub_total * ($discount_percentage/100);
+            } else {
+                $global_discount_amount = $discount_amount;
+            }
+
+            $total_amount = $total_sub_total - $global_discount_amount + $shipping;
 
             $purchase = Purchase::create([
                 'date' => $this->date,
                 'due_date' => $this->due_date,
                 'supplier_id' => $this->supplier_id,
-                'discount_percentage' => 0,
-                'discount_amount' => $global_discount,
+                'discount_percentage' => $discount_percentage,
+                'discount_amount' => $discount_amount,
                 'shipping_amount' => $shipping,
                 'tax_id' => null,
                 'tax_percentage' => 0,
@@ -154,7 +183,7 @@ class CreateForm extends Component
                 'note' => $this->note,
                 'setting_id' => $setting_id,
                 'paid_amount' => 0.0,
-                'is_tax_included' => false,
+                'is_tax_included' => $this->is_tax_included,
                 'payment_method' => '',
             ]);
 

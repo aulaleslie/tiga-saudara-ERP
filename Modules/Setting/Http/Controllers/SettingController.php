@@ -33,6 +33,8 @@ class SettingController extends Controller
             'company_phone' => $request->company_phone,
             'company_address' => $request->company_address,
             'document_prefix' => $request->document_prefix,
+            'purchase_prefix_document' => $request->purchase_prefix_document,
+            'sale_prefix_document' => $request->sale_prefix_document,
         ]);
 
         cache()->forget('settings');

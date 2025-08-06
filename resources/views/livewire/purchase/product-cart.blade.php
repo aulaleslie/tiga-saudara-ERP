@@ -271,8 +271,21 @@
         <div class="col-lg-4">
             <div class="form-group">
                 <label for="shipping_amount">Ongkos Kirim</label>
-                <input wire:model.blur="shipping" type="number" class="form-control text-right" name="shipping_amount" min="0"
-                       value="0" required step="0.01">
+                <div class="input-group input-group-sm">
+                    <button class="btn btn-outline-secondary px-3 h-100"
+                            type="button"
+                            style="font-size: 0.875rem; min-width: 50px; min-height: 31px; padding-top: 0.25rem; padding-bottom: 0.25rem;">
+                        Rp
+                    </button>
+                    <input wire:model.blur="shipping"
+                           type="number"
+                           class="form-control form-control-sm text-right"
+                           style="font-size: 0.875rem; min-width: 70px; min-height: 31px;"
+                           name="shipping_amount"
+                           min="0"
+                           value="0"
+                           required step="0.01">
+                </div>
             </div>
         </div>
     </div>

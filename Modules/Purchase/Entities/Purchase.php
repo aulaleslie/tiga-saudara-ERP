@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Modules\People\Entities\Supplier;
+use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use OwenIt\Auditing\Contracts\Auditable;
 use Spatie\Tags\HasTags;
@@ -97,8 +98,17 @@ class Purchase extends Model implements Auditable
                 $nextNumber = $lastNumber + 1;
             }
 
+            // Grab the setting (find(null) simply returns null)
+            $setting = Setting::find(session('setting_id'));
+
+            // Build prefix:
+            // 1) take document_prefix if truthy, else empty string
+            // 2) then take purchase_prefix_document if truthy, else fallback to 'PR'
+            $prefix = (optional($setting)->document_prefix ?: '') . '-'
+                . (optional($setting)->purchase_prefix_document ?: 'PR');
+
             // Generate the new reference ID
-            $model->reference = make_reference_id('PR', $year, $month, $nextNumber);
+            $model->reference = make_reference_id($prefix, $year, $month, $nextNumber);
         });
     }
 

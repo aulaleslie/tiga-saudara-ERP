@@ -263,6 +263,8 @@ class ProductCart extends Component
 
     public function updatedGlobalDiscount()
     {
+        Log::info('updated global discount');
+
         $this->render();
     }
 
@@ -527,6 +529,11 @@ class ProductCart extends Component
         $this->render();
     }
 
+    public function updatedShipping()
+    {
+        $this->dispatch('shippingUpdated', $this->shipping);
+    }
+
     public function updateTax($row_id, $product_id)
     {
         // Fetch the cart item
@@ -599,6 +606,8 @@ class ProductCart extends Component
     {
         $cart_items = Cart::instance($this->cart_instance)->content();
 
+        $this->dispatch('taxIncludedUpdated', $this->is_tax_included);
+
         foreach ($cart_items as $cart_item) {
             $product_id = $cart_item->id;
             $row_id = $cart_item->rowId;
@@ -670,6 +679,7 @@ class ProductCart extends Component
             }
         }
 
+        $this->dispatch('globalDiscountUpdated', $this->global_discount);
         $this->recalculateCart();
     }
 }

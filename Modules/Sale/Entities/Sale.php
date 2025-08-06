@@ -61,13 +61,14 @@ class Sale extends Model
                 $nextNumber = $lastNumber + 1;
             }
 
-            $prefix = 'SL';
-            $settingId = session('setting_id');
-            $setting = $settingId ? Setting::find($settingId) : null;
+            // Grab the setting (find(null) simply returns null)
+            $setting = Setting::find(session('setting_id'));
 
-            if ($setting && $setting->document_prefix) {
-                $prefix = $setting->document_prefix . '-SL';
-            }
+            // Build prefix:
+            // 1) take document_prefix if truthy, else empty string
+            // 2) then take sale_prefix_document if truthy, else fallback to 'SL'
+            $prefix = (optional($setting)->document_prefix ?: '') . '-'
+                . (optional($setting)->sale_prefix_document ?: 'SL');
 
             $model->reference = make_reference_id($prefix, $year, $month, $nextNumber);
         });

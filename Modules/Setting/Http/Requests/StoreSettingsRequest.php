@@ -19,6 +19,8 @@ class StoreSettingsRequest extends FormRequest
             'company_email' => 'required|email|max:255',
             'company_phone' => 'required|string|max:255',
             'document_prefix' => 'required|string|max:255',
+            'purchase_prefix_document' => 'required|string|max:255',
+            'sale_prefix_document' => 'required|string|max:255',
             'company_address' => 'required|string|max:500',
             'footer_text' => 'nullable|string|max:255'
         ];
