@@ -375,7 +375,7 @@ class AdjustmentController extends Controller
     {
         abort_if(Gate::denies('adjustments.breakage.edit'), 403);
 
-        $adjustment->load(['adjustedProducts.product']);
+        $adjustment->load(['adjustedProducts.product', 'location']);
 
         // Convert serial numbers from JSON to an array of IDs
         foreach ($adjustment->adjustedProducts as $adjustedProduct) {

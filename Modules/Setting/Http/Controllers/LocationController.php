@@ -2,12 +2,12 @@
 
 namespace Modules\Setting\Http\Controllers;
 
-use Modules\Setting\Http\Controllers\Controller;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Location;
@@ -43,13 +43,31 @@ class LocationController extends Controller
     public function store(Request $request): RedirectResponse
     {
         abort_if(Gate::denies('locations.create'), 403);
+
         $request->validate([
-            'name' => 'required|string|max:255',
+            'name'   => 'required|string|max:255',
+            'is_pos' => 'nullable|boolean',
         ]);
 
+        $settingId = session('setting_id');
+        $isPos     = $request->boolean('is_pos');
+
+        if ($isPos) {
+            $exists = Location::where('setting_id', $settingId)
+                ->where('is_pos', true)
+                ->exists();
+
+            if ($exists) {
+                return back()
+                    ->withErrors(['is_pos' => 'Hanya boleh ada satu lokasi POS untuk setiap bisnis/setting.'])
+                    ->withInput();
+            }
+        }
+
         Location::create([
-            'name' => $request->name,
-            'setting_id' => session('setting_id'),  // Get setting_id from session
+            'name'       => $request->name,
+            'is_pos'     => $request->boolean('is_pos'),
+            'setting_id' => session('setting_id'),
         ]);
 
         toast('Lokasi Berhasil ditambahkan!', 'success');
@@ -74,12 +92,30 @@ class LocationController extends Controller
     public function update(Request $request, Location $location): RedirectResponse
     {
         abort_if(Gate::denies('locations.edit'), 403);
+
         $request->validate([
-            'name' => 'required|string|max:255',
+            'name'   => 'required|string|max:255',
+            'is_pos' => 'nullable|boolean',
         ]);
 
+        $isPos = $request->boolean('is_pos');
+
+        if ($isPos) {
+            $exists = Location::where('setting_id', $location->setting_id)
+                ->where('is_pos', true)
+                ->where('id', '!=', $location->id)
+                ->exists();
+
+            if ($exists) {
+                return back()
+                    ->withErrors(['is_pos' => 'Hanya boleh ada satu lokasi POS untuk setiap bisnis/setting.'])
+                    ->withInput();
+            }
+        }
+
         $location->update([
-            'name' => $request->name,
+            'name'   => $request->name,
+            'is_pos' => $request->boolean('is_pos'),
         ]);
 
         toast('Lokasi diperbaharui!', 'info');

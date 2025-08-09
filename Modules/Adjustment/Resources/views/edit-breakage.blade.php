@@ -19,7 +19,7 @@
         <div class="row">
             <div class="col-12">
                 <!-- Pass the location_id to the SearchProduct Livewire component -->
-                <livewire:search-product :locationId="$adjustment->location_id"/>
+                <livewire:purchase.search-product :location-id="$adjustment->location_id" />
             </div>
         </div>
 
@@ -47,6 +47,20 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="location">Lokasi</label>
+                                        <input type="text"
+                                               class="form-control"
+                                               value="{{ $adjustment->location->name ?? 'Lokasi tidak ditemukan' }}"
+                                               readonly>
+                                        <input type="hidden" name="location_id" value="{{ $adjustment->location_id }}">
+                                    </div>
+                                </div>
+                            </div>
+
                             <livewire:adjustment.breakage-product-table
                                 :adjustedProducts="$adjustment->adjustedProducts->toArray()"
                                 :locationId="$adjustment->location_id"/>

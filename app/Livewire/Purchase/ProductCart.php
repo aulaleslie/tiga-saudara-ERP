@@ -33,8 +33,7 @@ class ProductCart extends Component
     public $setting_id; // Current setting ID
     public $product_tax = []; // Array to store selected tax IDs for each product
 
-    public $is_tax_included = false;
-    private $product;
+    public $is_tax_included = true;
 
     public $global_discount_type = 'percentage';
 
