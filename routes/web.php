@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\WsMonitorController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
@@ -27,5 +28,13 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     Route::get('/payment-flow/chart-data', 'HomeController@paymentChart')
         ->name('payment-flow.chart');
+});
+
+Route::middleware(['auth']) // tighten as you like (e.g. 'can:view-ws-monitor')
+->group(function () {
+    Route::get('/ws-monitor', [WsMonitorController::class, 'index'])->name('ws.monitor');
+    Route::get('/ws-monitor/data', [WsMonitorController::class, 'data'])->name('ws.monitor.data');
+    Route::get('/ws-monitor/presence/{name}', [WsMonitorController::class, 'presence'])->name('ws.monitor.presence');
+    Route::get('/ws-test', fn () => view('ws-test'));
 });
 

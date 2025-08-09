@@ -22,3 +22,7 @@ Broadcast::channel('print-jobs.{userId}', function ($user, $userId) {
     // Authorize only if the authenticated user's ID matches the userId in the channel
     return (int) $user->id === (int) $userId;
 });
+
+Broadcast::channel('print.{userId}', function ($user, $userId) {
+    return (int)$user->id === (int)$userId;
+});
