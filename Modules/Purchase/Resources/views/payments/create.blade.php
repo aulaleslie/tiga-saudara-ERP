@@ -49,8 +49,20 @@
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
-                                    <x-select label="Metode Pembayaran" name="payment_method_id"
-                                              :options="$payment_methods->pluck('name', 'id')"/>
+                                    <div class="form-group">
+                                        <label for="payment_method_id">Metode Pembayaran <span class="text-danger">*</span></label>
+                                        <select id="payment_method_id" name="payment_method_id" class="form-control" required>
+                                            <option value="">{{ __('Pilih metode…') }}</option>
+                                            @foreach ($payment_methods as $pm)
+                                                <option value="{{ $pm->id }}" {{ old('payment_method_id') == $pm->id ? 'selected' : '' }}>
+                                                    {{ $pm->name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        @error('payment_method_id')
+                                        <small class="text-danger d-block">{{ $message }}</small>
+                                        @enderror
+                                    </div>
                                 </div>
                             </div>
 
