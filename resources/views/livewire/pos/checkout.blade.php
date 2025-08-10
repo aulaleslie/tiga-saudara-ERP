@@ -39,6 +39,8 @@
                 color: #007bff;
             }
         }
+
+        .badge.badge-pill a { cursor: pointer; }
     </style>
 @endpush
 
@@ -94,11 +96,37 @@
                             <div class="row">
                                 <div class="col-6 cart-label">Jumlah</div>
                                 <div class="col-6">
-                                    @include('livewire.includes.product-cart-quantity')
+                                    @if(($cart_item->options->serial_number_required ?? false))
+                                        {{-- Read-only qty derived from serial count --}}
+                                        <div class="d-inline-flex align-items-center">
+                                            <span class="badge badge-secondary mr-2">Qty</span>
+                                            <strong>{{ $cart_item->qty }}</strong>
+                                        </div>
+                                    @else
+                                        @include('livewire.includes.product-cart-quantity')
+                                    @endif
                                     @if(!empty($conversion_breakdowns[$cart_item->id]))
                                         <small class="text-muted">
                                             ({{ $conversion_breakdowns[$cart_item->id] }})
                                         </small>
+                                    @endif
+                                    @if(($cart_item->options->serial_number_required ?? false))
+                                        @php $serials = $cart_item->options->serial_numbers ?? []; @endphp
+                                        @if(!empty($serials))
+                                            <div class="mt-2">
+                                                @foreach($serials as $sn)
+                                                    <span class="badge badge-info badge-pill mr-1 mb-1">
+                                                        {{ $sn }}
+                                                        <a href="#"
+                                                           class="text-white ml-1"
+                                                           style="text-decoration:none;"
+                                                           wire:click.prevent='removeSerial("{{ $cart_item->rowId }}", @json($sn))'>
+                                                            &times;
+                                                        </a>
+                                                    </span>
+                                                @endforeach
+                                            </div>
+                                        @endif
                                     @endif
                                 </div>
                             </div>
@@ -140,10 +168,37 @@
                                 </td>
                                 <td class="align-middle">{{ format_currency($cart_item->price) }}</td>
                                 <td class="align-middle">
-                                    @include('livewire.includes.product-cart-quantity')
+                                    @if(($cart_item->options->serial_number_required ?? false))
+                                        {{-- Read-only qty derived from serial count --}}
+                                        <div class="d-inline-flex align-items-center">
+                                            <span class="badge badge-secondary mr-2">Qty</span>
+                                            <strong>{{ $cart_item->qty }}</strong>
+                                        </div>
+                                    @else
+                                        @include('livewire.includes.product-cart-quantity')
+                                    @endif
                                     @if(!empty($conversion_breakdowns[$cart_item->id]))
                                         <small class="text-muted">({{ $conversion_breakdowns[$cart_item->id] }})</small>
                                     @endif
+                                    @if(($cart_item->options->serial_number_required ?? false))
+                                        @php $serials = $cart_item->options->serial_numbers ?? []; @endphp
+                                        @if(!empty($serials))
+                                            <div class="mt-2">
+                                                @foreach($serials as $sn)
+                                                    <span class="badge badge-info badge-pill mr-1 mb-1">
+                                                        {{ $sn }}
+                                                        <a href="#"
+                                                           class="text-white ml-1"
+                                                           style="text-decoration:none;"
+                                                           wire:click.prevent='removeSerial("{{ $cart_item->rowId }}", @json($sn))'>
+                                                            &times;
+                                                        </a>
+                                                    </span>
+                                                @endforeach
+                                            </div>
+                                        @endif
+                                    @endif
+
                                 </td>
                                 <td class="align-middle text-center">
                                     <a href="#" wire:click.prevent="removeItem('{{ $cart_item->rowId }}')">
@@ -200,4 +255,5 @@
     @include('livewire.pos.includes.checkout-modal')
     @include('livewire.sale.includes.bundle-confirmation-modal')
     <livewire:customer.create-modal/>
+    <livewire:pos.serial-number-picker />
 </div>

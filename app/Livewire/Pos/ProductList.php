@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Product\Entities\Product;
+use Modules\Setting\Entities\Location;
 
 class ProductList extends Component
 {
@@ -22,9 +23,18 @@ class ProductList extends Component
     public $category_id;
     public $limit = 9;
 
-    public function mount($categories) {
-        $this->categories = $categories;
+    /** POS location id for current setting */
+    public ?int $posLocationId = null;
+
+    public function mount($categories)
+    {
+        $this->categories  = $categories;
         $this->category_id = '';
+
+        $settingId = session('setting_id');
+        $this->posLocationId = Location::where('setting_id', $settingId)
+            ->where('is_pos', true)
+            ->value('id');
     }
 
     public function render()
@@ -37,6 +47,16 @@ class ProductList extends Component
                     ->where('m.model_type', '=', \Modules\Product\Entities\Product::class)
                     ->where('m.collection_name', '=', 'images');
             })
+            ->leftJoinSub(function ($sub) {
+                $sub->from('product_stocks')
+                    ->selectRaw('product_id,
+                        SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty')
+                    ->when($this->posLocationId,
+                        fn ($q) => $q->where('location_id', $this->posLocationId),
+                        fn ($q) => $q->whereRaw('1=0') // No POS location → no stock
+                    )
+                    ->groupBy('product_id');
+            }, 'st', 'st.product_id', '=', 'p.id')
             ->select([
                 'p.id',
                 'p.product_name',
@@ -44,7 +64,7 @@ class ProductList extends Component
                 'p.sale_price',
                 'p.barcode',
                 'p.unit_id',
-                'p.product_quantity',
+                DB::raw('COALESCE(st.stock_qty, 0) as product_quantity'),
                 'p.base_unit_id',
                 DB::raw('1 as conversion_factor'),
                 'u.name as unit_name',
@@ -56,16 +76,15 @@ class ProductList extends Component
                 'm.id as media_id',
                 'm.uuid',
             ])
-            ->when($this->category_id, function ($query) {
-                return $query->where('p.category_id', $this->category_id);
-            })
+            ->when($this->category_id, fn ($q) => $q->where('p.category_id', $this->category_id))
+            // Ensure stock > 0
+            ->whereRaw('COALESCE(st.stock_qty, 0) > 0')
             ->paginate($this->limit);
 
-        // Enhance each product row with the correct photo_url from getFirstMediaUrl()
         $query->getCollection()->transform(function ($item) {
             $model = Product::find($item->id);
             $item->photo_url = $model
-                ? $model->getFirstMediaUrl('images') ?: asset('placeholder.png')
+                ? ($model->getFirstMediaUrl('images') ?: asset('placeholder.png'))
                 : asset('placeholder.png');
             return $item;
         });
@@ -75,12 +94,14 @@ class ProductList extends Component
         ]);
     }
 
-    public function categoryChanged($category_id) {
+    public function categoryChanged($category_id)
+    {
         $this->category_id = $category_id;
         $this->resetPage();
     }
 
-    public function showCountChanged($value) {
+    public function showCountChanged($value)
+    {
         $this->limit = $value;
         $this->resetPage();
     }

@@ -17,6 +17,9 @@ class Checkout extends Component
         'productSelected',
         'discountModalRefresh',
         'customerSelected' => 'setCustomer',
+
+        'serialScanned' => 'onSerialScanned',            // one-by-one scan flow
+        'serialNumbersSelected' => 'onSerialsSelected',  // (optional) bulk choose flow
     ];
 
     public $cart_instance;
@@ -103,7 +106,31 @@ class Checkout extends Component
             return;
         }
 
-        // Check for bundles
+        // Check if this product requires serial numbers
+        $requiresSerial = (bool) (Product::whereKey($product['id'])->value('serial_number_required') ?? false);
+
+        if ($requiresSerial) {
+            // If already in cart, pass existing serials as preselected
+            $cartKey = $this->generateCartItemKey($product['id'], null);
+            $cart = Cart::instance($this->cart_instance);
+            $existing = $cart->search(fn($item) => $item->id === $cartKey)->first();
+
+            $preselected = [];
+            if ($existing) {
+                $preselected = $existing->options->serial_numbers ?? [];
+                // Normalize to [{id, serial_number}]
+                $preselected = array_map(function ($row) {
+                    return is_array($row) ? $row : ['id' => $row['id'] ?? null, 'serial_number' => (string)$row];
+                }, $preselected);
+            }
+
+            // Open dialog focused for scanning
+            $this->dispatch('openSerialPicker', (int)$product['id']);
+            return; // do NOT add the product yet; wait for a scan
+        }
+
+        // --- ORIGINAL path (no serials required) ---
+        // bundles etc...
         $bundles = ProductBundle::with('items.product')
             ->where('parent_product_id', $product['id'])
             ->get();
@@ -429,5 +456,138 @@ class Checkout extends Component
                 'product_discount_type' => $this->discount_type[$cart_key],
             ]),
         ]);
+    }
+
+    /**
+     * A single serial was scanned in the modal.
+     * payload: ['product_id' => int, 'serial' => ['id'=>int, 'serial_number'=>string]]
+     */
+    public function onSerialScanned(array $payload): void
+    {
+        $productId = (int)($payload['product_id'] ?? 0);
+        $serial = $payload['serial'] ?? null;
+        if (!$productId || !$serial || !isset($serial['id'], $serial['serial_number'])) return;
+
+        $product = Product::find($productId);
+        if (!$product) return;
+
+        $cartKey = $this->generateCartItemKey($productId, null);
+        $cart = Cart::instance($this->cart_instance);
+        $exists = $cart->search(fn($item) => $item->id === $cartKey)->first();
+
+        if ($exists) {
+            // Append serial if not existing
+            $opts = $exists->options->toArray();
+            $list = $opts['serial_numbers'] ?? [];
+            $already = array_filter($list, fn($s) => (int)($s['id'] ?? 0) === (int)$serial['id']);
+            if (empty($already)) {
+                $list[] = ['id' => (int)$serial['id'], 'serial_number' => (string)$serial['serial_number']];
+            }
+            $opts['serial_numbers'] = array_values($list);
+            $serialCount = count($opts['serial_numbers']);
+
+            // Qty = number of serials (read-only)
+            $calculated = $this->calculate($product->toArray(), $serialCount);
+
+            Cart::instance($this->cart_instance)->update($exists->rowId, [
+                'qty' => $serialCount,
+                'price' => $calculated['unit_price'],
+                'options' => array_merge($opts, [
+                    'serial_number_required' => true,
+                    'sub_total' => $calculated['sub_total'],
+                    'unit_price' => $calculated['unit_price'],
+                ]),
+            ]);
+
+            $this->quantity[$cartKey] = $serialCount;
+            $this->check_quantity[$cartKey] = $opts['stock'] ?? ($exists->options->stock ?? PHP_INT_MAX);
+        } else {
+            // First serial → add the product with qty = 1
+            $productArr = $product->toArray();
+            $convertedQty = 1;
+            $calculated = $this->calculate($productArr, $convertedQty);
+
+            Cart::instance($this->cart_instance)->add([
+                'id' => $cartKey,
+                'name' => $product->product_name,
+                'qty' => $convertedQty,
+                'price' => $calculated['sub_total'], // keep price=sub_total per your existing pattern
+                'weight' => 1,
+                'options' => [
+                    'product_discount' => 0.00,
+                    'product_discount_type' => 'fixed',
+                    'sub_total' => $calculated['sub_total'],
+                    'code' => $product->product_code,
+                    'stock' => $productArr['product_quantity'] ?? PHP_INT_MAX,
+                    'product_tax' => 0,
+                    'unit_price' => $calculated['unit_price'],
+                    'bundle_items' => [],
+                    'bundle_price' => 0,
+                    'bundle_name' => null,
+
+                    // serial flags
+                    'serial_number_required' => true,
+                    'serial_numbers' => [
+                        ['id' => (int)$serial['id'], 'serial_number' => (string)$serial['serial_number']],
+                    ],
+                ],
+            ]);
+
+            $this->check_quantity[$cartKey] = $productArr['product_quantity'] ?? PHP_INT_MAX;
+            $this->quantity[$cartKey] = 1;
+            $this->discount_type[$cartKey] = 'fixed';
+            $this->item_discount[$cartKey] = 0;
+        }
+
+        $this->total_amount = $this->calculateTotal();
+    }
+
+    /**
+     * Optional bulk confirm (if you allow multi-select before closing)
+     * payload: ['product_id'=>..., 'serials'=>[['id','serial_number'],...]]
+     */
+    public function onSerialsSelected(array $payload): void
+    {
+        $productId = (int)($payload['product_id'] ?? 0);
+        $serials = $payload['serials'] ?? [];
+        if (!$productId || empty($serials)) return;
+
+        foreach ($serials as $serial) {
+            $this->onSerialScanned(['product_id' => $productId, 'serial' => $serial]);
+        }
+    }
+
+    public function removeSerial(string $rowId, string $serial): void
+    {
+        $item = Cart::instance($this->cart_instance)->get($rowId);
+        if (!$item) return;
+
+        $options = $item->options->toArray();
+        $list = $options['serial_numbers'] ?? [];
+
+        // remove the target serial by serial_number string match
+        $list = array_values(array_filter($list, fn ($s) => (string)($s['serial_number'] ?? $s) !== (string)$serial));
+        $options['serial_numbers'] = $list;
+
+        // adjust qty = number of serials
+        $newQty = count($list);
+        $product = Product::find((int)explode('-', $item->id)[0]);
+        if ($product) {
+            $calculated = $this->calculate($product->toArray(), $newQty);
+            Cart::instance($this->cart_instance)->update($rowId, [
+                'qty' => $newQty,
+                'price' => $calculated['unit_price'],
+                'options' => array_merge($options, [
+                    'sub_total' => $calculated['sub_total'],
+                    'unit_price' => $calculated['unit_price'],
+                ]),
+            ]);
+        } else {
+            Cart::instance($this->cart_instance)->update($rowId, ['options' => $options, 'qty' => $newQty]);
+        }
+
+        $cart_key = $item->id;
+        $this->quantity[$cart_key] = $newQty;
+        $this->total_amount = $this->calculateTotal();
     }
 }

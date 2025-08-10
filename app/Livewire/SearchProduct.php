@@ -8,6 +8,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
+use Modules\Setting\Entities\Location;
 
 class SearchProduct extends Component
 {
@@ -15,12 +16,17 @@ class SearchProduct extends Component
     public $search_results;
     public int $how_many = 5;
 
-    // Optional: restrict stock/serials to a location
-    public ?int $locationId = null;
+    /** POS location resolved from current setting (nullable if none configured) */
+    private ?int $posLocationId = null;
 
-    public function mount(?int $locationId = null): void
+    public function mount(): void
     {
-        $this->locationId = $locationId ?: null;
+        // resolve POS location for the current business/setting
+        $settingId = session('setting_id');
+        $this->posLocationId = Location::where('setting_id', $settingId)
+            ->where('is_pos', true)
+            ->value('id');
+
         $this->search_results = Collection::empty();
     }
 
@@ -29,21 +35,15 @@ class SearchProduct extends Component
         return view('livewire.search-product');
     }
 
-    /**
-     * Called on every keystroke. We try to resolve scans first (exact match),
-     * else we populate suggestion results with LIKE search.
-     */
     public function updatedQuery(): void
     {
         $input = trim($this->query);
 
-        // Avoid hammering DB
         if (mb_strlen($input) < 2) {
             $this->search_results = Collection::empty();
             return;
         }
 
-        // 1) Try exact scan handling (serial → conversion barcode → product barcode)
         if ($this->tryHandleExactSerial($input)) {
             $this->resetQuery();
             return;
@@ -57,7 +57,6 @@ class SearchProduct extends Component
             return;
         }
 
-        // 2) Fallback to multi-field LIKE suggestions (still zero-stock filtered)
         $this->search_results = $this->suggestions($input);
     }
 
@@ -72,6 +71,8 @@ class SearchProduct extends Component
         $this->query = '';
         $this->how_many = 5;
         $this->search_results = Collection::empty();
+
+        $this->dispatch('pos:focus-search');
     }
 
     /* ===========================
@@ -96,30 +97,29 @@ class SearchProduct extends Component
             LEFT JOIN units u ON u.id = p.base_unit_id
             WHERE LOWER(psn.serial_number) = LOWER(:code)
               AND psn.is_broken = 0
-              AND (:locationId IS NULL OR psn.location_id = :locationId)
+              AND (:posLocationId IS NULL OR psn.location_id = :posLocationId)
             LIMIT 1
         ";
 
         $row = DB::selectOne($sql, [
-            'code'       => $code,
-            'locationId' => $this->locationId,
+            'code'          => $code,
+            'posLocationId' => $this->posLocationId,
         ]);
 
         if (!$row) return false;
 
-        // Serial scans always add exactly 1 and must show serial on POS/receipt
         $this->dispatch('pos:serial-scanned', [
-            'matched_by'   => 'serial',
-            'product_id'   => $row->product_id,
-            'product_name' => $row->product_name,
-            'product_code' => $row->product_code,
-            'serial_number'=> $row->serial_number,
-            'unit_id'      => $row->unit_id ?? $row->base_unit_id,
-            'unit_name'    => $row->unit_name,
+            'matched_by'        => 'serial',
+            'product_id'        => $row->product_id,
+            'product_name'      => $row->product_name,
+            'product_code'      => $row->product_code,
+            'serial_number'     => $row->serial_number,
+            'unit_id'           => $row->unit_id ?? $row->base_unit_id,
+            'unit_name'         => $row->unit_name,
             'conversion_factor' => 1,
-            'quantity'     => 1,
-            'price'        => (float) $row->price,
-            'location_id'  => $this->locationId,
+            'quantity'          => 1,
+            'price'             => (float) $row->price,
+            'location_id'       => $this->posLocationId,
         ]);
 
         return true;
@@ -147,7 +147,7 @@ class SearchProduct extends Component
                 SELECT product_id,
                        SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
                 FROM product_stocks
-                WHERE (:locationId IS NULL OR location_id = :locationId)
+                WHERE (:posLocationId IS NULL OR location_id = :posLocationId)
                 GROUP BY product_id
             ) st ON st.product_id = p.id
             WHERE LOWER(puc.barcode) = LOWER(:code)
@@ -155,8 +155,8 @@ class SearchProduct extends Component
         ";
 
         $row = DB::selectOne($sql, [
-            'code'       => $barcode,
-            'locationId' => $this->locationId,
+            'code'          => $barcode,
+            'posLocationId' => $this->posLocationId,
         ]);
 
         if (!$row) return false;
@@ -165,7 +165,6 @@ class SearchProduct extends Component
         $expectedCount = (int) round($row->conversion_factor);
 
         if ((int) $row->serial_number_required === 1) {
-            // Ask parent to collect N serial numbers for this product
             $this->dispatch('pos:request-serials', [
                 'matched_by'        => 'conversion_barcode',
                 'product_id'        => $row->product_id,
@@ -174,12 +173,11 @@ class SearchProduct extends Component
                 'unit_id'           => $row->unit_id,
                 'unit_name'         => $row->unit_name,
                 'conversion_factor' => (float) $row->conversion_factor,
-                'expected_count'    => $expectedCount, // e.g., pack of 6 → need 6 serials
+                'expected_count'    => $expectedCount,
                 'price'             => (float) $row->price,
-                'location_id'       => $this->locationId,
+                'location_id'       => $this->posLocationId,
             ]);
         } else {
-            // Add line with quantity = conversion factor
             $this->dispatch('pos:add-line', [
                 'matched_by'        => 'conversion_barcode',
                 'product_id'        => $row->product_id,
@@ -190,7 +188,7 @@ class SearchProduct extends Component
                 'conversion_factor' => (float) $row->conversion_factor,
                 'quantity'          => $expectedCount,
                 'price'             => (float) $row->price,
-                'location_id'       => $this->locationId,
+                'location_id'       => $this->posLocationId,
             ]);
         }
 
@@ -217,7 +215,7 @@ class SearchProduct extends Component
                 SELECT product_id,
                        SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
                 FROM product_stocks
-                WHERE (:locationId IS NULL OR location_id = :locationId)
+                WHERE (:posLocationId IS NULL OR location_id = :posLocationId)
                 GROUP BY product_id
             ) st ON st.product_id = p.id
             WHERE LOWER(p.barcode) = LOWER(:code)
@@ -225,8 +223,8 @@ class SearchProduct extends Component
         ";
 
         $row = DB::selectOne($sql, [
-            'code'       => $barcode,
-            'locationId' => $this->locationId,
+            'code'          => $barcode,
+            'posLocationId' => $this->posLocationId,
         ]);
 
         if (!$row) return false;
@@ -241,9 +239,9 @@ class SearchProduct extends Component
                 'unit_id'           => $row->unit_id ?? $row->base_unit_id,
                 'unit_name'         => $row->unit_name,
                 'conversion_factor' => 1,
-                'expected_count'    => 1, // scan one serial
+                'expected_count'    => 1,
                 'price'             => (float) $row->price,
-                'location_id'       => $this->locationId,
+                'location_id'       => $this->posLocationId,
             ]);
         } else {
             $this->dispatch('pos:add-line', [
@@ -256,7 +254,7 @@ class SearchProduct extends Component
                 'conversion_factor' => 1,
                 'quantity'          => 1,
                 'price'             => (float) $row->price,
-                'location_id'       => $this->locationId,
+                'location_id'       => $this->posLocationId,
             ]);
         }
 
@@ -292,7 +290,7 @@ class SearchProduct extends Component
                 SELECT product_id,
                        SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
                 FROM product_stocks
-                WHERE (:locationId IS NULL OR location_id = :locationId)
+                WHERE (:posLocationId IS NULL OR location_id = :posLocationId)
                 GROUP BY product_id
             ) st ON st.product_id = p.id
             LEFT JOIN units u ON u.id = p.unit_id
@@ -319,7 +317,7 @@ class SearchProduct extends Component
                 SELECT product_id,
                        SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
                 FROM product_stocks
-                WHERE (:locationId IS NULL OR location_id = :locationId)
+                WHERE (:posLocationId IS NULL OR location_id = :posLocationId)
                 GROUP BY product_id
             ) st ON st.product_id = p.id
             LEFT JOIN units u ON u.id = puc.unit_id
@@ -347,12 +345,12 @@ class SearchProduct extends Component
                 SELECT product_id,
                        SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
                 FROM product_stocks
-                WHERE (:locationId IS NULL OR location_id = :locationId)
+                WHERE (:posLocationId IS NULL OR location_id = :posLocationId)
                 GROUP BY product_id
             ) st ON st.product_id = p.id
             LEFT JOIN units ub ON ub.id = p.base_unit_id
             WHERE psn.is_broken = 0
-              AND (:locationId IS NULL OR psn.location_id = :locationId)
+              AND (:posLocationId IS NULL OR psn.location_id = :posLocationId)
         ) results
         WHERE (
             LOWER(results.product_name) LIKE :term
@@ -365,8 +363,8 @@ class SearchProduct extends Component
         ";
 
         return collect(DB::select($sql, [
-            'locationId' => $this->locationId,
-            'term'       => $term,
+            'posLocationId' => $this->posLocationId,
+            'term'          => $term,
         ]));
     }
 }

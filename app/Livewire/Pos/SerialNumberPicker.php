@@ -1,0 +1,124 @@
+<?php
+
+namespace App\Livewire\Pos;
+
+use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\On;
+use Livewire\Component;
+
+class SerialNumberPicker extends Component
+{
+    /** Target product */
+    public ?int $productId = null;
+
+    /** Modal visibility */
+    public bool $show = false;
+
+    /** POS location id */
+    private ?int $posLocationId = null;
+
+    /** Last/ongoing scan text */
+    public string $scan = '';
+
+    /** Optional: show last few scanned serials (UX feedback only) */
+    public array $recent = [];
+
+    protected $listeners = [
+        'openSerialPicker' => 'open',
+    ];
+
+    public function mount(?int $productId = null, array $preselected = []): void
+    {
+        $this->productId = $productId;
+        $this->resolvePosLocation();
+    }
+
+    /** Open from parent: $dispatch('openSerialPicker', productId) */
+    public function open(int $productId): void
+    {
+        $this->productId = $productId;
+        $this->show = true;
+
+        // Let the browser focus the input as soon as modal is visible
+        $this->dispatch('focusSerialScanInput');
+    }
+
+    public function close(): void
+    {
+        $this->show = false;
+        $this->scan = '';
+    }
+
+    public function render()
+    {
+        return view('livewire.pos.serial-number-picker');
+    }
+
+    /** Optional: re-focus handler (kept for reuse) */
+    #[On('showSerialPickerModal')]
+    public function focusScan(): void
+    {
+        $this->dispatch('focusSerialScanInput');
+    }
+
+    private function resolvePosLocation(): void
+    {
+        $settingId = session('setting_id');
+
+        // If your DB has locations.is_pos, prefer that.
+        $hasIsPos = DB::getSchemaBuilder()->hasColumn('locations', 'is_pos');
+
+        $query = DB::table('locations')->where('setting_id', $settingId);
+        $this->posLocationId = $hasIsPos
+            ? $query->where('is_pos', 1)->value('id')
+            : $query->orderBy('id')->value('id');
+    }
+
+    /** Enter pressed in the input (or scanner sends CR/LF) */
+    public function scanSerial(): void
+    {
+        $code = trim($this->scan);
+
+        if ($code === '') {
+            $this->dispatch('toast', ['type' => 'warning', 'message' => 'Masukkan/scan nomor serial.']);
+            $this->dispatch('focusSerialScanInput');
+            return;
+        }
+        if (!$this->productId || !$this->posLocationId) {
+            $this->dispatch('toast', ['type' => 'danger', 'message' => 'Lokasi POS atau produk tidak valid.']);
+            $this->dispatch('focusSerialScanInput');
+            return;
+        }
+
+        $row = DB::table('product_serial_numbers as psn')
+            ->select('psn.id', 'psn.serial_number')
+            ->where('psn.product_id', $this->productId)
+            ->where('psn.location_id', $this->posLocationId)
+            ->where('psn.is_broken', 0)
+            ->whereNull('psn.dispatch_detail_id')
+            ->where('psn.serial_number', $code)
+            ->first();
+
+        if ($row) {
+            // Immediately tell Checkout to add/append this serial
+            $this->dispatch('serialScanned', [
+                'product_id' => $this->productId,
+                'serial' => [
+                    'id' => (int)$row->id,
+                    'serial_number' => (string)$row->serial_number,
+                ],
+            ]);
+
+            // UX: show as "recent", clear input, keep modal open for next scan
+            array_unshift($this->recent, (string)$row->serial_number);
+            $this->recent = array_slice($this->recent, 0, 6);
+
+            $this->scan = '';
+            $this->dispatch('focusSerialScanInput');
+        } else {
+            $this->dispatch('toast', ['type' => 'warning', 'message' => 'Serial tidak ditemukan / sudah terpakai.']);
+            $this->scan = '';
+            $this->dispatch('focusSerialScanInput');
+        }
+    }
+}
