@@ -61,9 +61,9 @@
                                                              value="{{ old('purchase_price', $product->purchase_price) }}"/>
                                                 </div>
                                                 <div class="col-md-6">
-                                                    <x-select label="Pajak Beli" name="purchase_tax"
+                                                    <x-select label="Pajak Beli" name="purchase_tax_id"
                                                               :options="$taxes->pluck('name', 'id')"
-                                                              selected="{{ old('purchase_tax', $product->purchase_tax) }}"/>
+                                                              selected="{{ old('purchase_tax_id', $product->purchase_tax_id) }}"/>
                                                 </div>
                                             </div>
                                         </div>
@@ -86,9 +86,9 @@
                                                              value="{{ old('sale_price', $product->sale_price) }}"/>
                                                 </div>
                                                 <div class="col-md-6">
-                                                    <x-select label="Pajak Jual" name="sale_tax"
+                                                    <x-select label="Pajak Jual" name="sale_tax_id"
                                                               :options="$taxes->pluck('name', 'id')"
-                                                              selected="{{ old('sale_tax', $product->sale_tax) }}"/>
+                                                              selected="{{ old('sale_tax_id', $product->sale_tax_id) }}"/>
                                                 </div>
                                             </div>
 
