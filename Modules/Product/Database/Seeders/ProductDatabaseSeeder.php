@@ -23,18 +23,28 @@ class ProductDatabaseSeeder extends Seeder
         $superAdmin = User::where('email', 'super.admin@test.com')->firstOrFail();
         $setting = Setting::where('company_name', 'Tiga Saudara ERP')->firstOrFail();
 
-        Category::create([
-            'category_code' => 'CA_01',
-            'category_name' => 'Random',
-            'created_by' => $superAdmin->id,
-            'setting_id' => $setting->id
-        ]);
+        // Check if category already exists
+        $category = Category::where('category_code', 'CA_01')->first();
+        
+        if (!$category) {
+            $category = Category::create([
+                'category_code' => 'CA_01',
+                'category_name' => 'Random',
+                'created_by' => $superAdmin->id,
+                'setting_id' => $setting->id
+            ]);
+        }
 
-        Unit::create([
-            'name' => 'Piece',
-            'short_name' => 'PC',
-            'operator' => '*',
-            'operation_value' => 1
-        ]);
+        // Check if unit already exists
+        $unit = Unit::where('name', 'Piece')->first();
+        
+        if (!$unit) {
+            $unit = Unit::create([
+                'name' => 'Piece',
+                'short_name' => 'PC',
+                'operator' => '*',
+                'operation_value' => 1
+            ]);
+        }
     }
 }
