@@ -265,6 +265,24 @@ class ProductController extends Controller
         $validatedData['brand_id'] = $validatedData['brand_id'] ?: null;
         $validatedData['category_id'] = $validatedData['category_id'] ?: null;
 
+        $isPurchased = (bool)($validatedData['is_purchased'] ?? false);
+        $isSold      = (bool)($validatedData['is_sold'] ?? false);
+
+        // When NOT purchased: wipe purchase-related fields
+        if (!$isPurchased) {
+            $validatedData['purchase_price']  = 0;
+            // Use the actual column name you store: purchase_tax_id OR purchase_tax
+            $validatedData['purchase_tax_id'] = null; // or unset() if column doesn’t exist
+        }
+
+        // When NOT sold: wipe sale-related fields (incl. tiers)
+        if (!$isSold) {
+            $validatedData['sale_price']      = 0;
+            $validatedData['sale_tax_id']     = null; // or correct column
+            $validatedData['tier_1_price']    = 0;
+            $validatedData['tier_2_price']    = 0;
+        }
+
         // Handle location_id, conversions, and documents separately
         $locationId = $validatedData['location_id'] ?? null;
         $conversions = $validatedData['conversions'] ?? [];

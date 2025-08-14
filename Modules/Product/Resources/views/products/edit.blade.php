@@ -51,8 +51,9 @@
                                 <div class="col-md-12">
                                     <div class="border p-3 mb-3">
                                         <div class="form-group">
+                                            <input type="hidden" name="is_purchased" value="0">
                                             <input type="checkbox" name="is_purchased" id="is_purchased" value="1"
-                                                   {{ $product->is_purchased ? 'checked' : '' }} readonly>
+                                                {{ old('is_purchased', $product->is_purchased) ? 'checked' : '' }}>
                                             <label for="is_purchased"><strong>Saya Beli Barang Ini</strong></label>
 
                                             <div class="row mt-3">
@@ -76,8 +77,9 @@
                                 <div class="col-md-12">
                                     <div class="border p-3 mb-3">
                                         <div class="form-group">
+                                            <input type="hidden" name="is_sold" value="0">
                                             <input type="checkbox" name="is_sold" id="is_sold" value="1"
-                                                   {{ $product->is_sold ? 'checked' : '' }} readonly>
+                                                {{ old('is_sold', $product->is_sold) ? 'checked' : '' }}>
                                             <label for="is_sold"><strong>Saya Jual Barang Ini</strong></label>
 
                                             <div class="row mt-3">
@@ -299,6 +301,38 @@
                 $('#tier_1_price').val(tier1Price);
                 $('#tier_2_price').val(tier2Price);
             });
+
+            function togglePurchaseFields() {
+                $('#is_purchased').on('change', function () {
+                    const isChecked = $(this).is(':checked');
+                    $('#purchase_price').prop('disabled', !isChecked).val(isChecked ? $('#purchase_price').val() : '');
+                    $('#purchase_tax_id').prop('disabled', !isChecked);
+
+                    if (!isChecked) {
+                        $('#purchase_price').val(''); // Clear purchase price
+                        $('#purchase_tax_id').val(null); // Reset tax ID
+                    }
+                }).trigger('change'); // Trigger change to set the initial state
+            }
+
+            function toggleSaleFields() {
+                $('#is_sold').on('change', function () {
+                    const isChecked = $(this).is(':checked');
+                    $('#sale_price').prop('disabled', !isChecked).val(isChecked ? $('#sale_price').val() : '');
+                    $('#sale_tax_id').prop('disabled', !isChecked);
+
+                    // Toggle tier price fields along with sale fields
+                    $('#tier_1_price, #tier_2_price').prop('disabled', !isChecked);
+                    if (!isChecked) {
+                        $('#sale_price').val('');
+                        $('#sale_tax_id').val(null);
+                        $('#tier_1_price, #tier_2_price').val('');
+                    }
+                }).trigger('change'); // Trigger change to set the initial state
+            }
+
+            togglePurchaseFields();
+            toggleSaleFields();
 
             function toggleStockManagedFields() {
                 const isStockManaged = $('#stock_managed').is(':checked');

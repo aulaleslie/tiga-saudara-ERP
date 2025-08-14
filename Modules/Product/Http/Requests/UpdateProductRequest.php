@@ -33,9 +33,7 @@ class UpdateProductRequest extends FormRequest
             'product_name' => ['sometimes', 'required', 'string', 'max:255'],
             'product_code' => ['sometimes', 'required', 'string', 'max:255', 'unique:products,product_code,' . $this->product->id],
             'product_stock_alert' => ['nullable', 'integer', 'min:0'],
-            'purchase_price' => ['nullable', 'numeric', 'min:0'],
             'purchase_tax' => ['nullable'],
-            'sale_price' => ['nullable', 'numeric', 'min:0'],
             'sale_tax' => ['nullable'],
             'product_note' => ['nullable', 'string', 'max:1000'],
             'category_id' => ['nullable', 'integer'],
@@ -59,8 +57,16 @@ class UpdateProductRequest extends FormRequest
                 }
             ],
 
-            'tier_1_price' => ['nullable', 'numeric', 'min:0'],
-            'tier_2_price' => ['nullable', 'numeric', 'min:0'],
+            'is_purchased' => ['sometimes','boolean'],
+            'purchase_price' => ['nullable','numeric','min:0'],
+            'purchase_tax_id' => ['nullable','integer','exists:taxes,id'],
+
+            'is_sold' => ['sometimes','boolean'],
+            'sale_price' => ['nullable','numeric','min:0'],
+            'sale_tax_id' => ['nullable','integer','exists:taxes,id'],
+
+            'tier_1_price' => ['nullable','numeric','min:0'],
+            'tier_2_price' => ['nullable','numeric','min:0'],
 
             'conversions' => ['nullable', 'array'],
 
