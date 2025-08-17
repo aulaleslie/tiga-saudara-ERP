@@ -80,5 +80,9 @@
             </tbody>
         </table>
     </div>
-    <button type="button" class="btn btn-primary" wire:click="addConversionRow">Tambahkan</button>
+    <button type="button" class="btn btn-primary"
+            wire:click="addConversionRow"
+        @disabled($locked)>
+        Tambahkan
+    </button>
 </div>

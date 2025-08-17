@@ -74,10 +74,6 @@ class ProductController extends Controller
      */
     private function handleProductCreation(array $validatedData): Product
     {
-        Log::info('Starting product creation.');
-
-        Log::info('Validated data.', $validatedData);
-
         // Set default values for nullable fields
         $fieldsWithDefaults = [
             'product_quantity' => 0,
@@ -259,6 +255,11 @@ class ProductController extends Controller
     public function update(UpdateProductRequest $request, Product $product): RedirectResponse
     {
         abort_if(Gate::denies('products.edit'), 403);
+
+        Log::info('Update product request', [
+            'request' => $request,
+            'product' => $product,
+        ]);
         $validatedData = $request->validated();
 
         // Ensure brand_id and category_id are either NULL or valid

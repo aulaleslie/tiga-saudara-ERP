@@ -15,6 +15,26 @@ class UnitConversionTable extends Component
     public array $displayPrices  = [];
     public array $errors = [];
     public array $units = [];
+    public bool  $locked = false;
+
+    protected $listeners = [
+        'unitConversion:reset' => 'resetRows',
+        'stock:lock'           => 'setLocked', // 🔁 new
+    ];
+
+    public function setLocked($locked): void
+    {
+        Log::debug("setLocked: ", [
+            'locked' => $locked,
+        ]);
+        $this->locked = (bool) $locked;
+    }
+
+    public function resetRows(): void
+    {
+        $this->conversions   = [];
+        $this->displayPrices = [];
+    }
 
     public function mount(array $conversions = []): void
     {

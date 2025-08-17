@@ -124,46 +124,56 @@
                                                    value="1" {{ old('stock_managed') ? 'checked' : '' }}>
                                             <strong>Manajemen Stok</strong>
                                         </label>
-                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk
-                                                produk ini.</i></p>
+                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
                                     </div>
                                 </div>
                             </div>
 
                             <!-- Serial Number Requirement -->
-                            <div class="form-row">
-                                <div class="col-md-4">
-                                    <div class="form-group">
-                                        <input type="checkbox" name="serial_number_required" id="serial_number_required"
-                                               value="1" {{ old('serial_number_required') ? 'checked' : '' }} disabled>
-                                        <label for="serial_number_required"><strong>Serial Number
-                                                Diperlukan</strong></label>
+                            <fieldset id="stock-dependent">
+
+                                <!-- Serial Number Requirement -->
+                                <div class="form-row">
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <input type="checkbox" name="serial_number_required" id="serial_number_required"
+                                                   value="1" {{ old('serial_number_required') ? 'checked' : '' }}>
+                                            <label for="serial_number_required"><strong>Serial Number Diperlukan</strong></label>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            <!-- Product Quantity and Stock Alert -->
-                            <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
-                                             step="1"/>
+                                <!-- Product Quantity and Stock Alert -->
+                                <div class="form-row">
+                                    <div class="col-md-6">
+                                        <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number" step="1"/>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <!-- Unit and Barcode -->
-                            <div class="form-row">
-                                <div class="col-md-6">
-                                    <x-select label="Unit Utama" name="base_unit_id"
-                                              :options="$units->pluck('name', 'id')"/>
+                                <!-- Unit and Barcode -->
+                                <div class="form-row">
+                                    <div class="col-md-6">
+                                        <x-select label="Unit Utama" name="base_unit_id" :options="$units->pluck('name', 'id')" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <x-input label="Barcode Unit Utama" name="barcode"/>
+                                    </div>
                                 </div>
-                                <div class="col-md-6">
-                                    <x-input label="Barcode Unit Utama" name="barcode"/>
-                                </div>
-                            </div>
 
-                            <!-- Livewire component for Unit Conversion Table -->
-                            <livewire:product.unit-conversion-table :conversions="old('conversions', [])"
-                                                                    :errors="$errors->toArray()"/>
+                                <!-- Livewire component for Unit Conversion Table -->
+                                <div class="form-row">
+                                    <div class="col-lg-12">
+                                        <div class="card">
+                                            <div class="card-body">
+                                                <livewire:product.unit-conversion-table
+                                                    :conversions="old('conversions', [])"
+                                                    :errors="$errors->toArray()"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </fieldset>
 
                             <div class="form-row">
                                 <div class="col-lg-12">
@@ -197,7 +207,8 @@
 @section('third_party_scripts')
     <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
     <script>
-        $(document).ready(function () {
+        $(function () {
+            // === Mask helpers ===
             function applyMask() {
                 $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').maskMoney({
                     prefix: '{{ settings()->currency->symbol }}',
@@ -208,119 +219,176 @@
                     allowNegative: false
                 });
             }
+            function setMaskedZero($el) {
+                // Force "0.00" visually, even if disabled
+                $el.maskMoney('destroy');
+                $el.val('0.00');
+                applyMask();
+                $el.maskMoney('mask');
+            }
 
             applyMask();
 
-            // On focus, unmask to show raw value for editing and select all text
-            $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').on('focus', function () {
-                $(this).maskMoney('destroy'); // Remove mask during focus/typing
-                $(this).val($(this).val().replace(/[^0-9.-]/g, '')); // Show raw value without formatting
-                setTimeout(() => {
-                    $(this).select(); // Select all text in the input
-                }, 0);
-            });
+            // === Focus/blur keepers (unchanged idea, just robust) ===
+            $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price')
+                .on('focus', function () {
+                    $(this).maskMoney('destroy');
+                    $(this).val($(this).val().replace(/[^0-9.-]/g, ''));
+                    setTimeout(() => this.select(), 0);
+                })
+                .on('blur', function () {
+                    let v = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
+                    if (isNaN(v)) v = 0;
+                    $(this).val(v.toFixed(2));
+                    applyMask();
+                    $(this).maskMoney('mask');
+                });
 
-            // On blur, reapply the mask to format as currency
-            $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').on('blur', function () {
-                var value = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
-                if (isNaN(value)) {
-                    value = 0;
-                }
-                $(this).val(value.toFixed(2)); // Ensure two decimal places
-                applyMask(); // Reapply the mask
-                $(this).maskMoney('mask'); // Mask the value again
-            });
-
-            // Reapply mask on page load if old values are present
-            function prefillMaskedValues() {
-                let salePrice = "{{ old('sale_price') }}";
-                let purchasePrice = "{{ old('purchase_price') }}";
-                let tier1Price = "{{ old('tier_1_price') }}";
-                let tier2Price = "{{ old('tier_2_price') }}";
-
-                if (salePrice) {
-                    $('#sale_price').val(parseFloat(salePrice).toFixed(2));
-                    $('#sale_price').maskMoney('mask');
-                }
-                if (purchasePrice) {
-                    $('#purchase_price').val(parseFloat(purchasePrice).toFixed(2));
-                    $('#purchase_price').maskMoney('mask');
-                }
-                if (tier1Price) {
-                    $('#tier_1_price').val(parseFloat(tier1Price).toFixed(2));
-                    $('#tier_1_price').maskMoney('mask');
-                }
-                if (tier2Price) {
-                    $('#tier_2_price').val(parseFloat(tier2Price).toFixed(2));
-                    $('#tier_2_price').maskMoney('mask');
-                }
-            }
-
-            prefillMaskedValues();
-
-            // Submit the form with unmasked values
-            $('#product-form').submit(function () {
-                var purchasePrice = $('#purchase_price').maskMoney('unmasked')[0];
-                var salePrice = $('#sale_price').maskMoney('unmasked')[0];
-                var tier1Price = $('#tier_1_price').maskMoney('unmasked')[0];
-                var tier2Price = $('#tier_2_price').maskMoney('unmasked')[0];
-                $('#purchase_price').val(purchasePrice);
-                $('#sale_price').val(salePrice);
-                $('#tier_1_price').val(tier1Price);
-                $('#tier_2_price').val(tier2Price);
-            });
-
-            function togglePurchaseFields() {
-                $('#is_purchased').on('change', function () {
-                    const isChecked = $(this).is(':checked');
-                    $('#purchase_price').prop('disabled', !isChecked).val(isChecked ? $('#purchase_price').val() : '');
-                    $('#purchase_tax_id').prop('disabled', !isChecked);
-
-                    if (!isChecked) {
-                        $('#purchase_price').val(''); // Clear purchase price
-                        $('#purchase_tax_id').val(null); // Reset tax ID
+            // === Pre-fill from old() if present, else leave empty (we'll seed as needed) ===
+            (function prefillMaskedValues() {
+                const map = [
+                    ['#purchase_price', "{{ old('purchase_price') }}"],
+                    ['#sale_price', "{{ old('sale_price') }}"],
+                    ['#tier_1_price', "{{ old('tier_1_price') }}"],
+                    ['#tier_2_price', "{{ old('tier_2_price') }}"],
+                ];
+                map.forEach(([sel, raw]) => {
+                    if (raw !== '') {
+                        const n = parseFloat(raw);
+                        if (!isNaN(n)) {
+                            const $el = $(sel);
+                            $el.val(n.toFixed(2));
+                            $el.maskMoney('mask');
+                        }
                     }
-                }).trigger('change'); // Trigger change to set the initial state
+                });
+            })();
+
+            // === Toggling with correct defaults ===
+            function togglePurchaseFields(initial = false) {
+                const checked = $('#is_purchased').is(':checked');
+                const $price = $('#purchase_price');
+                const $tax   = $('#purchase_tax_id');
+
+                $price.prop('disabled', !checked);
+                $tax.prop('disabled',   !checked);
+
+                if (!checked) {
+                    // off -> show Rp0.00 + placeholder
+                    setMaskedZero($price);
+                    $tax.val('');            // Option A: empty value selects "Pilih Pajak ..."
+                    $tax.trigger('change');
+                } else if (initial && !$price.val().trim()) {
+                    // checked on initial load but empty -> show 0.00 to avoid blank
+                    setMaskedZero($price);
+                }
             }
 
-            function toggleSaleFields() {
-                $('#is_sold').on('change', function () {
-                    const isChecked = $(this).is(':checked');
-                    $('#sale_price').prop('disabled', !isChecked).val(isChecked ? $('#sale_price').val() : '');
-                    $('#sale_tax_id').prop('disabled', !isChecked);
+            function toggleSaleFields(initial = false) {
+                const checked = $('#is_sold').is(':checked');
+                const $sale  = $('#sale_price');
+                const $tier1 = $('#tier_1_price');
+                const $tier2 = $('#tier_2_price');
+                const $tax   = $('#sale_tax_id');
 
-                    // Toggle tier price fields along with sale fields
-                    $('#tier_1_price, #tier_2_price').prop('disabled', !isChecked);
-                    if (!isChecked) {
-                        $('#sale_price').val('');
-                        $('#sale_tax_id').val(null);
-                        $('#tier_1_price, #tier_2_price').val('');
+                [$sale, $tier1, $tier2].forEach($i => $i.prop('disabled', !checked));
+                $tax.prop('disabled', !checked);
+
+                if (!checked) {
+                    // off -> show Rp0.00 + placeholder
+                    setMaskedZero($sale);
+                    setMaskedZero($tier1);
+                    setMaskedZero($tier2);
+                    $tax.val('');            // Option A: empty value selects placeholder
+                    $tax.trigger('change');
+                } else if (initial) {
+                    // checked on initial load but any empty -> seed 0.00 for clarity
+                    if (!$sale.val().trim())  setMaskedZero($sale);
+                    if (!$tier1.val().trim()) setMaskedZero($tier1);
+                    if (!$tier2.val().trim()) setMaskedZero($tier2);
+                }
+            }
+
+            // Bind and run once
+            $('#is_purchased').on('change', () => togglePurchaseFields(false));
+            $('#is_sold').on('change',      () => toggleSaleFields(false));
+            togglePurchaseFields(true);
+            toggleSaleFields(true);
+
+            // === Submit: unmask to raw numbers ===
+            $('#product-form').on('submit', function () {
+                const un = (sel) => $(sel).maskMoney('unmasked')[0] ?? 0;
+                $('#purchase_price').val(un('#purchase_price'));
+                $('#sale_price').val(un('#sale_price'));
+                $('#tier_1_price').val(un('#tier_1_price'));
+                $('#tier_2_price').val(un('#tier_2_price'));
+            });
+
+            function resetStockDependentValues() {
+                const $section = $('#stock-dependent');
+
+                // Text-like and number inputs
+                $section.find('input[type="text"], input[type="number"], input[type="tel"], input[type="email"], input[type="search"], input[type="url"]')
+                    .val('');
+
+                // Hidden inputs that belong to this section (if any)
+                $section.find('input[type="hidden"]').each(function () {
+                    // only clear if it’s clearly part of stock-dependent data (avoid CSRF etc.)
+                    const name = this.name || '';
+                    if (name.startsWith('conversions') || name.startsWith('barcode') || name.startsWith('product_stock_alert')) {
+                        $(this).val('');
                     }
-                }).trigger('change'); // Trigger change to set the initial state
+                });
+
+                // Checkboxes & radios
+                $section.find('input[type="checkbox"], input[type="radio"]').prop('checked', false);
+
+                // Selects → set to placeholder (Option A uses empty value "")
+                $section.find('select').val('').trigger('change');
+
+                // Textareas
+                $section.find('textarea').val('');
+
+                // If your Livewire component renders inputs for conversions, clear them too
+                // (this already catches them because they’re inputs/selects inside the section).
+                // Optional: if you have a Livewire listener, emit a reset event:
+                if (window.Livewire && typeof Livewire.dispatch === 'function') {
+                    // Listen in component with: protected $listeners = ['unitConversion:reset' => 'resetRows'];
+                    Livewire.dispatch('unitConversion:reset');
+                }
             }
 
-            togglePurchaseFields();
-            toggleSaleFields();
-
+            // === Stock managed behaviour (unchanged) ===
             function toggleStockManagedFields() {
-                const isStockManaged = $('#stock_managed').is(':checked');
+                const on = $('#stock_managed').is(':checked');
 
-                // Show "Tambah Produk & Lanjut Inisiasi Stock" button if stock_managed is checked
-                if (isStockManaged) {
-                    $('#stock-initiate-btn').show();
-                } else {
-                    $('#stock-initiate-btn').hide();
+                // Show/hide the "Lanjut Inisiasi Stock" button as before
+                $('#stock-initiate-btn').toggle(on);
+
+                // Enable/disable every input/select/textarea inside #stock-dependent
+                const $section = $('#stock-dependent');
+
+                if (!on) {
+                    resetStockDependentValues();
                 }
 
-                // Enable Serial Number Checkbox if stock_managed is checked; otherwise disable and uncheck it
-                if (isStockManaged) {
-                    $('#serial_number_required').prop('disabled', false);
-                } else {
-                    $('#serial_number_required').prop('disabled', true).prop('checked', false);
+                if (window.Livewire && typeof Livewire.dispatch === 'function') {
+                    console.log(on)
+                    Livewire.dispatch('stock:lock', {'locked': !on}); // true = lock, false = unlock
                 }
+
+                $section.find('input, select, textarea, button').prop('disabled', !on);
+
+                // Optional: if turning OFF, clear “Serial Number Required” check visually
+                if (!on) {
+                    $('#serial_number_required').prop('checked', false);
+                }
+
+                // If you’re using any Select2 inside #stock-dependent, trigger change:
+                $section.find('select').trigger('change');
             }
 
-            // Call the function on page load and when the stock managed field changes
+            // Bind and run once
             $('#stock_managed').on('change keyup', toggleStockManagedFields);
             toggleStockManagedFields();
         });
