@@ -184,6 +184,12 @@
                                                         class="bi bi-question-circle-fill text-info"
                                                         data-toggle="tooltip" data-placement="top"
                                                         title="Max Files: 3, Max File Size: 1MB, Image Size: 400x400"></i></label>
+                                                @php $oldDocs = old('document', []); @endphp
+                                                @if(is_array($oldDocs) && count($oldDocs))
+                                                    @foreach($oldDocs as $temp)
+                                                        <input type="hidden" name="document[]" value="{{ $temp }}">
+                                                    @endforeach
+                                                @endif
                                                 <div
                                                     class="dropzone d-flex flex-wrap flex-wrap align-items-center justify-content-center"
                                                     id="document-dropzone">
@@ -404,43 +410,62 @@
             maxFiles: 3,
             addRemoveLinks: true,
             dictRemoveFile: "<i class='bi bi-x-circle text-danger'></i> remove",
-            headers: {
-                "X-CSRF-TOKEN": "{{ csrf_token() }}"
-            },
+            headers: { "X-CSRF-TOKEN": "{{ csrf_token() }}" },
+
             success: function (file, response) {
                 $('form').append('<input type="hidden" name="document[]" value="' + response.name + '">');
+                // map the UI name to server name so removedFile can find it later
+                window.uploadedDocumentMap = window.uploadedDocumentMap || {};
                 uploadedDocumentMap[file.name] = response.name;
             },
-            removedFile: function (file) {
-                file.previewElement.remove();
-                var name = '';
+
+            removedfile: function (file) {
+                file.previewElement?.remove();
+                let name = '';
                 if (typeof file.file_name !== 'undefined') {
-                    name = file.file_name;
+                    name = file.file_name; // mock or preloaded file
                 } else {
-                    name = uploadedDocumentMap[file.name];
+                    name = (window.uploadedDocumentMap || {})[file.name]; // just-uploaded file
                 }
-                $.ajax({
-                    type: "POST",
-                    url: "{{ route('dropzone.delete') }}",
-                    data: {
-                        '_token': "{{ csrf_token() }}",
-                        'file_name': `${name}`
-                    },
-                });
-                $('form').find('input[name="document[]"][value="' + name + '"]').remove();
+
+                if (name) {
+                    // Call temp delete for temp files (safe; no-op if already gone)
+                    $.post("{{ route('dropzone.delete') }}", {
+                        _token: "{{ csrf_token() }}",
+                        file_name: name
+                    });
+                    // Remove the hidden input so it won't attach on submit
+                    $('form').find('input[name="document[]"][value="' + name + '"]').remove();
+                    if (window.uploadedDocumentMap) delete uploadedDocumentMap[file.name];
+                }
             },
+
             init: function () {
-                @if(isset($product) && $product.getMedia('images'))
-                var files = {!! json_encode($product->getMedia('images')) !!};
-                for (var i in files) {
-                    var file = files[i];
-                    this.options.addedfile.call(this, file);
-                    this.options.thumbnail.call(this, file, file.original_url);
-                    file.previewElement.classList.add('dz-complete');
-                    $('form').append('<input type="hidden" name="document[]" value="' + file.file_name + '">');
+                // === 1) Re-hydrate temp uploads from old('document') after validation errors ===
+                const oldDocs = @json(old('document', []));
+                if (Array.isArray(oldDocs) && oldDocs.length) {
+                    oldDocs.forEach((name) => {
+                        const mock = {
+                            name,              // display name in the DZ list
+                            size: 12345,       // dummy size
+                            accepted: true,
+                            file_name: name,   // IMPORTANT: lets removedFile find the hidden input value
+                            _isTemp: true
+                        };
+                        this.emit('addedfile', mock);
+                        this.emit('thumbnail', mock, "{{ route('dropzone.temp', ':name') }}".replace(':name', encodeURIComponent(name)));
+                        this.emit('complete', mock);
+                    });
+
+                    // Keep maxFiles honest so users can still add more (e.g., 3 - oldDocs.length)
+                    if (typeof this.options.maxFiles === 'number') {
+                        this.options.maxFiles = Math.max(0, this.options.maxFiles - oldDocs.length);
+                    }
                 }
-                @endif
+
+                // === 2) (optional) If you also preload existing media on EDIT pages, keep that here. ===
+                // We'll refine this in Step 3 so removing existing media doesn't hit the temp delete endpoint.
             }
-        }
+        };
     </script>
 @endsection

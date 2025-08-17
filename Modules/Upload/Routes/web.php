@@ -21,6 +21,9 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Filepond
     Route::post('/filepond/upload', 'UploadController@filepondUpload')->name('filepond.upload');
     Route::delete('/filepond/delete', 'UploadController@filepondDelete')->name('filepond.delete');
+    Route::get('/dropzone/temp/{name}', 'UploadController@dropzoneTemp')
+        ->where('name', '.*')
+        ->name('dropzone.temp');
 
 });
 
