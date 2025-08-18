@@ -9,6 +9,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Product\DataTables\ProductDataTable;
@@ -30,6 +31,7 @@ use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use League\Csv\Reader;
 use League\Csv\Statement;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class ProductController extends Controller
 {
@@ -229,26 +231,36 @@ class ProductController extends Controller
     }
 
 
-    public function edit(Product $product): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function edit(Product $product)
     {
         abort_if(Gate::denies('products.edit'), 403);
 
         $currentSettingId = session('setting_id');
 
-        // Filter units, brands, and categories by setting_id
         $units = Unit::where('setting_id', $currentSettingId)->get();
         $brands = Brand::where('setting_id', $currentSettingId)->get();
         $categories = Category::where('setting_id', $currentSettingId)->with('parent')->get();
         $locations = Location::where('setting_id', $currentSettingId)->get();
         $taxes = Tax::where('setting_id', $currentSettingId)->get();
 
-        // Format categories with parent category
         $formattedCategories = $categories->mapWithKeys(function ($category) {
             $formattedName = $category->parent ? "{$category->parent->category_name} | $category->category_name" : $category->category_name;
             return [$category->id => $formattedName];
         })->sortBy('name')->toArray();
 
-        return view('product::products.edit', compact('product', 'units', 'taxes', 'brands', 'formattedCategories', 'locations'));
+        // ✅ Send existing media to view
+        $existingMedia = $product->getMedia('images')->map(function ($m) {
+            return [
+                'id'   => $m->id,
+                'name' => $m->file_name,          // we use file_name everywhere
+                'url'  => $m->getUrl(),           // or getUrl('thumb') if you have a conversion
+                'size' => $m->size,
+            ];
+        })->values();
+
+        return view('product::products.edit', compact(
+            'product', 'units', 'taxes', 'brands', 'formattedCategories', 'locations', 'existingMedia'
+        ));
     }
 
 
@@ -639,5 +651,18 @@ class ProductController extends Controller
             ->limit(10)
             ->get();
         return response()->json($products);
+    }
+
+    public function destroyMedia(Product $product, Media $media): Response
+    {
+        abort_if(Gate::denies('products.edit'), 403);
+
+        // Safety: ensure media belongs to this product
+        if ($media->model_id !== $product->id || $media->model_type !== Product::class) {
+            abort(404);
+        }
+
+        $media->delete();
+        return response()->noContent();
     }
 }

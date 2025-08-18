@@ -38,8 +38,7 @@
                             <!-- Kategori and Merek -->
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <x-select label="Kategori" name="category_id" :options="$formattedCategories"
-                                              addCategoryButton="true"/>
+                                    <x-select label="Kategori" name="category_id" :options="$formattedCategories"/>
                                 </div>
                                 <div class="col-md-6">
                                     <x-select label="Merek" name="brand_id" :options="$brands->pluck('name', 'id')"/>

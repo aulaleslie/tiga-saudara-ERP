@@ -23,6 +23,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/products/{product_id}/input-serial-numbers/{location_id}', [ProductController::class, 'storeSerialNumbers'])->name('products.storeSerialNumbers');
     Route::get('/products/search', [ProductController::class, 'search'])
         ->name('products.search');
+    Route::delete('/products/{product}/media/{media}', [ProductController::class, 'destroyMedia'])
+        ->name('products.media.destroy');
     //Product
     Route::resource('products', 'ProductController');
 
