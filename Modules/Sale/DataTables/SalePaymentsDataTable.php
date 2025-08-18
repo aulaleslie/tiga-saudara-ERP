@@ -45,8 +45,13 @@ class SalePaymentsDataTable extends DataTable
             ->rawColumns(['attachment', 'action']); // Allow raw HTML for the "attachment" and "action" columns
     }
 
-    public function query(SalePayment $model) {
-        return $model->newQuery()->bySale()->with('sale');
+    public function query(SalePayment $model)
+    {
+        $saleId = $this->request()->get('sale_id');
+
+        return $model->newQuery()
+            ->when($saleId, fn($q) => $q->where('sale_id', $saleId))
+            ->with(['paymentMethod']); // you only need paymentMethod for the table
     }
 
     public function html() {

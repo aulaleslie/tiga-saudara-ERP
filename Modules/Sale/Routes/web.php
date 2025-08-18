@@ -26,17 +26,11 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
 
     //Generate PDF
-    Route::get('/sales/pdf/{id}', function ($id) {
-        $sale = Sale::findOrFail($id);
-        $customer = Customer::findOrFail($sale->customer_id);
+    Route::get('/sales/{sale}/delivery-slip', [SaleController::class, 'deliverySlip'])
+        ->name('sales.deliverySlip');
 
-        $pdf = \PDF::loadView('sale::print', [
-            'sale' => $sale,
-            'customer' => $customer,
-        ])->setPaper('a4');
-
-        return $pdf->stream('sale-'. $sale->reference .'.pdf');
-    })->name('sales.pdf');
+    Route::get('/sales/{sale}/invoice', [SaleController::class, 'invoicePdf'])
+        ->name('sales.invoicePdf');
 
     Route::get('/sales/pos/pdf/{id}', function ($id) {
         $sale = Sale::findOrFail($id);

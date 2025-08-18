@@ -10,13 +10,25 @@
                 <div>
                     Referensi: <strong>{{ $sale->reference ?? 'N/A' }}</strong>
                 </div>
-                <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none"
-                   href="{{ route('sales.pdf', $sale->id) }}">
-                    <i class="bi bi-printer"></i> Cetak
-                </a>
-                <a target="_blank" class="btn btn-sm btn-info mfe-1 d-print-none"
-                   href="{{ route('sales.pdf', $sale->id) }}">
-                    <i class="bi bi-save"></i> Simpan
+
+                @php $hasDispatches = isset($dispatches) && $dispatches->isNotEmpty(); @endphp
+
+                @if($hasDispatches)
+                    <a target="_blank"
+                       href="{{ route('sales.deliverySlip', ['sale' => $sale->id, 'type' => 'delivery']) }}"
+                       class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none">
+                        <i class="bi bi-truck"></i> Cetak Surat Jalan (Terakhir)
+                    </a>
+                @else
+                    <a class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" disabled
+                       title="Belum ada pengeluaran/dispatch untuk dicetak">
+                        <i class="bi bi-truck"></i> Surat Jalan
+                    </a>
+                @endif
+                <a target="_blank"
+                   href="{{ route('sales.invoicePdf', ['sale' => $sale->id, 'type' => 'invoice']) }}"
+                   class="btn btn-sm btn-secondary mfe-1 d-print-none">
+                    <i class="bi bi-truck"></i> Cetak Faktur
                 </a>
                 <a class="btn btn-sm btn-info mfe-1 d-print-none" href="{{ route('sales.index') }}">
                     <i class="bi bi-back"></i> Kembali
@@ -146,81 +158,94 @@
             </div>
 
             <!-- Dispatch Details -->
-            @if($sale->saleDispatches->isNotEmpty())
+            @if($dispatches->isNotEmpty())
                 <div class="row mt-4">
                     <div class="col-lg-12">
-                        <h5 class="mb-2 border-bottom pb-2">Pengeluaran Barang:</h5>
-                        <table class="table table-striped">
-                            <thead>
-                            <tr>
-                                <th>Tanggal</th>
-                                <th>Kode Produk</th>
-                                <th>Nama Produk</th>
-                                <th>Lokasi</th>
-                                <th>Jumlah</th>
-                                <th>Serial Number</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            @foreach($sale->saleDispatches as $dispatch)
-                                @foreach($dispatch->details as $detail)
-                                    <tr>
-                                        <td>{{ \Carbon\Carbon::parse($dispatch->dispatch_date)->format('d M Y') }}</td>
-                                        <td>{{ $detail->product->product_code ?? '-' }}</td>
-                                        <td>{{ $detail->product->product_name ?? '-' }}</td>
-                                        <td>{{ $detail->location->name ?? '-' }}</td>
-                                        <td>{{ $detail->dispatched_quantity }}</td>
-                                        <td>
-                                            @if($detail->serial_numbers)
-                                                {{ implode(', ', json_decode($detail->serial_numbers, true)) }}
-                                            @else
-                                                -
-                                            @endif
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            @endforeach
-                            </tbody>
-                        </table>
+                        <div class="card">
+                            <div class="card-body">
+                                <h4 class="mb-3">Pengeluaran Barang</h4>
+                                <div class="table-responsive">
+                                    <table id="sale-dispatches-table" class="table table-striped table-bordered">
+                                        <thead>
+                                        <tr>
+                                            <th></th> {{-- expand --}}
+                                            <th>Tanggal</th>
+                                            <th>Total Dikirim</th>
+                                        </tr>
+                                        </thead>
+                                        <tbody>
+                                        @foreach($dispatches as $dispatch)
+                                            @php $sumQty = $dispatch->details->sum('dispatched_quantity'); @endphp
+                                            <tr>
+                                                <td class="text-center">
+                                                    <button class="btn btn-sm btn-outline-primary toggle-details"
+                                                            data-bs-toggle="collapse"
+                                                            data-bs-target="#dispatch-{{ $dispatch->id }}"
+                                                            aria-expanded="false"
+                                                            aria-controls="dispatch-{{ $dispatch->id }}">
+                                                        <i class="bi bi-plus-circle"></i>
+                                                    </button>
+                                                </td>
+                                                <td>{{ \Carbon\Carbon::parse($dispatch->dispatch_date)->format('Y-m-d') }}</td>
+                                                <td>{{ $sumQty }}</td>
+                                            </tr>
+
+                                            <tr id="dispatch-{{ $dispatch->id }}" class="collapse">
+                                                <td colspan="3">
+                                                    <div class="table-responsive">
+                                                        <table class="table table-sm table-bordered">
+                                                            <thead>
+                                                            <tr>
+                                                                <th>Kode Produk</th>
+                                                                <th>Nama Produk</th>
+                                                                <th>Lokasi</th>
+                                                                <th>Jumlah</th>
+                                                                <th>Serial Number</th>
+                                                            </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                            @foreach($dispatch->details as $detail)
+                                                                <tr>
+                                                                    <td>{{ $detail->product->product_code ?? '-' }}</td>
+                                                                    <td>{{ $detail->product->product_name ?? '-' }}</td>
+                                                                    <td>{{ $detail->location->name ?? '-' }}</td>
+                                                                    <td>{{ $detail->dispatched_quantity }}</td>
+                                                                    <td>
+                                                                        @if($detail->serial_numbers)
+                                                                            {{ implode(', ', json_decode($detail->serial_numbers, true)) }}
+                                                                        @else
+                                                                            -
+                                                                        @endif
+                                                                    </td>
+                                                                </tr>
+                                                            @endforeach
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             @endif
 
-            @if($sale->salePayments->isNotEmpty())
-                <div class="row mt-4">
-                    <div class="col-lg-12">
-                        <h5 class="mb-2 border-bottom pb-2">Pembayaran:</h5>
-                        <table class="table table-bordered">
-                            <thead>
-                            <tr>
-                                <th>Tanggal</th>
-                                <th>Referensi</th>
-                                <th>Jumlah</th>
-                                <th>Metode</th>
-                                <th>Lampiran</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            @foreach($sale->payments as $payment)
-                                <tr>
-                                    <td>{{ \Carbon\Carbon::parse($payment->date)->format('d M Y') }}</td>
-                                    <td>{{ $payment->reference }}</td>
-                                    <td>{{ format_currency($payment->amount) }}</td>
-                                    <td>{{ $payment->paymentMethod->name ?? '-' }}</td>
-                                    <td>
-                                        @if($payment->getFirstMediaUrl('attachments'))
-                                            <a href="{{ $payment->getFirstMediaUrl('attachments') }}" target="_blank">Lihat</a>
-                                        @else
-                                            Tidak ada
-                                        @endif
-                                    </td>
-                                </tr>
-                            @endforeach
-                            </tbody>
-                        </table>
+            <div class="row mt-4">
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <h4 class="mb-3">Pembayaran</h4>
+
+                            {{-- Yajra DataTable --}}
+                            {!! $dataTable->table(['class' => 'table table-striped table-bordered w-100', 'id' => 'sale-payments-table']) !!}
+                        </div>
                     </div>
                 </div>
-            @endif
+            </div>
 
             <div class="card-footer text-end">
                 @if ($sale->status === Sale::STATUS_DRAFTED)
@@ -265,7 +290,35 @@
 @endsection
 
 @push('page_scripts')
+    {{-- Toggle buttons for collapsible dispatch rows --}}
     <script>
-        // Tambahkan skrip JavaScript jika diperlukan untuk fungsi dinamis
+        document.addEventListener('DOMContentLoaded', function () {
+            const table = document.getElementById('sale-dispatches-table');
+            if (!table) return;
+
+            table.addEventListener('click', function (e) {
+                const btn = e.target.closest('button.toggle-details');
+                if (!btn) return;
+
+                const icon = btn.querySelector('i');
+                const target = btn.getAttribute('data-bs-target');
+                const row = document.querySelector(target);
+
+                // Bootstrap collapse is already triggered via data attributes,
+                // we just flip the icon after the animation ends
+                row.addEventListener('shown.bs.collapse', () => {
+                    icon.classList.remove('bi-plus-circle');
+                    icon.classList.add('bi-dash-circle');
+                }, { once: true });
+
+                row.addEventListener('hidden.bs.collapse', () => {
+                    icon.classList.remove('bi-dash-circle');
+                    icon.classList.add('bi-plus-circle');
+                }, { once: true });
+            });
+        });
     </script>
+
+    {{-- Yajra DataTables scripts for payments --}}
+    {!! $dataTable->scripts() !!}
 @endpush

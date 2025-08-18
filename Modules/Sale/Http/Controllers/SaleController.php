@@ -2,12 +2,14 @@
 
 namespace Modules\Sale\Http\Controllers;
 
+use Barryvdh\DomPDF\Facade\Pdf;
 use Exception;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -15,6 +17,7 @@ use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Sale\DataTables\SalePaymentsDataTable;
 use Modules\Sale\DataTables\SalesDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
@@ -209,7 +212,7 @@ class SaleController extends Controller
     }
 
 
-    public function show(Sale $sale)
+    public function show(Sale $sale, SalePaymentsDataTable $dataTable)
     {
         abort_if(Gate::denies('sales.show'), 403);
 
@@ -218,12 +221,17 @@ class SaleController extends Controller
             'saleDispatches.details',
             'saleDispatches.details.product',
             'saleDispatches.details.location',
-            'salePayments.paymentMethod'
+            'salePayments.paymentMethod',
         ]);
 
         $customer = Customer::findOrFail($sale->customer_id);
 
-        return view('sale::show', compact('sale', 'customer'));
+        // optional: if you want a clean var for the view
+        $dispatches = $sale->saleDispatches;
+
+        return $dataTable
+            ->with(['sale_id' => $sale->id])
+            ->render('sale::show', compact('sale', 'customer', 'dispatches'));
     }
 
 
@@ -691,5 +699,96 @@ class SaleController extends Controller
             toast('Gagal menyimpan pengeluaran', 'error');
             return redirect()->back()->withInput();
         }
+    }
+
+    public function deliverySlip(Sale $sale)
+    {
+        abort_if(Gate::denies('sales.show'), 403);
+
+        $dispatch = $sale->saleDispatches()
+            ->with(['details.product.baseUnit', 'details.location'])
+            ->latest('id')
+            ->first();
+
+        if (!$dispatch) {
+            abort(404, 'Tidak ada pengeluaran / dispatch untuk pesanan ini.');
+        }
+
+        $customer = Customer::findOrFail($sale->customer_id);
+
+        // Group items by product_id ONLY (ignore tax_id)
+        $grouped = $dispatch->details
+            ->groupBy(fn($d) => $d->product_id)
+            ->map(function ($items) {
+                $first = $items->first();
+
+                // Merge serial numbers from all rows of the same product
+                $serials = $items->flatMap(function ($d) {
+                    $arr = $d->serial_numbers ? json_decode($d->serial_numbers, true) : [];
+                    return is_array($arr) ? $arr : [];
+                })->filter()->unique()->values();
+
+                return (object) [
+                    'product'        => $first->product,
+                    'product_code'   => $first->product->product_code ?? null,
+                    'unit_name'      => $first->product->baseUnit->name ?? '-',
+                    'quantity'       => $items->sum('dispatched_quantity'),
+                    'serial_numbers' => $serials,
+                ];
+            })->values();
+
+        // Use sale reference as slip number
+        $slipNumber = $sale->reference;
+
+        $tanggal    = Carbon::parse($dispatch->dispatch_date);
+        $jatuhTempo = $sale->due_date ? Carbon::parse($sale->due_date) : $tanggal;
+
+        $pdf = Pdf::loadView('sale::print.delivery-slip', [
+            'sale'       => $sale,
+            'customer'   => $customer,
+            'dispatch'   => $dispatch,
+            'grouped'    => $grouped,
+            'slipNumber' => $slipNumber,
+            'tanggal'    => $tanggal,
+            'jatuhTempo' => $jatuhTempo,
+        ]);
+
+        return $pdf->stream("Surat_Jalan_{$slipNumber}.pdf");
+    }
+
+    public function invoicePdf(Sale $sale)
+    {
+        abort_if(Gate::denies('sales.show'), 403);
+
+        $sale->load([
+            'saleDetails.product.baseUnit',
+            'salePayments.paymentMethod',
+        ]);
+
+        $customer = Customer::findOrFail($sale->customer_id);
+
+        // number / dates used in the PDF
+        $invoiceNumber = $sale->reference; // e.g. JL.2025.16198 (adjust if you have a different numbering rule)
+        $tanggal      = Carbon::parse($sale->date);
+        $jatuhTempo   = $sale->due_date ? Carbon::parse($sale->due_date) : $tanggal;
+
+        // money figures
+        $total = (float) $sale->total_amount;
+        $paid  = (float) $sale->salePayments->sum('amount');
+        $due   = max($total - $paid, 0);
+
+        $pdf = Pdf::loadView('sale::print.invoice', [
+            'sale'          => $sale,
+            'customer'      => $customer,
+            'details'       => $sale->saleDetails,  // show as entered; no grouping for invoice
+            'invoiceNumber' => $invoiceNumber,
+            'tanggal'       => $tanggal,
+            'jatuhTempo'    => $jatuhTempo,
+            'total'         => $total,
+            'paid'          => $paid,
+            'due'           => $due,
+        ]);
+
+        return $pdf->stream('Sales-Invoice-'.$invoiceNumber.'.pdf');
     }
 }
