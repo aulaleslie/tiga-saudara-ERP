@@ -115,15 +115,16 @@
                                         @if(!empty($serials))
                                             <div class="mt-2">
                                                 @foreach($serials as $sn)
+                                                    @php $snStr = is_array($sn) ? ($sn['serial_number'] ?? '') : (string)$sn; @endphp
                                                     <span class="badge badge-info badge-pill mr-1 mb-1">
-                                                        {{ $sn }}
-                                                        <a href="#"
-                                                           class="text-white ml-1"
-                                                           style="text-decoration:none;"
-                                                           wire:click.prevent='removeSerial("{{ $cart_item->rowId }}", @json($sn))'>
-                                                            &times;
-                                                        </a>
-                                                    </span>
+                                                {{ $snStr }}
+                                                <a href="#"
+                                                   class="text-white ml-1"
+                                                   style="text-decoration:none;"
+                                                   wire:click.prevent='removeSerial("{{ $cart_item->rowId }}", "{{ $snStr }}")'>
+                                                   &times;
+                                                </a>
+                                              </span>
                                                 @endforeach
                                             </div>
                                         @endif
@@ -185,15 +186,16 @@
                                         @if(!empty($serials))
                                             <div class="mt-2">
                                                 @foreach($serials as $sn)
+                                                    @php $snStr = is_array($sn) ? ($sn['serial_number'] ?? '') : (string)$sn; @endphp
                                                     <span class="badge badge-info badge-pill mr-1 mb-1">
-                                                        {{ $sn }}
-                                                        <a href="#"
-                                                           class="text-white ml-1"
-                                                           style="text-decoration:none;"
-                                                           wire:click.prevent='removeSerial("{{ $cart_item->rowId }}", @json($sn))'>
-                                                            &times;
-                                                        </a>
-                                                    </span>
+                                                    {{ $snStr }}
+                                                    <a href="#"
+                                                       class="text-white ml-1"
+                                                       style="text-decoration:none;"
+                                                       wire:click.prevent='removeSerial("{{ $cart_item->rowId }}", "{{ $snStr }}")'>
+                                                       &times;
+                                                    </a>
+                                                  </span>
                                                 @endforeach
                                             </div>
                                         @endif

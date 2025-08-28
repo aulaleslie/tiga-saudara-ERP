@@ -2,6 +2,7 @@
 
 namespace Modules\PurchasesReturn\Http\Controllers;
 
+use Illuminate\Support\Facades\Log;
 use Modules\PurchasesReturn\DataTables\PurchaseReturnsDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
@@ -36,6 +37,9 @@ class PurchasesReturnController extends Controller
 
     public function store(StorePurchaseReturnRequest $request) {
         abort_if(Gate::denies('purchaseReturns.create'), 403);
+        Log::info('Purchase Return store request', [
+            'request' => $request->all()
+        ]);
         DB::transaction(function () use ($request) {
             $due_amount = $request->total_amount - $request->paid_amount;
 

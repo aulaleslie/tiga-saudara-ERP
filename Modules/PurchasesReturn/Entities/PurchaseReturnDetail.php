@@ -13,7 +13,14 @@ class PurchaseReturnDetail extends Model
 
     protected $guarded = [];
 
-    protected $with = ['product'];
+    protected $casts = [
+        'price'                   => 'decimal:2',
+        'unit_price'              => 'decimal:2',
+        'sub_total'               => 'decimal:2',
+        'product_discount_amount' => 'decimal:2',
+        'product_tax_amount'      => 'decimal:2',
+        'serial_number_ids'       => 'array',
+    ];
 
     public function product() {
         return $this->belongsTo(Product::class, 'product_id', 'id');
@@ -21,26 +28,6 @@ class PurchaseReturnDetail extends Model
 
     public function purchaseReturn() {
         return $this->belongsTo(PurchaseReturn::class, 'purchase_return_id', 'id');
-    }
-
-    public function getPriceAttribute($value) {
-        return $value;
-    }
-
-    public function getUnitPriceAttribute($value) {
-        return $value;
-    }
-
-    public function getSubTotalAttribute($value) {
-        return $value;
-    }
-
-    public function getProductDiscountAmountAttribute($value) {
-        return $value;
-    }
-
-    public function getProductTaxAmountAttribute($value) {
-        return $value;
     }
 
     public function purchase() {

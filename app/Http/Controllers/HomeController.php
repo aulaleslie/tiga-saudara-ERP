@@ -18,27 +18,27 @@ class HomeController extends Controller
 {
 
     public function index() {
-        $sales = Sale::completed()->sum('total_amount');
-        $sale_returns = SaleReturn::completed()->sum('total_amount');
-        $purchase_returns = PurchaseReturn::completed()->sum('total_amount');
-        $product_costs = 0;
+//        $sales = Sale::completed()->sum('total_amount');
+//        $sale_returns = SaleReturn::completed()->sum('total_amount');
+//        $purchase_returns = PurchaseReturn::completed()->sum('total_amount');
+//        $product_costs = 0;
 
-        foreach (Sale::completed()->with('saleDetails')->get() as $sale) {
-            foreach ($sale->saleDetails as $saleDetail) {
-                if (!is_null($saleDetail->product)) {
-                    $product_costs += $saleDetail->product->product_cost * $saleDetail->quantity;
-                }
-            }
-        }
-
-        $revenue = ($sales - $sale_returns) / 100;
-        $profit = $revenue - $product_costs;
+//        foreach (Sale::completed()->with('saleDetails')->get() as $sale) {
+//            foreach ($sale->saleDetails as $saleDetail) {
+//                if (!is_null($saleDetail->product)) {
+//                    $product_costs += $saleDetail->product->product_cost * $saleDetail->quantity;
+//                }
+//            }
+//        }
+//
+//        $revenue = ($sales - $sale_returns) / 100;
+//        $profit = $revenue - $product_costs;
 
         return view('home', [
-            'revenue'          => $revenue,
-            'sale_returns'     => $sale_returns / 100,
-            'purchase_returns' => $purchase_returns / 100,
-            'profit'           => $profit
+            'revenue'          => 0,
+            'sale_returns'     => 0,
+            'purchase_returns' => 0,
+            'profit'           => 0
         ]);
     }
 
@@ -46,20 +46,20 @@ class HomeController extends Controller
     public function currentMonthChart() {
         abort_if(!request()->ajax(), 404);
 
-        $currentMonthSales = Sale::where('status', 'Completed')->whereMonth('date', date('m'))
-                ->whereYear('date', date('Y'))
-                ->sum('total_amount') / 100;
-        $currentMonthPurchases = Purchase::where('status', 'Completed')->whereMonth('date', date('m'))
-                ->whereYear('date', date('Y'))
-                ->sum('total_amount') / 100;
-        $currentMonthExpenses = Expense::whereMonth('date', date('m'))
-                ->whereYear('date', date('Y'))
-                ->sum('amount') / 100;
+//        $currentMonthSales = Sale::where('status', 'Completed')->whereMonth('date', date('m'))
+//                ->whereYear('date', date('Y'))
+//                ->sum('total_amount') / 100;
+//        $currentMonthPurchases = Purchase::where('status', 'Completed')->whereMonth('date', date('m'))
+//                ->whereYear('date', date('Y'))
+//                ->sum('total_amount') / 100;
+//        $currentMonthExpenses = Expense::whereMonth('date', date('m'))
+//                ->whereYear('date', date('Y'))
+//                ->sum('amount') / 100;
 
         return response()->json([
-            'sales'     => $currentMonthSales,
-            'purchases' => $currentMonthPurchases,
-            'expenses'  => $currentMonthExpenses
+            'sales'     => 0,
+            'purchases' => 0,
+            'expenses'  => 0
         ]);
     }
 

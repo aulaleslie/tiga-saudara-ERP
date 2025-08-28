@@ -12,23 +12,20 @@ class PurchaseReturnPayment extends Model
 
     protected $guarded = [];
 
-    public function purchaseReturn() {
+    // ✅ Casts replace old cents mutators
+    protected $casts = [
+        'amount' => 'decimal:2',
+        'date'   => 'date',
+    ];
+
+    public function purchaseReturn()
+    {
         return $this->belongsTo(PurchaseReturn::class, 'purchase_return_id', 'id');
     }
 
-    public function setAmountAttribute($value) {
-        $this->attributes['amount'] = $value * 100;
-    }
-
-    public function getAmountAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getDateAttribute($value) {
-        return Carbon::parse($value)->format('d M, Y');
-    }
-
-    public function scopeByPurchaseReturn($query) {
-        return $query->where('purchase_return_id', request()->route('purchase_return_id'));
+    // ✅ New: relational payment method (after migration adds payment_method_id)
+    public function paymentMethod()
+    {
+        return $this->belongsTo(\App\Models\PaymentMethod::class, 'payment_method_id', 'id');
     }
 }

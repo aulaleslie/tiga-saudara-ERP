@@ -91,7 +91,10 @@
                                     <livewire:purchase-return.purchase-order-serial-number-loader
                                         :index="$key"
                                         :product_id="$product['id']"
-                                        wire:key="serial-number-{{ $key }}" />
+                                        :location_id="$locationId"   {{-- <-- camelCase prop name --}}
+                                        :is_broken="false"
+                                        wire:key="serial-number-{{ $key }}-prod-{{ $product['id'] }}-loc-{{ $locationId ?? 'none' }}"
+                                    />
 
                                     @error("products.{$key}.serial_numbers")
                                     <span class="text-danger">{{ $message }}</span>

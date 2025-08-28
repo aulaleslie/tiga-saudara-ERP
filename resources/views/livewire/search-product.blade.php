@@ -49,11 +49,32 @@
                 <div class="card-body shadow">
                     <ul class="list-group list-group-flush">
                         @foreach($search_results as $result)
-                            <li class="list-group-item list-group-item-action">
+                            <li class="list-group-item list-group-item-action" wire:key="search-{{ $result->source }}-{{ $result->id }}-{{ $result->serial_id ?? '0' }}">
                                 <a href="#"
-                                   wire:click.prevent="selectProduct(@js($result))"
-                                   wire:click="resetQuery">
-                                    {{ $result->product_name }} | {{ $result->product_code }} | {{ $result->unit_name }}
+                                   wire:click.prevent="selectProduct(@js($result))">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <strong>{{ $result->product_name }}</strong>
+                                            <span class="text-muted"> | {{ $result->product_code }}</span>
+
+                                            @if(($result->source ?? 'base') === 'conversion')
+                                                {{-- show conversion unit + factor --}}
+                                                <span class="badge badge-light ml-1">
+                        {{ $result->unit_name }}
+                    </span>
+                                                <span class="text-muted">× {{ rtrim(rtrim(number_format($result->conversion_factor, 3, '.', ''), '0'), '.') }}</span>
+                                            @else
+                                                {{-- base or serial -> show unit only --}}
+                                                <span class="badge badge-light ml-1">
+                        {{ $result->unit_name }}
+                    </span>
+                                            @endif
+                                        </div>
+
+                                        @if(($result->source ?? null) === 'serial' && !empty($result->serial_number))
+                                            <span class="badge badge-info">SN: {{ $result->serial_number }}</span>
+                                        @endif
+                                    </div>
                                 </a>
                             </li>
                         @endforeach

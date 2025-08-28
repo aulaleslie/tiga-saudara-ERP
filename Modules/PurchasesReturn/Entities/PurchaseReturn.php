@@ -13,6 +13,19 @@ class PurchaseReturn extends Model
 
     protected $guarded = [];
 
+    // ✅ Cast money & dates
+    protected $casts = [
+        'tax_amount'       => 'decimal:2',
+        'discount_amount'  => 'decimal:2',
+        'shipping_amount'  => 'decimal:2',
+        'total_amount'     => 'decimal:2',
+        'paid_amount'      => 'decimal:2',
+        'due_amount'       => 'decimal:2',
+        'date'             => 'date',
+        'approved_at'      => 'datetime',
+        'rejected_at'      => 'datetime',
+    ];
+
     public function purchaseReturnDetails() {
         return $this->hasMany(PurchaseReturnDetail::class, 'purchase_return_id', 'id');
     }
@@ -48,36 +61,43 @@ class PurchaseReturn extends Model
         });
     }
 
-    public function scopeCompleted($query) {
-        return $query->where('status', 'Completed');
-    }
-
-    public function getShippingAmountAttribute($value) {
-        return $value;
-    }
-
-    public function getPaidAmountAttribute($value) {
-        return $value;
-    }
-
-    public function getTotalAmountAttribute($value) {
-        return $value;
-    }
-
-    public function getDueAmountAttribute($value) {
-        return $value;
-    }
-
-    public function getTaxAmountAttribute($value) {
-        return $value;
-    }
-
-    public function getDiscountAmountAttribute($value) {
-        return $value;
-    }
-
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class, 'supplier_id', 'id');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'approved_by');
+    }
+
+    public function rejectedBy(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'rejected_by');
+    }
+    public function goods()
+    {
+        return $this->hasMany(\App\Models\PurchaseReturnGood::class, 'purchase_return_id');
+    }
+    public function supplierCredit()
+    {
+        return $this->hasOne(\App\Models\SupplierCredit::class, 'purchase_return_id');
+    }
+
+    public function scopeApproved($q)
+    {
+        return $q->where('approval_status', 'approved');
+    }
+    public function scopePending($q)
+    {
+        return $q->where('approval_status', 'pending');
+    }
+    public function scopeRejected($q)
+    {
+        return $q->where('approval_status', 'rejected');
+    }
+    public function scopeDraft($q)
+    {
+        return $q->where('approval_status', 'draft');
     }
 }

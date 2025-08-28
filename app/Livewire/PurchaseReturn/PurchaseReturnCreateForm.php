@@ -94,9 +94,10 @@ class PurchaseReturnCreateForm extends Component
         Log::info('All public $this properties on submit:', get_object_vars($this));
 
         try {
-            Validator::make(['supplier_id' => $this->supplier_id,
-                'date' => $this->date,
-                'rows' => $this->rows,
+            Validator::make([
+                'supplier_id' => $this->supplier_id,
+                'date'        => $this->date,
+                'rows'        => $this->rows,
             ], $this->rules(), $this->messages())
                 ->after(function ($validator) {
                     $productIds = [];
@@ -154,46 +155,70 @@ class PurchaseReturnCreateForm extends Component
             Log::info("Form submitted");
             $this->dispatch('updateTableErrors', []);
 
-            DB::beginTransaction();
+            // ✅ Use closure transaction (auto rollback on any exception)
+            DB::transaction(function () {
+                // --- Derive statuses up front (lowercase, per your spec) ---
+                $approvalStatus = 'draft';  // draft | pending | approved | rejected
+                $returnType     = null;       // cash | deposit | exchange   (set if/when you capture it in the form)
+                $paymentStatus  = 'unpaid';   // unpaid | partial | paid     (only meaningful if return_type = 'cash')
 
-            // Create Purchase Return
-            $purchaseReturn = PurchaseReturn::create([
-                'date' => $this->date,
-                'supplier_id' => $this->supplier_id,
-                'supplier_name' => optional($this->rows[0])['supplier_name'] ?? 'N/A',
-                'total_amount' => $this->grand_total,
-                'paid_amount' => 0,
-                'due_amount' => $this->grand_total,
-                'status' => 'PENDING',
-                'payment_status' => 'UNPAID',
-                'payment_method' => '',
-                'note' => $this->note,
-            ]);
+                // --- Money totals (keep your current totals; they’re decimal columns anyway) ---
+                $total = (float) $this->grand_total;
 
-            foreach ($this->rows as $row) {
-                $serialNumberIds = collect($row['serial_numbers'] ?? [])
-                    ->map(fn($sn) => is_array($sn) ? $sn['id'] ?? null : null)
-                    ->filter()
-                    ->values()
-                    ->all();
+                // Create Purchase Return (reference is auto-set in the model boot)
+                $purchaseReturn = PurchaseReturn::create([
+                    'date'              => $this->date,
+                    'supplier_id'       => $this->supplier_id,
+                    'supplier_name'     => optional($this->rows[0])['supplier_name'] ?? 'N/A',
 
-                PurchaseReturnDetail::create([
-                    'purchase_return_id' => $purchaseReturn->id,
-                    'po_id' => $row['purchase_order_id'] ?? null,
-                    'product_id' => $row['product_id'],
-                    'product_name' => $row['product_name'],
-                    'product_code' => $row['product_code'] ?? '',
-                    'quantity' => $row['quantity'],
-                    'unit_price' => (int) $row['purchase_price'],
-                    'price' => (int) $row['purchase_price'], // Optional: same as unit_price
-                    'sub_total' => $row['total'],
-                    'product_discount_amount' => 0,
-                    'product_tax_amount' => 0,
-                    'serial_number_ids' => !empty($serialNumberIds) ? json_encode($serialNumberIds) : null,
+                    'tax_percentage'    => 0,
+                    'tax_amount'        => 0,
+                    'discount_percentage'=> 0,
+                    'discount_amount'   => 0,
+                    'shipping_amount'   => 0,
+
+                    'total_amount'      => $total,
+                    'paid_amount'       => 0.00,
+                    'due_amount'        => $total,
+
+                    // 🔑 New fields aligned to your spec:
+                    'approval_status'   => $approvalStatus,
+                    'return_type'       => $returnType,
+
+                    // Keep legacy `status` in sync so old code won’t break
+                    'status'            => $approvalStatus,
+
+                    // Only meaningful for cash, but column is required -> default to 'unpaid'
+                    'payment_status'    => $paymentStatus,
+
+                    'payment_method'    => '',
+                    'note'              => $this->note,
                 ]);
-            }
 
-            DB::commit();
+                // Details
+                foreach ($this->rows as $row) {
+                    $serialNumberIds = collect($row['serial_numbers'] ?? [])
+                        ->map(fn($sn) => is_array($sn) ? ($sn['id'] ?? null) : null)
+                        ->filter()
+                        ->values()
+                        ->all();
+
+                    PurchaseReturnDetail::create([
+                        'purchase_return_id'       => $purchaseReturn->id,
+                        'po_id'                    => $row['purchase_order_id'] ?? null,
+                        'product_id'               => $row['product_id'],
+                        'product_name'             => $row['product_name'],
+                        'product_code'             => $row['product_code'] ?? '',
+                        'quantity'                 => (int) $row['quantity'],
+                        'unit_price'               => (float) $row['purchase_price'],
+                        'price'                    => (float) $row['purchase_price'],
+                        'sub_total'                => (float) $row['total'],
+                        'product_discount_amount'  => 0,
+                        'product_tax_amount'       => 0,
+                        'serial_number_ids'        => !empty($serialNumberIds) ? json_encode($serialNumberIds) : null,
+                    ]);
+                }
+            });
 
             session()->flash('success', 'Retur pembelian berhasil disimpan.');
             return redirect()->route('purchase-returns.index');

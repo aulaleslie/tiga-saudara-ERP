@@ -68,7 +68,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="8">No data found.</td>
+                <td colspan="8">Tidak ada data yang ditemukan.</td>
             </tr>
         @endforelse
         </tbody>

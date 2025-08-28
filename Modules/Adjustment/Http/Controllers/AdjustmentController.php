@@ -605,120 +605,155 @@ class AdjustmentController extends Controller
     public function approveBreakage(Adjustment $adjustment): RedirectResponse
     {
         abort_if(Gate::denies('adjustments.breakage.approval'), 403);
+
         try {
             DB::beginTransaction();
-            foreach ($adjustment->adjustedProducts as $adjustedProduct) {
-                $product = $adjustedProduct->product;
-                $locationId = $adjustment->location_id;
-                $quantityToAdjust = $adjustedProduct->quantity;
 
+            // Eager load to avoid N+1 surprises
+            $adjustment->load('adjustedProducts.product');
+
+            foreach ($adjustment->adjustedProducts as $adjustedProduct) {
+                $product     = $adjustedProduct->product;
+                $locationId  = $adjustment->location_id;
+                $qtyToBreak  = (int) $adjustedProduct->quantity;
+
+                // Lock stock row; must exist for breakage
                 $productStock = ProductStock::where('product_id', $product->id)
                     ->where('location_id', $locationId)
                     ->lockForUpdate()
-                    ->firstOrFail();
+                    ->first();
 
-                // 🧮 Capture previous values
-                $prev_quantity_tax = $productStock->quantity_tax ?? 0;
-                $prev_quantity_non_tax = $productStock->quantity_non_tax ?? 0;
-                $prev_broken_tax = $productStock->broken_quantity_tax ?? 0;
-                $prev_broken_non_tax = $productStock->broken_quantity_non_tax ?? 0;
+                if (!$productStock) {
+                    throw new \Exception("Stok tidak ditemukan untuk {$product->product_name} di lokasi ini.");
+                }
 
-                $after_quantity_tax = $prev_quantity_tax;
-                $after_quantity_non_tax = $prev_quantity_non_tax;
-                $after_broken_tax = $prev_broken_tax;
-                $after_broken_non_tax = $prev_broken_non_tax;
+                // Snapshot before
+                $beforeTax       = (int) ($productStock->quantity_tax ?? 0);
+                $beforeNonTax    = (int) ($productStock->quantity_non_tax ?? 0);
+                $beforeBrokenTax = (int) ($productStock->broken_quantity_tax ?? 0);
+                $beforeBrokenNon = (int) ($productStock->broken_quantity_non_tax ?? 0);
 
                 if ($product->serial_number_required) {
                     $serialIds = json_decode($adjustedProduct->serial_numbers, true) ?? [];
+                    $serialIds = array_map('intval', $serialIds);
 
-                    $serials = ProductSerialNumber::whereIn('id', $serialIds)
+                    // 1) strict quantity vs serials
+                    if (count($serialIds) !== $qtyToBreak) {
+                        throw new \Exception("Jumlah serial ({count($serialIds)}) tidak sama dengan kuantitas breakage ($qtyToBreak) untuk {$product->product_name}.");
+                    }
+
+                    // 2) fetch serials with all safety constraints
+                    $serials = ProductSerialNumber::query()
+                        ->whereIn('id', $serialIds)
                         ->where('product_id', $product->id)
                         ->where('location_id', $locationId)
+                        ->whereNull('dispatch_detail_id')
+                        ->where(function ($q) {
+                            $q->whereNull('is_broken')->orWhere('is_broken', false);
+                        })
+                        ->lockForUpdate()
                         ->get();
 
-                    $taxableCount = $serials->whereNotNull('tax_id')->count();
-                    $nonTaxableCount = count($serials) - $taxableCount;
+                    if ($serials->count() !== $qtyToBreak) {
+                        throw new \Exception("Beberapa serial tidak tersedia/valid untuk {$product->product_name}.");
+                    }
 
-                    // Mark serials as broken
+                    // 3) classify by tax status based on serial.tax_id
+                    $taxableCount    = (int) $serials->whereNotNull('tax_id')->count();
+                    $nonTaxableCount = $qtyToBreak - $taxableCount;
+
+                    // 4) sufficiency check vs current stock
+                    if ($taxableCount > $beforeTax) {
+                        throw new \Exception("Stok kena pajak tidak cukup untuk {$product->product_name} (butuh {$taxableCount}, ada {$beforeTax}).");
+                    }
+                    if ($nonTaxableCount > $beforeNonTax) {
+                        throw new \Exception("Stok non-pajak tidak cukup untuk {$product->product_name} (butuh {$nonTaxableCount}, ada {$beforeNonTax}).");
+                    }
+
+                    // 5) mutate stock
+                    $productStock->quantity_tax            = $beforeTax - $taxableCount;
+                    $productStock->quantity_non_tax        = $beforeNonTax - $nonTaxableCount;
+                    $productStock->broken_quantity_tax     = $beforeBrokenTax + $taxableCount;
+                    $productStock->broken_quantity_non_tax = $beforeBrokenNon + $nonTaxableCount;
+                    $productStock->save();
+
+                    // 6) mark serials as broken
                     ProductSerialNumber::whereIn('id', $serialIds)
-                        ->update(['is_broken' => true]);
+                        ->update([
+                            'is_broken' => true,
+                        ]);
 
-                    // Adjust stock
-                    $productStock->decrement('quantity_tax', $taxableCount);
-                    $productStock->decrement('quantity_non_tax', $nonTaxableCount);
-                    $productStock->increment('broken_quantity_tax', $taxableCount);
-                    $productStock->increment('broken_quantity_non_tax', $nonTaxableCount);
-
-                    $after_quantity_tax -= $taxableCount;
-                    $after_quantity_non_tax -= $nonTaxableCount;
-                    $after_broken_tax += $taxableCount;
-                    $after_broken_non_tax += $nonTaxableCount;
                 } else {
-                    $isTaxable = $adjustedProduct->is_taxable;
+                    // Non-serial path: use header-level is_taxable per adjusted product
+                    $isTaxable = (bool) $adjustedProduct->is_taxable;
 
                     if ($isTaxable) {
-                        if ($quantityToAdjust > $productStock->quantity_tax) {
-                            throw new \Exception("Insufficient taxable stock for product {$product->product_name}");
+                        if ($qtyToBreak > $beforeTax) {
+                            throw new \Exception("Stok kena pajak tidak cukup untuk {$product->product_name} (butuh {$qtyToBreak}, ada {$beforeTax}).");
                         }
 
-                        $productStock->decrement('quantity_tax', $quantityToAdjust);
-                        $productStock->increment('broken_quantity_tax', $quantityToAdjust);
-
-                        $after_quantity_tax -= $quantityToAdjust;
-                        $after_broken_tax += $quantityToAdjust;
+                        $productStock->quantity_tax        = $beforeTax - $qtyToBreak;
+                        $productStock->broken_quantity_tax = $beforeBrokenTax + $qtyToBreak;
                     } else {
-                        if ($quantityToAdjust > $productStock->quantity_non_tax) {
-                            throw new \Exception("Insufficient non-taxable stock for product {$product->product_name}");
+                        if ($qtyToBreak > $beforeNonTax) {
+                            throw new \Exception("Stok non-pajak tidak cukup untuk {$product->product_name} (butuh {$qtyToBreak}, ada {$beforeNonTax}).");
                         }
 
-                        $productStock->decrement('quantity_non_tax', $quantityToAdjust);
-                        $productStock->increment('broken_quantity_non_tax', $quantityToAdjust);
-
-                        $after_quantity_non_tax -= $quantityToAdjust;
-                        $after_broken_non_tax += $quantityToAdjust;
+                        $productStock->quantity_non_tax        = $beforeNonTax - $qtyToBreak;
+                        $productStock->broken_quantity_non_tax = $beforeBrokenNon + $qtyToBreak;
                     }
+
+                    $productStock->save();
                 }
 
-                // Save updated stock
-                $productStock->save();
+                // Re-read persisted "after" values from the model for accurate logging
+                $afterTax       = (int) ($productStock->quantity_tax ?? 0);
+                $afterNonTax    = (int) ($productStock->quantity_non_tax ?? 0);
+                $afterBrokenTax = (int) ($productStock->broken_quantity_tax ?? 0);
+                $afterBrokenNon = (int) ($productStock->broken_quantity_non_tax ?? 0);
 
-                // Log breakage as transaction
                 Transaction::create([
-                    'product_id' => $product->id,
-                    'setting_id' => session('setting_id'),
-                    'type' => 'ADJ',
-                    'quantity' => $quantityToAdjust,
+                    'product_id'                     => $product->id,
+                    'setting_id'                     => session('setting_id'),
+                    'type'                           => 'ADJ',
+                    'quantity'                       => $qtyToBreak,
 
-                    'previous_quantity' => $prev_quantity_tax + $prev_quantity_non_tax,
-                    'after_quantity' => $after_quantity_tax + $after_quantity_non_tax,
-                    'previous_quantity_at_location' => $prev_quantity_tax + $prev_quantity_non_tax,
-                    'after_quantity_at_location' => $after_quantity_tax + $after_quantity_non_tax,
+                    'previous_quantity'              => $beforeTax + $beforeNonTax,
+                    'after_quantity'                 => $afterTax + $afterNonTax,
+                    'previous_quantity_at_location'  => $beforeTax + $beforeNonTax,
+                    'after_quantity_at_location'     => $afterTax + $afterNonTax,
 
-                    'quantity_tax' => $after_quantity_tax,
-                    'quantity_non_tax' => $after_quantity_non_tax,
-                    'broken_quantity_tax' => $after_broken_tax,
-                    'broken_quantity_non_tax' => $after_broken_non_tax,
-                    'broken_quantity' => $after_broken_tax + $after_broken_non_tax,
-                    'current_quantity' => $after_quantity_tax + $after_quantity_non_tax,
+                    'quantity_tax'                   => $afterTax,
+                    'quantity_non_tax'               => $afterNonTax,
+                    'broken_quantity_tax'            => $afterBrokenTax,
+                    'broken_quantity_non_tax'        => $afterBrokenNon,
+                    'broken_quantity'                => $afterBrokenTax + $afterBrokenNon,
+                    'current_quantity'               => $afterTax + $afterNonTax,
 
-                    'location_id' => $locationId,
-                    'user_id' => auth()->id(),
-                    'reason' => 'Breakage adjustment approved',
+                    'location_id'                    => $locationId,
+                    'user_id'                        => auth()->id(),
+                    'reason'                         => 'Breakage adjustment approved',
 
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    'created_at'                     => now(),
+                    'updated_at'                     => now(),
                 ]);
 
-                // Optional: also increment broken_quantity in `products` table
-                $product->increment('broken_quantity', $quantityToAdjust);
+                // Optional: keep product-level broken counter if you use it
+                if ($qtyToBreak > 0) {
+                    $product->increment('broken_quantity', $qtyToBreak);
+                }
             }
 
             $adjustment->update(['status' => 'approved']);
             DB::commit();
+
             toast('Breakage Adjustment Approved!', 'success');
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('Breakage adjustment approval failed', ['error' => $e->getMessage()]);
+            Log::error('Breakage adjustment approval failed', [
+                'adjustment_id' => $adjustment->id,
+                'error' => $e->getMessage(),
+            ]);
             session()->flash('error', 'Failed to approve breakage adjustment.');
             toast('Error Approving Breakage Adjustment!', 'error');
         }

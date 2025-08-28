@@ -101,56 +101,36 @@ class Checkout extends Component
 
     public function productSelected($product)
     {
-        if ($product['product_quantity'] == 0) {
+        $product = is_array($product) ? $product : (array) $product;
+
+        if (($product['product_quantity'] ?? 0) <= 0) {
             session()->flash('message', 'Product is out of stock!');
             return;
         }
 
-        // Check if this product requires serial numbers
-        $requiresSerial = (bool) (Product::whereKey($product['id'])->value('serial_number_required') ?? false);
+        $productId   = (int) $product['id'];
+        $bundleId    = null; // selection comes later, if any
+        $cartKey     = $this->generateCartItemKey($productId, $bundleId);
+        $qtyToAdd    = max(1, (int) ($product['conversion_factor'] ?? 1)); // base=1, conversion>1
 
+        $requiresSerial = (bool) (Product::whereKey($productId)->value('serial_number_required') ?? false);
         if ($requiresSerial) {
-            // If already in cart, pass existing serials as preselected
-            $cartKey = $this->generateCartItemKey($product['id'], null);
-            $cart = Cart::instance($this->cart_instance);
-            $existing = $cart->search(fn($item) => $item->id === $cartKey)->first();
-
-            $preselected = [];
-            if ($existing) {
-                $preselected = $existing->options->serial_numbers ?? [];
-                // Normalize to [{id, serial_number}]
-                $preselected = array_map(function ($row) {
-                    return is_array($row) ? $row : ['id' => $row['id'] ?? null, 'serial_number' => (string)$row];
-                }, $preselected);
-            }
-
-            // Open dialog focused for scanning
-            $this->dispatch('openSerialPicker', (int)$product['id']);
-            return; // do NOT add the product yet; wait for a scan
-        }
-
-        // --- ORIGINAL path (no serials required) ---
-        // bundles etc...
-        $bundles = ProductBundle::with('items.product')
-            ->where('parent_product_id', $product['id'])
-            ->get();
-
-        if ($bundles->isNotEmpty()) {
-            $this->pendingProduct = $product;
-            $this->bundleOptions = $bundles;
-            $this->dispatch('showBundleSelectionModal', $this->pendingProduct, $this->bundleOptions);
+            $this->dispatch('openSerialPicker', [
+                'product_id'     => $productId,
+                'expected_count' => $qtyToAdd, // e.g. scan of a 6-pack expects 6 serials
+            ]);
             return;
         }
 
-        $cartKey = $this->generateCartItemKey($product['id'], null);
+        // If already in cart -> increment by CF
         $cart = Cart::instance($this->cart_instance);
         $exists = $cart->search(fn($item) => $item->id === $cartKey);
 
         if ($exists->isNotEmpty()) {
-            $rowId = $exists->first()->rowId;
-            $newQty = $exists->first()->qty + (int) $product['conversion_factor'];
-            $this->quantity[$cartKey] = $newQty;
-            $this->check_quantity[$cartKey] = $product['product_quantity'];
+            $rowId  = $exists->first()->rowId;
+            $newQty = $exists->first()->qty + $qtyToAdd;
+            $this->quantity[$cartKey]       = $newQty;
+            $this->check_quantity[$cartKey] = (int) ($product['product_quantity'] ?? PHP_INT_MAX);
             $this->updateQuantity($rowId, $cartKey);
             return;
         }
@@ -160,55 +140,57 @@ class Checkout extends Component
 
     public function addProduct($product, $bundle = null)
     {
-        $cartKey = $this->generateCartItemKey($product['id'], $bundle['id'] ?? null);
-        $convertedQty = (int) $product['conversion_factor'];
-        $calculated = $this->calculate($product, $convertedQty);
+        $cartKey      = $this->generateCartItemKey($product['id'], $bundle['id'] ?? null);
+        $convertedQty = max(1, (int) ($product['conversion_factor'] ?? 1));
 
-        $final_sub_total = $calculated['sub_total'];
         $bundle_items = [];
         $bundle_price = 0;
-        $bundle_name = null;
+        $bundle_name  = null;
 
         if ($bundle) {
-            $bundle_price = $bundle['price'];
-            $bundle_name = $bundle['name'];
-            $final_sub_total += $bundle_price;
-
+            $bundle_price = (float) ($bundle['price'] ?? 0);
+            $bundle_name  = $bundle['name'] ?? null;
             foreach ($bundle['items'] as $item) {
                 $bundle_items[] = [
-                    'bundle_id' => $bundle['id'],
+                    'bundle_id'      => $bundle['id'],
                     'bundle_item_id' => $item['id'],
-                    'product_id' => $item['product_id'],
-                    'name' => $item['product']['product_name'],
-                    'quantity' => $item['quantity'],
+                    'product_id'     => $item['product_id'],
+                    'name'           => $item['product']['product_name'],
+                    'quantity'       => $item['quantity'],
                 ];
             }
         }
 
+        // Centralized calc (handles conversion-pack costs via ProductUnitConversion)
+        $calculated = $this->calculate($product, $convertedQty);
+        $final_sub_total = $calculated['sub_total'] + $bundle_price;
+
         Cart::instance($this->cart_instance)->add([
-            'id' => $cartKey,
-            'name' => $product['product_name'],
-            'qty' => $convertedQty,
-            'price' => $final_sub_total,
-            'weight' => 1,
+            'id'      => $cartKey,
+            'name'    => $product['product_name'],
+            'qty'     => $convertedQty,
+            'price'   => $calculated['unit_price'],   // <<< always unit price
+            'weight'  => 1,
             'options' => [
-                'product_discount' => 0.00,
+                'product_discount'      => 0.00,
                 'product_discount_type' => 'fixed',
-                'sub_total' => $final_sub_total,
-                'code' => $product['product_code'],
-                'stock' => $product['product_quantity'],
-                'product_tax' => 0,
-                'unit_price' => $calculated['unit_price'],
-                'bundle_items' => $bundle_items,
-                'bundle_price' => $bundle_price,
-                'bundle_name' => $bundle_name,
+                'sub_total'             => $final_sub_total, // <<< line total
+                'code'                  => $product['product_code'],
+                'stock'                 => (int) ($product['product_quantity'] ?? PHP_INT_MAX),
+                'product_tax'           => 0,
+                'unit_price'            => $calculated['unit_price'],
+                'bundle_items'          => $bundle_items,
+                'bundle_price'          => $bundle_price,
+                'bundle_name'           => $bundle_name,
             ],
         ]);
 
-        $this->check_quantity[$cartKey] = $product['product_quantity'];
-        $this->quantity[$cartKey] = $convertedQty;
-        $this->discount_type[$cartKey] = 'fixed';
-        $this->item_discount[$cartKey] = 0;
+        $this->check_quantity[$cartKey] = (int) ($product['product_quantity'] ?? PHP_INT_MAX);
+        $this->quantity[$cartKey]       = $convertedQty;
+        $this->discount_type[$cartKey]  = 'fixed';
+        $this->item_discount[$cartKey]  = 0;
+        $this->conversion_breakdowns[$cartKey] = $this->calculateConversionBreakdown((int)$product['id'], $convertedQty);
+
         $this->total_amount = $this->calculateTotal();
     }
 
@@ -465,7 +447,7 @@ class Checkout extends Component
     public function onSerialScanned(array $payload): void
     {
         $productId = (int)($payload['product_id'] ?? 0);
-        $serial = $payload['serial'] ?? null;
+        $serial    = $payload['serial'] ?? null;
         if (!$productId || !$serial || !isset($serial['id'], $serial['serial_number'])) return;
 
         $product = Product::find($productId);
@@ -476,7 +458,6 @@ class Checkout extends Component
         $exists = $cart->search(fn($item) => $item->id === $cartKey)->first();
 
         if ($exists) {
-            // Append serial if not existing
             $opts = $exists->options->toArray();
             $list = $opts['serial_numbers'] ?? [];
             $already = array_filter($list, fn($s) => (int)($s['id'] ?? 0) === (int)$serial['id']);
@@ -486,57 +467,52 @@ class Checkout extends Component
             $opts['serial_numbers'] = array_values($list);
             $serialCount = count($opts['serial_numbers']);
 
-            // Qty = number of serials (read-only)
             $calculated = $this->calculate($product->toArray(), $serialCount);
-
             Cart::instance($this->cart_instance)->update($exists->rowId, [
-                'qty' => $serialCount,
-                'price' => $calculated['unit_price'],
+                'qty'     => $serialCount,
+                'price'   => $calculated['unit_price'],
                 'options' => array_merge($opts, [
                     'serial_number_required' => true,
-                    'sub_total' => $calculated['sub_total'],
-                    'unit_price' => $calculated['unit_price'],
+                    'sub_total'              => $calculated['sub_total'],
+                    'unit_price'             => $calculated['unit_price'],
                 ]),
             ]);
 
-            $this->quantity[$cartKey] = $serialCount;
+            $this->quantity[$cartKey]       = $serialCount;
             $this->check_quantity[$cartKey] = $opts['stock'] ?? ($exists->options->stock ?? PHP_INT_MAX);
         } else {
-            // First serial → add the product with qty = 1
-            $productArr = $product->toArray();
-            $convertedQty = 1;
-            $calculated = $this->calculate($productArr, $convertedQty);
+            // first serial → add line
+            $productArr  = $product->toArray();
+            $calculated  = $this->calculate($productArr, 1);
 
             Cart::instance($this->cart_instance)->add([
-                'id' => $cartKey,
-                'name' => $product->product_name,
-                'qty' => $convertedQty,
-                'price' => $calculated['sub_total'], // keep price=sub_total per your existing pattern
+                'id'     => $cartKey,
+                'name'   => $product->product_name,
+                'qty'    => 1,
+                'price'  => $calculated['unit_price'],   // unit price
                 'weight' => 1,
                 'options' => [
-                    'product_discount' => 0.00,
-                    'product_discount_type' => 'fixed',
-                    'sub_total' => $calculated['sub_total'],
-                    'code' => $product->product_code,
-                    'stock' => $productArr['product_quantity'] ?? PHP_INT_MAX,
-                    'product_tax' => 0,
-                    'unit_price' => $calculated['unit_price'],
-                    'bundle_items' => [],
-                    'bundle_price' => 0,
-                    'bundle_name' => null,
-
-                    // serial flags
-                    'serial_number_required' => true,
-                    'serial_numbers' => [
-                        ['id' => (int)$serial['id'], 'serial_number' => (string)$serial['serial_number']],
-                    ],
+                    'product_discount'        => 0.00,
+                    'product_discount_type'   => 'fixed',
+                    'sub_total'               => $calculated['sub_total'],
+                    'code'                    => $product->product_code,
+                    'stock'                   => $productArr['product_quantity'] ?? PHP_INT_MAX,
+                    'product_tax'             => 0,
+                    'unit_price'              => $calculated['unit_price'],
+                    'bundle_items'            => [],
+                    'bundle_price'            => 0,
+                    'bundle_name'             => null,
+                    'serial_number_required'  => true,
+                    'serial_numbers'          => [[
+                        'id' => (int)$serial['id'], 'serial_number' => (string)$serial['serial_number']
+                    ]],
                 ],
             ]);
 
             $this->check_quantity[$cartKey] = $productArr['product_quantity'] ?? PHP_INT_MAX;
-            $this->quantity[$cartKey] = 1;
-            $this->discount_type[$cartKey] = 'fixed';
-            $this->item_discount[$cartKey] = 0;
+            $this->quantity[$cartKey]       = 1;
+            $this->discount_type[$cartKey]  = 'fixed';
+            $this->item_discount[$cartKey]  = 0;
         }
 
         $this->total_amount = $this->calculateTotal();
