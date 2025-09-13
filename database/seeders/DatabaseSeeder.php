@@ -5,10 +5,7 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use Modules\Currency\Database\Seeders\CurrencyDatabaseSeeder;
 use Modules\Product\Database\Seeders\ProductDatabaseSeeder;
-use Modules\Setting\Database\Seeders\ChartOfAccountPermissionsSeederTableSeeder;
 use Modules\Setting\Database\Seeders\SettingDatabaseSeeder;
-use Modules\User\Database\Seeders\PermissionsSeeder_B2;
-use Modules\User\Database\Seeders\PermissionsSeeder_B3;
 use Modules\User\Database\Seeders\PermissionsTableSeeder;
 
 class DatabaseSeeder extends Seeder
@@ -25,8 +22,5 @@ class DatabaseSeeder extends Seeder
         $this->call(CurrencyDatabaseSeeder::class);
         $this->call(SettingDatabaseSeeder::class);
         $this->call(ProductDatabaseSeeder::class);
-        $this->call(ChartOfAccountPermissionsSeederTableSeeder::class);
-        $this->call(PermissionsSeeder_B2::class);
-        $this->call(PermissionsSeeder_B3::class);
     }
 }

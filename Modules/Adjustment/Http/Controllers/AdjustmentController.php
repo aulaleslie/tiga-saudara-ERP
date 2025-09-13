@@ -624,7 +624,7 @@ class AdjustmentController extends Controller
                     ->first();
 
                 if (!$productStock) {
-                    throw new \Exception("Stok tidak ditemukan untuk {$product->product_name} di lokasi ini.");
+                    throw new Exception("Stok tidak ditemukan untuk {$product->product_name} di lokasi ini.");
                 }
 
                 // Snapshot before
@@ -639,7 +639,7 @@ class AdjustmentController extends Controller
 
                     // 1) strict quantity vs serials
                     if (count($serialIds) !== $qtyToBreak) {
-                        throw new \Exception("Jumlah serial ({count($serialIds)}) tidak sama dengan kuantitas breakage ($qtyToBreak) untuk {$product->product_name}.");
+                        throw new Exception("Jumlah serial ({count($serialIds)}) tidak sama dengan kuantitas breakage ($qtyToBreak) untuk {$product->product_name}.");
                     }
 
                     // 2) fetch serials with all safety constraints
@@ -655,19 +655,19 @@ class AdjustmentController extends Controller
                         ->get();
 
                     if ($serials->count() !== $qtyToBreak) {
-                        throw new \Exception("Beberapa serial tidak tersedia/valid untuk {$product->product_name}.");
+                        throw new Exception("Beberapa serial tidak tersedia/valid untuk {$product->product_name}.");
                     }
 
                     // 3) classify by tax status based on serial.tax_id
-                    $taxableCount    = (int) $serials->whereNotNull('tax_id')->count();
+                    $taxableCount    = $serials->whereNotNull('tax_id')->count();
                     $nonTaxableCount = $qtyToBreak - $taxableCount;
 
                     // 4) sufficiency check vs current stock
                     if ($taxableCount > $beforeTax) {
-                        throw new \Exception("Stok kena pajak tidak cukup untuk {$product->product_name} (butuh {$taxableCount}, ada {$beforeTax}).");
+                        throw new Exception("Stok kena pajak tidak cukup untuk {$product->product_name} (butuh {$taxableCount}, ada {$beforeTax}).");
                     }
                     if ($nonTaxableCount > $beforeNonTax) {
-                        throw new \Exception("Stok non-pajak tidak cukup untuk {$product->product_name} (butuh {$nonTaxableCount}, ada {$beforeNonTax}).");
+                        throw new Exception("Stok non-pajak tidak cukup untuk {$product->product_name} (butuh {$nonTaxableCount}, ada {$beforeNonTax}).");
                     }
 
                     // 5) mutate stock
@@ -689,14 +689,14 @@ class AdjustmentController extends Controller
 
                     if ($isTaxable) {
                         if ($qtyToBreak > $beforeTax) {
-                            throw new \Exception("Stok kena pajak tidak cukup untuk {$product->product_name} (butuh {$qtyToBreak}, ada {$beforeTax}).");
+                            throw new Exception("Stok kena pajak tidak cukup untuk {$product->product_name} (butuh {$qtyToBreak}, ada {$beforeTax}).");
                         }
 
                         $productStock->quantity_tax        = $beforeTax - $qtyToBreak;
                         $productStock->broken_quantity_tax = $beforeBrokenTax + $qtyToBreak;
                     } else {
                         if ($qtyToBreak > $beforeNonTax) {
-                            throw new \Exception("Stok non-pajak tidak cukup untuk {$product->product_name} (butuh {$qtyToBreak}, ada {$beforeNonTax}).");
+                            throw new Exception("Stok non-pajak tidak cukup untuk {$product->product_name} (butuh {$qtyToBreak}, ada {$beforeNonTax}).");
                         }
 
                         $productStock->quantity_non_tax        = $beforeNonTax - $qtyToBreak;

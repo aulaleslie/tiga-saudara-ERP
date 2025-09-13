@@ -11,22 +11,11 @@ use Modules\Product\Entities\ProductUnitConversion;
 
 class StoreProductInfoRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     *
-     * @return bool
-     */
     public function authorize(): bool
     {
-        // Check if the user has permission to create products
         return Gate::allows('products.create');
     }
 
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array
-     */
     public function rules(): array
     {
         return [
@@ -39,35 +28,35 @@ class StoreProductInfoRequest extends FormRequest
             'serial_number_required' => ['nullable', 'boolean'],
             'product_stock_alert'    => ['nullable', 'integer', 'min:0'],
 
-            // Buying (required only if is_purchased = 1)
+            // Buying (only price required when is_purchased is truthy; tax is OPTIONAL)
             'is_purchased'      => ['nullable', 'boolean'],
-            'purchase_price'    => ['required_if:is_purchased,1', 'nullable', 'numeric', 'gt:0'],
-            'purchase_tax_id'   => ['required_if:is_purchased,1', 'nullable', 'integer', 'exists:taxes,id'],
+            'purchase_price'    => ['required_if:is_purchased,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'purchase_tax_id'   => ['nullable', 'integer', 'exists:taxes,id'],
 
-            // Selling (required only if is_sold = 1)
+            // Selling (only price fields required when is_sold is truthy; tax is OPTIONAL)
             'is_sold'           => ['nullable', 'boolean'],
-            'sale_price'        => ['required_if:is_sold,1', 'nullable', 'numeric', 'gt:0'],
-            'tier_1_price'      => ['required_if:is_sold,1', 'nullable', 'numeric', 'gt:0'],
-            'tier_2_price'      => ['required_if:is_sold,1', 'nullable', 'numeric', 'gt:0'],
-            'sale_tax_id'       => ['required_if:is_sold,1', 'nullable', 'integer', 'exists:taxes,id'],
+            'sale_price'        => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'tier_1_price'      => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'tier_2_price'      => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'sale_tax_id'       => ['nullable', 'integer', 'exists:taxes,id'],
 
             'barcode'           => ['nullable', 'string', 'max:255', 'unique:products,barcode'],
 
             // Base unit is required only if stock is managed
             'base_unit_id'      => [
-                'required_if:stock_managed,1',
+                'required_if:stock_managed,1,true,on',
                 'integer',
                 function ($attribute, $value, $fail) {
-                    if ($this->boolean('stock_managed') && (is_null($value) || (string)$value === '0')) {
+                    if ($this->boolean('stock_managed') && (is_null($value) || (string) $value === '0')) {
                         $fail('Unit dasar tidak boleh kosong ketika manajemen stok diaktifkan.');
                     }
                 }
             ],
 
-            // Conversions (only validated if provided; some fields become required when stock_managed = 1)
+            // Conversions (validated only if provided; required when stock_managed is truthy)
             'conversions'                         => ['nullable', 'array'],
             'conversions.*.unit_id'               => [
-                'required_if:stock_managed,1',
+                'required_if:stock_managed,1,true,on',
                 'integer',
                 'not_in:0',
                 function ($attribute, $value, $fail) {
@@ -83,7 +72,7 @@ class StoreProductInfoRequest extends FormRequest
                     }
                 },
             ],
-            'conversions.*.conversion_factor'     => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
+            'conversions.*.conversion_factor'     => ['required_if:stock_managed,1,true,on', 'numeric', 'min:0.0001'],
             'conversions.*.barcode'               => [
                 'nullable',
                 'string',
@@ -112,9 +101,6 @@ class StoreProductInfoRequest extends FormRequest
         ];
     }
 
-    /**
-     * Customize the error messages.
-     */
     public function messages(): array
     {
         return [
@@ -128,52 +114,52 @@ class StoreProductInfoRequest extends FormRequest
             'product_stock_alert.integer' => 'Peringatan jumlah stok harus berupa angka.',
             'product_stock_alert.min'     => 'Peringatan jumlah stok tidak boleh kurang dari 0.',
 
-            // Buying
-            'is_purchased.boolean'          => 'Nilai pembelian produk tidak valid.',
-            'purchase_price.required_if'    => 'Harga beli wajib diisi jika produk dibeli.',
-            'purchase_price.numeric'        => 'Harga beli harus berupa angka.',
-            'purchase_price.min'            => 'Harga beli tidak boleh kurang dari 0.',
-            'purchase_tax_id.required_if'   => 'Pajak beli wajib diisi jika produk dibeli.',
-            'purchase_tax_id.exists'        => 'Pajak beli yang dipilih tidak valid.',
+            // Buying (tax not mandatory)
+            'purchase_price.required_if' => 'Harga beli wajib diisi jika produk dibeli.',
+            'purchase_price.numeric'     => 'Harga beli harus berupa angka.',
+            'purchase_price.gt'          => 'Harga beli harus lebih dari 0.',
 
-            // Selling
-            'is_sold.boolean'             => 'Nilai penjualan produk tidak valid.',
-            'sale_price.required_if'      => 'Harga jual wajib diisi jika produk dijual.',
-            'sale_price.numeric'          => 'Harga jual harus berupa angka.',
-            'sale_price.min'              => 'Harga jual tidak boleh kurang dari 0.',
-            'tier_1_price.required_if'    => 'Harga jual Partai Besar wajib diisi jika produk dibeli.',
-            'tier_1_price.numeric'        => 'Harga jual Partai Besar harus berupa angka.',
-            'tier_1_price.min'            => 'Harga jual Partai Besar tidak boleh kurang dari 0.',
-            'tier_1_price.gt'             => 'Harga jual Partai Besar harus lebih dari 0.',
-            'tier_2_price.required_if'    => 'Harga jual Reseller wajib diisi jika produk dibeli.',
-            'tier_2_price.numeric'        => 'Harga jual Reseller harus berupa angka.',
-            'tier_2_price.min'            => 'Harga jual Reseller tidak boleh kurang dari 0.',
-            'tier_2_price.gt'             => 'Harga jual Reseller harus lebih dari 0.',
-            'sale_tax_id.required_if'     => 'Pajak jual wajib diisi jika produk dijual.',
-            'sale_tax_id.exists'          => 'Pajak jual yang dipilih tidak valid.',
+            // Selling (tax not mandatory)
+            'sale_price.required_if'   => 'Harga jual wajib diisi jika produk dijual.',
+            'sale_price.numeric'       => 'Harga jual harus berupa angka.',
+            'sale_price.gt'            => 'Harga jual harus lebih dari 0.',
+            'tier_1_price.required_if' => 'Harga jual Partai Besar wajib diisi jika produk dijual.',
+            'tier_1_price.numeric'     => 'Harga jual Partai Besar harus berupa angka.',
+            'tier_1_price.gt'          => 'Harga jual Partai Besar harus lebih dari 0.',
+            'tier_2_price.required_if' => 'Harga jual Reseller wajib diisi jika produk dijual.',
+            'tier_2_price.numeric'     => 'Harga jual Reseller harus berupa angka.',
+            'tier_2_price.gt'          => 'Harga jual Reseller harus lebih dari 0.',
 
             // Barcode
             'barcode.max'    => 'Barcode tidak boleh lebih dari 255 karakter.',
             'barcode.unique' => 'Barcode sudah digunakan.',
 
             // Conversions
-            'base_unit_id.required_if'                 => 'Unit dasar diperlukan ketika manajemen stok diaktifkan.',
-            'conversions.*.unit_id.required_if'       => 'Konversi ke unit wajib diisi ketika manajemen stok diaktifkan.',
-            'conversions.*.unit_id.not_in'            => 'Unit ID tidak boleh 0 atau sama dengan unit dasar.',
+            'base_unit_id.required_if'                     => 'Unit dasar diperlukan ketika manajemen stok diaktifkan.',
+            'conversions.*.unit_id.required_if'           => 'Konversi ke unit wajib diisi ketika manajemen stok diaktifkan.',
+            'conversions.*.unit_id.not_in'                => 'Unit ID tidak boleh 0 atau sama dengan unit dasar.',
             'conversions.*.conversion_factor.required_if' => 'Faktor konversi wajib diisi jika unit tersedia.',
-            'conversions.*.conversion_factor.min'     => 'Faktor konversi harus lebih dari 0.',
-            'conversions.*.barcode.max'               => 'Barcode konversi tidak boleh lebih dari 255 karakter.',
-            'conversions.*.price.required_with'       => 'Harga konversi wajib diisi jika Anda memilih unit konversi.',
-            'conversions.*.price.numeric'             => 'Harga konversi harus berupa angka.',
-            'conversions.*.price.gt'                  => 'Harga konversi harus lebih dari 0.',
+            'conversions.*.conversion_factor.min'         => 'Faktor konversi harus lebih dari 0.',
+            'conversions.*.barcode.max'                   => 'Barcode konversi tidak boleh lebih dari 255 karakter.',
+            'conversions.*.price.required_with'           => 'Harga konversi wajib diisi jika Anda memilih unit konversi.',
+            'conversions.*.price.numeric'                 => 'Harga konversi harus berupa angka.',
+            'conversions.*.price.gt'                      => 'Harga konversi harus lebih dari 0.',
         ];
     }
 
     /**
-     * Handle a failed validation attempt.
-     *
-     * @throws HttpResponseException
+     * Normalize common checkbox/boolean inputs so required_if works reliably.
      */
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'is_purchased'          => $this->boolean('is_purchased'),
+            'is_sold'               => $this->boolean('is_sold'),
+            'stock_managed'         => $this->boolean('stock_managed'),
+            'serial_number_required'=> $this->boolean('serial_number_required'),
+        ]);
+    }
+
     protected function failedValidation(Validator $validator)
     {
         Log::info('Validation input:', $this->input());

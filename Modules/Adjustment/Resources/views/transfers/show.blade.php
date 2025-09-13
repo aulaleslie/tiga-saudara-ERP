@@ -1,12 +1,12 @@
 @extends('layouts.app')
 
-@section('title', 'Stock Transfer Details')
+@section('title', 'Detail Pemindahan Barang')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('transfers.index') }}">Stock Transfers</a></li>
-        <li class="breadcrumb-item active">Stock Transfer Details</li>
+        <li class="breadcrumb-item"><a href="{{ route('transfers.index') }}">Pemindahan Barang</a></li>
+        <li class="breadcrumb-item active">Detail Pemindahan Barang</li>
     </ol>
 @endsection
 
@@ -16,21 +16,21 @@
             <div class="col-md-12">
                 <div class="card">
                     <div class="card-body">
-                        <h5 class="card-title">Transfer Information</h5>
+                        <h5 class="card-title">Informasi Pemindahan Stok</h5>
                         <table class="table table-bordered mb-4">
                             <tr>
-                                <th>Transfer Date:</th>
+                                <th>Tanggal:</th>
                                 <td>{{ $transfer->created_at->format('Y-m-d H:i:s') }}</td>
                             </tr>
                             <tr>
-                                <th>Origin Location:</th>
+                                <th>Lokasi Asal:</th>
                                 <td>
                                     {{ $transfer->originLocation->name ?? '-' }}<br>
                                     <small>{{ $transfer->originLocation->setting->company_name ?? '-' }}</small>
                                 </td>
                             </tr>
                             <tr>
-                                <th>Destination Location:</th>
+                                <th>Lokasi Tujuan:</th>
                                 <td>
                                     {{ $transfer->destinationLocation->name ?? '-' }}<br>
                                     <small>{{ $transfer->destinationLocation->setting->company_name ?? '-' }}</small>
@@ -41,41 +41,41 @@
                                 <td>{{ strtoupper($transfer->status) }}</td>
                             </tr>
                             <tr>
-                                <th>Created By:</th>
+                                <th>Dibuat Oleh:</th>
                                 <td>{{ $transfer->createdBy->name ?? '-' }}</td>
                             </tr>
                             @if($transfer->approver)
                                 <tr>
-                                    <th>Approved By:</th>
+                                    <th>Disetujui Oleh:</th>
                                     <td>{{ $transfer->approver->name }}</td>
                                 </tr>
                             @endif
                             @if($transfer->dispatcher)
                                 <tr>
-                                    <th>Dispatched By:</th>
+                                    <th>Dikeluarkan Oleh:</th>
                                     <td>{{ $transfer->dispatcher->name }}</td>
                                 </tr>
                             @endif
                             @if($transfer->receiver)
                                 <tr>
-                                    <th>Received By:</th>
+                                    <th>Diterima Oleh:</th>
                                     <td>{{ $transfer->receiver->name }}</td>
                                 </tr>
                             @endif
                         </table>
 
-                        <h5 class="card-title">Products</h5>
+                        <h5 class="card-title">Daftar Barang</h5>
                         <table class="table table-bordered">
                             <thead>
                             <tr>
                                 <th>#</th>
-                                <th>Name</th>
-                                <th>Code</th>
-                                <th class="text-center">Tax</th>
-                                <th class="text-center">Non-Tax</th>
-                                <th class="text-center">Broken Tax</th>
-                                <th class="text-center">Broken Non-Tax</th>
-                                <th class="text-center">Total</th>
+                                <th>Nama</th>
+                                <th>Kode</th>
+                                <th class="text-center">Pajak</th>
+                                <th class="text-center">Non Pajak</th>
+                                <th class="text-center">Rusak Pajak</th>
+                                <th class="text-center">Rusak Non Pajak</th>
+                                <th class="text-center">Jumlah</th>
                             </tr>
                             </thead>
                             <tbody>
@@ -107,11 +107,11 @@
                                 @canany(['stockTransfers.edit','stockTransfers.approval'])
                                     <form action="{{ route('transfers.approve', $transfer) }}" method="POST" class="d-inline">
                                         @csrf
-                                        <button class="btn btn-success">Approve</button>
+                                        <button class="btn btn-success">Setujui</button>
                                     </form>
                                     <form action="{{ route('transfers.reject', $transfer) }}" method="POST" class="d-inline">
                                         @csrf
-                                        <button class="btn btn-danger">Reject</button>
+                                        <button class="btn btn-danger">Tolak</button>
                                     </form>
                                 @endcanany
 
@@ -120,7 +120,7 @@
                                 @can('stockTransfers.dispatch')
                                     <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
                                         @csrf
-                                        <button class="btn btn-primary">Dispatch</button>
+                                        <button class="btn btn-primary">Keluarkan</button>
                                     </form>
                                 @endcan
 
@@ -129,13 +129,13 @@
                                 @can('stockTransfers.receive')
                                     <form action="{{ route('transfers.receive', $transfer) }}" method="POST" class="d-inline">
                                         @csrf
-                                        <button class="btn btn-success">Receive</button>
+                                        <button class="btn btn-success">Terima</button>
                                     </form>
                                 @endcan
                             @endif
 
                             <a href="{{ route('transfers.index') }}" class="btn btn-secondary ml-2">
-                                Back to Transfers
+                                Kembali
                             </a>
                         </div>
                     </div>

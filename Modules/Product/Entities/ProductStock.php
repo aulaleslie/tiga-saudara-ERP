@@ -22,6 +22,7 @@ class ProductStock extends Model
         'broken_quantity_tax',
         'broken_quantity',
         'tax_id', // Nullable tax field
+        'sale_price',
     ];
 
     // Define the table if it's different from the default plural form

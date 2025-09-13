@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
@@ -16,7 +17,7 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class Product extends Model implements HasMedia
 {
-    use HasFactory, InteractsWithMedia;
+    use InteractsWithMedia;
 
     protected $guarded = [];
 
@@ -157,5 +158,102 @@ class Product extends Model implements HasMedia
     public function bundledIn(): HasMany
     {
         return $this->hasMany(ProductBundleItem::class, 'product_id');
+    }
+
+    /** All price rows for this product (across settings). */
+    public function prices(): HasMany
+    {
+        return $this->hasMany(ProductPrice::class);
+    }
+
+    /** Price row for this product’s own setting_id (unique per product × setting). */
+    public function price(): HasOne
+    {
+        // Uses the product’s current setting_id
+        return $this->hasOne(ProductPrice::class)->where('setting_id', $this->setting_id);
+    }
+
+    /** Fetch price row for a specific setting id. */
+    public function priceForSetting(int $settingId)
+    {
+        // if already eager loaded, avoid an extra query
+        if ($this->relationLoaded('prices')) {
+            return $this->prices->firstWhere('setting_id', $settingId);
+        }
+        return $this->prices()->where('setting_id', $settingId)->first();
+    }
+
+    /** Internal: get the price row for $settingId (or current product setting). */
+    protected function priceRow(?int $settingId = null)
+    {
+        $sid = $settingId ?? $this->setting_id;
+
+        if ($sid === null) {
+            return null;
+        }
+
+        if ($this->relationLoaded('prices')) {
+            return $this->prices->firstWhere('setting_id', $sid);
+        }
+        return $this->prices()->where('setting_id', $sid)->first();
+    }
+
+    /** Get sale price (string like "123.45"), preferring product_prices over legacy column. */
+    public function salePrice(?int $settingId = null): ?string
+    {
+        $row = $this->priceRow($settingId);
+        if ($row && $row->sale_price !== null) {
+            return $row->sale_price; // already string via decimal:2 cast
+        }
+        return $this->normalizeLegacyDecimal($this->getAttribute('sale_price'));
+    }
+
+    /** Get tier 1 price. */
+    public function tier1Price(?int $settingId = null): ?string
+    {
+        $row = $this->priceRow($settingId);
+        if ($row && $row->tier_1_price !== null) {
+            return $row->tier_1_price;
+        }
+        return $this->normalizeLegacyDecimal($this->getAttribute('tier_1_price'));
+    }
+
+    /** Get tier 2 price. */
+    public function tier2Price(?int $settingId = null): ?string
+    {
+        $row = $this->priceRow($settingId);
+        if ($row && $row->tier_2_price !== null) {
+            return $row->tier_2_price;
+        }
+        return $this->normalizeLegacyDecimal($this->getAttribute('tier_2_price'));
+    }
+
+    /** Get last purchase price. */
+    public function lastPurchasePrice(?int $settingId = null): ?string
+    {
+        $row = $this->priceRow($settingId);
+        if ($row && $row->last_purchase_price !== null) {
+            return $row->last_purchase_price;
+        }
+        return $this->normalizeLegacyDecimal($this->getAttribute('last_purchase_price'));
+    }
+
+    /** Get average purchase price. */
+    public function averagePurchasePrice(?int $settingId = null): ?string
+    {
+        $row = $this->priceRow($settingId);
+        if ($row && $row->average_purchase_price !== null) {
+            return $row->average_purchase_price;
+        }
+        return $this->normalizeLegacyDecimal($this->getAttribute('average_purchase_price'));
+    }
+
+    /** Normalize legacy decimal (mixed) -> ?string with 2 decimals. */
+    protected function normalizeLegacyDecimal($value): ?string
+    {
+        if ($value === null) return null;
+
+        // If legacy is already string/decimal, format to "0.00"
+        return number_format((float) $value, 2, '.', '');
     }
 }

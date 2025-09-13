@@ -77,10 +77,7 @@ class ProductDataTable extends DataTable
 
     public function query(Product $model): Builder
     {
-        $currentSettingId = session('setting_id');
-
         return $model->newQuery()
-            ->where('setting_id', $currentSettingId)
             ->with([
                 'category:id,category_name',
                 'brand:id,name',
@@ -98,7 +95,6 @@ class ProductDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>>" .
                 "tr" .
                 "<'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(7)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -124,14 +120,6 @@ class ProductDataTable extends DataTable
 
             Column::make('product_name')
                 ->title('Nama Produk')
-                ->className('text-center align-middle'),
-
-            Column::computed('product_quantity')
-                ->title('Stok Tersedia')
-                ->className('text-center align-middle'),
-
-            Column::computed('broken_quantity')
-                ->title('Stok Rusak')
                 ->className('text-center align-middle'),
 
             Column::make('category')

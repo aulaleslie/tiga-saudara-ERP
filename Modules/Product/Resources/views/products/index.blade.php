@@ -23,7 +23,7 @@
                             <a href="{{ route('products.create') }}" class="btn btn-primary">
                                 Tambah Produk <i class="bi bi-plus"></i>
                             </a>
-                            <a href="{{ route('products.upload.page') }}" class="btn btn-secondary">
+                            <a href="{{ route('products.upload') }}" class="btn btn-secondary">
                                 Upload Produk <i class="bi bi-upload"></i>
                             </a>
                         @endcan

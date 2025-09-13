@@ -12,6 +12,9 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use League\Csv\InvalidArgument;
+use League\Csv\SyntaxError;
+use League\Csv\UnavailableStream;
 use Modules\Product\DataTables\ProductDataTable;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
@@ -32,6 +35,10 @@ use Modules\Setting\Entities\Unit;
 use League\Csv\Reader;
 use League\Csv\Statement;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
+use Modules\Product\Entities\ProductPrice;
+use Modules\Setting\Entities\Setting;
 
 class ProductController extends Controller
 {
@@ -48,14 +55,12 @@ class ProductController extends Controller
     {
         abort_if(Gate::denies('products.create'), 403);
 
-        $currentSettingId = session('setting_id');
-
         // Filter units, brands, and categories by setting_id
-        $units = Unit::where('setting_id', $currentSettingId)->get();
-        $brands = Brand::where('setting_id', $currentSettingId)->get();
-        $categories = Category::where('setting_id', $currentSettingId)->with('parent')->get();
-        $locations = Location::where('setting_id', $currentSettingId)->get();
-        $taxes = Tax::where('setting_id', $currentSettingId)->get();
+        $units = Unit::all();
+        $brands = Brand::all();
+        $categories = Category::with('parent')->get();
+        $locations = Location::all();
+        $taxes = Tax::all();
 
         // Format categories with parent category
         $formattedCategories = $categories->mapWithKeys(function ($category) {
@@ -70,66 +75,99 @@ class ProductController extends Controller
     /**
      * Common logic to handle product creation.
      *
-     * @param array $validatedData
+     * - Legacy price columns on `products` are kept at defaults (0 / null).
+     * - The submitted prices are written to `product_prices` for ALL settings.
+     *
+     * @param  array  $validatedData
      * @return Product
-     * @throws Exception
+     * @throws Throwable
      */
     private function handleProductCreation(array $validatedData): Product
     {
-        // Set default values for nullable fields
-        $fieldsWithDefaults = [
-            'product_quantity' => 0,
-            'product_cost' => 0,
-            'product_stock_alert' => 0,
-            'product_order_tax' => 0,
-            'product_tax_type' => 0,
-            'profit_percentage' => 0,
-            'purchase_price' => 0,
-            'purchase_tax' => 0,
-            'sale_price' => 0,
-            'sale_tax' => 0,
-            'product_price' => 0,
-            'last_purchase_price' => 0,  // Last purchase price
-            'average_purchase_price' => 0,  // Average purchase price
+        // Capture the incoming price values before we zero-out legacy columns
+        $incomingPrices = [
+            'sale_price'             => data_get($validatedData, 'sale_price', 0),
+            'tier_1_price'           => data_get($validatedData, 'tier_1_price', 0),
+            'tier_2_price'           => data_get($validatedData, 'tier_2_price', 0),
+            // For purchase snapshots we mirror your previous behavior (using purchase_price),
+            // but we DO NOT store them on products—only on product_prices.
+            'last_purchase_price'    => data_get($validatedData, 'purchase_price', 0),
+            'average_purchase_price' => data_get($validatedData, 'purchase_price', 0),
+            // Accept either *_id or legacy *_tax keys
+            'purchase_tax_id'        => data_get($validatedData, 'purchase_tax_id', data_get($validatedData, 'purchase_tax')),
+            'sale_tax_id'            => data_get($validatedData, 'sale_tax_id', data_get($validatedData, 'sale_tax')),
         ];
 
+        // ========= keep product legacy columns at defaults =========
+        // (We do NOT persist incoming prices to products table.)
+        $fieldsWithDefaults = [
+            'product_quantity'        => 0,
+            'product_cost'            => 0,
+            'product_stock_alert'     => 0,
+            'product_order_tax'       => 0,
+            'product_tax_type'        => 0,
+            'profit_percentage'       => 0,
+            'purchase_price'          => 0,
+            'purchase_tax_id'         => null,   // or 'purchase_tax' => 0 if your column is boolean/legacy
+            'sale_price'              => 0,
+            'sale_tax_id'             => null,   // or 'sale_tax' => 0 if your column is boolean/legacy
+            'product_price'           => 0,
+            'last_purchase_price'     => 0,
+            'average_purchase_price'  => 0,
+        ];
         foreach ($fieldsWithDefaults as $field => $defaultValue) {
-            if (empty($validatedData[$field])) {
-                $validatedData[$field] = $defaultValue;
-            }
+            $validatedData[$field] = $defaultValue;
         }
 
-        $validatedData['last_purchase_price'] = $validatedData['purchase_price'];
-        $validatedData['average_purchase_price'] = $validatedData['purchase_price'];
-
-        $fieldsConvertedToNulls = ['brand_id', 'category_id', 'base_unit_id'];
-        foreach ($fieldsConvertedToNulls as $field) {
+        // Normalize nullable FKs on products
+        foreach (['brand_id', 'category_id', 'base_unit_id'] as $field) {
             if (empty($validatedData[$field])) {
                 $validatedData[$field] = null;
             }
         }
 
+        // Tie product to the current session setting (kept as before)
         $validatedData['setting_id'] = session('setting_id');
 
-        // Handle documents and conversions separately
-        $documents = $validatedData['document'] ?? [];
+        // Handle documents/conversions separately (unchanged)
+        $documents   = $validatedData['document']   ?? [];
         $conversions = $validatedData['conversions'] ?? [];
         unset($validatedData['document'], $validatedData['conversions'], $validatedData['location_id']);
 
         DB::beginTransaction();
 
         try {
+            // 1) Create product with legacy price columns left at defaults
             $product = Product::create($validatedData);
-            Log::info('Product created successfully', ['product_id' => $product->id]);
 
-            // Handle document uploads
+            // 2) Mirror the submitted prices across ALL settings into product_prices
+            $settingIds = Setting::query()->pluck('id'); // filter if you have an "active" flag
+            foreach ($settingIds as $sid) {
+                ProductPrice::updateOrCreate(
+                    [
+                        'product_id' => $product->id,
+                        'setting_id' => (int) $sid,
+                    ],
+                    [
+                        'sale_price'             => $incomingPrices['sale_price'] ?: 0,
+                        'tier_1_price'           => $incomingPrices['tier_1_price'] ?: 0,
+                        'tier_2_price'           => $incomingPrices['tier_2_price'] ?: 0,
+                        'last_purchase_price'    => $incomingPrices['last_purchase_price'] ?: 0,
+                        'average_purchase_price' => $incomingPrices['average_purchase_price'] ?: 0,
+                        'purchase_tax_id'        => $incomingPrices['purchase_tax_id'] ?: null,
+                        'sale_tax_id'            => $incomingPrices['sale_tax_id'] ?: null,
+                    ]
+                );
+            }
+
+            // 3) Documents
             if (!empty($documents)) {
                 foreach ($documents as $file) {
                     $product->addMedia(Storage::path('temp/dropzone/' . $file))->toMediaCollection('images');
                 }
             }
 
-            // Handle unit conversions
+            // 4) Unit conversions
             if (!empty($conversions)) {
                 foreach ($conversions as $conversion) {
                     $conversion['base_unit_id'] = $validatedData['base_unit_id'];
@@ -138,14 +176,16 @@ class ProductController extends Controller
             }
 
             DB::commit();
-            Log::info('Pembuatan produk berhasil, transaksi dilakukan.');
+            Log::info('Product created with prices replicated to all settings.', [
+                'product_id' => $product->id,
+                'settings'   => $settingIds->values(),
+            ]);
 
-            return $product; // Return the created product
-        } catch (Exception $e) {
+            return $product;
+        } catch (Throwable $e) {
             DB::rollBack();
-            Log::error('Gagal membuat Produk. Silakan coba lagi.', ['error' => $e->getMessage()]);
-
-            throw new \Exception('Pembuatan Produk gagal');
+            Log::error('Gagal membuat Produk (replicate prices).', ['error' => $e->getMessage()]);
+            throw $e;
         }
     }
 
@@ -154,7 +194,7 @@ class ProductController extends Controller
      *
      * @param StoreProductInfoRequest $request
      * @return RedirectResponse
-     * @throws Exception
+     * @throws Exception|Throwable
      */
     public function store(StoreProductInfoRequest $request): RedirectResponse
     {
@@ -172,7 +212,7 @@ class ProductController extends Controller
      *
      * @param StoreProductInfoRequest $request
      * @return RedirectResponse
-     * @throws Exception
+     * @throws Exception|Throwable
      */
     public function storeProductAndRedirectToInitializeProductStock(StoreProductInfoRequest $request): RedirectResponse
     {
@@ -197,7 +237,7 @@ class ProductController extends Controller
             $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
             $convertedQuantity = floor($product->product_quantity / $biggestConversion->conversion_factor);
             $remainder = $product->product_quantity % $biggestConversion->conversion_factor;
-            $displayQuantity = "{$convertedQuantity} {$biggestConversion->unit->short_name} {$remainder} {$baseUnit->short_name}";
+            $displayQuantity = "$convertedQuantity {$biggestConversion->unit->short_name} $remainder $baseUnit->short_name";
         } else {
             $displayQuantity = $product->product_quantity . ' ' . ($product->product_unit ?? '');
         }
@@ -235,13 +275,11 @@ class ProductController extends Controller
     {
         abort_if(Gate::denies('products.edit'), 403);
 
-        $currentSettingId = session('setting_id');
-
-        $units = Unit::where('setting_id', $currentSettingId)->get();
-        $brands = Brand::where('setting_id', $currentSettingId)->get();
-        $categories = Category::where('setting_id', $currentSettingId)->with('parent')->get();
-        $locations = Location::where('setting_id', $currentSettingId)->get();
-        $taxes = Tax::where('setting_id', $currentSettingId)->get();
+        $units = Unit::all();
+        $brands = Brand::all();
+        $categories = Category::with('parent')->get();
+        $locations = Location::all();
+        $taxes = Tax::all();
 
         $formattedCategories = $categories->mapWithKeys(function ($category) {
             $formattedName = $category->parent ? "{$category->parent->category_name} | $category->category_name" : $category->category_name;
@@ -264,6 +302,9 @@ class ProductController extends Controller
     }
 
 
+    /**
+     * @throws Throwable
+     */
     public function update(UpdateProductRequest $request, Product $product): RedirectResponse
     {
         abort_if(Gate::denies('products.edit'), 403);
@@ -297,9 +338,7 @@ class ProductController extends Controller
         }
 
         // Handle location_id, conversions, and documents separately
-        $locationId = $validatedData['location_id'] ?? null;
         $conversions = $validatedData['conversions'] ?? [];
-        $documents = $validatedData['document'] ?? [];
 
         // Unset fields that should not be saved directly to the products table
         unset($validatedData['location_id'], $validatedData['conversions'], $validatedData['document']);
@@ -366,16 +405,21 @@ class ProductController extends Controller
     public function uploadPage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('products.create'), 403);
-        // Get the current setting ID from the session
-        $currentSettingId = session('setting_id');
 
         // Query the locations for the current setting ID
-        $locations = Location::where('setting_id', $currentSettingId)->get();
+        $locations = Location::all();
 
         // Return the upload view with the locations data
         return view('product::products.upload', compact('locations'));
     }
 
+    /**
+     * @throws UnavailableStream
+     * @throws InvalidArgument
+     * @throws Throwable
+     * @throws SyntaxError
+     * @throws \League\Csv\Exception
+     */
     public function upload(Request $request): RedirectResponse
     {
         abort_if(Gate::denies('products.create'), 403);
@@ -387,7 +431,7 @@ class ProductController extends Controller
 
         // Handle the uploaded file
         $file = $request->file('file');
-        $csv = Reader::createFromPath($file->getPathname(), 'r');
+        $csv = Reader::createFromPath($file->getPathname());
         $csv->setHeaderOffset(0); // The CSV has headers
         $records = (new Statement())->process($csv);
 
@@ -423,7 +467,7 @@ class ProductController extends Controller
                 // Check for duplicate product name
                 $existingProductWithName = Product::where('product_name', $name)->first();
                 if ($existingProductWithName) {
-                    Log::error("Row $rowsRead: A product with the name '{$name}' already exists.");
+                    Log::error("Row $rowsRead: A product with the name '$name' already exists.");
                     continue; // Skip this row
                 }
 
@@ -481,7 +525,7 @@ class ProductController extends Controller
 
                 // Log each successfully processed row
                 $rowsProcessed++;
-                Log::info("Row $rowsRead: Product '{$name}' processed successfully.");
+                Log::info("Row $rowsRead: Product '$name' processed successfully.");
             }
 
             DB::commit();
@@ -508,7 +552,7 @@ class ProductController extends Controller
         $product = Product::findOrFail($request->product_id);
 
         // Fetch the locations from the database
-        $locations = Location::where('setting_id', session('setting_id'))->get();
+        $locations = Location::with('setting')->get();
 
         // Get prices from product
         $last_purchase_price = $product->purchase_price;
@@ -519,12 +563,18 @@ class ProductController extends Controller
         return view('product::products.initialize-product-stock', compact('product', 'last_purchase_price', 'average_purchase_price', 'sale_price', 'locations'));
     }
 
+    /**
+     * @throws Throwable
+     */
     public function storeInitialProductStock(InitializeProductStockRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('products.create'), 403);
         return $this->handleStockInitialization($request, 'products.index');
     }
 
+    /**
+     * @throws Throwable
+     */
     public function storeInitialProductStockAndRedirectToInputSerialNumbers(InitializeProductStockRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('products.create'), 403);
@@ -534,6 +584,9 @@ class ProductController extends Controller
         ]);
     }
 
+    /**
+     * @throws Throwable
+     */
     private function handleStockInitialization(InitializeProductStockRequest $request, string $redirectRoute, array $routeParams = []): RedirectResponse
     {
         abort_if(Gate::denies('products.create'), 403);
@@ -611,6 +664,9 @@ class ProductController extends Controller
         ));
     }
 
+    /**
+     * @throws Throwable
+     */
     public function storeSerialNumbers(InputSerialNumbersRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('products.create'), 403);
@@ -646,7 +702,7 @@ class ProductController extends Controller
     {
         abort_if(Gate::denies('products.access'), 403);
         $search = $request->input('q');
-        $products = Product::where('product_name', 'LIKE', "%{$search}%")
+        $products = Product::where('product_name', 'LIKE', "%$search%")
             ->select('id', 'product_name as text')
             ->limit(10)
             ->get();
@@ -664,5 +720,112 @@ class ProductController extends Controller
 
         $media->delete();
         return response()->noContent();
+    }
+
+    public function downloadCsvTemplate(): StreamedResponse
+    {
+        abort_if(Gate::denies('products.create'), 403);
+
+        $filename = 'template_upload_produk.csv';
+        $maxConversions = 5;
+
+        // Header berbahasa Indonesia (semua by NAMA, tidak ada kolom ID)
+        $headers = [
+            // Identitas produk
+            'Nama Produk',          // wajib
+            'Kode Produk',          // wajib & unik
+            'Barcode',              // opsional
+            'Nama Kategori',        // opsional (akan dibuat jika belum ada)
+            'Nama Merek',           // opsional (akan dibuat jika belum ada)
+
+            // Stok & unit
+            'Kelola Stok',          // 0|1
+            'Wajib Nomor Seri',     // 0|1
+            'Nama Unit Dasar',      // wajib jika Kelola Stok = 1 (akan dibuat jika belum ada)
+            'Stok',                 // integer
+            'Stok Minimum',         // integer
+
+            // Pembelian (pajak opsional)
+            'Dibeli',               // 0|1
+            'Harga Beli',           // wajib jika Dibeli = 1
+            'Nama Pajak Beli',      // opsional (cari by name; biarkan kosong jika tidak ada)
+
+            // Penjualan (pajak opsional)
+            'Dijual',               // 0|1
+            'Harga Jual',           // wajib jika Dijual = 1
+            'Harga Tier 1',         // wajib jika Dijual = 1
+            'Harga Tier 2',         // wajib jika Dijual = 1
+            'Nama Pajak Jual',      // opsional (cari by name; biarkan kosong jika tidak ada)
+        ];
+
+        // Kolom konversi (maks 5 set) — semua by NAMA, tanpa ID
+        for ($i = 1; $i <= $maxConversions; $i++) {
+            $headers[] = "Konv{$i}_NamaUnit";   // prioritas nama (akan dibuat jika belum ada)
+            $headers[] = "Konv{$i}_Faktor";     // wajib jika unit diisi
+            $headers[] = "Konv{$i}_Barcode";    // opsional
+            $headers[] = "Konv{$i}_Harga";      // wajib jika unit diisi
+        }
+
+        // Contoh 1 baris (boleh dihapus oleh user)
+        $example = [
+            // Identitas produk
+            'Produk Contoh A',    // Nama Produk
+            'SKU-001',            // Kode Produk
+            '8991234567890',      // Barcode
+            'Sembako',            // Nama Kategori
+            'Merek Umum',         // Nama Merek
+
+            // Stok & unit
+            1,                    // Kelola Stok
+            0,                    // Wajib Nomor Seri
+            'Pcs',                // Nama Unit Dasar
+            100,                  // Stok
+            10,                   // Stok Minimum
+
+            // Pembelian
+            1,                    // Dibeli
+            15000,                // Harga Beli
+            'PPN 11%',            // Nama Pajak Beli (opsional)
+
+            // Penjualan
+            1,                    // Dijual
+            20000,                // Harga Jual
+            19500,                // Harga Tier 1
+            19000,                // Harga Tier 2
+            'PPN 11%',            // Nama Pajak Jual (opsional)
+        ];
+
+        // Contoh konversi
+        for ($i = 1; $i <= $maxConversions; $i++) {
+            if ($i === 1) {
+                // 1 Box = 12 Pcs
+                $example[] = 'Box';     // Konv1_NamaUnit
+                $example[] = 12;        // Konv1_Faktor
+                $example[] = '8991234567891';
+                $example[] = 220000;    // Konv1_Harga
+            } elseif ($i === 2) {
+                // 1 Pack = 6 Pcs
+                $example[] = 'Pack';    // Konv2_NamaUnit
+                $example[] = 6;         // Konv2_Faktor
+                $example[] = '';        // barcode kosong
+                $example[] = 110000;    // Konv2_Harga
+            } else {
+                // sisanya kosong
+                $example[] = ''; $example[] = ''; $example[] = ''; $example[] = '';
+            }
+        }
+
+        return response()->streamDownload(function () use ($headers, $example) {
+            $out = fopen('php://output', 'w');
+            // Jika perlu kompatibilitas Excel Windows: tulis BOM UTF-8
+            // fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
+            fputcsv($out, $headers);
+            fputcsv($out, $example);
+            fclose($out);
+        }, $filename, [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Cache-Control'       => 'no-store, no-cache',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+        ]);
     }
 }
