@@ -2,10 +2,10 @@
 
 namespace Modules\Setting\Entities;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class Tax extends Model
+class Tax extends BaseModel
 {
     protected $guarded = [];
 

@@ -20,8 +20,7 @@ class LocationController extends Controller
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('locations.access'), 403);
-        $currentSettingId = session('setting_id');
-        $locations = Location::where('setting_id', $currentSettingId)->get();
+        $locations = Location::with('setting:id,company_name')->get();
 
         return view('setting::locations.index', [
             'locations' => $locations

@@ -351,76 +351,89 @@
 @canany(['settings.access', 'businesses.access', 'journals.access', 'taxes.access', 'paymentMethods.access', 'paymentTerms.access'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
-            <i class="c-sidebar-nav-icon bi bi-wrench-adjustable" style="line-height: 1;"></i> Pengaturan
+            <i class="c-sidebar-nav-icon bi bi-gear-fill" style="line-height: 1;"></i> Pengaturan
         </a>
         <ul class="c-sidebar-nav-dropdown-items">
             @can('settings.access')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('settings*') ? 'c-active' : '' }}"
                        href="{{ route('settings.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-building-fill-gear" style="line-height: 1;"></i> Pengaturan
-                        Bisnis
-                    </a>
-                </li>
-            @endcan
-            @can('businesses.access')
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('businesses*') ? 'c-active' : '' }}"
-                       href="{{ route('businesses.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Bisnis
-                    </a>
-                </li>
-            @endcan
-            @can("taxes.access")
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('taxes*') ? 'c-active' : '' }}"
-                       href="{{ route('taxes.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Pajak
-                    </a>
-                </li>
-            @endcan
-            @can("locations.access")
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('locations*') ? 'c-active' : '' }}"
-                       href="{{ route('locations.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Lokasi
-                    </a>
-                </li>
-            @endcan
-            @can("paymentTerms.access")
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('payment-terms*') ? 'c-active' : '' }}"
-                       href="{{ route('payment-terms.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Term Pembayaran
-                    </a>
-                </li>
-            @endcan
-            @can("paymentMethods.access")
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('payment-methods*') ? 'c-active' : '' }}"
-                       href="{{ route('payment-methods.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Metode Pembayaran
-                    </a>
-                </li>
-            @endcan
-            @can('chartOfAccounts.access')
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('chart-of-account*') ? 'c-active' : '' }}"
-                       href="{{ route('chart-of-account.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Nomor
-                        Akun
-                    </a>
-                </li>
-            @endcan
-            @can('journals.access')
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('journals*') ? 'c-active' : '' }}"
-                       href="{{ route('journals.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i> Daftar Jurnal
+                        <i class="c-sidebar-nav-icon bi bi-briefcase-fill" style="line-height: 1;"></i>
+                        Pengaturan Bisnis
                     </a>
                 </li>
             @endcan
 
+            @can('businesses.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('businesses*') ? 'c-active' : '' }}"
+                       href="{{ route('businesses.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-buildings-fill" style="line-height: 1;"></i>
+                        Daftar Bisnis
+                    </a>
+                </li>
+            @endcan
+
+            @can('taxes.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('taxes*') ? 'c-active' : '' }}"
+                       href="{{ route('taxes.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-percent" style="line-height: 1;"></i>
+                        Daftar Pajak
+                    </a>
+                </li>
+            @endcan
+
+            @can('locations.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('locations*') ? 'c-active' : '' }}"
+                       href="{{ route('locations.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-geo-alt-fill" style="line-height: 1;"></i>
+                        Daftar Lokasi
+                    </a>
+                </li>
+            @endcan
+
+            @can('paymentTerms.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('payment-terms*') ? 'c-active' : '' }}"
+                       href="{{ route('payment-terms.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-calendar2-check-fill" style="line-height: 1;"></i>
+                        Term Pembayaran
+                    </a>
+                </li>
+            @endcan
+
+            @can('paymentMethods.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('payment-methods*') ? 'c-active' : '' }}"
+                       href="{{ route('payment-methods.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-credit-card-fill" style="line-height: 1;"></i>
+                        Metode Pembayaran
+                    </a>
+                </li>
+            @endcan
+
+            @can('chartOfAccounts.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('chart-of-account*') ? 'c-active' : '' }}"
+                       href="{{ route('chart-of-account.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-journal-bookmark-fill" style="line-height: 1;"></i>
+                        Daftar Nomor Akun
+                    </a>
+                </li>
+            @endcan
+
+            @can('journals.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('journals*') ? 'c-active' : '' }}"
+                       href="{{ route('journals.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-journal-text" style="line-height: 1;"></i>
+                        Daftar Jurnal
+                    </a>
+                </li>
+            @endcan
         </ul>
     </li>
 @endcanany
+

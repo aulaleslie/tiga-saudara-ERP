@@ -2,13 +2,11 @@
 
 namespace Modules\Setting\Entities;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use OwenIt\Auditing\Contracts\Auditable;
 
-class Location extends Model implements Auditable
+class Location extends BaseModel
 {
-    use \OwenIt\Auditing\Auditable;
     protected $guarded = [];
 
     /**

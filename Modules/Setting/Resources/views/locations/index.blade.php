@@ -31,6 +31,7 @@
                                 <tr>
                                     <th class="align-middle">No.</th>
                                     <th class="align-middle">Nama</th>
+                                    <th class="align-middle">Bisnis</th>
                                     <th class="align-middle">POS</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
@@ -40,6 +41,7 @@
                                     <tr>
                                         <td class="align-middle">{{ $key + 1 }}</td>
                                         <td class="align-middle">{{ $location->name }}</td>
+                                        <td class="align-middle">{{ $location->setting->company_name }}</td>
                                         <td class="align-middle">
                                             @if($location->is_pos)
                                                 <span class="badge badge-success">Ya</span>

@@ -20,8 +20,7 @@ class PaymentTermController extends Controller
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('paymentTerms.access'), 403);
-        $currentSettingId = session('setting_id');
-        $payment_terms = PaymentTerm::where('setting_id', $currentSettingId)->get();
+        $payment_terms = PaymentTerm::all();
 
         return view('setting::payment_terms.index', [
             'payment_terms' => $payment_terms
@@ -46,19 +45,22 @@ class PaymentTermController extends Controller
     public function store(Request $request): RedirectResponse
     {
         abort_if(Gate::denies('paymentTerms.create'), 403);
+
         $request->validate([
-            'name' => 'required|string|max:255|unique:payment_terms,name,NULL,id,setting_id,' . session('setting_id'),
-            'longevity' => 'required|numeric|gt:0',
+            'name'      => 'required|string|max:255|unique:payment_terms,name,NULL,id,setting_id,' . session('setting_id'),
+            'longevity' => 'required|integer|min:0', // allow 0
+        ], [
+            'longevity.min' => 'Tempo tidak boleh lebih kecil dari 0',
+            'longevity.integer' => 'Tempo harus berupa angka hari (bulat).',
         ]);
 
         PaymentTerm::create([
-            'name' => $request->name,
-            'longevity' => $request->longevity,
-            'setting_id' => session('setting_id'),  // Get setting_id from session
+            'name'       => $request->name,
+            'longevity'  => (int) $request->longevity,
+            'setting_id' => session('setting_id'),
         ]);
 
         toast('Term Pembayaran Berhasil ditambahkan!', 'success');
-
         return redirect()->route('payment-terms.index');
     }
 
@@ -84,18 +86,21 @@ class PaymentTermController extends Controller
     public function update(Request $request, PaymentTerm $payment_term): RedirectResponse
     {
         abort_if(Gate::denies('paymentTerms.edit'), 403);
+
         $request->validate([
-            'name' => 'required|string|max:255|unique:payment_terms,name,' . $payment_term->id . ',id,setting_id,' . session('setting_id'),
-            'longevity' => 'required|numeric|gt:0',
+            'name'      => 'required|string|max:255|unique:payment_terms,name,' . $payment_term->id . ',id,setting_id,' . session('setting_id'),
+            'longevity' => 'required|integer|min:0', // allow 0
+        ], [
+            'longevity.min' => 'Tempo tidak boleh lebih kecil dari 0',
+            'longevity.integer' => 'Tempo harus berupa angka hari (bulat).',
         ]);
 
         $payment_term->update([
-            'name' => $request->name,
-            'longevity' => $request->longevity,
+            'name'      => $request->name,
+            'longevity' => (int) $request->longevity,
         ]);
 
         toast('Term Pembayaran diperbaharui!', 'info');
-
         return redirect()->route('payment-terms.index');
     }
 

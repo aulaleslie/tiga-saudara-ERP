@@ -25,20 +25,90 @@ class SettingController extends Controller
     }
 
 
-    public function update(StoreSettingsRequest $request) {
+    public function update(StoreSettingsRequest $request)
+    {
         abort_if(Gate::denies('settings.edit'), 403);
-        Setting::firstOrFail()->update([
-            'company_name' => $request->company_name,
-            'company_email' => $request->company_email,
-            'company_phone' => $request->company_phone,
-            'company_address' => $request->company_address,
-            'document_prefix' => $request->document_prefix,
+
+        $settingId = session('setting_id');
+        $setting   = Setting::findOrFail($settingId);
+
+        $data = [
+            'company_name'             => $request->company_name,
+            'company_email'            => $request->company_email,
+            'company_phone'            => $request->company_phone,
+            'company_address'          => $request->company_address,
+            'document_prefix'          => $request->document_prefix,
             'purchase_prefix_document' => $request->purchase_prefix_document,
-            'sale_prefix_document' => $request->sale_prefix_document,
-        ]);
+            'sale_prefix_document'     => $request->sale_prefix_document,
+        ];
 
+        // Uppercase text-type columns
+        foreach ([
+                     'company_name',
+                     'company_address',
+                     'document_prefix',
+                     'purchase_prefix_document',
+                     'sale_prefix_document',
+                 ] as $key) {
+            if (isset($data[$key])) {
+                $data[$key] = mb_strtoupper(trim((string) $data[$key]), 'UTF-8');
+            }
+        }
+
+        // Normalize email (lowercase) & trim phone
+        if (isset($data['company_email'])) {
+            $data['company_email'] = trim(mb_strtolower($data['company_email'], 'UTF-8'));
+        }
+        if (isset($data['company_phone'])) {
+            $data['company_phone'] = trim((string) $data['company_phone']);
+        }
+
+        // Persist
+        $setting->update($data);
+        $setting = $setting->fresh();
+
+        // --- Sync the in-session "user_settings" list (if present)
+        if (session()->has('user_settings')) {
+            $fieldsToSync = [
+                'id',
+                'company_name',
+                'company_email',
+                'company_phone',
+                'company_address',
+                'document_prefix',
+                'purchase_prefix_document',
+                'sale_prefix_document',
+            ];
+
+            $current = session('user_settings');
+            $coll    = $current instanceof \Illuminate\Support\Collection ? $current : collect($current);
+
+            $updated = $coll->map(function ($item) use ($setting, $fieldsToSync) {
+                if ((string) data_get($item, 'id') !== (string) $setting->id) {
+                    return $item;
+                }
+
+                // Preserve original shape
+                if ($item instanceof \Illuminate\Database\Eloquent\Model) {
+                    return $setting; // replace with the freshly updated model
+                }
+
+                if (is_array($item)) {
+                    return array_replace($item, $setting->only($fieldsToSync));
+                }
+
+                // stdClass / other objects
+                foreach ($setting->only($fieldsToSync) as $k => $v) {
+                    $item->{$k} = $v;
+                }
+                return $item;
+            });
+
+            session(['user_settings' => $updated]);
+        }
+
+        // Bust cache and finish
         cache()->forget('settings');
-
         toast('Settings Updated!', 'info');
 
         return redirect()->route('settings.index');

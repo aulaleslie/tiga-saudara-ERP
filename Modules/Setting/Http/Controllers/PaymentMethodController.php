@@ -15,7 +15,7 @@ class PaymentMethodController extends Controller
     {
         abort_if(Gate::denies('paymentMethods.access'), 403);
         // Get payment methods filtered by setting_id
-        $paymentMethods = PaymentMethod::with('chartOfAccount')->where('setting_id', session('setting_id'))->get();
+        $paymentMethods = PaymentMethod::with('chartOfAccount')->get();
 
         return view('setting::payment_methods.index', compact('paymentMethods'));
     }

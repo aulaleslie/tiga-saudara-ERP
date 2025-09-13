@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\Setting\Entities\ChartOfAccount;
+use Modules\Setting\Entities\Tax;
 
 class ChartofAccountController extends Controller
 {
@@ -27,7 +28,7 @@ class ChartofAccountController extends Controller
         abort_if(Gate::denies('chartOfAccounts.create'), 403);
         return view('setting::coa.create', [
             'parent_accounts' => ChartOfAccount::whereNull('parent_account_id')->get(),
-            'taxes' => \Modules\Setting\Entities\Tax::all(),
+            'taxes' => Tax::all(),
         ]);
     }
 
@@ -67,7 +68,7 @@ class ChartofAccountController extends Controller
         $account = ChartOfAccount::findOrFail($id); // Fetch the account
         return view('setting::coa.edit', [
             'parent_accounts' => ChartOfAccount::whereNull('parent_account_id')->whereNot('id',$id)->get(),
-            'taxes' => \Modules\Setting\Entities\Tax::all(),
+            'taxes' => Tax::all(),
             'chartOfAccount' => $account,
         ]);
     }

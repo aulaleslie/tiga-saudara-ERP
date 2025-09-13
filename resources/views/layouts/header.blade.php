@@ -18,7 +18,9 @@
     @if(session('user_settings'))
         @php
             $userSettings = session('user_settings');
-            $currentSetting = $userSettings->firstWhere('id', session('setting_id'));
+            $currentSetting = $userSettings
+            ? ($userSettings->firstWhere('id', session('setting_id')) ?? $userSettings->first())
+            : null;
         @endphp
         @if(count($userSettings) > 1)
             <li class="c-header-nav-item dropdown">

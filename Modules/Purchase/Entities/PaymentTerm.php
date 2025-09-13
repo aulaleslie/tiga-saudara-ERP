@@ -2,17 +2,15 @@
 
 namespace Modules\Purchase\Entities;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\People\Entities\Customer;
 use Modules\People\Entities\Supplier;
 use Modules\Setting\Entities\Setting;
 
-class PaymentTerm extends Model
+class PaymentTerm extends BaseModel
 {
-    use HasFactory;
 
     /**
      * The table associated with the model.
