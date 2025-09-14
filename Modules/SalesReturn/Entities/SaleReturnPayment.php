@@ -2,29 +2,31 @@
 
 namespace Modules\SalesReturn\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
-class SaleReturnPayment extends Model
+class SaleReturnPayment extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
-    public function saleReturn() {
+    public function saleReturn(): BelongsTo
+    {
         return $this->belongsTo(SaleReturn::class, 'sale_return_id', 'id');
     }
 
-    public function setAmountAttribute($value) {
+    public function setAmountAttribute($value): void
+    {
         $this->attributes['amount'] = $value * 100;
     }
 
-    public function getAmountAttribute($value) {
+    public function getAmountAttribute($value): float|int
+    {
         return $value / 100;
     }
 
-    public function getDateAttribute($value) {
+    public function getDateAttribute($value): string
+    {
         return Carbon::parse($value)->format('d M, Y');
     }
 

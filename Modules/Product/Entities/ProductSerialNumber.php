@@ -2,16 +2,13 @@
 
 namespace Modules\Product\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Tax;
 
-class ProductSerialNumber extends Model
+class ProductSerialNumber extends BaseModel
 {
-    use HasFactory;
-
     protected $table = 'product_serial_numbers';
 
     /**

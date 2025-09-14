@@ -2,15 +2,12 @@
 
 namespace Modules\Sale\Entities;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Dispatch extends Model
+class Dispatch extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
     public function sale(): BelongsTo
     {

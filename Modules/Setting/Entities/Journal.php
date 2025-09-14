@@ -2,14 +2,12 @@
 
 namespace Modules\Setting\Entities;
 
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Journal extends Model
+class Journal extends BaseModel
 {
-    use HasFactory;
-
     protected $fillable = [
         'transaction_date',
         'description',

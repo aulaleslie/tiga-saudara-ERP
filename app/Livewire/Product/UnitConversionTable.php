@@ -51,8 +51,7 @@ class UnitConversionTable extends Component
         $this->errors = session('errors')
             ? session('errors')->getBag('default')->toArray()
             : [];
-        $currentSettingId = session('setting_id');
-        $this->units = Unit::where('setting_id', $currentSettingId)
+        $this->units = Unit::orderBy('name')->get()
             ->pluck('name', 'id')
             ->toArray();
     }
@@ -127,7 +126,7 @@ class UnitConversionTable extends Component
         $this->emit('storeProduct', $normalized);
     }
 
-    public function render()
+    public function render(): Factory|Application|View|\Illuminate\View\View|\Illuminate\Contracts\Foundation\Application
     {
         return view('livewire.product.unit-conversion-table', [
             'units' => $this->units,

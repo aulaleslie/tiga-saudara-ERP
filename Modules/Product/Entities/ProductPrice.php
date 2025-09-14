@@ -2,12 +2,12 @@
 
 namespace Modules\Product\Entities;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 
-class ProductPrice extends Model
+class ProductPrice extends BaseModel
 {
     protected $table = 'product_prices';
 

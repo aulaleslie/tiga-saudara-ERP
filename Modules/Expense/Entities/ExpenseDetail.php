@@ -2,15 +2,12 @@
 
 namespace Modules\Expense\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Setting\Entities\Tax;
 
-class ExpenseDetail extends Model
+class ExpenseDetail extends BaseModel
 {
-    use HasFactory;
-
     protected $fillable = [
         'expense_id',
         'name',

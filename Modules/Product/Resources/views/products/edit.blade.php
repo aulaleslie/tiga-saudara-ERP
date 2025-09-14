@@ -62,13 +62,13 @@
                                                 <div class="col-md-6">
                                                     <x-input label="Harga Beli" name="purchase_price" step="0.01"
                                                              :disabled="!old('is_purchased', $product->is_purchased)"
-                                                             value="{{ old('purchase_price', $product->purchase_price ?? '') }}"/>
+                                                             value="{{ old('purchase_price', $price->purchase_price ?? '') }}"/>
                                                 </div>
                                                 <div class="col-md-6">
                                                     <x-select label="Pajak Beli" name="purchase_tax_id"
-                                                              :options="$taxes->pluck('name', 'id')"
+                                                              :options="$taxes->pluck('name','id')"
                                                               :disabled="!old('is_purchased', $product->is_purchased)"
-                                                              selected="{{ old('purchase_tax_id', $product->purchase_tax_id) }}"/>
+                                                              selected="{{ old('purchase_tax_id', $price->purchase_tax_id) }}"/>
                                                 </div>
                                             </div>
                                         </div>
@@ -89,13 +89,13 @@
                                                 <div class="col-md-6">
                                                     <x-input label="Harga Jual" name="sale_price" step="0.01"
                                                              :disabled="!old('is_sold', $product->is_sold)"
-                                                             value="{{ old('sale_price', $product->sale_price ?? '') }}"/>
+                                                             value="{{ old('sale_price', $price->sale_price ?? '') }}"/>
                                                 </div>
                                                 <div class="col-md-6">
                                                     <x-select label="Pajak Jual" name="sale_tax_id"
-                                                              :options="$taxes->pluck('name', 'id')"
+                                                              :options="$taxes->pluck('name','id')"
                                                               :disabled="!old('is_sold', $product->is_sold)"
-                                                              selected="{{ old('sale_tax_id', $product->sale_tax_id) }}"/>
+                                                              selected="{{ old('sale_tax_id', $price->sale_tax_id) }}"/>
                                                 </div>
                                             </div>
 
@@ -103,7 +103,7 @@
                                                 <div class="col-md-6">
                                                     <x-input label="Harga Jual Partai Besar" name="tier_1_price" step="0.01"
                                                              :disabled="!old('is_sold', $product->is_sold)"
-                                                             value="{{ old('tier_1_price', $product->tier_1_price ?? '') }}"/>
+                                                             value="{{ old('tier_1_price', $price->tier_1_price ?? '') }}"/>
                                                 </div>
                                             </div>
 
@@ -111,7 +111,7 @@
                                                 <div class="col-md-6">
                                                     <x-input label="Harga Jual Reseller" name="tier_2_price" step="0.01"
                                                              :disabled="!old('is_sold', $product->is_sold)"
-                                                             value="{{ old('tier_2_price', $product->tier_2_price ?? '') }}"/>
+                                                             value="{{ old('tier_2_price', $price->tier_2_price ?? '') }}"/>
                                                 </div>
                                             </div>
                                         </div>

@@ -2,19 +2,16 @@
 
 namespace Modules\Setting\Entities;
 
+use App\Models\BaseModel;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Currency\Entities\Currency;
 use Modules\Purchase\Entities\PaymentTerm;
 
-class Setting extends Model
+class Setting extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
     protected $with = ['currency'];

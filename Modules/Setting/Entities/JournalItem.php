@@ -2,14 +2,11 @@
 
 namespace Modules\Setting\Entities;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class JournalItem extends Model
+class JournalItem extends BaseModel
 {
-    use HasFactory;
-
     protected $fillable = [
         'journal_id',
         'chart_of_account_id',

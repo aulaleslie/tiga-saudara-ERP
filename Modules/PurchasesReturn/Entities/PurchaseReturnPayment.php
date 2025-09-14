@@ -2,14 +2,10 @@
 
 namespace Modules\PurchasesReturn\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Support\Carbon;
+use App\Models\BaseModel;
 
-class PurchaseReturnPayment extends Model
+class PurchaseReturnPayment extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
     // ✅ Casts replace old cents mutators

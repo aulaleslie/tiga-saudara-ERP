@@ -2,16 +2,13 @@
 
 namespace Modules\Adjustment\Entities;
 
+use App\Models\BaseModel;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
 
-class TransferProduct extends Model
+class TransferProduct extends BaseModel
 {
-    use HasFactory;
-
     protected $fillable = [
         'transfer_id',
         'product_id',

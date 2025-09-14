@@ -2,17 +2,23 @@
 
 namespace Modules\User\DataTables;
 
+use Illuminate\Database\Eloquent\Builder;
+use LaravelIdea\Helper\Spatie\Permission\Models\_IH_Role_QB;
 use Spatie\Permission\Models\Role;
+use Yajra\DataTables\EloquentDataTable;
+use Yajra\DataTables\Exceptions\Exception;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class RolesDataTable extends DataTable
 {
 
-    public function dataTable($query) {
+    /**
+     * @throws Exception
+     */
+    public function dataTable($query): EloquentDataTable
+    {
         return datatables()
             ->eloquent($query)
             ->addColumn('action', function ($data) {
@@ -26,13 +32,15 @@ class RolesDataTable extends DataTable
 
     }
 
-    public function query(Role $model) {
+    public function query(Role $model): _IH_Role_QB|Builder
+    {
         return $model->newQuery()->with(['permissions' => function ($query) {
             $query->select('name')->take(10)->get();
         }])->where('name', '!=', 'Super Admin');
     }
 
-    public function html() {
+    public function html(): \Yajra\DataTables\Html\Builder
+    {
         return $this->builder()
             ->setTableId('roles-table')
             ->columns($this->getColumns())

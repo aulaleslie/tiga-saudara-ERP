@@ -2,17 +2,14 @@
 
 namespace Modules\Purchase\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 
-class ReceivedNoteDetail extends Model
+class ReceivedNoteDetail extends BaseModel
 {
-    use HasFactory;
-
     // Define fillable fields for mass assignment
     protected $fillable = [
         'received_note_id',

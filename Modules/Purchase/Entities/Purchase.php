@@ -2,21 +2,17 @@
 
 namespace Modules\Purchase\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Modules\People\Entities\Supplier;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
-use OwenIt\Auditing\Contracts\Auditable;
 use Spatie\Tags\HasTags;
 use Spatie\Tags\Tag;
 
-class Purchase extends Model implements Auditable
+class Purchase extends BaseModel
 {
-    use HasFactory;
-    use \OwenIt\Auditing\Auditable;
     use HasTags;
 
     protected $fillable = [

@@ -2,17 +2,14 @@
 
 namespace Modules\Adjustment\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Modules\Setting\Entities\Location;
 
-class Adjustment extends Model
+class Adjustment extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
     public function getDateAttribute($value): string

@@ -2,16 +2,13 @@
 
 namespace Modules\Product\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Tax;
 
-class ProductStock extends Model
+class ProductStock extends BaseModel
 {
-    use HasFactory;
-
     protected $fillable = [
         'product_id',
         'location_id',

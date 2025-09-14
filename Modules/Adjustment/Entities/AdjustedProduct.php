@@ -2,14 +2,11 @@
 
 namespace Modules\Adjustment\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Modules\Product\Entities\Product;
 
-class AdjustedProduct extends Model
+class AdjustedProduct extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
     protected $with = ['product'];

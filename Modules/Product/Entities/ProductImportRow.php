@@ -2,10 +2,10 @@
 
 namespace Modules\Product\Entities;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class ProductImportRow extends Model
+class ProductImportRow extends BaseModel
 {
     protected $table = 'product_import_rows';
 

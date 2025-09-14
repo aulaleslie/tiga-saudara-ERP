@@ -2,15 +2,13 @@
 
 namespace Modules\PurchasesReturn\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
 use Modules\Purchase\Entities\Purchase;
 
-class PurchaseReturnDetail extends Model
+class PurchaseReturnDetail extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
     protected $casts = [
@@ -22,15 +20,18 @@ class PurchaseReturnDetail extends Model
         'serial_number_ids'       => 'array',
     ];
 
-    public function product() {
+    public function product(): BelongsTo
+    {
         return $this->belongsTo(Product::class, 'product_id', 'id');
     }
 
-    public function purchaseReturn() {
+    public function purchaseReturn(): BelongsTo
+    {
         return $this->belongsTo(PurchaseReturn::class, 'purchase_return_id', 'id');
     }
 
-    public function purchase() {
+    public function purchase(): BelongsTo
+    {
         return $this->belongsTo(Purchase::class, 'po_id', 'id');
     }
 }

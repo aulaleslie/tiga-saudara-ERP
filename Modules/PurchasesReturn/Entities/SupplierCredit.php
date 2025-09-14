@@ -2,11 +2,14 @@
 
 namespace Modules\PurchasesReturn\Entities;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\People\Entities\Supplier;
 
-class SupplierCredit extends Model
+class SupplierCredit extends BaseModel
 {
-    use HasFactory;
 
     protected $guarded = [];
 
@@ -15,17 +18,17 @@ class SupplierCredit extends Model
         'remaining_amount' => 'decimal:2',
     ];
 
-    public function supplier()
+    public function supplier(): BelongsTo
     {
-        return $this->belongsTo(\Modules\People\Entities\Supplier::class, 'supplier_id', 'id');
+        return $this->belongsTo(Supplier::class, 'supplier_id', 'id');
     }
 
-    public function purchaseReturn()
+    public function purchaseReturn(): BelongsTo
     {
         return $this->belongsTo(PurchaseReturn::class, 'purchase_return_id', 'id');
     }
 
-    public function applications()
+    public function applications(): SupplierCredit|Builder|HasMany
     {
         return $this->hasMany(PurchasePaymentCreditApplication::class, 'supplier_credit_id', 'id');
     }

@@ -2,17 +2,14 @@
 
 namespace Modules\Sale\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\People\Entities\Customer;
 use Modules\Setting\Entities\Setting;
 
-class Sale extends Model
+class Sale extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
     const STATUS_DRAFTED = 'DRAFTED';

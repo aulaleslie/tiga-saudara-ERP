@@ -2,15 +2,16 @@
 
 namespace Modules\PurchasesReturn\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\People\Entities\Supplier;
 
-class PurchaseReturn extends Model
+class PurchaseReturn extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
     // ✅ Cast money & dates
@@ -26,15 +27,17 @@ class PurchaseReturn extends Model
         'rejected_at'      => 'datetime',
     ];
 
-    public function purchaseReturnDetails() {
+    public function purchaseReturnDetails(): Builder|HasMany|PurchaseReturn
+    {
         return $this->hasMany(PurchaseReturnDetail::class, 'purchase_return_id', 'id');
     }
 
-    public function purchaseReturnPayments() {
+    public function purchaseReturnPayments(): Builder|HasMany|PurchaseReturn
+    {
         return $this->hasMany(PurchaseReturnPayment::class, 'purchase_return_id', 'id');
     }
 
-    public static function boot()
+    public static function boot(): void
     {
         parent::boot();
 
@@ -68,20 +71,20 @@ class PurchaseReturn extends Model
 
     public function approvedBy(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\User::class, 'approved_by');
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function rejectedBy(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\User::class, 'rejected_by');
+        return $this->belongsTo(User::class, 'rejected_by');
     }
     public function goods()
     {
-        return $this->hasMany(\App\Models\PurchaseReturnGood::class, 'purchase_return_id');
+        return $this->hasMany(PurchaseReturnGood::class, 'purchase_return_id');
     }
-    public function supplierCredit()
+    public function supplierCredit(): HasOne|Builder|PurchaseReturn
     {
-        return $this->hasOne(\App\Models\SupplierCredit::class, 'purchase_return_id');
+        return $this->hasOne(SupplierCredit::class, 'purchase_return_id');
     }
 
     public function scopeApproved($q)

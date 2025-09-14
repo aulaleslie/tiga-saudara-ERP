@@ -2,11 +2,11 @@
 
 namespace Modules\Product\Entities;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Setting\Entities\Unit;
 
-class ProductUnitConversion extends Model
+class ProductUnitConversion extends BaseModel
 {
     protected $fillable = ['product_id', 'unit_id', 'base_unit_id', 'conversion_factor', 'barcode', 'price'];
 

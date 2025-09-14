@@ -2,12 +2,12 @@
 
 namespace Modules\Sale\Entities;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
 use Modules\Setting\Entities\Location;
 
-class DispatchDetail extends Model
+class DispatchDetail extends BaseModel
 {
     protected $fillable = [
         'dispatch_id',

@@ -28,8 +28,7 @@ class CustomersDataTable extends DataTable
 
     public function query(Customer $model): Builder
     {
-        $currentSettingId = session('setting_id');
-        return $model->newQuery()->where('setting_id', $currentSettingId);
+        return $model->newQuery();
     }
 
     public function html(): \Yajra\DataTables\Html\Builder

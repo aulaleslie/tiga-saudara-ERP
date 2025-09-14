@@ -28,11 +28,7 @@ class SuppliersDataTable extends DataTable
 
     public function query(Supplier $model): Builder
     {
-        // Retrieve the current setting_id from the session
-        $currentSettingId = session('setting_id');
-
-        // Return the query filtered by the current setting_id
-        return $model->newQuery()->where('setting_id', $currentSettingId);
+        return $model->newQuery();
     }
 
     public function html(): \Yajra\DataTables\Html\Builder

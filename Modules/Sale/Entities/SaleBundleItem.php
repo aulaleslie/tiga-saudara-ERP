@@ -2,15 +2,12 @@
 
 namespace Modules\Sale\Entities;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
 
-class SaleBundleItem extends Model
+class SaleBundleItem extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
     /**

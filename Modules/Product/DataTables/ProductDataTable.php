@@ -5,6 +5,7 @@ namespace Modules\Product\DataTables;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
 use Modules\Product\Entities\Product;
+use Modules\Setting\Entities\Setting;
 use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Exceptions\Exception;
 use Yajra\DataTables\Html\Button;
@@ -29,13 +30,19 @@ class ProductDataTable extends DataTable
             })
             // Add columns for Last Purchase Price and Average Purchase Price
             ->addColumn('last_purchase_price', function ($data) {
-                return format_currency($data->last_purchase_price);
+                return $data->pp_last_purchase_price !== null
+                    ? format_currency($data->pp_last_purchase_price)
+                    : '-';
             })
             ->addColumn('average_purchase_price', function ($data) {
-                return format_currency($data->average_purchase_price);
+                return $data->pp_average_purchase_price !== null
+                    ? format_currency($data->pp_average_purchase_price)
+                    : '-';
             })
             ->addColumn('sale_price', function ($data) {
-                return format_currency($data->sale_price);
+                return $data->pp_sale_price !== null
+                    ? format_currency($data->pp_sale_price)
+                    : '-';
             })
             ->addColumn('product_quantity', function ($data) {
                 return $this->formatQuantity($data, 'available');
@@ -77,12 +84,30 @@ class ProductDataTable extends DataTable
 
     public function query(Product $model): Builder
     {
+        // Resolve the active setting id (session -> user’s first setting -> first setting in table)
+        $user = auth()->user();
+        $settingId = session('setting_id')
+            ?? optional($user?->settings()->select('settings.id')->first())->id
+            ?? Setting::query()->min('id');
+
         return $model->newQuery()
+            ->leftJoin('product_prices as pp', function ($join) use ($settingId) {
+                $join->on('pp.product_id', '=', 'products.id')
+                    ->where('pp.setting_id', '=', $settingId);
+            })
             ->with([
                 'category:id,category_name',
                 'brand:id,name',
                 'baseUnit:id,short_name',
-                'conversions.unit:id,short_name'
+                'conversions.unit:id,short_name',
+            ])
+            ->select([
+                'products.*',
+                'pp.sale_price as pp_sale_price',
+                'pp.tier_1_price as pp_tier_1_price',
+                'pp.tier_2_price as pp_tier_2_price',
+                'pp.last_purchase_price as pp_last_purchase_price',
+                'pp.average_purchase_price as pp_average_purchase_price',
             ]);
     }
 

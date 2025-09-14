@@ -2,15 +2,12 @@
 
 namespace Modules\Purchase\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class ReceivedNote extends Model
+class ReceivedNote extends BaseModel
 {
-    use HasFactory;
-
     // Define fillable fields for mass assignment
     protected $fillable = [
         'po_id',

@@ -2,17 +2,14 @@
 
 namespace Modules\Adjustment\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Setting\Entities\Location;
 
-class Transfer extends Model
+class Transfer extends BaseModel
 {
-    use HasFactory;
-
     protected $fillable = [
         'origin_location_id',
         'destination_location_id',

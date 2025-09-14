@@ -2,14 +2,14 @@
 
 namespace Modules\People\Entities;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\People\Database\factories\SupplierFactory;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Setting\Entities\Setting;
 
-class Supplier extends Model
+class Supplier extends BaseModel
 {
     use HasFactory;
 

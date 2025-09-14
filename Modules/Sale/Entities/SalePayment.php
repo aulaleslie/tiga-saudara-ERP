@@ -2,33 +2,36 @@
 
 namespace Modules\Sale\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 use Modules\Setting\Entities\PaymentMethod;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 
-class SalePayment extends Model implements HasMedia
+class SalePayment extends BaseModel implements HasMedia
 {
     use InteractsWithMedia;
-    use HasFactory;
 
     protected $guarded = [];
 
-    public function sale() {
+    public function sale(): BelongsTo
+    {
         return $this->belongsTo(Sale::class, 'sale_id', 'id');
     }
 
-    public function setAmountAttribute($value) {
+    public function setAmountAttribute($value): void
+    {
         $this->attributes['amount'] = $value * 100;
     }
 
-    public function getAmountAttribute($value) {
+    public function getAmountAttribute($value): float|int
+    {
         return $value / 100;
     }
 
-    public function getDateAttribute($value) {
+    public function getDateAttribute($value): string
+    {
         return Carbon::parse($value)->format('d M, Y');
     }
 
@@ -44,7 +47,8 @@ class SalePayment extends Model implements HasMedia
     /**
      * Relationship with PaymentMethod
      */
-    public function paymentMethod() {
+    public function paymentMethod(): BelongsTo
+    {
         return $this->belongsTo(PaymentMethod::class, 'payment_method_id', 'id');
     }
 }

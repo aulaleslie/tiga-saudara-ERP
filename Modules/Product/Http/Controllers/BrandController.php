@@ -2,7 +2,7 @@
 
 namespace Modules\Product\Http\Controllers;
 
-use Modules\Setting\Http\Controllers\Controller;
+use Illuminate\Routing\Controller;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;

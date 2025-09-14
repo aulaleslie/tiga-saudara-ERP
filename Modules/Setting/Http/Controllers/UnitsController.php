@@ -16,10 +16,8 @@ class UnitsController extends Controller
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('units.access'), 403);
-        $currentSettingId = session('setting_id'); // Get the current setting ID from the session
 
-        // Retrieve only units associated with the current setting ID
-        $units = Unit::where('setting_id', $currentSettingId)->get();
+        $units = Unit::all();
 
         return view('setting::units.index', [
             'units' => $units

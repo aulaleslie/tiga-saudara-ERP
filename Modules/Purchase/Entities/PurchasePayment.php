@@ -2,25 +2,26 @@
 
 namespace Modules\Purchase\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 use Modules\Setting\Entities\PaymentMethod;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 
-class PurchasePayment extends Model implements HasMedia
+class PurchasePayment extends BaseModel implements HasMedia
 {
     use InteractsWithMedia;
-    use HasFactory;
 
     protected $guarded = [];
 
-    public function purchase() {
+    public function purchase(): BelongsTo
+    {
         return $this->belongsTo(Purchase::class, 'purchase_id', 'id');
     }
 
-    public function setAmountAttribute($value) {
+    public function setAmountAttribute($value): void
+    {
         $this->attributes['amount'] = $value * 100;
     }
 

@@ -2,16 +2,16 @@
 
 namespace Modules\Expense\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class ExpenseCategory extends Model
+class ExpenseCategory extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
-    public function expenses() {
+    public function expenses(): Builder|HasMany|ExpenseCategory
+    {
         return $this->hasMany(Expense::class, 'category_id', 'id');
     }
 }

@@ -2,16 +2,13 @@
 
 namespace Modules\Purchase\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
 use Modules\Setting\Entities\Tax;
 
-class PurchaseDetail extends Model
+class PurchaseDetail extends BaseModel
 {
-    use HasFactory;
-
     protected $fillable = [
         'purchase_id',
         'product_id',

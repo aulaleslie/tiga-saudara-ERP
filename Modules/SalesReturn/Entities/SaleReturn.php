@@ -2,20 +2,21 @@
 
 namespace Modules\SalesReturn\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class SaleReturn extends Model
+class SaleReturn extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
-    public function saleReturnDetails() {
+    public function saleReturnDetails(): Builder|HasMany|SaleReturn
+    {
         return $this->hasMany(SaleReturnDetail::class, 'sale_return_id', 'id');
     }
 
-    public function saleReturnPayments() {
+    public function saleReturnPayments(): Builder|HasMany|SaleReturn
+    {
         return $this->hasMany(SaleReturnPayment::class, 'sale_return_id', 'id');
     }
 
@@ -50,27 +51,33 @@ class SaleReturn extends Model
         return $query->where('status', 'Completed');
     }
 
-    public function getShippingAmountAttribute($value) {
+    public function getShippingAmountAttribute($value): float|int
+    {
         return $value / 100;
     }
 
-    public function getPaidAmountAttribute($value) {
+    public function getPaidAmountAttribute($value): float|int
+    {
         return $value / 100;
     }
 
-    public function getTotalAmountAttribute($value) {
+    public function getTotalAmountAttribute($value): float|int
+    {
         return $value / 100;
     }
 
-    public function getDueAmountAttribute($value) {
+    public function getDueAmountAttribute($value): float|int
+    {
         return $value / 100;
     }
 
-    public function getTaxAmountAttribute($value) {
+    public function getTaxAmountAttribute($value): float|int
+    {
         return $value / 100;
     }
 
-    public function getDiscountAmountAttribute($value) {
+    public function getDiscountAmountAttribute($value): float|int
+    {
         return $value / 100;
     }
 }

@@ -2,10 +2,12 @@
 
 namespace Modules\PurchasesReturn\Entities;
 
-class PurchaseReturnGood extends Model
-{
-    use HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Modules\Product\Entities\Product;
 
+class PurchaseReturnGood extends BaseModel
+{
     protected $guarded = [];
 
     protected $casts = [
@@ -15,13 +17,13 @@ class PurchaseReturnGood extends Model
         'received_at'=> 'datetime',
     ];
 
-    public function purchaseReturn()
+    public function purchaseReturn(): BelongsTo
     {
         return $this->belongsTo(PurchaseReturn::class, 'purchase_return_id', 'id');
     }
 
-    public function product()
+    public function product(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\Product::class, 'product_id', 'id');
+        return $this->belongsTo(Product::class, 'product_id', 'id');
     }
 }
