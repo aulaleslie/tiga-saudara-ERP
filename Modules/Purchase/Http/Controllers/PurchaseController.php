@@ -139,6 +139,11 @@ class PurchaseController extends Controller
     {
         abort_if(Gate::denies('purchases.show'), 403);
 
+        $currentSettingId = (int) session('setting_id');
+        if ((int) $purchase->setting_id !== $currentSettingId) {
+            abort(404);
+        }
+
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 
         $receivedNotes = ReceivedNote::where('po_id', $purchase->id)
