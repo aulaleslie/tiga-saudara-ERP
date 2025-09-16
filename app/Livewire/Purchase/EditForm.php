@@ -4,6 +4,9 @@ namespace App\Livewire\Purchase;
 
 use Carbon\Carbon;
 use Gloudemans\Shoppingcart\Facades\Cart;
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
@@ -17,6 +20,7 @@ class EditForm extends Component
     public $purchaseId;
     public $reference;
     public $supplier_id;
+    public $supplier_name;
     public $date;
     public $due_date;
     public $payment_term;
@@ -50,7 +54,7 @@ class EditForm extends Component
         $this->due_date = $this->purchase->due_date;
         $this->payment_term = $this->purchase->payment_term_id;
         $this->note = $this->purchase->note;
-        $this->paymentTerms = PaymentTerm::where('setting_id', session('setting_id'))->get();
+        $this->paymentTerms = PaymentTerm::all();
 
         $this->tags = $this->purchase->tags->pluck('name')->toArray();
 
@@ -231,7 +235,7 @@ class EditForm extends Component
         }
     }
 
-    public function handleSupplierSelected($supplier)
+    public function handleSupplierSelected($supplier): void
     {
         Log::info('Updated supplier id: ', ['$supplier' => $supplier]);
         if (is_null($supplier)) {
@@ -243,7 +247,7 @@ class EditForm extends Component
         $this->updatedSupplierId($supplier);
     }
 
-    public function render()
+    public function render(): Factory|Application|View|\Illuminate\View\View|\Illuminate\Contracts\Foundation\Application
     {
         return view('livewire.purchase.edit-form');
     }

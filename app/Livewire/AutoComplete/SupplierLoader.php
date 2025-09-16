@@ -73,12 +73,10 @@ class SupplierLoader extends Component
             $this->query_count = Supplier::where(function ($query) {
                 $query->where('supplier_name', 'like', '%' . $this->query . '%');
             })
-                ->where('setting_id', session('setting_id'))
                 ->count();
             $this->search_results = Supplier::where(function ($query) {
                 $query->where('supplier_name', 'like', '%' . $this->query . '%');
             })
-                ->where('setting_id', session('setting_id'))
                 ->limit($this->how_many)
                 ->get();
         }

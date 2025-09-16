@@ -3,10 +3,17 @@
 namespace Modules\Product\Entities;
 
 use App\Models\BaseModel;
+use Eloquent;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 
+/**
+ * @method static Builder|ProductPrice forProduct(int $productId)
+ * @method static Builder|ProductPrice forSetting(int $settingId)
+ * @mixin Eloquent
+ */
 class ProductPrice extends BaseModel
 {
     protected $table = 'product_prices';
@@ -39,7 +46,6 @@ class ProductPrice extends BaseModel
 
     public function setting(): BelongsTo
     {
-        // Adjust the class path if your Setting model lives elsewhere
         return $this->belongsTo(Setting::class, 'setting_id');
     }
 
@@ -54,12 +60,12 @@ class ProductPrice extends BaseModel
     }
 
     // --- Scopes
-    public function scopeForProduct($query, int $productId)
+    public function scopeForProduct(Builder $query, int $productId): Builder
     {
         return $query->where('product_id', $productId);
     }
 
-    public function scopeForSetting($query, int $settingId)
+    public function scopeForSetting(Builder $query, int $settingId): Builder
     {
         return $query->where('setting_id', $settingId);
     }

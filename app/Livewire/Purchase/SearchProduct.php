@@ -15,11 +15,9 @@ class SearchProduct extends Component
     public string $query = '';
     public $search_results;
     public int $how_many = 5;
-    public $settingId;
 
     public function mount(): void
     {
-        $this->settingId = session('setting_id');
         $this->search_results = Collection::empty();
     }
 
@@ -30,16 +28,9 @@ class SearchProduct extends Component
 
     public function updatedQuery(): void
     {
-        // Ensure settingId is available
-        if (!$this->settingId) {
-            $this->search_results = Collection::empty();
-            return;
-        }
-
-        // Fetch products based on the query and setting_id
+        // Fetch products based on the query
         $this->search_results = Product::with('baseUnit')
             ->where('stock_managed', true)
-            ->where('setting_id', $this->settingId)
             ->where(function ($query) {
                 $query->where('product_name', 'like', '%' . $this->query . '%')
                     ->orWhere('product_code', 'like', '%' . $this->query . '%');

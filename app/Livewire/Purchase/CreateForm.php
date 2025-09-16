@@ -4,6 +4,9 @@ namespace App\Livewire\Purchase;
 
 use Carbon\Carbon;
 use Gloudemans\Shoppingcart\Facades\Cart;
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
@@ -11,6 +14,7 @@ use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
+use Throwable;
 
 class CreateForm extends Component
 {
@@ -37,25 +41,24 @@ class CreateForm extends Component
     public $global_discount = 0;
     public $is_tax_included = false;
 
-    public function mount()
+    public function mount(): void
     {
         $this->reference = 'PR'; // This can be dynamic if needed
         $this->date = now()->format('Y-m-d');
         $this->due_date = now()->format('Y-m-d');
-        $this->paymentTerms = PaymentTerm::where('setting_id', session('setting_id'))->get();
+        $this->paymentTerms = PaymentTerm::all();
     }
 
-    public function updatedSupplierId($value)
+    public function updatedSupplierId($value): void
     {
         $supplier = Supplier::find($value);
         if ($supplier && $supplier->payment_term_id) {
             $this->payment_term = $supplier->payment_term_id;
             $this->updateDueDateFromPaymentTerm();
         }
-//        Log::info("Updated supplier id: ", ['supplier_id' => $value]);
     }
 
-    public function handleTagsUpdated(array $tags)
+    public function handleTagsUpdated(array $tags): void
     {
         $this->tags = $tags;
     }
@@ -78,12 +81,12 @@ class CreateForm extends Component
         }
     }
 
-    public function updatedDate($value)
+    public function updatedDate($value): void
     {
         $this->updateDueDateFromPaymentTerm();
     }
 
-    public function handleSupplierSelected($supplier)
+    public function handleSupplierSelected($supplier): void
     {
         Log::info('Updated supplier id: ', ['$supplier' => $supplier]);
         if ($supplier) {
@@ -111,6 +114,9 @@ class CreateForm extends Component
         $this->is_tax_included = $included;
     }
 
+    /**
+     * @throws Throwable
+     */
     public function submit()
     {
         $this->validate([
@@ -226,7 +232,7 @@ class CreateForm extends Component
         }
     }
 
-    public function render()
+    public function render(): Factory|Application|View|\Illuminate\View\View|\Illuminate\Contracts\Foundation\Application
     {
         return view('livewire.purchase.create-form');
     }

@@ -8,6 +8,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
@@ -28,6 +29,7 @@ class ProductCart extends Component
     public $unit_price;
     public $data;
     public $quantityBreakdowns = [];
+    public $product;
 
     public $taxes; // Collection of taxes filtered by setting_id
     public $setting_id; // Current setting ID
@@ -43,12 +45,13 @@ class ProductCart extends Component
         'item_discount.*' => 'nullable|numeric|min:0', // Discounts are optional and non-negative.
         'global_discount' => 'nullable|numeric|min:0|max:100',
         'shipping' => 'nullable|numeric|min:0', // Shipping is optional and non-negative.
-        'product_tax_id.*' => 'nullable|integer|exists:taxes,id', // Validate selected tax ID.
+        'product_tax.*' => 'nullable|integer|exists:taxes,id', // Validate selected tax ID.
         'is_tax_included' => 'nullable|boolean', // Boolean flag for tax inclusion.
     ];
 
     public function mount($cartInstance, $data = null): void
     {
+        $this->cart_instance = $cartInstance;
         $cart_items = Cart::instance($this->cart_instance)->content();
         Log::info('mount() called at: ' . round(microtime(true) * 1000), [
             'cart_instance' => $cartInstance,
@@ -56,7 +59,7 @@ class ProductCart extends Component
         ]);
         $this->cart_instance = $cartInstance;
         $this->setting_id = session('setting_id');
-        $this->taxes = Tax::where('setting_id', $this->setting_id)->get();
+        $this->taxes = Tax::all();
         Log::info('validated', [
             'data' => $data,
         ]);
@@ -93,9 +96,9 @@ class ProductCart extends Component
         }
     }
 
-    private function initializeCartItemAttributes($cart_item)
+    private function initializeCartItemAttributes($cart_item): void
     {
-        $this->check_quantity[$cart_item->id] = [$cart_item->options->stock ?? 0];
+        $this->check_quantity[$cart_item->id] = $cart_item->options->stock ?? 0;
         $this->quantity[$cart_item->id] = $cart_item->qty ?? 0;
         $this->unit_price[$cart_item->id] = $cart_item->price ?? 0;
         $this->discount_type[$cart_item->id] = $cart_item->options->product_discount_type ?? 'fixed';
@@ -215,35 +218,39 @@ class ProductCart extends Component
 
         $this->product = $product;
 
+        $calc = $this->calculate($product);
+
         $cart->add([
-            'id'      => $product['id'],
-            'name'    => $product['product_name'],
-            'qty'     => 1,
-            'price'   => $this->calculate($product)['price'],
-            'weight'  => 1,
+            'id'     => $product['id'],
+            'name'   => $product['product_name'],
+            'qty'    => 1,
+            'price'  => $calc['price'],   // unit price (may already include tax depending on flag)
+            'weight' => 1,
             'options' => [
-                'product_discount'      => 0.00,
-                'product_discount_type' => 'fixed',
-                'sub_total'             => $this->calculate($product)['sub_total'],
-                'code'                  => $product['product_code'],
-                'stock'                 => $product['product_quantity'],
-                'unit'                  => $product['product_unit'],
-                'last_purchase_price' => $product['last_purchase_price'],
-                'average_purchase_price' => $product['average_purchase_price'],
-                'product_tax'           => null, // Initialize as null
-                'unit_price'            => $this->calculate($product)['unit_price']
-            ]
+                'product_discount'        => 0.00,
+                'product_discount_type'   => 'fixed',
+                'sub_total'               => $calc['sub_total'],
+                'sub_total_before_tax'    => $calc['sub_total_before_tax'] ?? $calc['sub_total'], // safe
+                'tax_amount'              => $calc['tax_amount'] ?? 0,
+                'code'                    => $product['product_code'],
+                'stock'                   => $product['product_quantity'],
+                'unit'                    => $product['product_unit'],
+                'last_purchase_price'     => $calc['last_purchase_price'],
+                'average_purchase_price'  => $calc['average_purchase_price'],
+                'product_tax'             => $calc['product_tax'], // default per-product tax if any
+                'unit_price'              => $calc['unit_price'],
+            ],
         ]);
 
-        $this->check_quantity[$product['id']] = $product['product_quantity'];
-        $this->quantity[$product['id']] = 1;
-        $this->discount_type[$product['id']] = 'fixed';
-        $this->item_discount[$product['id']] = 0;
-        $this->product_tax[$product['id']] = null; // Initialize per-product tax
+        $this->check_quantity[$product['id']]  = $product['product_quantity'];
+        $this->quantity[$product['id']]        = 1;
+        $this->discount_type[$product['id']]   = 'fixed';
+        $this->item_discount[$product['id']]   = 0;
+        $this->product_tax[$product['id']]     = $calc['product_tax']; // mirror options
         $this->quantityBreakdowns[$product['id']] = $this->calculateConversionBreakdown($product['id'], 1);
     }
 
-    public function removeItem($row_id)
+    public function removeItem($row_id): void
     {
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
         Cart::instance($this->cart_instance)->remove($row_id);
@@ -253,21 +260,21 @@ class ProductCart extends Component
         unset($this->product_tax[$cart_item->id]);
     }
 
-    public function updatedGlobalTax()
+    public function updatedGlobalTax(): void
     {
         // Recalculate when global tax changes
         // Ensure that the new global tax is applied
-        $this->render();
+        $this->recalculateCart();
     }
 
-    public function updatedGlobalDiscount()
+    public function updatedGlobalDiscount(): void
     {
         Log::info('updated global discount');
 
-        $this->render();
+        $this->recalculateCart();
     }
 
-    public function updateQuantity($row_id, $product_id)
+    public function updateQuantity($row_id, $product_id): void
     {
         if ($this->quantity[$product_id] <= 0) {
             $this->quantity[$product_id] = 1;
@@ -325,9 +332,8 @@ class ProductCart extends Component
         // Validate inputs
         $price = max(0, (float) $price); // Ensure price is non-negative
         $qty = max(1, (int) $qty);
-        $discount = max(0, (int) $discount);
-
-        $price = $price - $discount;// Ensure quantity is at least 1
+        $discount = max(0.0, (float) $discount);
+        $price = max(0.0, (float) $price - $discount);// Ensure quantity is at least 1
        // Ensure discount is non-negative
 
         // Initialize variables
@@ -452,7 +458,7 @@ class ProductCart extends Component
         session()->flash('discount_message' . $product_id, 'Diskon berhasil diterapkan!');
     }
 
-    public function updatePrice($row_id, $product_id)
+    public function updatePrice($row_id, $product_id): void
     {
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
 
@@ -490,23 +496,41 @@ class ProductCart extends Component
         $this->recalculateCart();
     }
 
-    public function calculate($product, $new_price = null)
+    public function calculate(array $product, $new_price = null): array
     {
-        // Determine the base price
-        $product_price = $product['last_purchase_price'] ?? 0;
+        $productId = (int) ($product['id'] ?? 0);
 
-        $product_tax = 0;
-        $sub_total = $product_price; // Start with base price as subtotal
+        $pp = ProductPrice::query()
+            ->forProduct($productId)
+            ->forSetting((int) $this->setting_id)
+            ->with('purchaseTax')
+            ->first();
+
+        $unitPrice   = $new_price ?? ($pp?->last_purchase_price ?? ($product['last_purchase_price'] ?? 0));
+        $avgPurchase = $pp?->average_purchase_price ?? ($product['average_purchase_price'] ?? null);
+        $purchaseTaxId = $pp?->purchase_tax_id ?? null;
+
+        // Qty=1 when adding the first time; use your existing calculator
+        $calc = $this->calculateSubtotalAndTax(
+            $unitPrice,
+            1,                // qty
+            0,                // per-unit discount on add
+            $purchaseTaxId    // default purchase tax if present
+        );
 
         return [
-            'price' => $product_price,
-            'unit_price' => $product_price,
-            'product_tax' => $product_tax,
-            'sub_total' => $sub_total,
+            'price'                   => (float) $unitPrice,
+            'unit_price'              => (float) $unitPrice,
+            'last_purchase_price'     => (float) $unitPrice,
+            'average_purchase_price'  => $avgPurchase,
+            'product_tax'             => $purchaseTaxId,                 // may be null
+            'sub_total'               => $calc['sub_total'],
+            'sub_total_before_tax'    => $calc['subtotal_before_tax'],
+            'tax_amount'              => $calc['tax_amount'],
         ];
     }
 
-    public function updateCartOptions($row_id, $product_id, $cart_item, $discount_amount)
+    public function updateCartOptions($row_id, $product_id, $cart_item, $discount_amount): void
     {
         Cart::instance($this->cart_instance)->update($row_id, ['options' => [
             'sub_total'             => $cart_item->price * $cart_item->qty,
