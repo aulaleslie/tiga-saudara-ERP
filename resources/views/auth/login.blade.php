@@ -73,6 +73,30 @@
                     </form>
                 </div>
             </div>
+
+            @if(isset($settings) && $settings->count())
+                <div class="card mt-3 border-0 shadow-sm">
+                    <div class="card-body">
+                        <h5 class="mb-1">Terminal Harga</h5>
+                        <p class="text-muted mb-3">Akses cepat tanpa login. Pilih Setting:</p>
+
+                        <div class="row g-2">
+                            @foreach($settings as $s)
+                                <div class="col-12 col-sm-6">
+                                    <a href="{{ route('price-points.index', $s['id']) }}"
+                                       class="btn btn-outline-primary w-100 d-flex align-items-center justify-content-between">
+                        <span class="text-truncate">
+                            <i class="bi bi-shop me-2"></i>
+                            {{ $s['company_name'] ?? ('Setting #'.$s['id']) }}
+                        </span>
+                                        <i class="bi bi-chevron-right"></i>
+                                    </a>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+            @endif
         </div>
     </div>
 </div>

@@ -1,8 +1,10 @@
 <?php
 
+use App\Http\Controllers\PricePointController;
 use App\Http\Controllers\WsMonitorController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use Modules\Setting\Entities\Setting;
 
 /*
 |--------------------------------------------------------------------------
@@ -11,7 +13,8 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/', function () {
-    return view('auth.login');
+    $settings = Setting::orderBy('id')->get(['id','company_name']);
+    return view('auth.login', compact('settings'));
 })->middleware('guest');
 
 Auth::routes(['register' => false]);
@@ -37,4 +40,8 @@ Route::middleware(['auth']) // tighten as you like (e.g. 'can:view-ws-monitor')
     Route::get('/ws-monitor/presence/{name}', [WsMonitorController::class, 'presence'])->name('ws.monitor.presence');
     Route::get('/ws-test', fn () => view('ws-test'));
 });
+
+Route::get('/price-points/{setting}', [PricePointController::class, 'index'])
+    ->whereNumber('setting')
+    ->name('price-points.index');
 
