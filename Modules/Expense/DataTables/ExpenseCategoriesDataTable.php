@@ -2,17 +2,23 @@
 
 namespace Modules\Expense\DataTables;
 
+use Illuminate\Database\Eloquent\Builder;
+use LaravelIdea\Helper\Modules\Expense\Entities\_IH_ExpenseCategory_QB;
 use Modules\Expense\Entities\ExpenseCategory;
+use Yajra\DataTables\EloquentDataTable;
+use Yajra\DataTables\Exceptions\Exception;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class ExpenseCategoriesDataTable extends DataTable
 {
 
-    public function dataTable($query) {
+    /**
+     * @throws Exception
+     */
+    public function dataTable($query): EloquentDataTable
+    {
         return datatables()
             ->eloquent($query)
             ->addColumn('action', function ($data) {
@@ -20,12 +26,13 @@ class ExpenseCategoriesDataTable extends DataTable
             });
     }
 
-    public function query(ExpenseCategory $model) {
-        $currentSettingId = session('setting_id');
-        return $model->newQuery()->where('setting_id', $currentSettingId)->withCount('expenses');
+    public function query(ExpenseCategory $model): _IH_ExpenseCategory_QB|Builder
+    {
+        return $model->newQuery()->withCount('expenses');
     }
 
-    public function html() {
+    public function html(): \Yajra\DataTables\Html\Builder
+    {
         return $this->builder()
             ->setTableId('expensecategories-table')
             ->columns($this->getColumns())
@@ -46,7 +53,8 @@ class ExpenseCategoriesDataTable extends DataTable
             );
     }
 
-    protected function getColumns() {
+    protected function getColumns(): array
+    {
         return [
             Column::make('category_name')
                 ->title('Nama Kategori')

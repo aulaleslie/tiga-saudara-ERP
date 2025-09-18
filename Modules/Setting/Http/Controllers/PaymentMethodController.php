@@ -24,7 +24,7 @@ class PaymentMethodController extends Controller
     {
         abort_if(Gate::denies('paymentMethods.create'), 403);
         // Get chart of accounts for the dropdown
-        $chartOfAccounts = ChartOfAccount::where('setting_id', session('setting_id'))->get();
+        $chartOfAccounts = ChartOfAccount::all();
 
         return view('setting::payment_methods.create', compact('chartOfAccounts'));
     }
@@ -53,7 +53,7 @@ class PaymentMethodController extends Controller
     {
         abort_if(Gate::denies('paymentMethods.edit'), 403);
         // Get chart of accounts for the dropdown
-        $chartOfAccounts = ChartOfAccount::where('setting_id', session('setting_id'))->get();
+        $chartOfAccounts = ChartOfAccount::all();
 
         return view('setting::payment_methods.edit', compact('paymentMethod', 'chartOfAccounts'));
     }

@@ -170,7 +170,6 @@ class BusinessController extends Controller
 
     public function updateActiveBusiness(Request $request): RedirectResponse
     {
-        abort_if(Gate::denies('businesses.edit'), 403);
         $settingId = $request->input('setting_id');
 
         // Update the session with the new setting ID

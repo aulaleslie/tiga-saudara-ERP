@@ -38,11 +38,8 @@ class BrandDataTable extends DataTable
 
     public function query(Brand $model): Builder
     {
-        $currentSettingId = session('setting_id');
-
         // Build a query to include name and description for searching
         return $model->newQuery()
-            ->where('setting_id', $currentSettingId)
             ->select('id', 'name', 'description'); // Include these fields for searching
     }
 
