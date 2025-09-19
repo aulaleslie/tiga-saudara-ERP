@@ -1,99 +1,153 @@
-<div class="container py-3">
-    <div class="row mb-3">
-        <div class="col-12 d-flex justify-content-center">
-            <img width="180" src="{{ asset('images/logo-dark.png') }}" alt="Logo">
-        </div>
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+    {{-- Logo --}}
+    <div class="mb-4 flex justify-center">
+        <img class="w-40 sm:w-44" src="{{ asset('images/logo-dark.png') }}" alt="Logo">
     </div>
 
-    <div class="card border-0 shadow-sm mb-3 sticky-top-shadow bg-white">
-        <div class="card-body">
-            <div class="d-flex flex-wrap align-items-center gap-2">
-                <div class="me-auto">
-                    <h5 class="mb-0">Terminal Harga</h5>
-                    <div class="text-muted small">Outlet: <strong>{{ $setting->company_name ?? ('#'.$setting->id) }}</strong></div>
+    {{-- Sticky header + search (compact desktop, readable mobile) --}}
+    <div class="sticky top-0 z-30 mb-4 rounded-lg border border-slate-200 bg-white/90 backdrop-blur shadow-sm">
+        <div class="p-3 md:p-2.5">
+            <div class="flex flex-wrap items-center gap-2">
+                <div class="mr-auto text-left">
+                    <div class="text-sm md:text-[13px] font-semibold text-slate-800">Terminal Harga</div>
+                    <div class="text-[12.5px] md:text-[12px] text-slate-500">
+                        Outlet: <strong class="text-slate-700">{{ $setting->company_name ?? ('#'.$setting->id) }}</strong>
+                    </div>
                 </div>
-                <div class="w-100 mt-2"></div>
-                <div class="input-group">
-                    <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
-                    <input
-                        id="pp-search"
-                        type="text"
-                        class="form-control"
-                        placeholder="Scan/ketik nama • brand • kategori • barcode • serial"
-                        wire:model.debounce.350ms="q"
-                        wire:keydown.enter="searchNow"
-                        autocomplete="off"
-                    >
+
+                <div class="w-full"></div>
+
+                {{-- Scanner-friendly search --}}
+                <form wire:submit.prevent="searchNow" class="flex w-full items-stretch gap-2">
+                    <div class="relative flex-1 min-w-0">
+                        <i class="bi bi-upc-scan pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                        <input
+                            id="pp-search"
+                            type="text"
+                            class="w-full rounded-md border border-slate-300 bg-white pl-8 pr-2 py-2 text-[15px] sm:text-[14px] md:text-[13px] placeholder-slate-400 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+                            placeholder="Scan/ketik nama • brand • kategori • barcode • serial"
+                            wire:model.defer="q"
+                            autocomplete="off"
+                            autofocus
+                        >
+                    </div>
+
                     @if($q !== '')
-                        <button class="btn btn-outline-secondary" wire:click="$set('q','')" type="button">
-                            Bersihkan
+                        <button
+                            class="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-[14px] md:text-[13px] text-slate-600 hover:bg-slate-50"
+                            wire:click="$set('q','')"
+                            type="button"
+                            aria-label="Bersihkan"
+                        >
+                            <span class="hidden sm:inline">Bersihkan</span>
+                            <i class="bi bi-x-lg sm:hidden text-[12px]"></i>
                         </button>
                     @endif
+
+                    <button type="submit" class="hidden" aria-hidden="true"></button>
+                </form>
+
+                <div class="w-full text-[12.5px] md:text-[12px] text-slate-500 mt-1 hidden sm:block">
+                    Gunakan scanner (akhiri dengan Enter). Setelah pencarian, kursor otomatis kembali ke kotak ini.
                 </div>
-                <div class="w-100 mt-1 scan-hint">Gunakan scanner (akhiri dengan Enter). Setelah pencarian, kursor otomatis kembali ke kotak ini.</div>
             </div>
         </div>
     </div>
 
-    <div wire:loading.flex class="justify-content-center my-5">
-        <div class="spinner-border" role="status" aria-hidden="true"></div>
+    {{-- Loading --}}
+    <div wire:loading.flex class="justify-center my-6">
+        <svg class="h-5 w-5 animate-spin text-slate-400" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+        </svg>
     </div>
 
+    {{-- Results --}}
     <div wire:loading.remove>
         @if($products->count() === 0)
-            <div class="alert alert-light border text-center">Tidak ada produk untuk kata kunci ini.</div>
+            <div class="rounded-lg border border-slate-200 bg-white p-5 text-center text-slate-600 text-sm">
+                Tidak ada produk untuk kata kunci ini.
+            </div>
         @else
-            <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 g-3">
+            {{-- Mobile: vertical list; Desktop: tight grid --}}
+            <div class="space-y-2 md:space-y-0 md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-3 lg:gap-4">
                 @foreach($products as $product)
-                    <div class="col">
-                        <div class="card product-card border-0 shadow-sm h-100">
-                            <div class="card-body d-flex">
-                                <div class="me-3" style="width:140px;">
-                                    @php
-                                        $img = method_exists($product, 'getFirstMediaUrl')
-                                            ? $product->getFirstMediaUrl('products')
-                                            : null;
-                                    @endphp
+                    <div class="rounded-md border border-slate-200 bg-white shadow-sm overflow-hidden">
+                        <div class="p-3 md:p-2.5">
+                            {{-- Mobile: row (image ≈26% left). Desktop: column (image on top). --}}
+                            <div class="flex items-start gap-3 md:block md:space-y-2">
+                                {{-- IMAGE (smaller, keeps ratio) --}}
+                                @php
+                                    $img = method_exists($product, 'getFirstMediaUrl')
+                                        ? $product->getFirstMediaUrl('images')
+                                        : null;
+                                @endphp
+                                <div class="basis-[26%] max-w-[26%] shrink-0 md:max-w-full md:basis-auto md:mb-1">
                                     <img
                                         src="{{ $img ?: asset('images/fallback_product_image.png') }}"
-                                        class="img-fluid border rounded"
-                                        alt="product image">
+                                        alt="product image"
+                                        class="w-full h-auto object-contain rounded border border-slate-200 max-h-20 md:max-h-24 lg:max-h-28"
+                                        loading="lazy"
+                                    >
                                 </div>
-                                <div class="flex-grow-1">
-                                    <div class="fw-semibold mb-1">{{ $product->product_name }}</div>
-                                    <div class="text-muted small mb-1">
-                                        {{ $product->product_code }} @if($product->barcode) • {{ $product->barcode }} @endif
-                                    </div>
-                                    <div class="text-muted small mb-2">
-                                        @if(optional($product->brand)->name)
-                                            <span class="me-2"><i class="bi bi-tags"></i> {{ $product->brand->name }}</span>
-                                        @endif
-                                        @if(optional($product->category)->category_name)
-                                            <span><i class="bi bi-folder2"></i> {{ $product->category->category_name }}</span>
-                                        @endif
-                                    </div>
-                                    <div class="mb-2">
-                                        <div class="text-uppercase small text-muted">Harga</div>
-                                        <div class="h5 mb-0">
-                                            {{ number_format((float)($product->display_sale_price ?? 0), 0, ',', '.') }}
-                                        </div>
+
+                                {{-- INFO --}}
+                                <div class="flex-1 min-w-0 text-left">
+                                    {{-- Title (larger on mobile, tighter on desktop) --}}
+                                    <div class="mb-1 text-[15px] md:text-sm font-medium text-slate-800 leading-snug break-words">
+                                        {{ $product->product_name }}
                                     </div>
 
-                                    @if($product->conversions && $product->conversions->count())
-                                        <div class="mt-2">
-                                            <div class="text-uppercase small text-muted mb-1">Konversi</div>
-                                            <div class="d-flex flex-wrap gap-1">
-                                                @foreach($product->conversions as $uc)
-                                                    <span class="unit-chip">
-                                                        {{ $uc->unit->short_name ?? $uc->unit->name ?? 'Unit' }}
-                                                        @if($uc->quantity) x{{ (int)$uc->quantity }} @endif
-                                                        @if(!is_null($uc->price)) • {{ number_format((float)$uc->price, 0, ',', '.') }} @endif
-                                                        @if($uc->barcode) • {{ $uc->barcode }} @endif
-                                                    </span>
-                                                @endforeach
+                                    {{-- Desktop info grid (2 cols). On mobile it flows naturally. --}}
+                                    <div class="md:grid md:grid-cols-2 md:gap-x-4 md:gap-y-1.5">
+                                        {{-- Price --}}
+                                        <div class="mb-1 md:mb-0">
+                                            <div class="text-[11.5px] md:text-[10.5px] uppercase tracking-wide text-slate-500">Harga</div>
+                                            <div class="text-base md:text-[15px] font-semibold text-slate-800">
+                                                {{ number_format((float)($product->display_sale_price ?? 0), 0, ',', '.') }}
                                             </div>
                                         </div>
-                                    @endif
+
+                                        {{-- Codes (product code + barcode) --}}
+                                        <div class="mb-1 md:mb-0">
+                                            <div class="text-[11.5px] md:text-[10.5px] uppercase tracking-wide text-slate-500">Kode / Barcode</div>
+                                            <div class="text-[14px] md:text-[13px] text-slate-700 break-words">
+                                                <span class="font-mono">{{ $product->product_code }}</span>
+                                                @if($product->barcode)
+                                                    • <span class="font-mono break-all">{{ $product->barcode }}</span>
+                                                @endif
+                                            </div>
+                                        </div>
+
+                                        {{-- Brand / Category (full width) --}}
+                                        <div class="md:col-span-2">
+                                            <div class="text-[14px] md:text-[13px] text-slate-600">
+                                                @if(optional($product->brand)->name)
+                                                    <span class="mr-3"><i class="bi bi-tags"></i> {{ $product->brand->name }}</span>
+                                                @endif
+                                                @if(optional($product->category)->category_name)
+                                                    <span><i class="bi bi-folder2"></i> {{ $product->category->category_name }}</span>
+                                                @endif
+                                            </div>
+                                        </div>
+
+                                        {{-- Conversions (full width) --}}
+                                        @if($product->conversions && $product->conversions->count())
+                                            <div class="md:col-span-2 mt-1.5">
+                                                <div class="text-[11.5px] md:text-[10.5px] uppercase tracking-wide text-slate-500 mb-1">Konversi</div>
+                                                <div class="flex flex-wrap gap-1.5">
+                                                    @foreach($product->conversions as $uc)
+                                                        <span class="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-0.5 text-[13px] md:text-[12px] text-slate-700">
+                                                            {{ $uc->unit->short_name ?? $uc->unit->name ?? 'Unit' }}
+                                                            @if($uc->quantity) x{{ (int)$uc->quantity }} @endif
+                                                            @if(!is_null($uc->price)) • {{ number_format((float)$uc->price, 0, ',', '.') }} @endif
+                                                            @if($uc->barcode) • <span class="font-mono break-all">{{ $uc->barcode }}</span> @endif
+                                                        </span>
+                                                    @endforeach
+                                                </div>
+                                            </div>
+                                        @endif
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -101,14 +155,22 @@
                 @endforeach
             </div>
 
-            <div class="d-flex justify-content-between align-items-center mt-3">
-                <div class="text-muted small">
+            {{-- Footer / pagination --}}
+            <div class="mt-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div class="order-2 md:order-1 text-[12.5px] md:text-[12px] text-slate-600">
                     Menampilkan {{ $products->firstItem() }}–{{ $products->lastItem() }} dari {{ $products->total() }}
                 </div>
-                <div>
+                <div class="order-1 md:order-2 flex justify-center">
                     {{ $products->onEachSide(1)->links() }}
                 </div>
             </div>
         @endif
     </div>
 </div>
+
+<script>
+    window.addEventListener('refocus-search', () => {
+        const el = document.getElementById('pp-search');
+        if (el) { el.focus(); el.select(); }
+    });
+</script>

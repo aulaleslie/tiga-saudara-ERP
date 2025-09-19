@@ -21,17 +21,23 @@ class Browser extends Component
         'page' => ['except' => 1],
     ];
 
-    public function mount(Setting $setting)
+    public function mount(Setting $setting): void
     {
         $this->setting = $setting;
     }
 
-    public function updatingQ() { $this->resetPage(); }
+    public function updatingQ(): void
+    { $this->resetPage(); }
 
     // When barcode scan (or Enter) is pressed, keep cursor in the search box
-    public function searchNow()
+    public function searchNow(): void
     {
-        $this->dispatch('refocus-search');
+        // Strip trailing CR/LF from scanners and trim spaces
+        $clean = preg_replace("/[\r\n]+/", '', (string) $this->q);
+        $this->q = trim($clean);
+
+        $this->resetPage();
+        $this->dispatch('refocus-search'); // Livewire v3 browser event
     }
 
     public function render()

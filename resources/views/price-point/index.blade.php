@@ -1,13 +1,11 @@
-    @extends('layouts.guest')
+@extends('layouts.guest')
 
-    @section('title', 'Terminal Harga')
+@section('title', 'Terminal Harga')
 
-    @section('content')
-        <div class="container py-4">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body text-center">
-                    <livewire:price-point.browser :setting="$setting" />
-                </div>
-            </div>
+@section('content')
+    <div class="mx-auto max-w-6xl px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8">
+        <div class="bg-white/90 supports-[backdrop-filter]:bg-white/70 backdrop-blur rounded-2xl shadow-sm ring-1 ring-slate-200 overflow-hidden">
+            <livewire:price-point.browser :setting="$setting" />
         </div>
-    @endsection
+    </div>
+@endsection
