@@ -10,11 +10,9 @@
     <link rel="icon" href="{{ asset('images/favicon.png') }}">
     @include('includes.main-css')
 
-    {{-- Page-level head slot (optional) --}}
-    @stack('head')
 </head>
-<body class="c-app min-h-screen bg-slate-50 text-slate-900 antialiased selection:bg-indigo-100 selection:text-indigo-900">
-<main class="c-main min-h-screen flex flex-col">
+<body class="min-h-screen bg-slate-50 text-slate-900 antialiased selection:bg-indigo-100 selection:text-indigo-900">
+<main class="min-h-screen flex flex-col">
     {{-- Page content renders here. Children (like Terminal Harga) can use Bootstrap or Tailwind freely. --}}
     <div class="flex-1">
         @yield('content')
