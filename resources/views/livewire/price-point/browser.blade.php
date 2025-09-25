@@ -160,8 +160,26 @@
                 <div class="order-2 md:order-1 text-[12.5px] md:text-[12px] text-slate-600">
                     Menampilkan {{ $products->firstItem() }}–{{ $products->lastItem() }} dari {{ $products->total() }}
                 </div>
-                <div class="order-1 md:order-2 flex justify-center">
-                    {{ $products->onEachSide(1)->links() }}
+                <div class="order-1 md:order-2 flex items-center justify-center gap-2">
+                    <button
+                        type="button"
+                        wire:click="previousPage('pp')"
+                        @disabled($products->onFirstPage())
+                        class="px-3 py-2 border rounded disabled:opacity-50"
+                    >
+                        « Previous
+                    </button>
+
+                    <span class="text-sm">Page {{ $products->currentPage() }} / {{ $products->lastPage() }}</span>
+
+                    <button
+                        type="button"
+                        wire:click="nextPage('pp')"
+                        @disabled(!$products->hasMorePages())
+                        class="px-3 py-2 border rounded disabled:opacity-50"
+                    >
+                        Next »
+                    </button>
                 </div>
             </div>
         @endif

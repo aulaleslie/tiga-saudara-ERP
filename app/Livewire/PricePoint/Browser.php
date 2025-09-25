@@ -7,19 +7,25 @@ use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Product\Entities\Product;
 use Modules\Setting\Entities\Setting;
+use Livewire\Attributes\Url;
 
 class Browser extends Component
 {
     use WithPagination;
 
-    public Setting $setting;
-    public string $q = '';
-    public int $perPage = 12;
+    // If you have other Livewire components on the page, give this paginator its own name
+    protected string $pageName = 'pp';         // <- custom page param
+    protected string $paginationTheme = 'tailwind';
 
-    protected $queryString = [
-        'q' => ['except' => ''],
-        'page' => ['except' => 1],
-    ];
+    public Setting $setting;
+
+    #[Url]                     // just bind q to the URL (no except)
+    public string $q = '';
+
+    #[Url(as: 'pp')]           // page -> ?pp=
+    public int $page = 1;
+
+    public int $perPage = 12;
 
     public function mount(Setting $setting): void
     {
@@ -27,17 +33,18 @@ class Browser extends Component
     }
 
     public function updatingQ(): void
-    { $this->resetPage(); }
+    {
+        // whenever search changes, reset to page 1
+        $this->resetPage(pageName: $this->pageName);
+    }
 
-    // When barcode scan (or Enter) is pressed, keep cursor in the search box
     public function searchNow(): void
     {
-        // Strip trailing CR/LF from scanners and trim spaces
         $clean = preg_replace("/[\r\n]+/", '', (string) $this->q);
         $this->q = trim($clean);
 
-        $this->resetPage();
-        $this->dispatch('refocus-search'); // Livewire v3 browser event
+        $this->resetPage(pageName: $this->pageName);
+        $this->dispatch('refocus-search');
     }
 
     public function render()
@@ -46,7 +53,6 @@ class Browser extends Component
 
         $products = Product::query()
             ->select('products.*')
-            // price per selected setting
             ->selectSub(function ($q) {
                 $q->from('product_prices as pp')
                     ->select('pp.sale_price')
@@ -54,7 +60,6 @@ class Browser extends Component
                     ->where('pp.setting_id', $this->setting->id)
                     ->limit(1);
             }, 'display_sale_price')
-            // only show products that have a price for this setting
             ->whereExists(function ($q) {
                 $q->from('product_prices as pp')
                     ->select(DB::raw(1))
@@ -64,7 +69,6 @@ class Browser extends Component
             ->with([
                 'brand:id,name',
                 'category:id,category_name',
-                // show conversion units & prices
                 'conversions.unit:id,name',
             ])
             ->when($term !== '', function ($q) use ($term) {
@@ -80,10 +84,11 @@ class Browser extends Component
                 });
             })
             ->orderBy('products.product_name')
-            ->paginate($this->perPage);
+            ->paginate(
+                perPage: $this->perPage,
+                pageName: $this->pageName // <- IMPORTANT
+            );
 
-        return view('livewire.price-point.browser', [
-            'products' => $products,
-        ]);
+        return view('livewire.price-point.browser', compact('products'));
     }
 }

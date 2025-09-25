@@ -53,10 +53,15 @@ class ProcessProductImportBatch implements ShouldQueue
         $allSettingIds = Setting::query()->pluck('id')->map(fn($id) => (int)$id)->all();
 
         $batch = $this->batch;
+
+        Log::info('Processing batch', compact('batch'));
+
         ProductImportRow::where('batch_id', $this->batch->id)
-            ->whereNotIn('status', ['imported','error','skipped'])
-            ->orderBy('row_number')
-            ->chunkById(200, function ($rows) use ($batch, $defaultSettingId, $allSettingIds) {
+            ->where(function ($q) {
+                $q->whereNull('status');
+            })
+            // Use the primary key for stable pagination; adjust chunk size if needed
+            ->chunkById(100, function ($rows) use ($batch, $defaultSettingId, $allSettingIds) {
                 foreach ($rows as $row) {
                     DB::beginTransaction();
                     try {
@@ -71,28 +76,28 @@ class ProcessProductImportBatch implements ShouldQueue
                         $product = Product::updateOrCreate(
                             ['product_code' => $p['product_code'] ?: null],
                             [
-                                'product_name'            => $p['product_name'], // strip leading '*' if present
+                                'product_name'            => $p['product_name'],
                                 'setting_id'              => (int) $defaultSettingId,
                                 'category_id'             => $categoryId,
-                                'brand_id'                => $brandId,     // ensure DB allows NULL; otherwise set a fallback brand id here
-                                'base_unit_id'            => $unitId,      // ensure DB allows NULL; otherwise set a fallback unit id here
+                                'brand_id'                => $brandId,
+                                'base_unit_id'            => $unitId,
                                 'barcode'                 => $p['barcode'] ?: null,
                                 'serial_number_required'  => (int)($p['serial_required'] ?? 0),
                                 'stock_managed'           => (int)($p['stock_managed'] ?? 1),
                                 'product_stock_alert'     => (int)($p['min_stock'] ?? 0),
 
-                                // ✅ REQUIRED to satisfy NOT NULL w/o default
+                                // required (no default) columns
                                 'product_quantity'        => (int)($p['stock_qty'] ?? 0),
 
-                                // keep legacy price columns zero; real prices go to product_prices
+                                // legacy price cols (kept zero)
                                 'product_cost'            => 0,
                                 'product_order_tax'       => 0,
                                 'product_tax_type'        => 0,
                                 'profit_percentage'       => 0,
                                 'purchase_price'          => 0,
-                                'purchase_tax_id'         => null,   // or 'purchase_tax' => 0 if your column is boolean/legacy
+                                'purchase_tax_id'         => null,
                                 'sale_price'              => 0,
-                                'sale_tax_id'             => null,   // or 'sale_tax' => 0 if your column is boolean/legacy
+                                'sale_tax_id'             => null,
                                 'product_price'           => 0,
                                 'last_purchase_price'     => 0,
                                 'average_purchase_price'  => 0,
@@ -104,13 +109,11 @@ class ProcessProductImportBatch implements ShouldQueue
                             ProductPrice::updateOrCreate(
                                 ['product_id' => $product->id, 'setting_id' => $sid],
                                 [
-                                    'sale_price'             => (int)($p['sale_price'] ?? 0),
-                                    'tier_1_price'           => (int)($p['tier_1_price'] ?? 0),
-                                    'tier_2_price'           => (int)($p['tier_2_price'] ?? 0),
-                                    'last_purchase_price'    => (int)($p['purchase_price'] ?? 0),
-                                    'average_purchase_price' => (int)($p['purchase_price'] ?? 0),
-
-                                    // If taxes are per-setting, resolve by setting.
+                                    'sale_price'             => $this->dec($p['sale_price'] ?? null),
+                                    'tier_1_price'           => $this->dec($p['tier_1_price'] ?? null),
+                                    'tier_2_price'           => $this->dec($p['tier_2_price'] ?? null),
+                                    'last_purchase_price'    => $this->dec($p['purchase_price'] ?? null),
+                                    'average_purchase_price' => $this->dec($p['purchase_price'] ?? null),
                                     'purchase_tax_id'        => $this->taxIdByName($p['purchase_tax_name'] ?? null),
                                     'sale_tax_id'            => $this->taxIdByName($p['sale_tax_name'] ?? null),
                                 ]
@@ -151,29 +154,39 @@ class ProcessProductImportBatch implements ShouldQueue
                         }
 
                         // --- 6) Row bookkeeping ---
-                        $row->update([
+                        $row->forceFill([
                             'status'           => 'imported',
                             'product_id'       => $product->id,
                             'created_stock_id' => $stockId,
-                        ]);
+                            'error_message'    => null,
+                        ])->save();
 
                         $batch->increment('processed_rows');
                         $batch->increment('success_rows');
 
+                        $processedRows = $batch->processed_rows;
                         DB::commit();
+
+                        Log::info('Imported row', compact('processedRows'));
+
+                        // help GC on long runs
+                        unset($p, $product, $stock);
+                        if (function_exists('gc_collect_cycles')) {
+                            gc_collect_cycles();
+                        }
                     } catch (Throwable $e) {
                         DB::rollBack();
 
-                        $row->update([
+                        $row->forceFill([
                             'status'        => 'error',
                             'error_message' => Str::limit($e->getMessage(), 2000),
-                        ]);
+                        ])->save();
 
                         $batch->increment('processed_rows');
                         $batch->increment('error_rows');
                     }
                 }
-            });
+            }, 'id');
 
         $batch->update([
             'status' => 'completed',
@@ -182,38 +195,43 @@ class ProcessProductImportBatch implements ShouldQueue
         ]);
     }
 
-    private function firstOrCreateCategory(?string $name, ?string $preferredCode = null): ?int
+    private function dec($v): string
+    {
+        if ($v === null || $v === '') return '0.00';
+        $val = (float) $v;                   // CSV already numeric
+        // Optional clamp to DECIMAL(10,2) max (8 digits before dot):
+        if ($val > 99999999.99) $val = 99999999.99;
+        if ($val < -99999999.99) $val = -99999999.99;
+        return number_format($val, 2, '.', ''); // -> "1234.50"
+    }
+
+    private function firstOrCreateCategory(?string $name): ?int
     {
         $name = trim((string) $name);
-        if ($name === '') {
-            return null; // or throw if a category is mandatory for your business rule
-        }
+        if ($name === '') return null;
 
-        // 1) Try to find by name (optionally scoped)
-        $q = Category::query()->where('category_name', $name);
+        // Case-insensitive match on name (optionally scoped by setting_id)
+        $q = Category::query()
+            ->whereRaw('LOWER(category_name) = ?', [mb_strtolower($name)]);
+
         if ($existing = $q->value('id')) {
             return (int) $existing;
         }
 
-        // 2) Build a base code
-        $base = 'CAT';
+        // Build code from the name, e.g. "ALL IN ONE PC" -> "ALL_IN_ONE_PC"
+        $maxLen   = 32;
+        $base     = Str::upper(Str::slug($name, '_'));
+        if ($base === '') $base = 'CAT';
+        $base     = substr($base, 0, $maxLen);
 
-        // Trim to column length (adjust to your schema, e.g., 32 or 50)
-        $maxLen = 32;
-        $base = substr($base, 0, $maxLen);
-
-        // 3) Try to create with incremental suffix on conflict
-        //    e.g., LAPTOP, LAPTOP_2, LAPTOP_3 ...
-        $suffix = 0;
-        $attempts = 0;
-        $settingId = $this->location->setting_id;
+        $settingId = $this->location->setting_id ?? null;
         $createdBy = $this->batch->user_id ?? null;
 
-        Log::info('firstOrCreateCategory', compact('name', 'preferredCode', 'settingId', 'createdBy'));
-
-        do {
-            $attempts++;
-            $code = $suffix === 0 ? $base : substr($base, 0, max(1, $maxLen - (strlen((string)$suffix) + 1))) . '_' . $suffix;
+        // Try with incremental suffix on code collision
+        for ($suffix = 0; $suffix < 50; $suffix++) {
+            $code = $suffix === 0
+                ? $base
+                : substr($base, 0, max(1, $maxLen - (strlen((string)$suffix) + 1))) . '_' . $suffix;
 
             try {
                 $payload = [
@@ -223,82 +241,120 @@ class ProcessProductImportBatch implements ShouldQueue
                 if ($settingId !== null && Schema::hasColumn('categories', 'setting_id')) {
                     $payload['setting_id'] = $settingId;
                 }
+                if ($createdBy && Schema::hasColumn('categories', 'created_by')) $payload['created_by'] = $createdBy;
+                if ($createdBy && Schema::hasColumn('categories', 'updated_by')) $payload['updated_by'] = $createdBy;
 
-                if (Schema::hasColumn('categories', 'created_by') && $createdBy) {
-                    $payload['created_by'] = $createdBy;
-                }
-                if (Schema::hasColumn('categories', 'updated_by') && $createdBy) {
-                    $payload['updated_by'] = $createdBy;
-                }
-
-                $category = Category::create($payload); // relies on DB unique constraints
+                $category = Category::create($payload);
                 return (int) $category->id;
-            } catch (QueryException $e) {
-                // 23,000 = integrity constraint violation (duplicate key)
-                if ($e->getCode() !== '23000') {
-                    throw $e; // real error
-                }
-                // Check if someone else created the same NAME in parallel — reuse it.
-                $q2 = Category::query()->where('category_name', $name);
-                if ($settingId !== null && Schema::hasColumn('categories', 'setting_id')) {
-                    $q2->where('setting_id', $settingId);
-                }
-                if ($id = $q2->value('id')) {
-                    return (int) $id;
-                }
-                // Otherwise, the CODE collided; bump suffix and retry
-                $suffix++;
-            }
-        } while ($attempts < 25);
 
-        // If we somehow exhausted attempts, surface a meaningful error
+            } catch (QueryException $e) {
+                // 23000 = integrity/duplicate key
+                if ($e->getCode() !== '23000') {
+                    throw $e;
+                }
+                // Re-check by name in case another worker created it concurrently
+                $check = Category::query()
+                    ->whereRaw('LOWER(category_name) = ?', [mb_strtolower($name)])
+                    ->value('id');
+                if ($check) return (int) $check;
+
+                // else, bump suffix and retry
+            }
+        }
+
         throw new RuntimeException("Unable to generate a unique category_code for '$name'.");
     }
 
     private function firstOrCreateBrand(?string $name): ?int
     {
-        $name = trim((string) $name);
-        if ($name === '') return null;
+        // 0) Normalize & guard
+        $name = (string) $name;
+        $name = str_replace(["\u{00A0}", "\u{2007}", "\u{202F}"], ' ', $name); // non-breaking spaces -> space
+        $name = preg_replace('/\s+/u', ' ', $name); // collapse whitespace
+        $name = ltrim($name, "* \t\n\r\0\x0B");     // strip leading "*" and spaces
+        $name = trim($name);
+
+        if ($name === '' || in_array(mb_strtolower($name), ['-', 'n/a', 'na', 'none', 'tidak ada'], true)) {
+            return null;
+        }
 
         $settingId = $this->location->setting_id ?? null;
         $createdBy = $this->batch->user_id ?? null;
 
-        // Uniqueness keys
-        $attrs = ['name' => $name];
+        // 1) Case-insensitive lookup by name, optionally scoped by setting
+        $q = Brand::query()
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)]);
+
+        if ($id = $q->value('id')) {
+            return (int) $id;
+        }
+
+        // 2) Prepare payload & (optional) deterministic brand_code if column exists
+        $payload = ['name' => $name];
+
         if ($settingId !== null && Schema::hasColumn('brands', 'setting_id')) {
-            $attrs['setting_id'] = $settingId;
+            $payload['setting_id'] = $settingId;
         }
-
-        // Defaults for create
-        $defaults = [];
         if ($createdBy) {
-            if (Schema::hasColumn('brands', 'created_by')) $defaults['created_by'] = $createdBy;
-            if (Schema::hasColumn('brands', 'updated_by')) $defaults['updated_by'] = $createdBy;
+            if (Schema::hasColumn('brands', 'created_by')) $payload['created_by'] = $createdBy;
+            if (Schema::hasColumn('brands', 'updated_by')) $payload['updated_by'] = $createdBy;
         }
 
-        // Create or fetch
-        try {
-            $brand = Brand::firstOrCreate($attrs, $defaults);
-        } catch (MassAssignmentException $e) {
-            // If model fillable is strict, force fill
-            $brand = (new Brand())->forceFill(array_merge($attrs, $defaults));
-            $brand->save();
-        }
+        $hasCode = Schema::hasColumn('brands', 'brand_code');
+        $maxLen  = 32;
+        $base    = Str::upper(Str::slug($name, '_')) ?: 'BRAND';
+        $base    = substr($base, 0, $maxLen);
 
-        // Backfill setting_id if the row existed without it
-        if (
-            $settingId !== null &&
-            Schema::hasColumn('brands', 'setting_id') &&
-            empty($brand->setting_id)
-        ) {
-            $brand->setting_id = $settingId;
-            if ($createdBy && Schema::hasColumn('brands', 'updated_by')) {
-                $brand->updated_by = $createdBy;
+        // 3) Try to create; if a code column exists, handle code collisions with suffixes
+        for ($suffix = 0; $suffix < 50; $suffix++) {
+            $data = $payload;
+
+            if ($hasCode) {
+                $code = $suffix === 0
+                    ? $base
+                    : substr($base, 0, max(1, $maxLen - (strlen((string)$suffix) + 1))) . '_' . $suffix;
+                $data['brand_code'] = $code;
             }
-            $brand->save();
+
+            try {
+                // Prefer normal create to honor mass assignment (catch & fallback to forceFill)
+                try {
+                    $brand = Brand::create($data);
+                } catch (MassAssignmentException $e) {
+                    $brand = (new Brand())->forceFill($data);
+                    $brand->save();
+                }
+                return (int) $brand->id;
+
+            } catch (QueryException $e) {
+                // 23000 = duplicate keys (either unique name or unique code)
+                if ($e->getCode() !== '23000') {
+                    throw $e;
+                }
+                // Recheck by normalized name (race with another worker)
+                $check = Brand::query()
+                    ->when($settingId !== null && Schema::hasColumn('brands', 'setting_id'), function ($q) use ($settingId) {
+                        $q->where('setting_id', $settingId);
+                    })
+                    ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                    ->value('id');
+                if ($check) return (int) $check;
+
+                // If collision was on brand_code, loop and try the next suffix
+                if (!$hasCode) {
+                    // No code column; collision must be on a unique name key—return that row
+                    $existingId = Brand::query()
+                        ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                        ->value('id');
+                    if ($existingId) return (int) $existingId;
+                    // Otherwise we hit some other constraint—rethrow
+                    throw $e;
+                }
+                // else: continue loop to bump suffix
+            }
         }
 
-        return (int) $brand->id;
+        throw new RuntimeException("Unable to generate a unique brand_code for '$name'.");
     }
 
     private function firstOrCreateUnit(?string $name): ?int
@@ -345,57 +401,92 @@ class ProcessProductImportBatch implements ShouldQueue
     private function taxIdByName(?string $name): ?int
     {
         $name = trim((string) $name);
-        if ($name === '') {
-            return null;
-        }
+        if ($name === '') return null;
 
-        // Use the batch/location setting by default; fallback to any Setting
+        // Apply your business rules (PPN 12% -> 11, bare PPN -> 10)
+        [$canonicalName, $rate] = $this->resolveTaxNameAndRate($name);
+
         $settingId = $this->location->setting_id;
 
-        // Attributes that define uniqueness
-        $attrs = ['name' => $name];
+        // Unique keys
+        $attrs = ['name' => $canonicalName];
         if (Schema::hasColumn('taxes', 'setting_id')) {
             $attrs['setting_id'] = $settingId;
         }
 
-        // Defaults for a new record (only set what your table actually has)
-        $defaults = [];
+        // Defaults/updates
+        $data = [];
+
+        // IMPORTANT: support either column the schema uses
         if (Schema::hasColumn('taxes', 'rate')) {
-            $defaults['rate'] = $this->parsePercentFromName($name); // e.g. "PPN 12%" -> 12
-        }
-        if (Schema::hasColumn('taxes', 'type')) {
-            $defaults['type'] = 'percentage'; // adjust if your schema uses another enum/value
-        }
-        if (Schema::hasColumn('taxes', 'is_active')) {
-            $defaults['is_active'] = 1;
-        }
-        if (Schema::hasColumn('taxes', 'code')) {
-            $defaults['code'] = Str::upper(Str::slug($name, '_'));
-        }
-        $createdBy = $this->batch->user_id ?? null;
-        if ($createdBy) {
-            if (Schema::hasColumn('taxes', 'created_by')) $defaults['created_by'] = $createdBy;
-            if (Schema::hasColumn('taxes', 'updated_by')) $defaults['updated_by'] = $createdBy;
+            $data['rate'] = $rate;
+        } elseif (Schema::hasColumn('taxes', 'value')) {
+            $data['value'] = $rate; // <-- your schema uses this
         }
 
-        // Prefer Eloquent firstOrCreate (if fillable is set up). Fallback to forceFill.
+        if (Schema::hasColumn('taxes', 'type'))       $data['type'] = 'percentage';
+        if (Schema::hasColumn('taxes', 'is_active'))  $data['is_active'] = 1;
+        if (Schema::hasColumn('taxes', 'code'))       $data['code'] = Str::upper(Str::slug($canonicalName, '_'));
+
+        $createdBy = $this->batch->user_id ?? null;
+        if ($createdBy) {
+            if (Schema::hasColumn('taxes', 'created_by')) $data['created_by'] = $createdBy;
+            if (Schema::hasColumn('taxes', 'updated_by')) $data['updated_by'] = $createdBy;
+        }
+
+        // Case-insensitive fetch to avoid dupes by casing
+        $q = Tax::query()
+            ->when(Schema::hasColumn('taxes','setting_id'), fn($q) => $q->where('setting_id', $settingId))
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($canonicalName)]);
+        if ($id = $q->value('id')) {
+            // Update value/rate if changed
+            try {
+                Tax::where('id', $id)->update($data);
+            } catch (MassAssignmentException $e) {
+                Tax::where('id', $id)->first()->forceFill($data)->save();
+            }
+            return (int) $id;
+        }
+
         try {
-            $tax = Tax::firstOrCreate($attrs, $defaults);
+            $tax = Tax::updateOrCreate($attrs, $data);
         } catch (MassAssignmentException $e) {
-            $tax = (new Tax())->forceFill(array_merge($attrs, $defaults));
+            $tax = (new Tax())->forceFill(array_merge($attrs, $data));
             $tax->save();
+        } catch (QueryException $e) {
+            if ($e->getCode() === '23000') {
+                $id = $q->value('id');
+                if ($id) return (int) $id;
+            }
+            throw $e;
         }
 
         return (int) $tax->id;
     }
 
-    // Helper: extract percentage (int) from strings like "PPN 12%" / "VAT 10.5%"
-    private function parsePercentFromName(string $s): int
+    /** Business rules: "PPN 12%" -> ["PPN 11%", 11], "PPN" -> ["PPN 10%", 10], otherwise parse percent */
+    private function resolveTaxNameAndRate(string $raw): array
+    {
+        $upper = mb_strtoupper(trim($raw));
+        $pct = $this->extractPercent($raw); // float|null
+
+        if (preg_match('/\bPPN\b/u', $upper) && $pct !== null && (int)$pct === 12) {
+            return ['PPN 11%', 11];
+        }
+        if ($upper === 'PPN') {
+            return ['PPN 10%', 10];
+        }
+        if ($pct !== null) {
+            return [$raw, (int)$pct];
+        }
+        return [$raw, 0];
+    }
+
+    private function extractPercent(string $s): ?float
     {
         if (preg_match('/(\d+(?:[.,]\d+)?)\s*%/u', $s, $m)) {
-            $val = (float) str_replace(',', '.', $m[1]);
-            return (int) $val;
+            return (float) str_replace(',', '.', $m[1]);
         }
-        return 0;
+        return null;
     }
 }
