@@ -50,11 +50,10 @@ class PurchaseController extends Controller
         Cart::instance('purchase')->destroy();
 
         // Retrieve the current setting_id from the session
-        $setting_id = session('setting_id');
 
         // Filter PaymentTerms by the setting_id
-        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
-        $suppliers = Supplier::where('setting_id', $setting_id)->get();
+        $paymentTerms = PaymentTerm::all();
+        $suppliers = Supplier::all();
 
         // Pass the filtered terms to the view
         return view('purchase::create', compact('paymentTerms','suppliers'));
@@ -163,12 +162,10 @@ class PurchaseController extends Controller
     {
         abort_if(Gate::denies('purchases.edit'), 403);
 
-        // Retrieve the current setting_id from the session
-        $setting_id = session('setting_id');
 
         // Filter PaymentTerms by the setting_id
-        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
-        $suppliers = Supplier::where('setting_id', $setting_id)->get();
+        $paymentTerms = PaymentTerm::all();
+        $suppliers = Supplier::all();
 
         // Retrieve purchase details
         $purchase_details = $purchase->purchaseDetails;
