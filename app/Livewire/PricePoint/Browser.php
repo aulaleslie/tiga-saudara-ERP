@@ -60,6 +60,20 @@ class Browser extends Component
                     ->where('pp.setting_id', $this->setting->id)
                     ->limit(1);
             }, 'display_sale_price')
+            ->selectSub(function ($q) {
+                $q->from('product_prices as pp')
+                    ->select('pp.tier_1_price')
+                    ->whereColumn('pp.product_id', 'products.id')
+                    ->where('pp.setting_id', $this->setting->id)
+                    ->limit(1);
+            }, 'display_tier_1_price')
+            ->selectSub(function ($q) {
+                $q->from('product_prices as pp')
+                    ->select('pp.tier_2_price')
+                    ->whereColumn('pp.product_id', 'products.id')
+                    ->where('pp.setting_id', $this->setting->id)
+                    ->limit(1);
+            }, 'display_tier_2_price')
             ->whereExists(function ($q) {
                 $q->from('product_prices as pp')
                     ->select(DB::raw(1))

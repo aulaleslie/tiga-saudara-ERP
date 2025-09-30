@@ -1,4 +1,23 @@
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+    @php
+        $currency = optional($setting->currency);
+        $decimalSeparator = $currency->decimal_separator ?? ',';
+        $thousandSeparator = $currency->thousand_separator ?? '.';
+        $currencySymbol = $currency->symbol ?? 'Rp';
+        $currencyPosition = $setting->default_currency_position ?? 'prefix';
+        $formatCurrency = static function ($value) use ($decimalSeparator, $thousandSeparator, $currencySymbol, $currencyPosition) {
+            if ($value === null) {
+                return null;
+            }
+
+            $numeric = number_format((float) $value, 0, $decimalSeparator, $thousandSeparator);
+
+            return $currencyPosition === 'suffix'
+                ? $numeric . $currencySymbol
+                : $currencySymbol . $numeric;
+        };
+    @endphp
+
     {{-- Logo --}}
     <div class="mb-4 flex justify-center">
         <img class="w-40 sm:w-44" src="{{ asset('images/logo-dark.png') }}" alt="Logo">
@@ -103,9 +122,24 @@
                                         {{-- Price --}}
                                         <div class="mb-1 md:mb-0">
                                             <div class="text-[11.5px] md:text-[10.5px] uppercase tracking-wide text-slate-500">Harga</div>
-                                            <div class="text-base md:text-[15px] font-semibold text-slate-800">
-                                                {{ number_format((float)($product->display_sale_price ?? 0), 0, ',', '.') }}
-                                            </div>
+                                            @php
+                                                $priceTiers = [
+                                                    'Umum'   => $product->display_sale_price ?? null,
+                                                    'Tier 1' => $product->display_tier_1_price ?? null,
+                                                    'Tier 2' => $product->display_tier_2_price ?? null,
+                                                ];
+                                            @endphp
+                                            <dl class="space-y-0.5">
+                                                @foreach($priceTiers as $label => $rawPrice)
+                                                    @php($formatted = $formatCurrency($rawPrice))
+                                                    @if($formatted)
+                                                        <div class="flex items-center justify-between text-[13.5px] md:text-[12.5px] text-slate-800">
+                                                            <dt class="font-medium text-slate-600">{{ $label }}</dt>
+                                                            <dd class="font-semibold">{{ $formatted }}</dd>
+                                                        </div>
+                                                    @endif
+                                                @endforeach
+                                            </dl>
                                         </div>
 
                                         {{-- Codes (product code + barcode) --}}
