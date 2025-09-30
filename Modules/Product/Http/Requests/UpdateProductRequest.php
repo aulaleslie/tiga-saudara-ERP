@@ -35,22 +35,22 @@ class UpdateProductRequest extends FormRequest
 
             // === Buying (same as create) ===
             'is_purchased'     => ['nullable', 'boolean'],
-            'purchase_price'   => ['required_if:is_purchased,1', 'nullable', 'numeric', 'gt:0'],
-            'purchase_tax_id'  => ['required_if:is_purchased,1', 'nullable', 'integer', 'exists:taxes,id'],
+            'purchase_price'   => ['required_if:is_purchased,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'purchase_tax_id'  => ['nullable', 'integer', 'exists:taxes,id'],
 
             // === Selling (same as create) ===
             'is_sold'        => ['nullable', 'boolean'],
-            'sale_price'     => ['required_if:is_sold,1', 'nullable', 'numeric', 'gt:0'],
-            'tier_1_price'   => ['required_if:is_sold,1', 'nullable', 'numeric', 'gt:0'],
-            'tier_2_price'   => ['required_if:is_sold,1', 'nullable', 'numeric', 'gt:0'],
-            'sale_tax_id'    => ['required_if:is_sold,1', 'nullable', 'integer', 'exists:taxes,id'],
+            'sale_price'     => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'tier_1_price'   => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'tier_2_price'   => ['required_if:is_sold,1,true,on', 'nullable', 'numeric', 'gt:0'],
+            'sale_tax_id'    => ['nullable', 'integer', 'exists:taxes,id'],
 
             // === Barcode (same as create, but ignore current product) ===
             'barcode'        => ['nullable', 'string', 'max:255', Rule::unique('products', 'barcode')->ignore($productId)],
 
             // === Base Unit (same as create) ===
             'base_unit_id'   => [
-                'required_if:stock_managed,1',
+                'required_if:stock_managed,1,true,on',
                 'integer',
                 function ($attribute, $value, $fail) {
                     if ($this->boolean('stock_managed') && (is_null($value) || (string)$value === '0')) {
@@ -63,7 +63,7 @@ class UpdateProductRequest extends FormRequest
             'conversions'                     => ['nullable', 'array'],
 
             'conversions.*.unit_id'           => [
-                'required_if:stock_managed,1',
+                'required_if:stock_managed,1,true,on',
                 'integer',
                 'not_in:0',
                 function ($attribute, $value, $fail) {
@@ -82,7 +82,7 @@ class UpdateProductRequest extends FormRequest
                 },
             ],
 
-            'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
+            'conversions.*.conversion_factor' => ['required_if:stock_managed,1,true,on', 'numeric', 'min:0.0001'],
 
             'conversions.*.barcode'           => [
                 'nullable',
@@ -108,9 +108,9 @@ class UpdateProductRequest extends FormRequest
                             $query->where('id', '!=', $currentId);
                         }
 
-//                        if ($query->exists()) {
-//                            $fail('Barcode konversi ini sudah ada di database.');
-//                        }
+                        if ($query->exists()) {
+                            $fail('Barcode konversi ini sudah ada di database.');
+                        }
                     }
                 }
             ],
@@ -143,7 +143,6 @@ class UpdateProductRequest extends FormRequest
             'purchase_price.required_if'    => 'Harga beli wajib diisi jika produk dibeli.',
             'purchase_price.numeric'        => 'Harga beli harus berupa angka.',
             'purchase_price.gt'             => 'Harga beli harus lebih dari 0.',
-            'purchase_tax_id.required_if'   => 'Pajak beli wajib diisi jika produk dibeli.',
             'purchase_tax_id.exists'        => 'Pajak beli yang dipilih tidak valid.',
 
             // Selling
@@ -157,7 +156,6 @@ class UpdateProductRequest extends FormRequest
             'tier_2_price.required_if'    => 'Harga jual Reseller wajib diisi jika produk dijual.',
             'tier_2_price.numeric'        => 'Harga jual Reseller harus berupa angka.',
             'tier_2_price.gt'             => 'Harga jual Reseller harus lebih dari 0.',
-            'sale_tax_id.required_if'     => 'Pajak jual wajib diisi jika produk dijual.',
             'sale_tax_id.exists'          => 'Pajak jual yang dipilih tidak valid.',
 
             // Barcode
@@ -175,6 +173,19 @@ class UpdateProductRequest extends FormRequest
             'conversions.*.price.numeric'                    => 'Harga konversi harus berupa angka.',
             'conversions.*.price.gt'                         => 'Harga konversi harus lebih dari 0.',
         ];
+    }
+
+    /**
+     * Normalize incoming checkbox values so required_if behaves like the create request.
+     */
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'is_purchased'           => $this->boolean('is_purchased'),
+            'is_sold'                => $this->boolean('is_sold'),
+            'stock_managed'          => $this->boolean('stock_managed'),
+            'serial_number_required' => $this->boolean('serial_number_required'),
+        ]);
     }
 
     protected function failedValidation(Validator $validator)
