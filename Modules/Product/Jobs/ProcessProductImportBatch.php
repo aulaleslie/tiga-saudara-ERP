@@ -72,37 +72,71 @@ class ProcessProductImportBatch implements ShouldQueue
                         $brandId    = $this->firstOrCreateBrand($p['brand_name'] ?? null);
                         $unitId     = $this->firstOrCreateUnit($p['base_unit_name'] ?? null);
 
-                        // --- 2) Product upsert (by product_code) ---
-                        $product = Product::updateOrCreate(
-                            ['product_code' => $p['product_code'] ?: null],
-                            [
-                                'product_name'            => $p['product_name'],
-                                'setting_id'              => (int) $defaultSettingId,
-                                'category_id'             => $categoryId,
-                                'brand_id'                => $brandId,
-                                'base_unit_id'            => $unitId,
-                                'barcode'                 => $p['barcode'] ?: null,
-                                'serial_number_required'  => (int)($p['serial_required'] ?? 0),
-                                'stock_managed'           => (int)($p['stock_managed'] ?? 1),
-                                'product_stock_alert'     => (int)($p['min_stock'] ?? 0),
+                        // --- 2) Product upsert (by product_code, fallback by name) ---
+                        $productCode = trim((string) ($p['product_code'] ?? ''));
+                        $productCode = $productCode !== '' ? $productCode : null;
 
-                                // required (no default) columns
-                                'product_quantity'        => (int)($p['stock_qty'] ?? 0),
+                        $productName = trim((string) ($p['product_name'] ?? ''));
+                        if ($productName === '') {
+                            throw new RuntimeException('Product name is required for import rows.');
+                        }
 
-                                // legacy price cols (kept zero)
-                                'product_cost'            => 0,
-                                'product_order_tax'       => 0,
-                                'product_tax_type'        => 0,
-                                'profit_percentage'       => 0,
-                                'purchase_price'          => 0,
-                                'purchase_tax_id'         => null,
-                                'sale_price'              => 0,
-                                'sale_tax_id'             => null,
-                                'product_price'           => 0,
-                                'last_purchase_price'     => 0,
-                                'average_purchase_price'  => 0,
-                            ]
-                        );
+                        $product = null;
+                        if ($productCode !== null) {
+                            $product = Product::where('product_code', $productCode)->first();
+                        }
+
+                        if (!$product) {
+                            $product = Product::whereRaw('LOWER(product_name) = ?', [mb_strtolower($productName)])
+                                ->where('setting_id', (int) $defaultSettingId)
+                                ->first();
+                        }
+
+                        $hasPurchasePrice = $this->hasPositivePrice($p['purchase_price'] ?? null);
+                        $hasSalePrice = $this->hasPositivePrice($p['sale_price'] ?? null)
+                            || $this->hasPositivePrice($p['tier_1_price'] ?? null)
+                            || $this->hasPositivePrice($p['tier_2_price'] ?? null);
+
+                        $productPayload = [
+                            'product_name'            => $productName,
+                            'setting_id'              => (int) $defaultSettingId,
+                            'category_id'             => $categoryId,
+                            'brand_id'                => $brandId,
+                            'base_unit_id'            => $unitId,
+                            'barcode'                 => $p['barcode'] ?: null,
+                            'serial_number_required'  => (int)($p['serial_required'] ?? 0),
+                            'stock_managed'           => (int)($p['stock_managed'] ?? 1),
+                            'product_stock_alert'     => (int)($p['min_stock'] ?? 0),
+
+                            // required (no default) columns
+                            'product_quantity'        => (int)($p['stock_qty'] ?? 0),
+
+                            // legacy price cols (kept zero)
+                            'product_cost'            => 0,
+                            'product_order_tax'       => 0,
+                            'product_tax_type'        => 0,
+                            'profit_percentage'       => 0,
+                            'is_purchased'            => $hasPurchasePrice ? 1 : 0,
+                            'purchase_price'          => 0,
+                            'purchase_tax_id'         => null,
+                            'is_sold'                 => $hasSalePrice ? 1 : 0,
+                            'sale_price'              => 0,
+                            'sale_tax_id'             => null,
+                            'product_price'           => 0,
+                            'last_purchase_price'     => 0,
+                            'average_purchase_price'  => 0,
+                        ];
+
+                        if ($product) {
+                            $product->fill($productPayload);
+                            if ($productCode !== null) {
+                                $product->product_code = $productCode;
+                            }
+                            $product->save();
+                        } else {
+                            $productPayload['product_code'] = $productCode;
+                            $product = Product::create($productPayload);
+                        }
 
                         // --- 3) Product prices (per setting) ---
                         foreach ($allSettingIds as $sid) {
@@ -193,6 +227,35 @@ class ProcessProductImportBatch implements ShouldQueue
             'completed_at' => now(),
             'undo_available_until' => now()->addHour(),
         ]);
+    }
+
+    private function hasPositivePrice($value): bool
+    {
+        if (is_array($value)) {
+            foreach ($value as $candidate) {
+                if ($this->hasPositivePrice($candidate)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        if ($value === null) {
+            return false;
+        }
+
+        if (is_string($value)) {
+            $value = trim($value);
+            if ($value === '') {
+                return false;
+            }
+        }
+
+        if (!is_numeric($value)) {
+            return false;
+        }
+
+        return (float) $value > 0;
     }
 
     private function dec($v): string

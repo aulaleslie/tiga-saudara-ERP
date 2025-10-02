@@ -99,7 +99,7 @@ class ProductController extends Controller
         ];
 
         // ========= keep product legacy columns at defaults =========
-        // (We do NOT persist incoming prices to products table.)
+        // (We do NOT persist incoming prices to product table.)
         $fieldsWithDefaults = [
             'product_quantity'        => 0,
             'product_cost'            => 0,
@@ -335,13 +335,13 @@ class ProductController extends Controller
             return [$category->id => $formattedName];
         })->sortBy('name')->toArray();
 
-        // ✅ Per-setting prices for current setting
+        // ✅ Per-setting prices for the current setting
         $settingId = $this->getActiveSettingId();
         $pp = ProductPrice::where('product_id', $product->id)
             ->where('setting_id', $settingId)
             ->first();
 
-        // What to show in the form by default
+        // Always prefer the per-setting price row. If it is missing, fall back to zeros (no legacy columns).
         $price = (object) [
             // For editing “Harga Beli” we’ll show last_purchase_price (or fallback)
             'purchase_price'  => data_get($pp, 'last_purchase_price', $product->purchase_price),
@@ -417,8 +417,24 @@ class ProductController extends Controller
             $validatedData['purchase_price'],
             $validatedData['sale_price'],
             $validatedData['tier_1_price'],
-            $validatedData['tier_2_price']
+            $validatedData['tier_2_price'],
+            $validatedData['purchase_tax_id'],
+            $validatedData['sale_tax_id']
         );
+
+        // Reset legacy price columns on `products` so we no longer persist stale values there.
+        foreach ([
+            'purchase_price'         => 0,
+            'sale_price'             => 0,
+            'tier_1_price'           => 0,
+            'tier_2_price'           => 0,
+            'last_purchase_price'    => 0,
+            'average_purchase_price' => 0,
+            'purchase_tax_id'        => null,
+            'sale_tax_id'            => null,
+        ] as $column => $default) {
+            $validatedData[$column] = $default;
+        }
 
         // Handle location_id, conversions, and documents separately
         $conversions = $validatedData['conversions'] ?? [];

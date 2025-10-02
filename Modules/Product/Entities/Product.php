@@ -6,6 +6,7 @@ use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Laravel\Scout\Searchable;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
@@ -16,11 +17,33 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class Product extends BaseModel implements HasMedia
 {
-    use InteractsWithMedia;
+    use InteractsWithMedia, Searchable;
 
     protected $guarded = [];
 
-    protected $with = ['media'];
+    protected $with = ['media', 'brand:id,name', 'category:id,category_name'];
+
+    // (Scout requires an index name; we’ll override per-setting at query time)
+    public function searchableAs(): string
+    {
+        return 'products';
+    }
+
+    public function toSearchableArray(): array
+    {
+        // Keep this small; relations should be eager-loaded during reindex
+        return [
+            'id'            => $this->id,
+            'product_name'  => $this->product_name,
+            'product_code'  => $this->product_code,
+            'barcode'       => $this->barcode,
+            'brand'         => optional($this->brand)->name,
+            'brand_id'      => $this->brand_id,
+            'category'      => optional($this->category)->category_name,
+            'category_id'   => $this->category_id,
+            // price_active will be injected at reindex time per-setting
+        ];
+    }
 
     /**
      * Relationship with the Category model.
