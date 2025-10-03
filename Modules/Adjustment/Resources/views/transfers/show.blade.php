@@ -140,8 +140,8 @@
                         </table>
 
                         <div class="mt-4">
-                            {{-- Approve/Reject: only DESTINATION on PENDING --}}
-                            @if($transfer->status === Transfer::STATUS_PENDING && $isDestination)
+                            {{-- Approve/Reject: only ORIGIN on PENDING --}}
+                            @if($transfer->status === Transfer::STATUS_PENDING && $isOrigin)
                                 @canany(['stockTransfers.edit','stockTransfers.approval'])
                                     <form action="{{ route('transfers.approve', $transfer) }}" method="POST"
                                           class="d-inline">
