@@ -63,6 +63,15 @@ class Transfer extends BaseModel
         });
     }
 
+    /**
+     * Generate the next document number for the given transfer.
+     *
+     * The database enforces uniqueness by combining the origin location ID with
+     * the document number, while this resolver still scopes its lookup by
+     * tenant/setting when available. That means different origins (or tenants)
+     * can legitimately reuse the same sequence value without collisions, but a
+     * single origin will never receive the same document number twice.
+     */
     protected static function nextDocumentNumber(Transfer $transfer): string
     {
         $originLocationId = $transfer->origin_location_id;
