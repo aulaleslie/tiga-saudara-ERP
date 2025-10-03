@@ -149,32 +149,49 @@ class AdjustmentProductTable extends Component
             return;
         }
 
-        // Fetch product stock by product ID & location
         $productStock = ProductStock::where('product_id', $product['id'])
             ->where('location_id', $this->locationId)
             ->first();
 
-        // Ensure productStock exists, else default values
-        if ($productStock) {
-            $product['quantity'] = $productStock->quantity;
-            $product['quantity_tax'] = $productStock->quantity_tax ?? 0;
-            $product['quantity_non_tax'] = $productStock->quantity_non_tax ?? 0;
-            $product['broken_quantity_tax'] = $productStock->broken_quantity_tax ?? 0;
-            $product['broken_quantity_non_tax'] = $productStock->broken_quantity_non_tax ?? 0;
-        } else {
-            session()->flash('message', 'Stok produk tidak ditemukan untuk lokasi ini.');
-            return;
+        if (!$productStock) {
+            $productStock = new ProductStock([
+                'product_id' => $product['id'],
+                'location_id' => $this->locationId,
+                'quantity' => 0,
+                'quantity_tax' => 0,
+                'quantity_non_tax' => 0,
+                'broken_quantity_tax' => 0,
+                'broken_quantity_non_tax' => 0,
+            ]);
         }
+
+        $product['quantity'] = (int) ($productStock->quantity ?? 0);
+        $product['quantity_tax'] = (int) ($productStock->quantity_tax ?? 0);
+        $product['quantity_non_tax'] = (int) ($productStock->quantity_non_tax ?? 0);
+        $product['broken_quantity_tax'] = (int) ($productStock->broken_quantity_tax ?? 0);
+        $product['broken_quantity_non_tax'] = (int) ($productStock->broken_quantity_non_tax ?? 0);
 
         // Retrieve product unit
         $productEntity = Product::with('baseUnit')->find($product['id']);
-        $product['unit'] = $product['base_unit']['name'] ?? '';
+        $baseUnit = optional($productEntity->baseUnit);
+        $product['unit'] = $baseUnit->unit_name
+            ?? $baseUnit->name
+            ?? $baseUnit->short_name
+            ?? '';
 
         // Initialize empty serial numbers
         $product['serial_numbers'] = [];
 
         // Add to the product list
         $this->products[] = $product;
+
+        $initialQuantities = [
+            'tax' => $product['serial_number_required'] ? 0 : (int) ($product['quantity_tax'] ?? 0),
+            'non_tax' => $product['serial_number_required'] ? 0 : (int) ($product['quantity_non_tax'] ?? 0),
+        ];
+
+        $this->quantities[] = $initialQuantities;
+        $this->serialNumberErrors[] = null;
     }
 
     public function removeProduct($key): void

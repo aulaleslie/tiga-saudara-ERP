@@ -58,8 +58,8 @@
                                         :locationId="old('location_id')"
                                         :serial_numbers="old('serial_numbers')"
                                         :product_ids="old('product_ids')"
-                                        :quantities="old('quantities')"
-                                        :is_taxables="old('is_taxables')"/>
+                                        :quantities_tax="old('quantities_tax')"
+                                        :quantities_non_tax="old('quantities_non_tax')"/>
                                 </div>
                             </div>
 

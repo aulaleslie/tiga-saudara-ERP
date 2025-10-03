@@ -22,28 +22,73 @@
                     Kembali
                 </a>
 
-                @if($adjustment->status === 'pending')
-                    @can('adjustments.approval')
-                        <form action="{{ route('adjustments.approve', $adjustment) }}" method="POST"
-                              class="d-inline">
-                            @csrf
-                            @method('PATCH')
-                            <button type="submit" class="btn btn-success">
-                                Setuju
-                            </button>
-                        </form>
-                    @endcan
+                @php
+                    $user = auth()->user();
+                    $canApproveAny = $user?->can('adjustments.approval');
+                    $canApproveBreakage = $user?->can('adjustments.breakage.approval');
+                    $canRejectGeneric = $user?->can('adjustments.reject');
 
-                    @can('adjustments.reject')
-                        <form action="{{ route('adjustments.reject', $adjustment) }}" method="POST"
-                              class="d-inline">
-                            @csrf
-                            @method('PATCH')
-                            <button type="submit" class="btn btn-danger">
-                                Tolak
-                            </button>
+                    // Normalisasi
+                    $status      = is_string($adjustment->status) ? strtolower(trim($adjustment->status)) : $adjustment->status;
+                    $type        = is_string($adjustment->type)   ? strtolower(trim($adjustment->type))   : $adjustment->type;
+                    $isPending   = $status === 'pending';
+                    $isBreakage  = $type === 'breakage';
+
+                    // Hitung visibility tombol (terlepas dari status, buat debug)
+                    $showApprove = $isBreakage
+                        ? ($canApproveBreakage || $canApproveAny)
+                        : $canApproveAny;
+
+                    $showReject = $isBreakage
+                        ? ($canApproveBreakage || $canApproveAny || $canRejectGeneric)
+                        : ($canApproveAny || $canRejectGeneric);
+
+                    \Log::debug('[Adjustment::show] Approval gate check', [
+                        'user_id'            => $user?->id,
+                        'user_roles'         => method_exists($user, 'getRoleNames') ? $user->getRoleNames()->toArray() : null,
+                        'adjustment_id'      => $adjustment->id,
+                        'adjustment_type'    => $adjustment->type,
+                        'adjustment_status'  => $adjustment->status,
+                        'normalized_type'    => $type,
+                        'normalized_status'  => $status,
+                        'canApproveAny'      => $canApproveAny,
+                        'canApproveBreakage' => $canApproveBreakage,
+                        'canRejectGeneric'   => $canRejectGeneric,
+                        'isPending'          => $isPending,
+                        'showApprove'        => $showApprove,
+                        'showReject'         => $showReject,
+                    ]);
+                @endphp
+
+                @if(config('app.debug'))
+                    <div class="alert alert-warning small mb-2">
+                        <strong>Approval Debug:</strong>
+                        <div>raw status: {{ $adjustment->status }}</div>
+                        <div>raw type: {{ $adjustment->type }}</div>
+                        <div>isPending: {{ $isPending ? 'true' : 'false' }}</div>
+                        <div>isBreakage: {{ $isBreakage ? 'true' : 'false' }}</div>
+                        <div>canApproveAny: {{ $canApproveAny ? 'true' : 'false' }}</div>
+                        <div>canApproveBreakage: {{ $canApproveBreakage ? 'true' : 'false' }}</div>
+                        <div>canRejectGeneric: {{ $canRejectGeneric ? 'true' : 'false' }}</div>
+                        <div>showApprove: {{ $showApprove ? 'true' : 'false' }}</div>
+                        <div>showReject: {{ $showReject ? 'true' : 'false' }}</div>
+                    </div>
+                @endif
+
+                @if($isPending)
+                    @if($showApprove)
+                        <form action="{{ route('adjustments.approve', $adjustment) }}" method="POST" class="d-inline">
+                            @csrf @method('PATCH')
+                            <button type="submit" class="btn btn-success">Setuju</button>
                         </form>
-                    @endcan
+                    @endif
+
+                    @if($showReject)
+                        <form action="{{ route('adjustments.reject', $adjustment) }}" method="POST" class="d-inline">
+                            @csrf @method('PATCH')
+                            <button type="submit" class="btn btn-danger">Tolak</button>
+                        </form>
+                    @endif
                 @endif
             </div>
         </div>

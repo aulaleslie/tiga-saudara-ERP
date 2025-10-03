@@ -16,73 +16,36 @@ class BreakageProductTable extends Component
 {
     protected $listeners = ['productSelected', 'serialNumberSelected', 'locationSelected'];
 
-    public $products;
-    public $hasAdjustments;
-    public $locationId;
-    public $quantities;
+    public array $products = [];
+    public bool $hasAdjustments = false;
+    public ?int $locationId = null;
+    public array $quantities = [];
+    public array $serialNumberErrors = [];
 
     public function mount(
         $adjustedProducts = null,
         $locationId = null,
         $serial_numbers = null,
-        $is_taxables = null,
         $product_ids = null,
-        $quantities = null
+        $quantities_tax = null,
+        $quantities_non_tax = null
     ): void {
-        $this->products = [];
         $this->locationId = $locationId;
-        $this->quantities = $quantities ?? []; // Ensure quantities is set
+        $this->products = [];
+        $this->quantities = [];
 
         if ($adjustedProducts) {
-            $this->hasAdjustments = true;
-            $this->products = array_map(function ($adjustedProduct) {
-                // Fetch product stock by product ID & location
-                $productStock = ProductStock::where('product_id', $adjustedProduct['product']['id'])
-                    ->where('location_id', $this->locationId)
-                    ->first();
+            $this->hydrateFromExistingAdjustments($adjustedProducts);
+            return;
+        }
 
-                return [
-                    'id' => $adjustedProduct['product']['id'],
-                    'product_name' => $adjustedProduct['product']['product_name'],
-                    'product_code' => $adjustedProduct['product']['product_code'],
-                    'serial_number_required' => $adjustedProduct['product']['serial_number_required'],
-                    'serial_numbers' => $this->getSerialNumberByIds($adjustedProduct['serial_number_ids']),
-                    'unit' => $adjustedProduct['product']['baseUnit']->unit_name ?? '',
-                    'quantity' => $adjustedProduct['quantity'], // Assign existing quantity
-                    'quantity_tax' => $productStock->quantity_tax ?? 0,
-                    'quantity_non_tax' => $productStock->quantity_non_tax ?? 0,
-                    'broken_quantity_tax' => $productStock->broken_quantity_tax ?? 0,
-                    'broken_quantity_non_tax' => $productStock->broken_quantity_non_tax ?? 0,
-                    'is_taxable' => $adjustedProduct['is_taxable'] ?? 0,
-                ];
-            }, $adjustedProducts);
-        } elseif (!empty($product_ids) && !empty($quantities)) {
-            // Restore product selection from validation error
-            foreach ($product_ids as $key => $product_id) {
-                $product = Product::find($product_id);
-                $productStock = ProductStock::where('product_id', $product_id)
-                    ->where('location_id', $this->locationId)
-                    ->first();
-
-                if ($product) {
-                    $this->products[] = [
-                        'id' => $product->id,
-                        'product_name' => $product->product_name,
-                        'product_code' => $product->product_code,
-                        'serial_number_required' => $product->serial_number_required,
-                        'serial_numbers' => $this->getSerialNumbers($serial_numbers, $key), // Keep selected serials
-                        'unit' => $product->baseUnit->unit_name ?? '',
-                        'quantity' => $quantities[$key] ?? 1, // Ensure quantity is set
-                        'quantity_tax' => $productStock->quantity_tax ?? 0,
-                        'quantity_non_tax' => $productStock->quantity_non_tax ?? 0,
-                        'broken_quantity_tax' => $productStock->broken_quantity_tax ?? 0,
-                        'broken_quantity_non_tax' => $productStock->broken_quantity_non_tax ?? 0,
-                        'is_taxable' => $is_taxables[$key] ?? 0,
-                    ];
-                }
-            }
-        } else {
-            $this->hasAdjustments = false;
+        if (!empty($product_ids)) {
+            $this->hydrateFromOldInput(
+                $product_ids,
+                $serial_numbers,
+                $quantities_tax,
+                $quantities_non_tax
+            );
         }
     }
 
@@ -93,92 +56,243 @@ class BreakageProductTable extends Component
 
     public function productSelected($product): void
     {
-        Log::info('product', $product);
-
-        // Ensure location is selected
         if (!$this->locationId) {
             session()->flash('message', 'Pilih lokasi terlebih dahulu sebelum menambahkan produk.');
             return;
         }
 
-        // Prevent duplicate selection
         if (collect($this->products)->contains('id', $product['id'])) {
             session()->flash('message', 'Produk sudah dipilih.');
             return;
         }
 
-        // Fetch product stock by product ID & location
         $productStock = ProductStock::where('product_id', $product['id'])
             ->where('location_id', $this->locationId)
             ->first();
 
-        // Ensure productStock exists, else default values
-        if ($productStock) {
-            $product['quantity'] = $productStock->quantity;
-            $product['quantity_tax'] = $productStock->quantity_tax ?? 0;
-            $product['quantity_non_tax'] = $productStock->quantity_non_tax ?? 0;
-            $product['broken_quantity_tax'] = $productStock->broken_quantity_tax ?? 0;
-            $product['broken_quantity_non_tax'] = $productStock->broken_quantity_non_tax ?? 0;
-        } else {
-            session()->flash('message', 'Stok produk tidak ditemukan untuk lokasi ini.');
+        if (!$productStock) {
+            $productStock = new ProductStock([
+                'product_id' => $product['id'],
+                'location_id' => $this->locationId,
+                'quantity' => 0,
+                'quantity_tax' => 0,
+                'quantity_non_tax' => 0,
+                'broken_quantity_tax' => 0,
+                'broken_quantity_non_tax' => 0,
+            ]);
+        }
+
+        $productModel = Product::with('baseUnit')->find($product['id']);
+        if (!$productModel) {
+            session()->flash('message', 'Produk tidak ditemukan.');
             return;
         }
 
-        // Retrieve product unit
-        $productEntity = Product::with('baseUnit')->find($product['id']);
-        $product['unit'] = $productEntity->baseUnit->unit_name ?? '';
+        $baseUnit = optional($productModel->baseUnit);
 
-        // Initialize empty serial numbers
-        $product['serial_numbers'] = [];
+        $this->products[] = [
+            'id' => $productModel->id,
+            'product_name' => $productModel->product_name,
+            'product_code' => $productModel->product_code,
+            'serial_number_required' => (bool) $productModel->serial_number_required,
+            'serial_numbers' => [],
+            'unit' => $baseUnit->unit_name
+                ?? $baseUnit->name
+                ?? $baseUnit->short_name
+                ?? '',
+            'quantity_tax' => (int) ($productStock->quantity_tax ?? 0),
+            'quantity_non_tax' => (int) ($productStock->quantity_non_tax ?? 0),
+            'broken_quantity_tax' => (int) ($productStock->broken_quantity_tax ?? 0),
+            'broken_quantity_non_tax' => (int) ($productStock->broken_quantity_non_tax ?? 0),
+        ];
 
-        // Add to the product list
-        $this->products[] = $product;
+        $this->quantities[] = ['tax' => 0, 'non_tax' => 0];
+        $this->serialNumberErrors[] = null;
+
+        Log::info('[Breakage] Product added', ['product_id' => $productModel->id]);
     }
 
-    public function removeProduct($key): void
+    public function removeProduct($index): void
     {
-        unset($this->products[$key]);
+        unset($this->products[$index], $this->quantities[$index], $this->serialNumberErrors[$index]);
+
+        $this->products = array_values($this->products);
+        $this->quantities = array_values($this->quantities);
+        $this->serialNumberErrors = array_values($this->serialNumberErrors);
     }
 
     public function locationSelected($locationId): void
     {
-        Log::info("Location selected: " . $locationId);
-
         if ($this->locationId !== $locationId) {
             $this->products = [];
+            $this->quantities = [];
+            $this->serialNumberErrors = [];
         }
 
         $this->locationId = $locationId;
     }
 
-    protected function updateProductQuantitiesByLocation(): void
+    public function serialNumberSelected($index, $serialNumber): void
     {
-        foreach ($this->products as &$product) {
-            $product['product_quantity'] = $this->getProductQuantity($product['id']);
+        if (!isset($this->products[$index]) || !$this->products[$index]['serial_number_required']) {
+            return;
+        }
+
+        $currentSerials = collect($this->products[$index]['serial_numbers'] ?? []);
+        if ($currentSerials->pluck('id')->contains($serialNumber['id'])) {
+            $this->serialNumberErrors[$index] = "Serial number '{$serialNumber['serial_number']}' sudah ada.";
+            return;
+        }
+
+        $serial = ProductSerialNumber::find($serialNumber['id']);
+        if (!$serial) {
+            $this->serialNumberErrors[$index] = 'Serial number tidak ditemukan.';
+            return;
+        }
+
+        unset($this->serialNumberErrors[$index]);
+
+        $entry = [
+            'id' => $serial->id,
+            'serial_number' => $serial->serial_number,
+            'tax_id' => $serial->tax_id,
+            'taxable' => (bool) $serial->tax_id,
+        ];
+
+        $this->products[$index]['serial_numbers'][] = $entry;
+
+        if (!isset($this->quantities[$index])) {
+            $this->quantities[$index] = ['tax' => 0, 'non_tax' => 0];
+        }
+
+        if ($serial->tax_id) {
+            $this->quantities[$index]['tax']++;
+        } else {
+            $this->quantities[$index]['non_tax']++;
+        }
+
+        Log::info('[Breakage] Serial number added', ['product_index' => $index, 'serial_id' => $serial->id]);
+    }
+
+    public function removeSerialNumber($index, $serialIndex): void
+    {
+        if (!isset($this->products[$index]['serial_numbers'][$serialIndex])) {
+            return;
+        }
+
+        $serial = $this->products[$index]['serial_numbers'][$serialIndex];
+        $isTaxable = !empty($serial['tax_id']);
+
+        unset($this->products[$index]['serial_numbers'][$serialIndex]);
+        $this->products[$index]['serial_numbers'] = array_values($this->products[$index]['serial_numbers']);
+
+        if (!isset($this->quantities[$index])) {
+            $this->quantities[$index] = ['tax' => 0, 'non_tax' => 0];
+        }
+
+        if ($isTaxable) {
+            $this->quantities[$index]['tax'] = max(0, $this->quantities[$index]['tax'] - 1);
+        } else {
+            $this->quantities[$index]['non_tax'] = max(0, $this->quantities[$index]['non_tax'] - 1);
         }
     }
 
-    public function serialNumberSelected($index, $serialNumber)
+    public function getTotalQuantityProperty(): array
     {
-        if (isset($this->products[$index]) && $this->products[$index]['serial_number_required']) {
-            if (in_array($serialNumber, $this->products[$index]['serial_numbers'])) {
-                session()->flash('message', "Serial number '{$serialNumber['serial_number']}' sudah ada.");
-                return;
+        return collect($this->quantities)
+            ->map(fn ($row) => (int) ($row['tax'] ?? 0) + (int) ($row['non_tax'] ?? 0))
+            ->toArray();
+    }
+
+    protected function hydrateFromExistingAdjustments($adjustedProducts): void
+    {
+        $this->hasAdjustments = true;
+
+        foreach ($adjustedProducts as $adjustedProduct) {
+            $productId = $adjustedProduct['product']['id'] ?? null;
+            if (!$productId) {
+                continue;
             }
 
-            $this->products[$index]['serial_numbers'][] = $serialNumber;
-            $this->products[$index]['quantity'] = count($this->products[$index]['serial_numbers']);
-            Log::info("Serial number added for row {$index}", ['serial_number' => $serialNumber]);
+            $product = Product::with('baseUnit')->find($productId);
+            if (!$product) {
+                continue;
+            }
+
+            $productStock = ProductStock::where('product_id', $productId)
+                ->where('location_id', $this->locationId)
+                ->first();
+
+            $quantities = [
+                'tax' => (int) ($adjustedProduct['quantity_tax'] ?? 0),
+                'non_tax' => (int) ($adjustedProduct['quantity_non_tax'] ?? 0),
+            ];
+
+            if (($quantities['tax'] + $quantities['non_tax']) === 0) {
+                $fallback = (int) ($adjustedProduct['quantity'] ?? 0);
+                if (($adjustedProduct['is_taxable'] ?? false) && $fallback > 0) {
+                    $quantities['tax'] = $fallback;
+                } elseif ($fallback > 0) {
+                    $quantities['non_tax'] = $fallback;
+                }
+            }
+
+            $baseUnit = optional($product->baseUnit);
+
+            $this->products[] = [
+                'id' => $product->id,
+                'product_name' => $product->product_name,
+                'product_code' => $product->product_code,
+                'serial_number_required' => (bool) $product->serial_number_required,
+                'serial_numbers' => $this->getSerialNumberByIds($adjustedProduct['serial_number_ids'] ?? []),
+                'unit' => $baseUnit->unit_name
+                    ?? $baseUnit->name
+                    ?? $baseUnit->short_name
+                    ?? '',
+                'quantity_tax' => optional($productStock)->quantity_tax ?? 0,
+                'quantity_non_tax' => optional($productStock)->quantity_non_tax ?? 0,
+                'broken_quantity_tax' => optional($productStock)->broken_quantity_tax ?? 0,
+                'broken_quantity_non_tax' => optional($productStock)->broken_quantity_non_tax ?? 0,
+            ];
+
+            $this->quantities[] = $quantities;
         }
     }
 
-    public function removeSerialNumber($index, $serialIndex)
+    protected function hydrateFromOldInput($productIds, $serialNumbers, $quantitiesTax, $quantitiesNonTax): void
     {
-        if (isset($this->products[$index]['serial_numbers'][$serialIndex])) {
-            unset($this->products[$index]['serial_numbers'][$serialIndex]);
-            $this->products[$index]['serial_numbers'] = array_values($this->products[$index]['serial_numbers']);
-            $this->products[$index]['quantity'] = count($this->products[$index]['serial_numbers']);
-            Log::info("Removed serial number at index {$serialIndex} for row {$index}");
+        foreach ($productIds as $key => $productId) {
+            $product = Product::with('baseUnit')->find($productId);
+            if (!$product) {
+                continue;
+            }
+
+            $productStock = ProductStock::where('product_id', $productId)
+                ->where('location_id', $this->locationId)
+                ->first();
+
+            $baseUnit = optional($product->baseUnit);
+
+            $this->products[] = [
+                'id' => $product->id,
+                'product_name' => $product->product_name,
+                'product_code' => $product->product_code,
+                'serial_number_required' => (bool) $product->serial_number_required,
+                'serial_numbers' => $this->getSerialNumbers($serialNumbers, $key),
+                'unit' => $baseUnit->unit_name
+                    ?? $baseUnit->name
+                    ?? $baseUnit->short_name
+                    ?? '',
+                'quantity_tax' => optional($productStock)->quantity_tax ?? 0,
+                'quantity_non_tax' => optional($productStock)->quantity_non_tax ?? 0,
+                'broken_quantity_tax' => optional($productStock)->broken_quantity_tax ?? 0,
+                'broken_quantity_non_tax' => optional($productStock)->broken_quantity_non_tax ?? 0,
+            ];
+
+            $this->quantities[] = [
+                'tax' => (int) ($quantitiesTax[$key] ?? 0),
+                'non_tax' => (int) ($quantitiesNonTax[$key] ?? 0),
+            ];
         }
     }
 
@@ -194,23 +308,31 @@ class BreakageProductTable extends Component
         return 0;
     }
 
-    protected function getSerialNumbers($serial_numbers, $key)
+    protected function getSerialNumbers($serialNumbers, $key): array
     {
-        if (empty($serial_numbers) || empty($serial_numbers[$key])) {
+        if (empty($serialNumbers) || empty($serialNumbers[$key])) {
             return [];
         }
 
-        return $this->getSerialNumberByIds($serial_numbers[$key]);
+        return $this->getSerialNumberByIds($serialNumbers[$key]);
     }
 
-    protected function getSerialNumberByIds($serialNumberIds)
+    protected function getSerialNumberByIds($serialNumberIds): array
     {
         if (empty($serialNumberIds)) {
             return [];
         }
 
         return ProductSerialNumber::whereIn('id', $serialNumberIds)
-            ->get(['id', 'serial_number'])
+            ->get(['id', 'serial_number', 'tax_id'])
+            ->map(function ($serial) {
+                return [
+                    'id' => $serial->id,
+                    'serial_number' => $serial->serial_number,
+                    'tax_id' => $serial->tax_id,
+                    'taxable' => (bool) $serial->tax_id,
+                ];
+            })
             ->toArray();
     }
 }

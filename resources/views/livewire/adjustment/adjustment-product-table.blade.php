@@ -59,8 +59,16 @@
                                 {{ $product['serial_number_required'] ? 'readonly' : '' }}>
                         </td>
 
-                        <td class="align-middle text-center">
-                            {{ ($quantities[$key]['non_tax'] ?? 0) + ($quantities[$key]['tax'] ?? 0) }}
+                        <td class="align-middle">
+                            @php
+                                $totalQuantity = !empty($product['serial_number_required'])
+                                    ? count($product['serial_numbers'] ?? [])
+                                    : (int) ($quantities[$key]['non_tax'] ?? 0) + (int) ($quantities[$key]['tax'] ?? 0);
+                            @endphp
+                            <input type="number"
+                                   class="form-control text-center"
+                                   value="{{ $totalQuantity }}"
+                                {{ !empty($product['serial_number_required']) ? 'readonly' : '' }}>
                         </td>
                         <td class="align-middle text-center">
                             <button type="button" class="btn btn-danger" wire:click="removeProduct({{ $key }})">
