@@ -32,10 +32,42 @@ class StockTransfersDataTable extends DataTable
                 return $data->created_at ? $data->created_at->format('Y-m-d H:i:s') : '-';
             })
             ->addColumn('origin_location_name', function ($data) {
-                return $data->originLocation ? $data->originLocation->name : '-';
+                $location = $data->originLocation;
+
+                if (! $location) {
+                    return '-';
+                }
+
+                $name            = $location->name ?? '-';
+                $currentSetting  = session('setting_id');
+                $locationSetting = $location->setting_id;
+
+                if ($locationSetting && (string) $locationSetting !== (string) $currentSetting) {
+                    $tenant = optional($location->setting)->company_name ?? ('Setting #' . $locationSetting);
+
+                    return sprintf('%s (%s)', $name, $tenant);
+                }
+
+                return $name;
             })
             ->addColumn('destination_location_name', function ($data) {
-                return $data->destinationLocation ? $data->destinationLocation->name : '-';
+                $location = $data->destinationLocation;
+
+                if (! $location) {
+                    return '-';
+                }
+
+                $name            = $location->name ?? '-';
+                $currentSetting  = session('setting_id');
+                $locationSetting = $location->setting_id;
+
+                if ($locationSetting && (string) $locationSetting !== (string) $currentSetting) {
+                    $tenant = optional($location->setting)->company_name ?? ('Setting #' . $locationSetting);
+
+                    return sprintf('%s (%s)', $name, $tenant);
+                }
+
+                return $name;
             });
     }
 
@@ -45,7 +77,7 @@ class StockTransfersDataTable extends DataTable
         $settingId = session('setting_id');
 
         return $model->newQuery()
-            ->with('originLocation', 'destinationLocation')
+            ->with(['originLocation.setting', 'destinationLocation.setting'])
             ->where(function($q) use ($settingId) {
                 // 1) All transfers where current setting is the ORIGIN
                 $q->whereHas('originLocation.setting', function ($q1) use ($settingId) {
