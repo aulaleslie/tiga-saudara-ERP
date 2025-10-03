@@ -40,11 +40,16 @@ class TransferStockForm extends Component
     public function onOriginLocationSelected($payload)
     {
         Log::info('onOriginLocationSelected', ['payload' => $payload]);
+
         if ($payload) {
             $this->originLocation = $payload['id'];
             unset($this->selfManagedValidationErrors['origin_location']);
             $this->destinationLocation = null;
+        } else {
+            $this->originLocation = null;
         }
+
+        $this->notifyLocationChange();
     }
 
     public function onDestinationLocationSelected($payload)
@@ -53,7 +58,11 @@ class TransferStockForm extends Component
         if ($payload) {
             $this->destinationLocation = $payload['id'];
             unset($this->selfManagedValidationErrors['destination_location']);
+        } else {
+            $this->destinationLocation = null;
         }
+
+        $this->notifyLocationChange();
     }
 
     public function onRowsUpdated(array $rows)
@@ -77,6 +86,10 @@ class TransferStockForm extends Component
         }
         if (! $this->destinationLocation) {
             $this->selfManagedValidationErrors['destination_location'] = 'Silakan pilih Lokasi Tujuan.';
+        }
+
+        if ($this->originLocation && $this->destinationLocation && $this->originLocation === $this->destinationLocation) {
+            $this->selfManagedValidationErrors['destination_location'] = 'Lokasi tujuan harus berbeda dari lokasi asal.';
         }
 
         // validate rows
@@ -129,7 +142,7 @@ class TransferStockForm extends Component
                 'origin_location_id'      => $this->originLocation,
                 'destination_location_id' => $this->destinationLocation,
                 'created_by'              => auth()->id(),
-                'status'                  => 'PENDING',
+                'status'                  => Transfer::STATUS_PENDING,
             ]);
 
             // 2) create each transfer_product row
@@ -169,5 +182,13 @@ class TransferStockForm extends Component
     public function render()
     {
         return view('livewire.transfer.transfer-stock-form');
+    }
+
+    protected function notifyLocationChange(): void
+    {
+        $this->dispatch('locationsConfirmed', [
+            'originLocationId'      => $this->originLocation,
+            'destinationLocationId' => $this->destinationLocation,
+        ]);
     }
 }

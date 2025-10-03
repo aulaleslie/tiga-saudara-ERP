@@ -27,5 +27,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/transfers/{transfer}/reject', 'TransferStockController@reject')->name('transfers.reject');
     Route::post('/transfers/{transfer}/dispatch', 'TransferStockController@dispatchShipment')->name('transfers.dispatch');
     Route::post('/transfers/{transfer}/receive', 'TransferStockController@receive')->name('transfers.receive');
+    Route::post('/transfers/{transfer}/return-dispatch', 'TransferStockController@dispatchReturn')->name('transfers.return-dispatch');
+    Route::post('/transfers/{transfer}/return-receive', 'TransferStockController@receiveReturn')->name('transfers.return-receive');
     Route::resource('transfers', 'TransferStockController');
 });
