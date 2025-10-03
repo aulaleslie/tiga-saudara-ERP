@@ -126,6 +126,17 @@ class TransferStockController extends Controller
     {
         abort_unless(Gate::any(['stockTransfers.edit', 'stockTransfers.approval']), 403);
 
+        $transfer->loadMissing('originLocation.setting');
+
+        $currentSettingId = (int) session('setting_id');
+        $originSettingId  = $transfer->originLocation?->setting?->id;
+
+        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
+            toast('Transfer hanya dapat disetujui oleh tenant asal.', 'error');
+
+            return redirect()->route('transfers.show', $transfer->id);
+        }
+
         if ($transfer->status !== Transfer::STATUS_PENDING) {
             toast('Transfer tidak dapat disetujui pada status saat ini.', 'error');
 
@@ -149,6 +160,17 @@ class TransferStockController extends Controller
     public function reject(Transfer $transfer): RedirectResponse
     {
         abort_unless(Gate::any(['stockTransfers.edit', 'stockTransfers.approval']), 403);
+
+        $transfer->loadMissing('originLocation.setting');
+
+        $currentSettingId = (int) session('setting_id');
+        $originSettingId  = $transfer->originLocation?->setting?->id;
+
+        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
+            toast('Transfer hanya dapat ditolak oleh tenant asal.', 'error');
+
+            return redirect()->route('transfers.show', $transfer->id);
+        }
 
         if ($transfer->status !== Transfer::STATUS_PENDING) {
             toast('Transfer tidak dapat ditolak pada status saat ini.', 'error');
