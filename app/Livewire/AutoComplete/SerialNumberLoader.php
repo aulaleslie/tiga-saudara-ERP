@@ -64,6 +64,10 @@ class SerialNumberLoader extends Component
             ]);
 
             $baseQuery = ProductSerialNumber::where('serial_number', 'like', '%' . $this->query . '%')
+                ->when(
+                    $this->location_id,
+                    fn($query) => $query->where('location_id', $this->location_id)
+                )
                 ->when($this->product_id > 0, fn($query) => $query->where('product_id', $this->product_id))
                 ->when($this->is_taxed,
                     fn($query) => $query->whereNotNull('tax_id')->where('tax_id', '>', 0),
@@ -84,7 +88,14 @@ class SerialNumberLoader extends Component
 
     public function selectSerialNumber($serialNumberId): void
     {
-        $serialNumber = ProductSerialNumber::find($serialNumberId);
+        $serialNumber = ProductSerialNumber::query()
+            ->whereKey($serialNumberId)
+            ->when(
+                $this->location_id,
+                fn($query) => $query->where('location_id', $this->location_id)
+            )
+            ->first();
+
         if ($serialNumber) {
             $this->search_results = [$serialNumber];
             $this->query = "$serialNumber->serial_number";
