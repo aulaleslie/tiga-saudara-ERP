@@ -45,7 +45,7 @@ return new class extends Migration
                             ->where('id', $row->id)
                             ->update(['document_number' => $documentNumber]);
                     }
-                }, 'transfers.id', 'transfers_id');
+                }, 'id');
         });
 
         Schema::table('transfers', function (Blueprint $table) {
