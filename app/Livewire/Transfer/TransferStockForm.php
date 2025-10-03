@@ -197,7 +197,7 @@ class TransferStockForm extends Component
             DB::commit();
 
             // 3) reset form and show success
-            toast('Transfer Stok Dibuat!', 'success');
+            toast('Transfer Stok Dibuat! No. Dokumen: ' . $transfer->document_number, 'success');
             //
             return redirect()->route('transfers.index');
         }

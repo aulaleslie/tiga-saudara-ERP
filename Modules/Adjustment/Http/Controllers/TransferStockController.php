@@ -79,7 +79,7 @@ class TransferStockController extends Controller
             ]);
         }
 
-        toast('Transfer Stok Dibuat!', 'success');
+        toast('Transfer Stok Dibuat! No. Dokumen: ' . $transfer->document_number, 'success');
 
         return redirect()->route('transfers.index');
     }
@@ -151,7 +151,7 @@ class TransferStockController extends Controller
             'approved_at' => Carbon::now(),
         ]);
 
-        toast('Transfer Stok Disetujui!', 'success');
+        toast('Transfer Stok Disetujui! No. Dokumen: ' . $transfer->document_number, 'success');
 
         return redirect()->route('transfers.show', $transfer->id);
     }
@@ -186,7 +186,7 @@ class TransferStockController extends Controller
             'rejected_at' => Carbon::now(),
         ]);
 
-        toast('Transfer Stok Ditolak!', 'warning');
+        toast('Transfer Stok Ditolak! No. Dokumen: ' . $transfer->document_number, 'warning');
 
         return redirect()->route('transfers.show', $transfer->id);
     }
@@ -274,7 +274,7 @@ class TransferStockController extends Controller
                 ]);
             });
 
-            toast('Transfer Stok Dikirim!', 'info');
+            toast('Transfer Stok Dikirim! No. Dokumen: ' . $transfer->document_number, 'info');
         } catch (Throwable $e) {
             Log::error('Failed to dispatch transfer', [
                 'transfer_id' => $transfer->id,
@@ -348,7 +348,7 @@ class TransferStockController extends Controller
                 ]);
             });
 
-            toast('Transfer Stok Diterima!', 'info');
+            toast('Transfer Stok Diterima! No. Dokumen: ' . $transfer->document_number, 'info');
         } catch (Throwable $e) {
             Log::error('Failed to receive transfer', [
                 'transfer_id' => $transfer->id,
@@ -438,7 +438,7 @@ class TransferStockController extends Controller
                 ]);
             });
 
-            toast('Barang dikirim kembali ke lokasi asal!', 'info');
+            toast('Barang dikirim kembali ke lokasi asal! No. Dokumen: ' . $transfer->document_number, 'info');
         } catch (Throwable $e) {
             Log::error('Failed to dispatch transfer return', [
                 'transfer_id' => $transfer->id,
@@ -512,7 +512,7 @@ class TransferStockController extends Controller
                 ]);
             });
 
-            toast('Barang kembali diterima di lokasi asal!', 'success');
+            toast('Barang kembali diterima di lokasi asal! No. Dokumen: ' . $transfer->document_number, 'success');
         } catch (Throwable $e) {
             Log::error('Failed to receive transfer return', [
                 'transfer_id' => $transfer->id,
@@ -563,7 +563,7 @@ class TransferStockController extends Controller
             ]);
         }
 
-        toast('Stock Transfer Updated!', 'success');
+        toast('Stock Transfer Updated! No. Dokumen: ' . $transfer->document_number, 'success');
 
         return redirect()->route('transfers.show', $transfer->id);
     }
@@ -581,7 +581,7 @@ class TransferStockController extends Controller
 
         $transfer->delete();
 
-        toast('Transfer Stok Dihapus!', 'warning');
+        toast('Transfer Stok Dihapus! No. Dokumen: ' . $transfer->document_number, 'warning');
 
         return redirect()->route('transfers.index');
     }

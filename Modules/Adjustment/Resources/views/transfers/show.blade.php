@@ -20,6 +20,10 @@
                         <h5 class="card-title">Informasi Pemindahan Stok</h5>
                         <table class="table table-bordered mb-4">
                             <tr>
+                                <th>Nomor Dokumen</th>
+                                <td>{{ $transfer->document_number ?? '-' }}</td>
+                            </tr>
+                            <tr>
                                 <th>Tanggal Dokumen</th>
                                 <td>{{ optional($transfer->created_at)->format('Y-m-d H:i:s') ?? '-' }}</td>
                             </tr>

@@ -23,6 +23,12 @@
                             @csrf
                             @method('PUT')
 
+                            <div class="form-group">
+                                <label for="document_number">Nomor Dokumen</label>
+                                <input id="document_number" type="text" class="form-control"
+                                       value="{{ $transfer->document_number }}" readonly>
+                            </div>
+
                             <!-- Step 1: Display Origin Business, Origin Location, and Destination Location as read-only -->
                             <div class="form-row">
                                 <!-- Origin Business (Read-Only) -->
