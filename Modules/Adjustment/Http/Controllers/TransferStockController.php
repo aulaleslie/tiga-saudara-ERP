@@ -198,13 +198,24 @@ class TransferStockController extends Controller
     {
         abort_if(Gate::denies('stockTransfers.dispatch'), 403);
 
+        $transfer->loadMissing(['originLocation.setting', 'destinationLocation.setting']);
+
+        $currentSettingId = (int) session('setting_id');
+        $originSettingId  = $transfer->originLocation?->setting?->id;
+
+        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
+            toast('Transfer hanya dapat dikirim oleh tenant asal.', 'error');
+
+            return redirect()->route('transfers.show', $transfer->id);
+        }
+
         if ($transfer->status !== Transfer::STATUS_APPROVED) {
             toast('Transfer harus disetujui sebelum dapat dikirim.', 'error');
 
             return redirect()->route('transfers.show', $transfer->id);
         }
 
-        $transfer->loadMissing(['products.product', 'originLocation.setting', 'destinationLocation.setting']);
+        $transfer->loadMissing(['products.product']);
 
         try {
             DB::transaction(function () use ($transfer) {
@@ -291,6 +302,15 @@ class TransferStockController extends Controller
 
         $transfer->loadMissing(['products.product', 'originLocation.setting', 'destinationLocation.setting']);
 
+        $currentSettingId      = (int) session('setting_id');
+        $destinationSettingId  = $transfer->destinationLocation?->setting?->id;
+
+        if ($destinationSettingId === null || $currentSettingId !== (int) $destinationSettingId) {
+            toast('Transfer hanya dapat diterima oleh tenant tujuan.', 'error');
+
+            return redirect()->route('transfers.show', $transfer->id);
+        }
+
         try {
             DB::transaction(function () use ($transfer) {
                 foreach ($transfer->products as $transferProduct) {
@@ -348,13 +368,24 @@ class TransferStockController extends Controller
     {
         abort_if(Gate::denies('stockTransfers.dispatch'), 403);
 
+        $transfer->loadMissing(['originLocation.setting', 'destinationLocation.setting']);
+
+        $currentSettingId     = (int) session('setting_id');
+        $destinationSettingId = $transfer->destinationLocation?->setting?->id;
+
+        if ($destinationSettingId === null || $currentSettingId !== (int) $destinationSettingId) {
+            toast('Transfer hanya dapat dikirim kembali oleh tenant tujuan.', 'error');
+
+            return redirect()->route('transfers.show', $transfer->id);
+        }
+
         if ($transfer->status !== Transfer::STATUS_RECEIVED || ! $transfer->requiresReturn()) {
             toast('Transfer tidak tersedia untuk pengiriman kembali.', 'error');
 
             return redirect()->route('transfers.show', $transfer->id);
         }
 
-        $transfer->loadMissing(['products.product', 'originLocation.setting', 'destinationLocation.setting']);
+        $transfer->loadMissing(['products.product']);
 
         try {
             DB::transaction(function () use ($transfer) {
@@ -434,6 +465,15 @@ class TransferStockController extends Controller
         }
 
         $transfer->loadMissing(['products.product', 'originLocation.setting', 'destinationLocation.setting']);
+
+        $currentSettingId = (int) session('setting_id');
+        $originSettingId  = $transfer->originLocation?->setting?->id;
+
+        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
+            toast('Transfer hanya dapat diterima kembali oleh tenant asal.', 'error');
+
+            return redirect()->route('transfers.show', $transfer->id);
+        }
 
         try {
             DB::transaction(function () use ($transfer) {
