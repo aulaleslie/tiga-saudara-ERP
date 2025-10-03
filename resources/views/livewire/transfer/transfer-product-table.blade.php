@@ -115,6 +115,12 @@
                                         @endif
                                     </div>
 
+                                    @if($loop->first && isset($tableValidationErrors["row.{$i}.serial_numbers"]))
+                                        <div class="text-danger small mt-1">
+                                            {{ $tableValidationErrors["row.{$i}.serial_numbers"] }}
+                                        </div>
+                                    @endif
+
                                     @if(isset($tableValidationErrors["row.{$i}.{$field}"]))
                                         <div class="text-danger small mt-1">
                                             {{ $tableValidationErrors["row.{$i}.{$field}"] }}
