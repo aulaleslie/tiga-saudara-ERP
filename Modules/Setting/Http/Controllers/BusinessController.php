@@ -170,7 +170,7 @@ class BusinessController extends Controller
 
     public function updateActiveBusiness(Request $request): RedirectResponse
     {
-        $settingId = $request->input('setting_id');
+        $settingId = (int) $request->input('setting_id');
 
         // Update the session with the new setting ID
         $request->session()->put('setting_id', $settingId);
