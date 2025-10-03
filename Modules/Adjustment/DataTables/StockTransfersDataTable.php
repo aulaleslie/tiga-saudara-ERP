@@ -19,6 +19,9 @@ class StockTransfersDataTable extends DataTable
     {
         return datatables()
             ->eloquent($query)
+            ->editColumn('document_number', function ($data) {
+                return $data->document_number ?? '-';
+            })
             ->addColumn('action', function ($data) {
                 return view('adjustment::transfers.partials.actions', compact('data'));
             })
@@ -66,7 +69,7 @@ class StockTransfersDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                         'tr' .
                                         <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(4)
+            ->orderBy(0, 'desc')
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -82,6 +85,10 @@ class StockTransfersDataTable extends DataTable
     protected function getColumns(): array
     {
         return [
+            Column::make('document_number')
+                ->title('No. Dokumen')
+                ->className('text-center align-middle'),
+
             Column::make('created_at')
                 ->title('Tanggal Transfer')
                 ->className('text-center align-middle'),

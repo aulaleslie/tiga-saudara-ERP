@@ -6,6 +6,7 @@ use App\Http\Middleware\CheckUserRoleForSetting;
 use App\Http\Middleware\VerifyCsrfToken;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
 use Modules\Adjustment\Entities\Transfer;
 use Modules\Currency\Entities\Currency;
@@ -117,6 +118,48 @@ class TransferStockGuardTest extends TestCase
 
         $response->assertRedirect(route('transfers.show', $transfer->id));
         $this->assertSame(Transfer::STATUS_RETURN_DISPATCHED, $transfer->fresh()->status);
+    }
+
+    public function test_document_numbers_are_unique_per_setting_and_month(): void
+    {
+        Carbon::setTestNow('2025-01-10 08:00:00');
+        $first = Transfer::create([
+            'origin_location_id'      => $this->origin['location']->id,
+            'destination_location_id' => $this->destination['location']->id,
+            'status'                  => Transfer::STATUS_PENDING,
+            'created_by'              => $this->user->id,
+        ]);
+
+        Carbon::setTestNow('2025-01-12 10:00:00');
+        $second = Transfer::create([
+            'origin_location_id'      => $this->origin['location']->id,
+            'destination_location_id' => $this->destination['location']->id,
+            'status'                  => Transfer::STATUS_PENDING,
+            'created_by'              => $this->user->id,
+        ]);
+
+        Carbon::setTestNow('2025-02-02 09:30:00');
+        $third = Transfer::create([
+            'origin_location_id'      => $this->origin['location']->id,
+            'destination_location_id' => $this->destination['location']->id,
+            'status'                  => Transfer::STATUS_PENDING,
+            'created_by'              => $this->user->id,
+        ]);
+
+        Carbon::setTestNow('2025-01-14 14:00:00');
+        $otherSettingTransfer = Transfer::create([
+            'origin_location_id'      => $this->destination['location']->id,
+            'destination_location_id' => $this->origin['location']->id,
+            'status'                  => Transfer::STATUS_PENDING,
+            'created_by'              => $this->user->id,
+        ]);
+
+        Carbon::setTestNow();
+
+        $this->assertSame('TS-2025-01-0001', $first->document_number);
+        $this->assertSame('TS-2025-01-0002', $second->document_number);
+        $this->assertSame('TS-2025-02-0001', $third->document_number);
+        $this->assertSame('TS-2025-01-0001', $otherSettingTransfer->document_number);
     }
 
     private function createSettingWithLocation(string $name, string $email): array
