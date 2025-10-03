@@ -41,8 +41,13 @@
                                 <th>Status Saat Ini</th>
                                 <td>
                                     <span class="badge badge-info">{{ str_replace('_', ' ', $transfer->status) }}</span>
-                                    @if($requiresReturn)
-                                        <span class="badge badge-warning ml-2">Butuh Pengembalian</span>
+                                    @if($transfer->status === Transfer::STATUS_RETURN_RECEIVED && $isOrigin && $requiresReturn)
+                                        <span class="badge badge-success">Barang Sudah Dikembalikan</span>
+                                    @else
+                                        <span class="badge badge-info">{{ str_replace('_', ' ', $transfer->status) }}</span>
+                                        @if($requiresReturn && $transfer->status !== Transfer::STATUS_RETURN_RECEIVED)
+                                            <span class="badge badge-warning ml-2">Butuh Pengembalian</span>
+                                        @endif
                                     @endif
                                 </td>
                             </tr>
