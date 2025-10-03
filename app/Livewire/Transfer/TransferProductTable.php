@@ -69,11 +69,11 @@ class TransferProductTable extends Component
 
         // merge in all the relevant stock columns
         $product['stock'] = [
-            'total'                   => $stock->quantity                 ?? 0,
-            'quantity_tax'            => $stock->quantity_tax             ?? 0,
-            'quantity_non_tax'        => $stock->quantity_non_tax         ?? 0,
-            'broken_quantity_tax'     => $stock->broken_quantity_tax      ?? 0,
-            'broken_quantity_non_tax' => $stock->broken_quantity_non_tax  ?? 0,
+            'total'                   => $stock?->quantity                 ?? 0,
+            'quantity_tax'            => $stock?->quantity_tax             ?? 0,
+            'quantity_non_tax'        => $stock?->quantity_non_tax         ?? 0,
+            'broken_quantity_tax'     => $stock?->broken_quantity_tax      ?? 0,
+            'broken_quantity_non_tax' => $stock?->broken_quantity_non_tax  ?? 0,
         ];
 
         // initialize transfer inputs
