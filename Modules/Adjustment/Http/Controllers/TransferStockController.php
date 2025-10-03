@@ -9,6 +9,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,7 @@ use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferProduct;
 use Modules\Adjustment\Http\Requests\StockTransferRequest;
 use Modules\Adjustment\Http\Requests\UpdateStockTransferRequest;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\Setting\Entities\Location;
@@ -207,6 +209,20 @@ class TransferStockController extends Controller
         try {
             DB::transaction(function () use ($transfer) {
                 foreach ($transfer->products as $transferProduct) {
+                    $serialValidation = $this->validateSerialNumbersForLocation(
+                        $transferProduct,
+                        $transfer->origin_location_id,
+                        preferDispatchedPayload: false
+                    );
+
+                    $serialsToMove    = $serialValidation['serials'];
+                    $normalizedSerials = $serialValidation['payload'];
+
+                    if ($serialsToMove->isNotEmpty()) {
+                        ProductSerialNumber::whereIn('id', $serialsToMove->pluck('id')->all())
+                            ->update(['location_id' => $transfer->destination_location_id]);
+                    }
+
                     $stock = $this->ensureStock($transferProduct->product_id, $transfer->origin_location_id, false);
 
                     $snapshot = $this->applyInventoryChange($transferProduct, $stock, increase: false);
@@ -219,6 +235,7 @@ class TransferStockController extends Controller
                         'dispatched_quantity_non_tax'        => $snapshot['quantities']['non_tax'],
                         'dispatched_quantity_broken_tax'     => $snapshot['quantities']['broken_tax'],
                         'dispatched_quantity_broken_non_tax' => $snapshot['quantities']['broken_non_tax'],
+                        'dispatched_serial_numbers'          => ! empty($normalizedSerials) ? $normalizedSerials : null,
                     ]);
 
                     $reason = sprintf(
@@ -277,6 +294,11 @@ class TransferStockController extends Controller
         try {
             DB::transaction(function () use ($transfer) {
                 foreach ($transfer->products as $transferProduct) {
+                    $this->validateSerialNumbersForLocation(
+                        $transferProduct,
+                        $transfer->destination_location_id
+                    );
+
                     $stock = $this->ensureStock($transferProduct->product_id, $transfer->destination_location_id, true);
 
                     $snapshot = $this->applyInventoryChange($transferProduct, $stock, increase: true);
@@ -337,6 +359,19 @@ class TransferStockController extends Controller
         try {
             DB::transaction(function () use ($transfer) {
                 foreach ($transfer->products as $transferProduct) {
+                    $serialValidation = $this->validateSerialNumbersForLocation(
+                        $transferProduct,
+                        $transfer->destination_location_id
+                    );
+
+                    $serialsToMove    = $serialValidation['serials'];
+                    $normalizedSerials = $serialValidation['payload'];
+
+                    if ($serialsToMove->isNotEmpty()) {
+                        ProductSerialNumber::whereIn('id', $serialsToMove->pluck('id')->all())
+                            ->update(['location_id' => $transfer->origin_location_id]);
+                    }
+
                     $stock = $this->ensureStock($transferProduct->product_id, $transfer->destination_location_id, false);
 
                     $snapshot = $this->applyInventoryChange($transferProduct, $stock, increase: false);
@@ -357,6 +392,12 @@ class TransferStockController extends Controller
                         $reason,
                         increase: false
                     );
+
+                    if (! empty($normalizedSerials)) {
+                        $transferProduct->update([
+                            'dispatched_serial_numbers' => $normalizedSerials,
+                        ]);
+                    }
                 }
 
                 $transfer->update([
@@ -397,6 +438,11 @@ class TransferStockController extends Controller
         try {
             DB::transaction(function () use ($transfer) {
                 foreach ($transfer->products as $transferProduct) {
+                    $this->validateSerialNumbersForLocation(
+                        $transferProduct,
+                        $transfer->origin_location_id
+                    );
+
                     $stock = $this->ensureStock($transferProduct->product_id, $transfer->origin_location_id, true);
 
                     $snapshot = $this->applyInventoryChange($transferProduct, $stock, increase: true);
@@ -641,6 +687,160 @@ class TransferStockController extends Controller
         ]);
     }
 
+    private function getSerialPayload(TransferProduct $transferProduct, bool $preferDispatchedPayload = true): Collection
+    {
+        $payload = collect();
+
+        if ($preferDispatchedPayload) {
+            $payload = collect($transferProduct->dispatched_serial_numbers ?? []);
+        }
+
+        if ($payload->isEmpty()) {
+            $payload = collect($transferProduct->serial_numbers ?? []);
+        }
+
+        return $payload->values();
+    }
+
+    private function validateSerialNumbersForLocation(
+        TransferProduct $transferProduct,
+        int $expectedLocationId,
+        bool $preferDispatchedPayload = true
+    ): array {
+        $payload = $this->getSerialPayload($transferProduct, $preferDispatchedPayload);
+
+        $product = $transferProduct->relationLoaded('product')
+            ? $transferProduct->product
+            : $transferProduct->product()->first();
+
+        $productName = $product?->product_name ?? ('ID #' . $transferProduct->product_id);
+
+        if ($payload->isEmpty()) {
+            if ($product && $product->serial_number_required) {
+                throw new Exception("Produk {$productName} memerlukan nomor seri untuk diproses.");
+            }
+
+            return [
+                'serials' => collect(),
+                'payload' => [],
+            ];
+        }
+
+        $serialIds = $payload->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->values();
+
+        if ($serialIds->isEmpty()) {
+            throw new Exception("Data nomor seri untuk produk {$productName} tidak valid.");
+        }
+
+        if ($serialIds->unique()->count() !== $serialIds->count()) {
+            throw new Exception("Nomor seri duplikat terdeteksi pada produk {$productName}.");
+        }
+
+        $serials = ProductSerialNumber::whereIn('id', $serialIds)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        if ($serials->count() !== $serialIds->count()) {
+            throw new Exception("Beberapa nomor seri tidak ditemukan atau sudah digunakan untuk produk {$productName}.");
+        }
+
+        $orderedSerials = $serialIds->map(fn ($id) => $serials->get($id))->values();
+
+        foreach ($orderedSerials as $serial) {
+            if (! $serial instanceof ProductSerialNumber) {
+                throw new Exception("Nomor seri tidak valid untuk produk {$productName}.");
+            }
+
+            if ((int) $serial->product_id !== (int) $transferProduct->product_id) {
+                throw new Exception("Nomor seri {$serial->serial_number} tidak sesuai dengan produk {$productName}.");
+            }
+
+            if ((int) $serial->location_id !== $expectedLocationId) {
+                throw new Exception("Nomor seri {$serial->serial_number} tidak berada di lokasi yang sesuai untuk produk {$productName}.");
+            }
+
+            if ($serial->dispatch_detail_id !== null) {
+                throw new Exception("Nomor seri {$serial->serial_number} sedang digunakan dalam pengiriman lain.");
+            }
+        }
+
+        $breakdown = $this->calculateSerialQuantitiesFromModels($orderedSerials);
+
+        $expectedQuantities = [
+            'quantity_tax'            => (int) ($transferProduct->quantity_tax ?? 0),
+            'quantity_non_tax'        => (int) ($transferProduct->quantity_non_tax ?? 0),
+            'quantity_broken_tax'     => (int) ($transferProduct->quantity_broken_tax ?? 0),
+            'quantity_broken_non_tax' => (int) ($transferProduct->quantity_broken_non_tax ?? 0),
+        ];
+
+        if (
+            $breakdown['quantity_tax'] !== $expectedQuantities['quantity_tax']
+            || $breakdown['quantity_non_tax'] !== $expectedQuantities['quantity_non_tax']
+            || $breakdown['quantity_broken_tax'] !== $expectedQuantities['quantity_broken_tax']
+            || $breakdown['quantity_broken_non_tax'] !== $expectedQuantities['quantity_broken_non_tax']
+        ) {
+            throw new Exception("Jumlah nomor seri tidak sesuai dengan rincian kuantitas untuk produk {$productName}.");
+        }
+
+        if ($breakdown['total'] !== $orderedSerials->count()) {
+            throw new Exception("Jumlah nomor seri tidak konsisten untuk produk {$productName}.");
+        }
+
+        $normalizedPayload = $orderedSerials->map(function (ProductSerialNumber $serial) {
+            return [
+                'id'            => $serial->id,
+                'serial_number' => $serial->serial_number,
+                'tax_id'        => $serial->tax_id,
+                'taxable'       => $serial->tax_id !== null,
+                'is_broken'     => (bool) $serial->is_broken,
+            ];
+        })->toArray();
+
+        return [
+            'serials' => $orderedSerials,
+            'payload' => $normalizedPayload,
+        ];
+    }
+
+    private function calculateSerialQuantitiesFromModels(Collection $serials): array
+    {
+        $quantityTax          = 0;
+        $quantityNonTax       = 0;
+        $brokenQuantityTax    = 0;
+        $brokenQuantityNonTax = 0;
+
+        foreach ($serials as $serial) {
+            if (! $serial instanceof ProductSerialNumber) {
+                continue;
+            }
+
+            $isBroken = (bool) ($serial->is_broken ?? false);
+            $isTaxed  = $serial->tax_id !== null;
+
+            if ($isBroken && $isTaxed) {
+                $brokenQuantityTax++;
+            } elseif ($isBroken && ! $isTaxed) {
+                $brokenQuantityNonTax++;
+            } elseif ($isTaxed) {
+                $quantityTax++;
+            } else {
+                $quantityNonTax++;
+            }
+        }
+
+        return [
+            'quantity_tax'            => $quantityTax,
+            'quantity_non_tax'        => $quantityNonTax,
+            'quantity_broken_tax'     => $brokenQuantityTax,
+            'quantity_broken_non_tax' => $brokenQuantityNonTax,
+            'total'                   => $quantityTax + $quantityNonTax + $brokenQuantityTax + $brokenQuantityNonTax,
+        ];
+    }
+
     private function getQuantities(TransferProduct $transferProduct): array
     {
         $tax        = max(0, (int) ($transferProduct->quantity_tax ?? 0));
@@ -649,6 +849,33 @@ class TransferStockController extends Controller
         $brokenNon  = max(0, (int) ($transferProduct->quantity_broken_non_tax ?? 0));
 
         $total = $tax + $nonTax + $brokenTax + $brokenNon;
+
+        $product = $transferProduct->relationLoaded('product')
+            ? $transferProduct->product
+            : $transferProduct->product()->first();
+
+        if ($product && $product->serial_number_required) {
+            $payload = $this->getSerialPayload($transferProduct);
+            $serialCount = $payload->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->filter(fn ($id) => $id > 0)
+                ->unique()
+                ->count();
+
+            $productName = $product->product_name ?? ('ID #' . $transferProduct->product_id);
+
+            if ($serialCount === 0) {
+                throw new Exception("Produk {$productName} memerlukan nomor seri tetapi tidak ditemukan data serial.");
+            }
+
+            if ($total === 0) {
+                throw new Exception("Jumlah kuantitas untuk produk {$productName} tidak boleh kosong ketika nomor seri tersedia.");
+            }
+
+            if ($serialCount !== $total) {
+                throw new Exception("Jumlah nomor seri ({$serialCount}) tidak sesuai dengan total kuantitas ({$total}) untuk produk {$productName}.");
+            }
+        }
 
         if ($total === 0) {
             $fallback = max(0, (int) ($transferProduct->quantity ?? 0));
