@@ -9,7 +9,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
-use Modules\Product\Entities\Transaction;
+use Modules\Product\Entities\ProductStock;
 
 class SearchProduct extends Component
 {
@@ -41,25 +41,48 @@ class SearchProduct extends Component
                     ->orWhere('product_code', 'like', '%' . $this->query . '%');
             })
             ->get()
-            ->filter(function ($product) {
-                // Filter products where quantity at location is greater than 0
-                $quantity = $this->getProductQuantityAtLocation($product->id, $this->locationId);
-                return $quantity > 0;  // Only return products with non-zero quantity
-            })
-            ->take($this->how_many)
             ->map(function ($product) {
                 $quantity = $this->getProductQuantityAtLocation($product->id, $this->locationId);
-                $product->product_quantity = $quantity;  // Adding the calculated quantity to the product object
+                $product->product_quantity = $quantity;
+
                 return $product;
-            });
+            })
+            ->filter(function ($product) {
+                return $product->product_quantity > 0;
+            })
+            ->take($this->how_many);
     }
 
     public function getProductQuantityAtLocation($productId, $locationId): int
     {
-        return Transaction::where('product_id', $productId)
+        if (empty($productId) || empty($locationId)) {
+            return 0;
+        }
+
+        $settingId = session('setting_id');
+
+        $stock = ProductStock::query()
+            ->where('product_id', $productId)
             ->where('location_id', $locationId)
-            ->groupBy('product_id', 'location_id')
-            ->sum('quantity');
+            ->when($settingId, function ($query) use ($settingId) {
+                $query->whereHas('location', function ($q) use ($settingId) {
+                    $q->where('setting_id', $settingId);
+                });
+            })
+            ->first();
+
+        if (!$stock) {
+            return 0;
+        }
+
+        $availableQuantity = (int) ($stock->quantity_tax ?? 0) + (int) ($stock->quantity_non_tax ?? 0);
+
+        if ($availableQuantity === 0 && !is_null($stock->quantity)) {
+            $brokenQuantity = (int) ($stock->broken_quantity_tax ?? 0) + (int) ($stock->broken_quantity_non_tax ?? 0);
+            $availableQuantity = max(0, (int) $stock->quantity - $brokenQuantity);
+        }
+
+        return max(0, $availableQuantity);
     }
 
     public function loadMore(): void
