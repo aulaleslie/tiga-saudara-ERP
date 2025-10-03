@@ -42,7 +42,7 @@ class TransferStockController extends Controller
     {
         abort_if(Gate::denies('stockTransfers.create'), 403);
 
-        $currentSettingId = session('setting_id');
+        $currentSettingId = (int) session('setting_id');
         $currentSetting   = Setting::find($currentSettingId);
         $settings         = Setting::all();
         $locations        = Location::where('setting_id', $currentSettingId)->get();
@@ -102,10 +102,13 @@ class TransferStockController extends Controller
             'returnReceivedBy',
         ]);
 
-        $currentSettingId = session('setting_id');
+        $currentSettingId = (int) session('setting_id');
 
-        $isOrigin      = $transfer->originLocation && $currentSettingId === $transfer->originLocation->setting->id;
-        $isDestination = $transfer->destinationLocation && $currentSettingId === $transfer->destinationLocation->setting->id;
+        $originSettingId      = $transfer->originLocation?->setting?->id;
+        $destinationSettingId = $transfer->destinationLocation?->setting?->id;
+
+        $isOrigin      = $originSettingId !== null && $currentSettingId === (int) $originSettingId;
+        $isDestination = $destinationSettingId !== null && $currentSettingId === (int) $destinationSettingId;
         $requiresReturn = $transfer->requiresReturn();
 
         return view('adjustment::transfers.show', compact(
