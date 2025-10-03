@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Middleware\CheckUserRoleForSetting;
 use App\Http\Middleware\VerifyCsrfToken;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
@@ -120,7 +121,7 @@ class TransferStockGuardTest extends TestCase
         $this->assertSame(Transfer::STATUS_RETURN_DISPATCHED, $transfer->fresh()->status);
     }
 
-    public function test_document_numbers_are_unique_per_setting_and_month(): void
+    public function test_document_numbers_are_unique_per_origin_and_month_but_can_repeat_across_tenants(): void
     {
         Carbon::setTestNow('2025-01-10 08:00:00');
         $first = Transfer::create([
@@ -160,6 +161,42 @@ class TransferStockGuardTest extends TestCase
         $this->assertSame('TS-2025-01-0002', $second->document_number);
         $this->assertSame('TS-2025-02-0001', $third->document_number);
         $this->assertSame('TS-2025-01-0001', $otherSettingTransfer->document_number);
+    }
+
+    public function test_document_numbers_enforce_uniqueness_per_origin_only(): void
+    {
+        $first = Transfer::create([
+            'origin_location_id'      => $this->origin['location']->id,
+            'destination_location_id' => $this->destination['location']->id,
+            'status'                  => Transfer::STATUS_PENDING,
+            'created_by'              => $this->user->id,
+        ]);
+
+        try {
+            Transfer::create([
+                'document_number'        => $first->document_number,
+                'origin_location_id'     => $this->origin['location']->id,
+                'destination_location_id'=> $this->destination['location']->id,
+                'status'                 => Transfer::STATUS_PENDING,
+                'created_by'             => $this->user->id,
+            ]);
+
+            $this->fail('Expected duplicate document number constraint violation for the same origin.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('transfers_origin_document_number_unique', $exception->getMessage());
+        }
+
+        $secondOrigin = $this->createSettingWithLocation('Another', 'another@example.com');
+
+        $duplicate = Transfer::create([
+            'document_number'        => $first->document_number,
+            'origin_location_id'     => $secondOrigin['location']->id,
+            'destination_location_id'=> $this->destination['location']->id,
+            'status'                 => Transfer::STATUS_PENDING,
+            'created_by'             => $this->user->id,
+        ]);
+
+        $this->assertSame($first->document_number, $duplicate->document_number);
     }
 
     private function createSettingWithLocation(string $name, string $email): array
