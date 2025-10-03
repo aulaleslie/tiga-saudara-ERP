@@ -1,3 +1,4 @@
+@php use Modules\Adjustment\Entities\Transfer; @endphp
 @extends('layouts.app')
 
 @section('title', 'Detail Pemindahan Barang')
@@ -54,7 +55,8 @@
                                     <th>Disetujui Oleh</th>
                                     <td>
                                         {{ $transfer->approvedBy->name }}<br>
-                                        <small class="text-muted">{{ optional($transfer->approved_at)->format('Y-m-d H:i:s') }}</small>
+                                        <small
+                                            class="text-muted">{{ optional($transfer->approved_at)->format('Y-m-d H:i:s') }}</small>
                                     </td>
                                 </tr>
                             @endif
@@ -63,7 +65,8 @@
                                     <th>Dikirim Oleh</th>
                                     <td>
                                         {{ $transfer->dispatchedBy->name }}<br>
-                                        <small class="text-muted">{{ optional($transfer->dispatched_at)->format('Y-m-d H:i:s') }}</small>
+                                        <small
+                                            class="text-muted">{{ optional($transfer->dispatched_at)->format('Y-m-d H:i:s') }}</small>
                                     </td>
                                 </tr>
                             @endif
@@ -72,7 +75,8 @@
                                     <th>Diterima Oleh</th>
                                     <td>
                                         {{ $transfer->receivedBy->name }}<br>
-                                        <small class="text-muted">{{ optional($transfer->received_at)->format('Y-m-d H:i:s') }}</small>
+                                        <small
+                                            class="text-muted">{{ optional($transfer->received_at)->format('Y-m-d H:i:s') }}</small>
                                     </td>
                                 </tr>
                             @endif
@@ -81,7 +85,8 @@
                                     <th>Dikirim Kembali Oleh</th>
                                     <td>
                                         {{ $transfer->returnDispatchedBy->name }}<br>
-                                        <small class="text-muted">{{ optional($transfer->return_dispatched_at)->format('Y-m-d H:i:s') }}</small>
+                                        <small
+                                            class="text-muted">{{ optional($transfer->return_dispatched_at)->format('Y-m-d H:i:s') }}</small>
                                     </td>
                                 </tr>
                             @endif
@@ -90,7 +95,8 @@
                                     <th>Diterima Kembali Oleh</th>
                                     <td>
                                         {{ $transfer->returnReceivedBy->name }}<br>
-                                        <small class="text-muted">{{ optional($transfer->return_received_at)->format('Y-m-d H:i:s') }}</small>
+                                        <small
+                                            class="text-muted">{{ optional($transfer->return_received_at)->format('Y-m-d H:i:s') }}</small>
                                     </td>
                                 </tr>
                             @endif
@@ -135,45 +141,51 @@
 
                         <div class="mt-4">
                             {{-- Approve/Reject: only DESTINATION on PENDING --}}
-                            @if($transfer->status === \Modules\Adjustment\Entities\Transfer::STATUS_PENDING && $isDestination)
+                            @if($transfer->status === Transfer::STATUS_PENDING && $isDestination)
                                 @canany(['stockTransfers.edit','stockTransfers.approval'])
-                                    <form action="{{ route('transfers.approve', $transfer) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('transfers.approve', $transfer) }}" method="POST"
+                                          class="d-inline">
                                         @csrf
                                         <button class="btn btn-success">Setujui</button>
                                     </form>
-                                    <form action="{{ route('transfers.reject', $transfer) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('transfers.reject', $transfer) }}" method="POST"
+                                          class="d-inline">
                                         @csrf
                                         <button class="btn btn-danger">Tolak</button>
                                     </form>
                                 @endcanany
 
                                 {{-- Dispatch: only ORIGIN on APPROVED --}}
-                            @elseif($transfer->status === \Modules\Adjustment\Entities\Transfer::STATUS_APPROVED && $isOrigin)
+                            @elseif($transfer->status === Transfer::STATUS_APPROVED && $isOrigin)
                                 @can('stockTransfers.dispatch')
-                                    <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST"
+                                          class="d-inline">
                                         @csrf
                                         <button class="btn btn-primary">Keluarkan</button>
                                     </form>
                                 @endcan
 
                                 {{-- Receive: only DESTINATION on DISPATCHED --}}
-                            @elseif($transfer->status === \Modules\Adjustment\Entities\Transfer::STATUS_DISPATCHED && $isDestination)
+                            @elseif($transfer->status === Transfer::STATUS_DISPATCHED && $isDestination)
                                 @can('stockTransfers.receive')
-                                    <form action="{{ route('transfers.receive', $transfer) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('transfers.receive', $transfer) }}" method="POST"
+                                          class="d-inline">
                                         @csrf
                                         <button class="btn btn-success">Terima</button>
                                     </form>
                                 @endcan
-                            @elseif($transfer->status === \Modules\Adjustment\Entities\Transfer::STATUS_RECEIVED && $requiresReturn && $isDestination)
+                            @elseif($transfer->status === Transfer::STATUS_RECEIVED && $requiresReturn && $isDestination)
                                 @can('stockTransfers.dispatch')
-                                    <form action="{{ route('transfers.return-dispatch', $transfer) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('transfers.return-dispatch', $transfer) }}" method="POST"
+                                          class="d-inline">
                                         @csrf
                                         <button class="btn btn-warning">Kirim Kembali</button>
                                     </form>
                                 @endcan
-                            @elseif($transfer->status === \Modules\Adjustment\Entities\Transfer::STATUS_RETURN_DISPATCHED && $isOrigin)
+                            @elseif($transfer->status === Transfer::STATUS_RETURN_DISPATCHED && $isOrigin)
                                 @can('stockTransfers.receive')
-                                    <form action="{{ route('transfers.return-receive', $transfer) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('transfers.return-receive', $transfer) }}" method="POST"
+                                          class="d-inline">
                                         @csrf
                                         <button class="btn btn-success">Terima Kembali</button>
                                     </form>
