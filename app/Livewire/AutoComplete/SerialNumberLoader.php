@@ -75,7 +75,10 @@ class SerialNumberLoader extends Component
                         $q->whereNull('tax_id')->orWhere('tax_id', 0);
                     })
                 )
-                ->when($this->is_broken, fn($query) => $query->where('is_broken', true))
+                ->when(
+                    ! is_null($this->is_broken),
+                    fn($query) => $query->where('is_broken', (bool) $this->is_broken)
+                )
                 ->when($this->is_dispatch, fn($query) => $query->whereNull('dispatch_detail_id'));
 
             $this->query_count = $baseQuery->count();
