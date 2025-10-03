@@ -48,12 +48,11 @@ class StockTransfersDataTable extends DataTable
                 $q->whereHas('originLocation.setting', function ($q1) use ($settingId) {
                     $q1->where('id', $settingId);
                 })
-                    // 2) OR: transfers where current setting is the DESTINATION AND status is DISPATCHED
+                    // 2) OR: transfers where current setting is the DESTINATION regardless of status
                     ->orWhere(function($q2) use ($settingId) {
                         $q2->whereHas('destinationLocation.setting', function ($q3) use ($settingId) {
                             $q3->where('id', $settingId);
-                        })
-                            ->where('status', 'DISPATCHED');
+                        });
                     });
             });
     }
