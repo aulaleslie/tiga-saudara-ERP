@@ -13,7 +13,7 @@
     </div>
 
     <!-- Loading Spinner -->
-    <div wire:loading class="card position-absolute mt-1 border-0" style="z-index: 1; left: 0; right: 0;">
+    <div wire:loading class="card position-absolute mt-1 border-0" style="z-index: 1050; left: 0; right: 0;">
         <div class="card-body shadow">
             <div class="d-flex justify-content-center">
                 <div class="spinner-border text-primary" role="status">
@@ -25,7 +25,7 @@
 
     <!-- Search Results -->
     @if($isFocused)
-        <div class="card position-absolute mt-1 border-0" style="z-index: 1; left: 0; right: 0;">
+        <div class="card position-absolute mt-1 border-0" style="z-index: 1050; left: 0; right: 0;">
             <div class="card-body shadow">
                 @if(count($search_results) > 0)
                     <ul class="list-group list-group-flush">

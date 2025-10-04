@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\People\Entities\Supplier;
+use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Setting;
 
 class PurchaseReturn extends BaseModel
 {
@@ -25,6 +27,7 @@ class PurchaseReturn extends BaseModel
         'date'             => 'date',
         'approved_at'      => 'datetime',
         'rejected_at'      => 'datetime',
+        'settled_at'       => 'datetime',
     ];
 
     public function purchaseReturnDetails(): Builder|HasMany|PurchaseReturn
@@ -78,9 +81,24 @@ class PurchaseReturn extends BaseModel
     {
         return $this->belongsTo(User::class, 'rejected_by');
     }
+
+    public function settledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'settled_by');
+    }
     public function goods()
     {
         return $this->hasMany(PurchaseReturnGood::class, 'purchase_return_id');
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'location_id');
+    }
+
+    public function setting(): BelongsTo
+    {
+        return $this->belongsTo(Setting::class, 'setting_id');
     }
     public function supplierCredit(): HasOne|Builder|PurchaseReturn
     {
@@ -89,18 +107,18 @@ class PurchaseReturn extends BaseModel
 
     public function scopeApproved($q)
     {
-        return $q->where('approval_status', 'approved');
+        return $q->whereRaw('LOWER(approval_status) = ?', ['approved']);
     }
     public function scopePending($q)
     {
-        return $q->where('approval_status', 'pending');
+        return $q->whereRaw('LOWER(approval_status) = ?', ['pending']);
     }
     public function scopeRejected($q)
     {
-        return $q->where('approval_status', 'rejected');
+        return $q->whereRaw('LOWER(approval_status) = ?', ['rejected']);
     }
     public function scopeDraft($q)
     {
-        return $q->where('approval_status', 'draft');
+        return $q->whereRaw('LOWER(approval_status) = ?', ['draft']);
     }
 }

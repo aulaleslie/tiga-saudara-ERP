@@ -9,6 +9,37 @@
     <link rel="stylesheet" href="{{ public_path('b3/bootstrap.min.css') }}">
 </head>
 <body>
+@php
+    $methodMap = [
+        'Cash' => 'Pengembalian Tunai',
+        'Replacement' => 'Penggantian Produk',
+        'Supplier Credit' => 'Kredit Pemasok',
+    ];
+
+    $settlementLabel = 'Belum Diproses';
+    $settlementDetail = null;
+    $approvalStatus = strtolower($purchase_return->approval_status ?? '');
+
+    if ($purchase_return->settled_at) {
+        $settlementLabel = 'Selesai';
+        if ($purchase_return->payment_method) {
+            $settlementDetail = 'Metode: ' . ($methodMap[$purchase_return->payment_method] ?? $purchase_return->payment_method);
+        }
+    } elseif ($approvalStatus === 'rejected') {
+        $settlementLabel = 'Ditolak';
+        if ($purchase_return->rejection_reason) {
+            $settlementDetail = 'Alasan: ' . $purchase_return->rejection_reason;
+        }
+    } elseif ($purchase_return->status === 'Awaiting Settlement' || ($approvalStatus === 'approved' && ! $purchase_return->settled_at)) {
+        $settlementLabel = 'Menunggu Penyelesaian';
+        if (empty($purchase_return->return_type)) {
+            $settlementDetail = 'Metode penyelesaian belum dipilih.';
+        }
+    } elseif ($approvalStatus !== 'approved') {
+        $settlementLabel = 'Menunggu Persetujuan';
+    }
+@endphp
+
 <div class="container-fluid">
     <div class="row">
         <div class="col-xs-12">
@@ -45,7 +76,10 @@
                                 Status: <strong>{{ $purchase_return->status }}</strong>
                             </div>
                             <div>
-                                Payment Status: <strong>{{ $purchase_return->payment_status }}</strong>
+                                Status Penyelesaian: <strong>{{ $settlementLabel }}</strong>
+                                @if($settlementDetail)
+                                    <div style="font-size: 12px; color: #6c757d;">{{ $settlementDetail }}</div>
+                                @endif
                             </div>
                         </div>
 

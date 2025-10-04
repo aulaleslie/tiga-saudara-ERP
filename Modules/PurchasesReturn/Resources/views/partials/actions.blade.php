@@ -1,49 +1,78 @@
+@php $approvalStatus = strtolower($data->approval_status ?? ''); @endphp
 <div class="btn-group dropleft">
-    <button type="button" class="btn btn-ghost-primary dropdown rounded" data-toggle="dropdown" aria-expanded="false">
+    <button type="button" class="btn btn-ghost-primary dropdown-toggle" data-toggle="dropdown" aria-expanded="false">
         <i class="bi bi-three-dots-vertical"></i>
     </button>
-    <div class="dropdown-menu">
-        @can('purchaseReturnPayments.show')
-            <a href="{{ route('purchase-return-payments.index', $data->id) }}" class="dropdown-item">
-                <i class="bi bi-cash-coin mr-2 text-warning" style="line-height: 1;"></i> Show Payments
-            </a>
-        @endcan
-
-        @can('purchaseReturnPayments.create')
-            @if(Str::startsWith($data->status, 'APPROVED') && $data->due_amount > 0)
-                <a href="{{ route('purchase-return-payments.create', $data->id) }}" class="dropdown-item">
-                    <i class="bi bi-plus-circle-dotted mr-2 text-success" style="line-height: 1;"></i> Add Payment
+    <div class="dropdown-menu dropdown-menu-right shadow-sm">
+        @can('purchaseReturns.edit')
+            @if($approvalStatus === 'pending')
+                <a href="{{ route('purchase-returns.edit', $data->id) }}" class="dropdown-item d-flex align-items-center">
+                    <i class="bi bi-pencil text-primary me-2"></i> <span>Edit</span>
                 </a>
             @endif
         @endcan
 
         @can('purchaseReturns.edit')
-            @if($data->status === 'PENDING')
-                <a href="{{ route('purchase-returns.edit', $data->id) }}" class="dropdown-item">
-                    <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Edit
+            @if($approvalStatus === 'pending')
+                <form method="POST" action="{{ route('purchase-returns.approve', $data->id) }}" class="m-0">
+                    @csrf
+                    <button type="submit" class="dropdown-item d-flex align-items-center border-0 bg-transparent px-0" onclick="return confirm('Setujui retur pembelian ini?')">
+                        <i class="bi bi-check2-circle text-success me-2"></i> <span>Setujui</span>
+                    </button>
+                </form>
+                <a href="#" class="dropdown-item d-flex align-items-center" onclick="event.preventDefault(); purchaseReturnReject{{ $data->id }}();">
+                    <i class="bi bi-x-circle text-danger me-2"></i> <span>Tolak</span>
                 </a>
+                <form id="reject-form-{{ $data->id }}" method="POST" action="{{ route('purchase-returns.reject', $data->id) }}" class="d-none">
+                    @csrf
+                    <input type="hidden" name="reason" value="">
+                </form>
+                <script>
+                    function purchaseReturnReject{{ $data->id }}() {
+                        const reason = prompt('Masukkan alasan penolakan (opsional):');
+                        if (reason !== null) {
+                            const form = document.getElementById('reject-form-{{ $data->id }}');
+                            form.querySelector('input[name="reason"]').value = reason;
+                            form.submit();
+                        }
+                    }
+                </script>
             @endif
         @endcan
 
         @can('purchaseReturns.show')
-            <a href="{{ route('purchase-returns.show', $data->id) }}" class="dropdown-item">
-                <i class="bi bi-eye mr-2 text-info" style="line-height: 1;"></i> Details
+            <a href="{{ route('purchase-returns.show', $data->id) }}" class="dropdown-item d-flex align-items-center">
+                <i class="bi bi-eye text-info me-2"></i> <span>Detail</span>
             </a>
         @endcan
 
+        @if($approvalStatus === 'approved')
+            @can('purchaseReturns.edit')
+                <a href="{{ route('purchase-returns.settlement', $data->id) }}" class="dropdown-item d-flex align-items-center">
+                    <i class="bi bi-arrow-repeat text-primary me-2"></i> <span>Kelola Penyelesaian</span>
+                </a>
+            @else
+                @can('purchaseReturns.show')
+                    <a href="{{ route('purchase-returns.settlement', $data->id) }}" class="dropdown-item d-flex align-items-center">
+                        <i class="bi bi-arrow-repeat text-primary me-2"></i> <span>Penyelesaian</span>
+                    </a>
+                @endcan
+            @endcan
+        @endif
+
         @can('purchaseReturns.delete')
-            @if($data->status === 'PENDING')
-                <button id="delete" class="dropdown-item" onclick="
+            @if($approvalStatus === 'pending')
+                <button id="delete" type="button" class="dropdown-item d-flex align-items-center" onclick="
                     event.preventDefault();
                     if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {
                         document.getElementById('destroy{{ $data->id }}').submit()
                     }">
-                    <i class="bi bi-trash mr-2 text-danger" style="line-height: 1;"></i> Delete
-                    <form id="destroy{{ $data->id }}" class="d-none" action="{{ route('purchase-returns.destroy', $data->id) }}" method="POST">
-                        @csrf
-                        @method('delete')
-                    </form>
+                    <i class="bi bi-trash text-danger me-2"></i> <span>Hapus</span>
                 </button>
+                <form id="destroy{{ $data->id }}" class="d-none" action="{{ route('purchase-returns.destroy', $data->id) }}" method="POST">
+                    @csrf
+                    @method('delete')
+                </form>
             @endif
         @endcan
     </div>

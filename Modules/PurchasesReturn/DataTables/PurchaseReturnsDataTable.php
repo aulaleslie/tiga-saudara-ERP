@@ -35,8 +35,8 @@ class PurchaseReturnsDataTable extends DataTable
             ->addColumn('status', function ($data) {
                 return view('purchasesreturn::partials.status', compact('data'));
             })
-            ->addColumn('payment_status', function ($data) {
-                return view('purchasesreturn::partials.payment-status', compact('data'));
+            ->addColumn('settlement_status', function ($data) {
+                return view('purchasesreturn::partials.settlement-status', compact('data'));
             })
             ->addColumn('action', function ($data) {
                 return view('purchasesreturn::partials.actions', compact('data'));
@@ -45,7 +45,11 @@ class PurchaseReturnsDataTable extends DataTable
 
     public function query(PurchaseReturn $model): Builder
     {
-        return $model->newQuery()->with('supplier');
+        return $model->newQuery()
+            ->with(['supplier', 'location'])
+            ->when(session('setting_id'), function (Builder $query, $settingId) {
+                $query->where('setting_id', $settingId);
+            });
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
@@ -92,7 +96,8 @@ class PurchaseReturnsDataTable extends DataTable
             Column::computed('due_amount')
                 ->className('text-center align-middle'),
 
-            Column::computed('payment_status')
+            Column::computed('settlement_status')
+                ->title('Penyelesaian')
                 ->className('text-center align-middle'),
 
             Column::computed('action')
