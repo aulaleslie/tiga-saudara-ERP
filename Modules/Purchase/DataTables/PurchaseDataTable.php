@@ -71,7 +71,11 @@ class PurchaseDataTable extends DataTable
 
     public function query(Purchase $model)
     {
-        $query = $model->newQuery()->with(['supplier', 'tags']);
+        $currentSettingId = session('setting_id');
+
+        $query = $model->newQuery()
+            ->with(['supplier', 'tags'])
+            ->when(! is_null($currentSettingId), fn ($q) => $q->where('setting_id', $currentSettingId));
 
         if ($this->request()->has('supplier_id') && $this->request()->get('supplier_id')) {
             $supplier_id = $this->request()->get('supplier_id');

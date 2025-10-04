@@ -31,7 +31,7 @@ class ProductCart extends Component
     public $quantityBreakdowns = [];
     public $product;
 
-    public $taxes; // Collection of taxes filtered by setting_id
+    public $taxes; // Collection of available taxes
     public $setting_id; // Current setting ID
     public $product_tax = []; // Array to store selected tax IDs for each product
 
