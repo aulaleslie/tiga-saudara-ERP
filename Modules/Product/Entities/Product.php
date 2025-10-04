@@ -220,62 +220,38 @@ class Product extends BaseModel implements HasMedia
         return $this->prices()->where('setting_id', $sid)->first();
     }
 
-    /** Get sale price (string like "123.45"), preferring product_prices over legacy column. */
+    /** Get sale price (string like "123.45") from the tenant-specific price row. */
     public function salePrice(?int $settingId = null): ?string
     {
         $row = $this->priceRow($settingId);
-        if ($row && $row->sale_price !== null) {
-            return $row->sale_price; // already string via decimal:2 cast
-        }
-        return $this->normalizeLegacyDecimal($this->getAttribute('sale_price'));
+        return $row?->sale_price;
     }
 
     /** Get tier 1 price. */
     public function tier1Price(?int $settingId = null): ?string
     {
         $row = $this->priceRow($settingId);
-        if ($row && $row->tier_1_price !== null) {
-            return $row->tier_1_price;
-        }
-        return $this->normalizeLegacyDecimal($this->getAttribute('tier_1_price'));
+        return $row?->tier_1_price;
     }
 
     /** Get tier 2 price. */
     public function tier2Price(?int $settingId = null): ?string
     {
         $row = $this->priceRow($settingId);
-        if ($row && $row->tier_2_price !== null) {
-            return $row->tier_2_price;
-        }
-        return $this->normalizeLegacyDecimal($this->getAttribute('tier_2_price'));
+        return $row?->tier_2_price;
     }
 
     /** Get last purchase price. */
     public function lastPurchasePrice(?int $settingId = null): ?string
     {
         $row = $this->priceRow($settingId);
-        if ($row && $row->last_purchase_price !== null) {
-            return $row->last_purchase_price;
-        }
-        return $this->normalizeLegacyDecimal($this->getAttribute('last_purchase_price'));
+        return $row?->last_purchase_price;
     }
 
     /** Get average purchase price. */
     public function averagePurchasePrice(?int $settingId = null): ?string
     {
         $row = $this->priceRow($settingId);
-        if ($row && $row->average_purchase_price !== null) {
-            return $row->average_purchase_price;
-        }
-        return $this->normalizeLegacyDecimal($this->getAttribute('average_purchase_price'));
-    }
-
-    /** Normalize legacy decimal (mixed) -> ?string with 2 decimals. */
-    protected function normalizeLegacyDecimal($value): ?string
-    {
-        if ($value === null) return null;
-
-        // If legacy is already string/decimal, format to "0.00"
-        return number_format((float) $value, 2, '.', '');
+        return $row?->average_purchase_price;
     }
 }
