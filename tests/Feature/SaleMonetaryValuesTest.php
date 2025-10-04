@@ -8,6 +8,7 @@ use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Str;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
@@ -20,6 +21,7 @@ use Modules\Setting\Entities\Currency;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
+use Modules\Setting\Entities\Tax;
 use Tests\TestCase;
 
 class SaleMonetaryValuesTest extends TestCase
@@ -31,6 +33,7 @@ class SaleMonetaryValuesTest extends TestCase
     protected Product $product;
     protected PaymentTerm $paymentTerm;
     protected PaymentMethod $paymentMethod;
+    protected Tax $tax;
 
     protected function setUp(): void
     {
@@ -136,6 +139,11 @@ class SaleMonetaryValuesTest extends TestCase
             'name' => 'Cash',
             'coa_id' => $chartOfAccount->id,
         ]);
+
+        $this->tax = Tax::create([
+            'name' => 'VAT 10%',
+            'value' => 10,
+        ]);
     }
 
     protected function addCartItem(float $price, float $discount, float $taxAmount, float $subTotal): void
@@ -196,6 +204,75 @@ class SaleMonetaryValuesTest extends TestCase
         $this->assertEquals(48.40, (float) $detail->sub_total);
         $this->assertEquals(1.20, (float) $detail->product_discount_amount);
         $this->assertEquals(0.80, (float) $detail->product_tax_amount);
+    }
+
+    public function test_sale_store_merges_duplicate_cart_rows(): void
+    {
+        Cart::instance('sale')->destroy();
+
+        $bundle = [
+            'bundle_id' => 1,
+            'bundle_item_id' => 1,
+            'product_id' => null,
+            'name' => 'Accessory',
+            'price' => 3.00,
+            'quantity' => 2,
+            'sub_total' => 6.00,
+        ];
+
+        for ($i = 0; $i < 2; $i++) {
+            Cart::instance('sale')->add([
+                'id' => (string) Str::uuid(),
+                'name' => $this->product->product_name,
+                'qty' => 1,
+                'price' => 15.90,
+                'weight' => 1,
+                'options' => [
+                    'product_id' => $this->product->id,
+                    'code' => $this->product->product_code,
+                    'unit_price' => 15.90,
+                    'product_discount' => 1.00,
+                    'product_discount_type' => 'fixed',
+                    'product_tax' => $this->tax->id,
+                    'sub_total_before_tax' => 15.00,
+                    'sub_total' => 15.90,
+                    'bundle_items' => [$bundle],
+                    'stock' => 100,
+                ],
+            ]);
+        }
+
+        $response = $this->post(route('sales.store'), [
+            'customer_id' => $this->customer->id,
+            'reference' => 'SL-AGG',
+            'date' => '2024-04-01',
+            'due_date' => '2024-04-11',
+            'tax_id' => $this->tax->id,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 31.80,
+            'payment_term_id' => $this->paymentTerm->id,
+            'note' => 'Aggregate duplicates',
+            'is_tax_included' => false,
+        ]);
+
+        $response->assertRedirect(route('sales.index'));
+
+        $sale = Sale::latest('id')->with('saleDetails.bundleItems')->first();
+
+        $this->assertNotNull($sale);
+        $this->assertCount(1, $sale->saleDetails);
+
+        $detail = $sale->saleDetails->first();
+        $this->assertEquals(2, (int) $detail->quantity);
+        $this->assertEquals(2.00, (float) $detail->product_discount_amount);
+        $this->assertEquals(31.80, (float) $detail->sub_total);
+        $this->assertEquals(1.80, (float) $detail->product_tax_amount);
+
+        $this->assertCount(1, $detail->bundleItems);
+        $bundleItem = $detail->bundleItems->first();
+        $this->assertEquals(4, (int) $bundleItem->quantity);
+        $this->assertEquals(12.00, (float) $bundleItem->sub_total);
     }
 
     public function test_sale_update_persists_decimal_amounts(): void

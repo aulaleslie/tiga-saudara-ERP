@@ -34,6 +34,7 @@ use Modules\Sale\Http\Requests\StoreSaleRequest;
 use Modules\Sale\Http\Requests\UpdateSaleRequest;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Tax;
+use Modules\Sale\Services\SaleCartAggregator;
 
 class SaleController extends Controller
 {
@@ -80,8 +81,10 @@ class SaleController extends Controller
         $parentQuantities = [];
         $bundleQuantities = [];
 
+        $cartItems = Cart::instance('sale')->content();
+
         // Loop through each cart item.
-        foreach (Cart::instance('sale')->content() as $cart_item) {
+        foreach ($cartItems as $cart_item) {
             // Parent product ID is stored in options->product_id.
             $parentId = $cart_item->options->product_id;
             if (!isset($parentQuantities[$parentId])) {
@@ -155,30 +158,28 @@ class SaleController extends Controller
                 'payment_method' => '',
             ]);
 
-            // Iterate over cart items and create sale details.
-            foreach (Cart::instance('sale')->content() as $cart_item) {
-                // Calculate product tax amount.
-                $product_tax_amount = $cart_item->options['sub_total'] -
-                    ($cart_item->options['sub_total_before_tax'] ?? 0);
+            $aggregatedItems = SaleCartAggregator::aggregate($cartItems);
 
+            // Iterate over aggregated cart items and create sale details.
+            foreach ($aggregatedItems as $cart_item) {
                 $saleDetail = SaleDetails::create([
                     'sale_id' => $sale->id,
-                    'product_id' => $cart_item->options->product_id,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options['code'],
-                    'quantity' => $cart_item->qty,
-                    'unit_price' => $cart_item->options['unit_price'],
-                    'price' => $cart_item->price,
-                    'product_discount_type' => $cart_item->options['product_discount_type'],
-                    'product_discount_amount' => $cart_item->options['product_discount'],
-                    'sub_total' => $cart_item->options['sub_total'],
-                    'product_tax_amount' => $product_tax_amount,
-                    'tax_id' => $cart_item->options['product_tax'],
+                    'product_id' => $cart_item['product_id'],
+                    'product_name' => $cart_item['product_name'],
+                    'product_code' => $cart_item['product_code'],
+                    'quantity' => $cart_item['quantity'],
+                    'unit_price' => round((float) $cart_item['unit_price'], 2),
+                    'price' => round((float) $cart_item['price'], 2),
+                    'product_discount_type' => $cart_item['product_discount_type'],
+                    'product_discount_amount' => round((float) $cart_item['product_discount_amount'], 2),
+                    'sub_total' => round((float) $cart_item['sub_total'], 2),
+                    'product_tax_amount' => round((float) $cart_item['product_tax_amount'], 2),
+                    'tax_id' => $cart_item['tax_id'],
                 ]);
 
                 // If the cart item has bundle items, iterate and create SaleBundleItem records.
-                if (is_array($cart_item->options->bundle_items)) {
-                    foreach ($cart_item->options->bundle_items as $bundleItem) {
+                if (! empty($cart_item['bundle_items'])) {
+                    foreach ($cart_item['bundle_items'] as $bundleItem) {
                         // Create a bundle record for each bundle item.
                         // Note: You might need to adjust fields if you have computed values.
                         SaleBundleItem::create([
@@ -188,9 +189,9 @@ class SaleController extends Controller
                             'bundle_item_id' => $bundleItem['bundle_item_id'] ?? null,
                             'product_id' => $bundleItem['product_id'],
                             'name' => $bundleItem['name'],
-                            'price' => $bundleItem['price'],
+                            'price' => round((float) ($bundleItem['price'] ?? 0), 2),
                             'quantity' => $bundleItem['quantity'], // base quantity; computed quantity = base * parent qty can be computed as needed.
-                            'sub_total' => $bundleItem['sub_total'],
+                            'sub_total' => round((float) ($bundleItem['sub_total'] ?? 0), 2),
                         ]);
                     }
                 }

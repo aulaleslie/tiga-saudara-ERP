@@ -13,6 +13,7 @@ use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
+use Modules\Sale\Services\SaleCartAggregator;
 
 class CreateForm extends Component
 {
@@ -109,6 +110,7 @@ class CreateForm extends Component
         try {
             $settingId = session('setting_id');
             $cartItems = Cart::instance('sale')->content();
+            $aggregatedItems = SaleCartAggregator::aggregate($cartItems);
 
             // Totals
             $totalSub       = $cartItems->sum(fn($i) => $i->options['sub_total']);
@@ -142,24 +144,23 @@ class CreateForm extends Component
             ]);
 
             // Details & Bundles
-            foreach ($cartItems as $item) {
-                $lineTax = $item->options['sub_total'] - ($item->options['sub_total_before_tax'] ?? 0);
+            foreach ($aggregatedItems as $item) {
                 $detail = SaleDetails::create([
                     'sale_id'                 => $sale->id,
-                    'product_id'              => $item->options['product_id'],
-                    'product_name'            => $item->name,
-                    'product_code'            => $item->options['code'],
-                    'quantity'                => $item->qty,
-                    'unit_price'              => $item->options['unit_price'],
-                    'price'                   => $item->price,
-                    'product_discount_type'   => $item->options['product_discount_type'],
-                    'product_discount_amount' => $item->options['product_discount'],
-                    'sub_total'               => $item->options['sub_total'],
-                    'product_tax_amount'      => $lineTax,
-                    'tax_id'                  => $item->options['product_tax'],
+                    'product_id'              => $item['product_id'],
+                    'product_name'            => $item['product_name'],
+                    'product_code'            => $item['product_code'],
+                    'quantity'                => $item['quantity'],
+                    'unit_price'              => round((float) $item['unit_price'], 2),
+                    'price'                   => round((float) $item['price'], 2),
+                    'product_discount_type'   => $item['product_discount_type'],
+                    'product_discount_amount' => round((float) $item['product_discount_amount'], 2),
+                    'sub_total'               => round((float) $item['sub_total'], 2),
+                    'product_tax_amount'      => round((float) $item['product_tax_amount'], 2),
+                    'tax_id'                  => $item['tax_id'],
                 ]);
 
-                foreach ($item->options['bundle_items'] ?? [] as $b) {
+                foreach ($item['bundle_items'] ?? [] as $b) {
                     SaleBundleItem::create([
                         'sale_detail_id' => $detail->id,
                         'sale_id'        => $sale->id,
@@ -167,9 +168,9 @@ class CreateForm extends Component
                         'bundle_item_id' => $b['bundle_item_id'] ?? null,
                         'product_id'     => $b['product_id'],
                         'name'           => $b['name'],
-                        'price'          => $b['price'],
+                        'price'          => round((float) ($b['price'] ?? 0), 2),
                         'quantity'       => $b['quantity'],
-                        'sub_total'      => $b['sub_total'],
+                        'sub_total'      => round((float) ($b['sub_total'] ?? 0), 2),
                     ]);
                 }
             }
