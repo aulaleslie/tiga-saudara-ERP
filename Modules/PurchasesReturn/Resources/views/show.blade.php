@@ -1,4 +1,5 @@
 @php use Illuminate\Support\Facades\Storage; @endphp
+@php $approvalStatus = strtolower($purchase_return->approval_status ?? ''); @endphp
 @extends('layouts.app')
 
 @section('title', 'Detail Retur Pembelian')
@@ -12,7 +13,7 @@
 @endsection
 
 @can('purchaseReturns.edit')
-    @if($purchase_return->approval_status === 'pending')
+    @if($approvalStatus === 'pending')
         @push('page_scripts')
             <script>
                 function purchaseReturnReject{{ $purchase_return->id }}() {
@@ -40,9 +41,9 @@
                         </div>
                         <div class="ms-auto d-flex flex-wrap align-items-center">
                             <span class="badge bg-secondary text-uppercase me-2 mb-1">{{ $purchase_return->status }}</span>
-                            <span class="badge {{ $purchase_return->approval_status === 'approved' ? 'bg-success' : ($purchase_return->approval_status === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase me-2 mb-1">{{ $purchase_return->approval_status }}</span>
+                            <span class="badge {{ $approvalStatus === 'approved' ? 'bg-success' : ($approvalStatus === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase me-2 mb-1">{{ $purchase_return->approval_status }}</span>
                             @can('purchaseReturns.edit')
-                                @if($purchase_return->approval_status === 'pending')
+                                @if($approvalStatus === 'pending')
                                     <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.edit', $purchase_return) }}">
                                         <i class="bi bi-pencil"></i> Edit
                                     </a>
@@ -59,7 +60,7 @@
                                     <button type="button" class="btn btn-outline-danger btn-sm d-print-none me-2 mb-1" onclick="purchaseReturnReject{{ $purchase_return->id }}()">
                                         <i class="bi bi-x-circle"></i> Tolak
                                     </button>
-                                @elseif($purchase_return->approval_status === 'approved')
+                                @elseif($approvalStatus === 'approved')
                                     <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
                                         <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
                                     </a>
@@ -171,7 +172,7 @@
                             </div>
                         </div>
 
-                        @if(!$purchase_return->return_type && $purchase_return->approval_status === 'approved')
+                        @if(!$purchase_return->return_type && $approvalStatus === 'approved')
                             <div class="alert alert-warning mt-4" role="alert">
                                 Metode penyelesaian belum ditentukan. Silakan proses melalui halaman penyelesaian retur.
                             </div>

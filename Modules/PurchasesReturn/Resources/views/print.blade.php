@@ -18,23 +18,24 @@
 
     $settlementLabel = 'Belum Diproses';
     $settlementDetail = null;
+    $approvalStatus = strtolower($purchase_return->approval_status ?? '');
 
     if ($purchase_return->settled_at) {
         $settlementLabel = 'Selesai';
         if ($purchase_return->payment_method) {
             $settlementDetail = 'Metode: ' . ($methodMap[$purchase_return->payment_method] ?? $purchase_return->payment_method);
         }
-    } elseif ($purchase_return->approval_status === 'rejected') {
+    } elseif ($approvalStatus === 'rejected') {
         $settlementLabel = 'Ditolak';
         if ($purchase_return->rejection_reason) {
             $settlementDetail = 'Alasan: ' . $purchase_return->rejection_reason;
         }
-    } elseif ($purchase_return->status === 'Awaiting Settlement' || ($purchase_return->approval_status === 'approved' && ! $purchase_return->settled_at)) {
+    } elseif ($purchase_return->status === 'Awaiting Settlement' || ($approvalStatus === 'approved' && ! $purchase_return->settled_at)) {
         $settlementLabel = 'Menunggu Penyelesaian';
         if (empty($purchase_return->return_type)) {
             $settlementDetail = 'Metode penyelesaian belum dipilih.';
         }
-    } elseif ($purchase_return->approval_status !== 'approved') {
+    } elseif ($approvalStatus !== 'approved') {
         $settlementLabel = 'Menunggu Persetujuan';
     }
 @endphp
