@@ -62,6 +62,7 @@ class PurchasesReturnController extends Controller
                 'paid_amount' => $request->paid_amount * 100,
                 'total_amount' => $request->total_amount * 100,
                 'due_amount' => $due_amount * 100,
+                'approval_status' => 'pending',
                 'status' => $request->status,
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
@@ -180,6 +181,10 @@ class PurchasesReturnController extends Controller
                 $payment_status = 'Paid';
             }
 
+            $approvalStatus = $purchase_return->approval_status === 'approved'
+                ? 'approved'
+                : 'pending';
+
             foreach ($purchase_return->purchaseReturnDetails as $purchase_return_detail) {
                 if ($purchase_return->status == 'Shipped' || $purchase_return->status == 'Completed') {
                     $product = Product::findOrFail($purchase_return_detail->product_id);
@@ -201,6 +206,7 @@ class PurchasesReturnController extends Controller
                 'paid_amount' => $request->paid_amount * 100,
                 'total_amount' => $request->total_amount * 100,
                 'due_amount' => $due_amount * 100,
+                'approval_status' => $approvalStatus,
                 'status' => $request->status,
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
