@@ -2,22 +2,23 @@
 
 namespace App\Livewire\PurchaseReturn;
 
+use App\Livewire\PurchaseReturn\Concerns\ValidatesPurchaseReturnForm;
 use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Modules\People\Entities\Supplier;
-use Modules\Product\Entities\ProductSerialNumber;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 
 class PurchaseReturnCreateForm extends Component
 {
+    use ValidatesPurchaseReturnForm;
+
 
     public $supplier_id = '';
     public $date;
@@ -76,40 +77,6 @@ class PurchaseReturnCreateForm extends Component
         return round(collect($this->rows)->sum(function ($row) {
             return (float) ($row['total'] ?? 0);
         }), 2);
-    }
-
-    public function rules(): array
-    {
-        return [
-            'supplier_id' => 'required|exists:suppliers,id',
-            'date' => 'required|date',
-            'location_id' => 'required|exists:locations,id',
-            'rows' => 'required|array|min:1',
-            'rows.*.product_id' => 'required|exists:products,id',
-            'rows.*.quantity' => 'required|integer|min:1',
-            'rows.*.purchase_order_id' => 'nullable|exists:purchases,id',
-        ];
-    }
-
-    public function messages(): array
-    {
-        return [
-            'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
-            'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
-            'date.required' => 'Tanggal retur wajib diisi.',
-            'date.date' => 'Format tanggal tidak valid.',
-            'location_id.required' => 'Lokasi wajib dipilih.',
-            'location_id.exists' => 'Lokasi yang dipilih tidak valid.',
-            'rows.required' => 'Setidaknya satu produk harus ditambahkan.',
-            'rows.array' => 'Format produk tidak valid.',
-            'rows.min' => 'Setidaknya satu produk harus ditambahkan.',
-            'rows.*.product_id.required' => 'Silakan pilih produk.',
-            'rows.*.product_id.exists' => 'Produk yang dipilih tidak valid.',
-            'rows.*.quantity.required' => 'Jumlah produk harus diisi.',
-            'rows.*.quantity.integer' => 'Jumlah produk harus berupa angka.',
-            'rows.*.quantity.min' => 'Jumlah produk minimal 1.',
-            'rows.*.purchase_order_id.exists' => 'Nomor purchase order tidak valid.',
-        ];
     }
 
     /**
@@ -195,65 +162,7 @@ class PurchaseReturnCreateForm extends Component
             'rows' => $this->rows,
         ];
 
-        $validator = Validator::make($data, $this->rules(), $this->messages());
-
-        $validator->after(function ($validator) {
-            $productIds = [];
-            foreach ($this->rows as $index => $row) {
-                $productId = $row['product_id'] ?? null;
-                $qty = (int) ($row['quantity'] ?? 0);
-                $availableTax = (int) ($row['available_quantity_tax'] ?? 0);
-                $availableNonTax = (int) ($row['available_quantity_non_tax'] ?? 0);
-                $totalAvailable = $availableTax + $availableNonTax;
-
-                if ($qty > $totalAvailable) {
-                    $validator->errors()->add("rows.$index.quantity", "Jumlah retur tidak boleh melebihi stok tersedia ({$totalAvailable}).");
-                }
-
-                if (! empty($row['serial_number_required']) && empty($row['serial_numbers'])) {
-                    $validator->errors()->add("rows.$index.serial_numbers", 'Produk memerlukan nomor seri.');
-                }
-
-                if ($productId !== null) {
-                    if (in_array($productId, $productIds)) {
-                        $validator->errors()->add("rows.$index.product_id", 'Produk ini sudah dipilih sebelumnya.');
-                    } else {
-                        $productIds[] = $productId;
-                    }
-                }
-
-                if (! empty($row['serial_numbers'])) {
-                    $serialNumbers = collect($row['serial_numbers'])
-                        ->map(fn ($item) => is_array($item) ? ($item['serial_number'] ?? null) : $item)
-                        ->filter()
-                        ->unique()
-                        ->values()
-                        ->all();
-
-                    $existing = ProductSerialNumber::query()
-                        ->whereIn('serial_number', $serialNumbers)
-                        ->where('is_broken', true)
-                        ->pluck('serial_number')
-                        ->unique()
-                        ->values()
-                        ->all();
-
-                    $missing = array_diff($serialNumbers, $existing);
-                    $extra = array_diff($existing, $serialNumbers);
-
-                    if (! empty($missing) || ! empty($extra)) {
-                        $validator->errors()->add(
-                            "rows.$index.serial_numbers",
-                            'Nomor seri tidak valid atau tidak rusak: ' . implode(', ', array_merge($missing, $extra))
-                        );
-                    }
-                }
-            }
-
-            if ($this->calculateReturnTotal() <= 0) {
-                $validator->errors()->add('rows', 'Nilai retur harus lebih dari 0.');
-            }
-        });
+        $validator = $this->makePurchaseReturnValidator($data);
 
         $validator->validate();
         $this->dispatch('updateTableErrors', []);
