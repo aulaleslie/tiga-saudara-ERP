@@ -103,8 +103,10 @@
                                         <dd class="col-7 fw-semibold">{{ $purchase_return->location->name ?? '-' }}</dd>
                                         <dt class="col-5 text-muted">Metode</dt>
                                         <dd class="col-7 fw-semibold">{{ $purchase_return->return_type ? ucfirst($purchase_return->return_type) : 'Belum ditentukan' }}</dd>
-                                        <dt class="col-5 text-muted">Status Pembayaran</dt>
-                                        <dd class="col-7 fw-semibold">{{ $purchase_return->payment_status }}</dd>
+                                        <dt class="col-5 text-muted">Status Penyelesaian</dt>
+                                        <dd class="col-7 fw-semibold">
+                                            @include('purchasesreturn::partials.settlement-status', ['data' => $purchase_return])
+                                        </dd>
                                         @if($purchase_return->settled_at)
                                             <dt class="col-5 text-muted">Tanggal Selesai</dt>
                                             <dd class="col-7 fw-semibold">{{ $purchase_return->settled_at->translatedFormat('d F Y H:i') }}</dd>
