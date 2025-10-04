@@ -3,20 +3,6 @@
         <i class="bi bi-three-dots-vertical"></i>
     </button>
     <div class="dropdown-menu dropdown-menu-right shadow-sm">
-        @can('purchaseReturnPayments.show')
-            <a href="{{ route('purchase-return-payments.index', $data->id) }}" class="dropdown-item d-flex align-items-center">
-                <i class="bi bi-cash-coin text-warning me-2"></i> <span>Pembayaran</span>
-            </a>
-        @endcan
-
-        @can('purchaseReturnPayments.create')
-            @if($data->approval_status === 'approved' && $data->due_amount > 0)
-                <a href="{{ route('purchase-return-payments.create', $data->id) }}" class="dropdown-item d-flex align-items-center">
-                    <i class="bi bi-plus-circle-dotted text-success me-2"></i> <span>Tambah Pembayaran</span>
-                </a>
-            @endif
-        @endcan
-
         @can('purchaseReturns.edit')
             @if($data->approval_status === 'pending')
                 <a href="{{ route('purchase-returns.edit', $data->id) }}" class="dropdown-item d-flex align-items-center">
@@ -59,13 +45,19 @@
             </a>
         @endcan
 
-        @can('purchaseReturns.edit')
-            @if($data->approval_status === 'approved')
+        @if($data->approval_status === 'approved')
+            @can('purchaseReturns.edit')
                 <a href="{{ route('purchase-returns.settlement', $data->id) }}" class="dropdown-item d-flex align-items-center">
-                    <i class="bi bi-arrow-repeat text-primary me-2"></i> <span>Metode Penyelesaian</span>
+                    <i class="bi bi-arrow-repeat text-primary me-2"></i> <span>Kelola Penyelesaian</span>
                 </a>
-            @endif
-        @endcan
+            @else
+                @can('purchaseReturns.show')
+                    <a href="{{ route('purchase-returns.settlement', $data->id) }}" class="dropdown-item d-flex align-items-center">
+                        <i class="bi bi-arrow-repeat text-primary me-2"></i> <span>Penyelesaian</span>
+                    </a>
+                @endcan
+            @endcan
+        @endif
 
         @can('purchaseReturns.delete')
             @if($data->approval_status === 'pending')
