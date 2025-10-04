@@ -238,15 +238,15 @@ class ProductController extends Controller
             ->where('setting_id', $settingId)
             ->first();
 
-        // Prefer product_prices; fallback to legacy columns on products
+        // Prefer product_prices exclusively (default to zero/blank when row missing)
         $price = (object) [
-            'sale_price'             => data_get($pp, 'sale_price',             $product->sale_price),
-            'tier_1_price'           => data_get($pp, 'tier_1_price',           $product->tier_1_price),
-            'tier_2_price'           => data_get($pp, 'tier_2_price',           $product->tier_2_price),
-            'last_purchase_price'    => data_get($pp, 'last_purchase_price',    $product->last_purchase_price ?? $product->purchase_price),
-            'average_purchase_price' => data_get($pp, 'average_purchase_price', $product->average_purchase_price ?? $product->purchase_price),
-            'purchase_tax_id'        => data_get($pp, 'purchase_tax_id',        $product->purchase_tax_id),
-            'sale_tax_id'            => data_get($pp, 'sale_tax_id',            $product->sale_tax_id),
+            'sale_price'             => data_get($pp, 'sale_price', 0),
+            'tier_1_price'           => data_get($pp, 'tier_1_price', 0),
+            'tier_2_price'           => data_get($pp, 'tier_2_price', 0),
+            'last_purchase_price'    => data_get($pp, 'last_purchase_price', 0),
+            'average_purchase_price' => data_get($pp, 'average_purchase_price', 0),
+            'purchase_tax_id'        => data_get($pp, 'purchase_tax_id'),
+            'sale_tax_id'            => data_get($pp, 'sale_tax_id'),
         ];
 
         // --- quantity display (unchanged) ---
@@ -338,15 +338,15 @@ class ProductController extends Controller
             ->where('setting_id', $settingId)
             ->first();
 
-        // Always prefer the per-setting price row. If it is missing, fall back to zeros (no legacy columns).
+        // Always prefer the per-setting price row. If it is missing, default to zero/blank values.
         $price = (object) [
-            // For editing “Harga Beli” we’ll show last_purchase_price (or fallback)
-            'purchase_price'  => data_get($pp, 'last_purchase_price', $product->purchase_price),
-            'sale_price'      => data_get($pp, 'sale_price',      $product->sale_price),
-            'tier_1_price'    => data_get($pp, 'tier_1_price',    $product->tier_1_price),
-            'tier_2_price'    => data_get($pp, 'tier_2_price',    $product->tier_2_price),
-            'purchase_tax_id' => data_get($pp, 'purchase_tax_id', $product->purchase_tax_id),
-            'sale_tax_id'     => data_get($pp, 'sale_tax_id',     $product->sale_tax_id),
+            // For editing “Harga Beli” we’ll show last_purchase_price only
+            'purchase_price'  => data_get($pp, 'last_purchase_price', 0),
+            'sale_price'      => data_get($pp, 'sale_price', 0),
+            'tier_1_price'    => data_get($pp, 'tier_1_price', 0),
+            'tier_2_price'    => data_get($pp, 'tier_2_price', 0),
+            'purchase_tax_id' => data_get($pp, 'purchase_tax_id'),
+            'sale_tax_id'     => data_get($pp, 'sale_tax_id'),
         ];
 
         // existing media for the dropzone

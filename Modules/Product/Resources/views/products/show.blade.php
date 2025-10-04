@@ -20,15 +20,13 @@
                     <div class="card-body">
                         <div class="table-responsive">
                             @php
-                                // Prefer per-setting prices from $price; fall back to legacy fields on $product
-                                $salePrice   = $price->sale_price ?? $product->sale_price;
-                                $tier1Price  = $price->tier_1_price ?? $product->tier_1_price;
-                                $tier2Price  = $price->tier_2_price ?? $product->tier_2_price;
+                                // Prefer per-setting prices from $price; default to zeros when price row is missing
+                                $salePrice   = $price->sale_price ?? 0;
+                                $tier1Price  = $price->tier_1_price ?? 0;
+                                $tier2Price  = $price->tier_2_price ?? 0;
 
-                                $lastBuy     = $price->last_purchase_price
-                                                ?? ($product->last_purchase_price ?? $product->purchase_price);
-                                $avgBuy      = $price->average_purchase_price
-                                                ?? ($product->average_purchase_price ?? $product->purchase_price);
+                                $lastBuy     = $price->last_purchase_price ?? 0;
+                                $avgBuy      = $price->average_purchase_price ?? 0;
 
                                 // Taxes now come from product_prices (IDs); quick lookup for names (single page -> 2 queries OK)
                                 $purchaseTaxName = $price->purchase_tax_id
