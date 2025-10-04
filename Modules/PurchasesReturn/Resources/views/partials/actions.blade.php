@@ -1,10 +1,11 @@
+@php $approvalStatus = strtolower($data->approval_status ?? ''); @endphp
 <div class="btn-group dropleft">
     <button type="button" class="btn btn-ghost-primary dropdown-toggle" data-toggle="dropdown" aria-expanded="false">
         <i class="bi bi-three-dots-vertical"></i>
     </button>
     <div class="dropdown-menu dropdown-menu-right shadow-sm">
         @can('purchaseReturns.edit')
-            @if($data->approval_status === 'pending')
+            @if($approvalStatus === 'pending')
                 <a href="{{ route('purchase-returns.edit', $data->id) }}" class="dropdown-item d-flex align-items-center">
                     <i class="bi bi-pencil text-primary me-2"></i> <span>Edit</span>
                 </a>
@@ -12,7 +13,7 @@
         @endcan
 
         @can('purchaseReturns.edit')
-            @if($data->approval_status === 'pending')
+            @if($approvalStatus === 'pending')
                 <form method="POST" action="{{ route('purchase-returns.approve', $data->id) }}" class="m-0">
                     @csrf
                     <button type="submit" class="dropdown-item d-flex align-items-center border-0 bg-transparent px-0" onclick="return confirm('Setujui retur pembelian ini?')">
@@ -45,7 +46,7 @@
             </a>
         @endcan
 
-        @if($data->approval_status === 'approved')
+        @if($approvalStatus === 'approved')
             @can('purchaseReturns.edit')
                 <a href="{{ route('purchase-returns.settlement', $data->id) }}" class="dropdown-item d-flex align-items-center">
                     <i class="bi bi-arrow-repeat text-primary me-2"></i> <span>Kelola Penyelesaian</span>
@@ -60,7 +61,7 @@
         @endif
 
         @can('purchaseReturns.delete')
-            @if($data->approval_status === 'pending')
+            @if($approvalStatus === 'pending')
                 <button id="delete" type="button" class="dropdown-item d-flex align-items-center" onclick="
                     event.preventDefault();
                     if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {

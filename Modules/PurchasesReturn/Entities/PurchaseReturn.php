@@ -107,18 +107,18 @@ class PurchaseReturn extends BaseModel
 
     public function scopeApproved($q)
     {
-        return $q->where('approval_status', 'approved');
+        return $q->whereRaw('LOWER(approval_status) = ?', ['approved']);
     }
     public function scopePending($q)
     {
-        return $q->where('approval_status', 'pending');
+        return $q->whereRaw('LOWER(approval_status) = ?', ['pending']);
     }
     public function scopeRejected($q)
     {
-        return $q->where('approval_status', 'rejected');
+        return $q->whereRaw('LOWER(approval_status) = ?', ['rejected']);
     }
     public function scopeDraft($q)
     {
-        return $q->where('approval_status', 'draft');
+        return $q->whereRaw('LOWER(approval_status) = ?', ['draft']);
     }
 }

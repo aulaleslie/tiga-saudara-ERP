@@ -4,6 +4,7 @@ namespace Modules\PurchasesReturn\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Modules\PurchasesReturn\DataTables\PurchaseReturnsDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
@@ -127,7 +128,9 @@ class PurchasesReturnController extends Controller
     {
         abort_if(Gate::denies('purchaseReturns.edit'), 403);
 
-        if ($purchase_return->approval_status !== 'approved') {
+        $status = Str::lower($purchase_return->approval_status ?? '');
+
+        if ($status !== 'approved') {
             toast('Penyelesaian hanya dapat diproses setelah retur disetujui.', 'error');
             return redirect()->route('purchase-returns.show', $purchase_return);
         }
@@ -181,7 +184,9 @@ class PurchasesReturnController extends Controller
                 $payment_status = 'Paid';
             }
 
-            $approvalStatus = $purchase_return->approval_status === 'approved'
+            $status = Str::lower($purchase_return->approval_status ?? '');
+
+            $approvalStatus = $status === 'approved'
                 ? 'approved'
                 : 'pending';
 
@@ -261,7 +266,9 @@ class PurchasesReturnController extends Controller
     {
         abort_if(Gate::denies('purchaseReturns.edit'), 403);
 
-        if ($purchase_return->approval_status === 'approved') {
+        $status = Str::lower($purchase_return->approval_status ?? '');
+
+        if ($status === 'approved') {
             toast('Retur pembelian sudah disetujui.', 'info');
             return back();
         }
@@ -287,7 +294,9 @@ class PurchasesReturnController extends Controller
     {
         abort_if(Gate::denies('purchaseReturns.edit'), 403);
 
-        if ($purchase_return->approval_status === 'approved') {
+        $status = Str::lower($purchase_return->approval_status ?? '');
+
+        if ($status === 'approved') {
             toast('Retur yang sudah disetujui tidak dapat ditolak.', 'error');
             return back();
         }
