@@ -84,6 +84,10 @@ class ProductController extends Controller
      */
     private function handleProductCreation(array $validatedData): Product
     {
+        // Resolve the active setting BEFORE opening the transaction so we can
+        // persist prices only for that context.
+        $settingId = $this->getActiveSettingId();
+
         // Capture the incoming price values before we zero-out legacy columns
         $incomingPrices = [
             'sale_price'             => data_get($validatedData, 'sale_price', 0),
@@ -127,7 +131,7 @@ class ProductController extends Controller
         }
 
         // Tie product to the current session setting (kept as before)
-        $validatedData['setting_id'] = session('setting_id');
+        $validatedData['setting_id'] = $settingId;
 
         // Handle documents/conversions separately (unchanged)
         $documents   = $validatedData['document']   ?? [];
@@ -140,25 +144,18 @@ class ProductController extends Controller
             // 1) Create product with legacy price columns left at defaults
             $product = Product::create($validatedData);
 
-            // 2) Mirror the submitted prices across ALL settings into product_prices
-            $settingIds = Setting::query()->pluck('id'); // filter if you have an "active" flag
-            foreach ($settingIds as $sid) {
-                ProductPrice::updateOrCreate(
-                    [
-                        'product_id' => $product->id,
-                        'setting_id' => (int) $sid,
-                    ],
-                    [
-                        'sale_price'             => $incomingPrices['sale_price'] ?: 0,
-                        'tier_1_price'           => $incomingPrices['tier_1_price'] ?: 0,
-                        'tier_2_price'           => $incomingPrices['tier_2_price'] ?: 0,
-                        'last_purchase_price'    => $incomingPrices['last_purchase_price'] ?: 0,
-                        'average_purchase_price' => $incomingPrices['average_purchase_price'] ?: 0,
-                        'purchase_tax_id'        => $incomingPrices['purchase_tax_id'] ?: null,
-                        'sale_tax_id'            => $incomingPrices['sale_tax_id'] ?: null,
-                    ]
-                );
-            }
+            // 2) Mirror the submitted prices ONLY for the active setting
+            ProductPrice::upsertFor([
+                'product_id'            => $product->id,
+                'setting_id'            => $settingId,
+                'sale_price'            => $incomingPrices['sale_price'] ?: 0,
+                'tier_1_price'          => $incomingPrices['tier_1_price'] ?: 0,
+                'tier_2_price'          => $incomingPrices['tier_2_price'] ?: 0,
+                'last_purchase_price'   => $incomingPrices['last_purchase_price'] ?: 0,
+                'average_purchase_price'=> $incomingPrices['average_purchase_price'] ?: 0,
+                'purchase_tax_id'       => $incomingPrices['purchase_tax_id'] ?: null,
+                'sale_tax_id'           => $incomingPrices['sale_tax_id'] ?: null,
+            ]);
 
             // 3) Documents
             if (!empty($documents)) {
@@ -176,9 +173,9 @@ class ProductController extends Controller
             }
 
             DB::commit();
-            Log::info('Product created with prices replicated to all settings.', [
+            Log::info('Product created with prices stored for active setting.', [
                 'product_id' => $product->id,
-                'settings'   => $settingIds->values(),
+                'setting_id' => $settingId,
             ]);
 
             return $product;
