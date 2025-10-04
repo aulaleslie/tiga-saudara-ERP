@@ -1,4 +1,25 @@
 <div class="container-fluid py-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start mb-3 gap-2">
+        <div>
+            <h3 class="mb-1">{{ $this->formTitle }}</h3>
+            <p class="text-muted mb-0">Kelola informasi retur untuk memastikan proses persetujuan berjalan lancar.</p>
+        </div>
+
+        @if (property_exists($this, 'purchaseReturn'))
+            <div class="text-end">
+                <span class="badge bg-light text-dark border">Ref: {{ $this->purchaseReturn->reference }}</span>
+                <div class="small text-muted mt-1 text-uppercase">Status Persetujuan: {{ ucfirst($this->purchaseReturn->approval_status ?? 'pending') }}</div>
+            </div>
+        @endif
+    </div>
+
+    @if ($this->approvalLocked)
+        <div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
+            <i class="bi bi-lock-fill"></i>
+            <span>Retur ini telah disetujui. Beberapa informasi kunci tidak dapat diubah.</span>
+        </div>
+    @endif
+
     <form id="purchase-return-form" wire:submit.prevent="submit" class="needs-validation" novalidate>
         @csrf
 
@@ -11,7 +32,12 @@
                 <div class="row">
                     <div class="col-lg-4 mb-3">
                         <label class="form-label fw-semibold" for="supplier">Pemasok</label>
-                        <livewire:auto-complete.supplier-loader />
+                        @if ($this->approvalLocked)
+                            <input type="text" class="form-control" value="{{ $this->supplierName ?? '-' }}" disabled>
+                            <div class="form-text">Pemasok tidak dapat diubah setelah retur disetujui.</div>
+                        @else
+                            <livewire:auto-complete.supplier-loader :supplierId="$supplier_id" />
+                        @endif
                         @error('supplier_id')
                             <div class="invalid-feedback d-block">{{ $message }}</div>
                         @enderror
@@ -26,12 +52,18 @@
                     </div>
 
                     <div class="col-lg-4 mb-3">
-                        <livewire:auto-complete.location-business-loader
-                            :settingId="session('setting_id')"
-                            :locationId="$location_id"
-                            label="Lokasi"
-                            event-name="purchaseReturnLocationSelected"
-                            name="location_id" />
+                        <label class="form-label fw-semibold" for="location">Lokasi</label>
+                        @if ($this->approvalLocked)
+                            <input type="text" id="location" class="form-control" value="{{ $this->locationName ?? '-' }}" disabled>
+                            <div class="form-text">Lokasi tidak dapat diubah setelah retur disetujui.</div>
+                        @else
+                            <livewire:auto-complete.location-business-loader
+                                :settingId="session('setting_id')"
+                                :locationId="$location_id"
+                                label="Lokasi"
+                                event-name="purchaseReturnLocationSelected"
+                                name="location_id" />
+                        @endif
                         @error('location_id')
                             <div class="invalid-feedback d-block">{{ $message }}</div>
                         @enderror
@@ -53,7 +85,7 @@
                 </div>
             </div>
             <div class="card-body" style="overflow: visible;">
-                <livewire:purchase-return.purchase-return-table :location-id="$location_id" />
+                <livewire:purchase-return.purchase-return-table :location-id="$location_id" :rows="$rows" :supplier-id="$supplier_id" />
 
                 @if (!$supplier_id)
                     <div class="alert alert-light border mt-3 mb-0" role="alert">
@@ -91,7 +123,7 @@
         <div class="d-flex justify-content-end">
             <a href="{{ route('purchase-returns.index') }}" class="btn btn-light border">Batal</a>
             <button type="submit" class="btn btn-primary ms-2" wire:loading.attr="disabled">
-                <span wire:loading.remove>Proses Retur</span>
+                <span wire:loading.remove>{{ $this->submitLabel }}</span>
                 <span wire:loading class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
             </button>
         </div>

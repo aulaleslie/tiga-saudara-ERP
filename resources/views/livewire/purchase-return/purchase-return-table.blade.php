@@ -1,5 +1,5 @@
 <div>
-    @if ($supplier_id)
+    @if ($supplierId)
         <div class="table-responsive" style="overflow: visible;">
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
@@ -26,7 +26,7 @@
                             <td>
                                 <livewire:purchase-return.product-search-purchase-return
                                     :index="$index"
-                                    :supplier_id="$supplier_id"
+                                    :supplier_id="$supplierId"
                                     wire:key="product-{{ $index }}" />
                                 @if(!empty($validationErrors["rows.$index.product_id"]))
                                     <span class="invalid-feedback d-block">{{ $validationErrors["rows.$index.product_id"][0] }}</span>
@@ -66,7 +66,7 @@
                                 @if (!empty($row['product_id']))
                                     <livewire:purchase-return.purchase-order-search-purchase-return
                                         :index="$index"
-                                        :supplier_id="$supplier_id"
+                                        :supplier_id="$supplierId"
                                         :product_id="$row['product_id']"
                                         wire:key="po-{{ $index }}" />
                                     @error("rows.".$index.".purchase_order_id")
