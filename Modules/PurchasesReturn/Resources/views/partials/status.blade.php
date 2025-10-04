@@ -5,11 +5,11 @@
 @switch($status)
     @case('Pending')
     @case('Pending Approval')
-        <span class="badge badge-warning text-dark">{{ $status }}</span>
+        <span class="badge bg-warning text-dark text-uppercase">{{ $status }}</span>
         @break
     @case('Rejected')
-        <span class="badge badge-danger">{{ $status }}</span>
+        <span class="badge bg-danger text-uppercase">{{ $status }}</span>
         @break
     @default
-        <span class="badge badge-success">{{ $status }}</span>
+        <span class="badge bg-success text-uppercase">{{ $status }}</span>
 @endswitch
