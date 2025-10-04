@@ -35,6 +35,6 @@ class UpdateSaleRequest extends FormRequest
      */
     public function authorize()
     {
-        return Gate::allows('edit_sales');
+        return Gate::allows('sales.edit');
     }
 }
