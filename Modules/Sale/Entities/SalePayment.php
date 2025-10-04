@@ -15,19 +15,14 @@ class SalePayment extends BaseModel implements HasMedia
 
     protected $guarded = [];
 
+    protected $casts = [
+        'amount' => 'decimal:2',
+        'date' => 'date',
+    ];
+
     public function sale(): BelongsTo
     {
         return $this->belongsTo(Sale::class, 'sale_id', 'id');
-    }
-
-    public function setAmountAttribute($value): void
-    {
-        $this->attributes['amount'] = $value * 100;
-    }
-
-    public function getAmountAttribute($value): float|int
-    {
-        return $value / 100;
     }
 
     public function getDateAttribute($value): string

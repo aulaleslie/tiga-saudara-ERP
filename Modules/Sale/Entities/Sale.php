@@ -12,6 +12,15 @@ class Sale extends BaseModel
 {
     protected $guarded = [];
 
+    protected $casts = [
+        'tax_amount' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
+        'shipping_amount' => 'decimal:2',
+        'total_amount' => 'decimal:2',
+        'paid_amount' => 'decimal:2',
+        'due_amount' => 'decimal:2',
+    ];
+
     const STATUS_DRAFTED = 'DRAFTED';
     const STATUS_WAITING_APPROVAL = 'WAITING_APPROVAL';
     const STATUS_APPROVED = 'APPROVED';

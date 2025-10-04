@@ -42,10 +42,10 @@ class SalePaymentsController extends Controller
         $request->validate([
             'date'               => 'required|date',
             'reference'          => 'required|string|max:255',
-            'amount'             => 'required|numeric|max:' . $sale->due_amount,
+            'amount'             => 'required|numeric|max:' . (float) $sale->due_amount,
             'note'               => 'nullable|string|max:1000',
             'sale_id'            => 'required',
-            'payment_method_id'  => 'required|string|max:255',
+            'payment_method_id'  => 'required|integer|exists:payment_methods,id',
             'attachment'         => 'nullable|string', // file upload via Dropzone returns file name
         ], [
             'amount.max' => 'The payment amount cannot be greater than the due amount.'
@@ -70,9 +70,11 @@ class SalePaymentsController extends Controller
             }
 
             // Update the sale amounts.
-            $due_amount = $sale->due_amount - $request->amount;
+            $due_amount = round((float) $sale->due_amount - (float) $request->amount, 2);
+            $due_amount = max($due_amount, 0);
+            $total_amount = round((float) $sale->total_amount, 2);
 
-            if ($due_amount == $sale->total_amount) {
+            if (round($due_amount, 2) >= $total_amount) {
                 $payment_status = 'Unpaid';
             } elseif ($due_amount > 0) {
                 $payment_status = 'Partial';
@@ -81,8 +83,8 @@ class SalePaymentsController extends Controller
             }
 
             $sale->update([
-                'paid_amount'    => ($sale->paid_amount + $request->amount) * 100,
-                'due_amount'     => $due_amount * 100,
+                'paid_amount'    => round((float) $sale->paid_amount + (float) $request->amount, 2),
+                'due_amount'     => $due_amount,
                 'payment_status' => $payment_status,
             ]);
         });
@@ -111,10 +113,10 @@ class SalePaymentsController extends Controller
         $request->validate([
             'date'               => 'required|date',
             'reference'          => 'required|string|max:255',
-            'amount'             => 'required|numeric|max:' . ($sale->due_amount + $salePayment->amount),
+            'amount'             => 'required|numeric|max:' . ((float) $sale->due_amount + (float) $salePayment->amount),
             'note'               => 'nullable|string|max:1000',
             'sale_id'            => 'required',
-            'payment_method_id'  => 'required|string|max:255',
+            'payment_method_id'  => 'required|integer|exists:payment_methods,id',
             // Attachment is optional on update.
             'attachment'         => 'nullable|string',
         ], [
@@ -122,9 +124,11 @@ class SalePaymentsController extends Controller
         ]);
 
         DB::transaction(function () use ($request, $salePayment, $sale) {
-            $due_amount = ($sale->due_amount + $salePayment->amount) - $request->amount;
+            $due_amount = round((float) $sale->due_amount + (float) $salePayment->amount - (float) $request->amount, 2);
+            $due_amount = max($due_amount, 0);
+            $total_amount = round((float) $sale->total_amount, 2);
 
-            if ($due_amount == $sale->total_amount) {
+            if (round($due_amount, 2) >= $total_amount) {
                 $payment_status = 'Unpaid';
             } elseif ($due_amount > 0) {
                 $payment_status = 'Partial';
@@ -133,8 +137,8 @@ class SalePaymentsController extends Controller
             }
 
             $sale->update([
-                'paid_amount'    => (($sale->paid_amount - $salePayment->amount) + $request->amount) * 100,
-                'due_amount'     => $due_amount * 100,
+                'paid_amount'    => round(((float) $sale->paid_amount - (float) $salePayment->amount) + (float) $request->amount, 2),
+                'due_amount'     => $due_amount,
                 'payment_status' => $payment_status,
             ]);
 
