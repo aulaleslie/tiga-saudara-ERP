@@ -34,8 +34,7 @@ class ProductCart extends Component
     public $unit_price;
     public $data;
 
-    public $taxes; // Collection of taxes filtered by setting_id
-    public $setting_id; // Current setting ID
+    public $taxes;
     public $product_tax = []; // Array to store selected tax IDs for each product
 
     public $is_tax_included = true;
@@ -62,8 +61,7 @@ class ProductCart extends Component
     public function mount($cartInstance, $data = null): void
     {
         $this->cart_instance = $cartInstance;
-        $this->setting_id = session('setting_id');
-        $this->taxes = Tax::where('setting_id', $this->setting_id)->get();
+        $this->taxes = Tax::all();
 
         if ($data) {
             $this->data = $data;

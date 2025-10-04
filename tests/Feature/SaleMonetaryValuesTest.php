@@ -77,7 +77,6 @@ class SaleMonetaryValuesTest extends TestCase
         ]);
 
         $this->paymentTerm = PaymentTerm::create([
-            'setting_id' => $this->setting->id,
             'name' => 'NET 10',
             'longevity' => 10,
         ]);
@@ -136,7 +135,6 @@ class SaleMonetaryValuesTest extends TestCase
         $this->paymentMethod = PaymentMethod::create([
             'name' => 'Cash',
             'coa_id' => $chartOfAccount->id,
-            'setting_id' => $this->setting->id,
         ]);
     }
 

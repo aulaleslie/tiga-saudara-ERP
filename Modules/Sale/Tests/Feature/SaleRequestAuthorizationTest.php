@@ -48,7 +48,6 @@ class SaleRequestAuthorizationTest extends TestCase
     private function createPaymentTerm(Setting $setting): PaymentTerm
     {
         return PaymentTerm::create([
-            'setting_id' => $setting->id,
             'name' => 'Net 30',
             'longevity' => 30,
         ]);

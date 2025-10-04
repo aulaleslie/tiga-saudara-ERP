@@ -12,7 +12,6 @@ return new class extends Migration
             $table->id();
             $table->string('name'); // Payment method name
             $table->unsignedBigInteger('coa_id'); // Chart of Accounts ID
-            $table->unsignedBigInteger('setting_id'); // Auto-filled from session
             $table->timestamps();
 
             // Foreign key constraints

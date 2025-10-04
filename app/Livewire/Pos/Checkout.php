@@ -57,7 +57,7 @@ class Checkout extends Component
         $this->total_amount = 0;
 
         session('setting_id');
-        $this->paymentMethods = PaymentMethod::where('setting_id', session('setting_id'))->get();
+        $this->paymentMethods = PaymentMethod::all();
     }
 
     public function hydrate()

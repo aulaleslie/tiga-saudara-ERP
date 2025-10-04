@@ -31,7 +31,7 @@ class PurchasePaymentsController extends Controller
         $purchase = Purchase::findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        $payment_methods = PaymentMethod::where('setting_id', session('setting_id'))->get();
+        $payment_methods = PaymentMethod::all();
         return view('purchase::payments.create', compact('purchase', 'payment_methods'));
     }
 
@@ -48,8 +48,8 @@ class PurchasePaymentsController extends Controller
             'reference' => 'required|string|max:255',
             'amount' => 'required|numeric|max:' . $purchase->due_amount,
             'note' => 'nullable|string|max:1000',
-            'purchase_id' => 'required',
-            'payment_method_id' => 'required|string|max:255',
+            'purchase_id' => 'required|integer|exists:purchases,id',
+            'payment_method_id' => 'required|integer|exists:payment_methods,id',
             'attachment' => 'nullable|string', // Validation for file upload
         ], [
             'amount.max' => 'The payment amount cannot be greater than the due amount.'

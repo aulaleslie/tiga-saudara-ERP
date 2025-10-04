@@ -13,12 +13,9 @@ return new class extends Migration
     {
         Schema::create('taxes', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('setting_id');
             $table->string('name');
             $table->decimal('value');
             $table->timestamps();
-
-            $table->foreign('setting_id')->references('id')->on('settings')->onDelete('cascade');
         });
     }
 
