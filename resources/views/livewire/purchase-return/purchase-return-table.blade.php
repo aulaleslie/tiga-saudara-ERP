@@ -1,6 +1,6 @@
 <div>
     @if ($supplier_id)
-        <div class="table-responsive">
+        <div class="table-responsive" style="overflow: visible;">
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                     <tr class="text-center text-uppercase small text-muted">

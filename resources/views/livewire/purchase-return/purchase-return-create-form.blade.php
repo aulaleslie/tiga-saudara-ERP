@@ -26,7 +26,6 @@
                     </div>
 
                     <div class="col-lg-4 mb-3">
-                        <label class="form-label fw-semibold" for="location">Lokasi</label>
                         <livewire:auto-complete.location-business-loader
                             :settingId="session('setting_id')"
                             :locationId="$location_id"
@@ -41,7 +40,7 @@
             </div>
         </div>
 
-        <div class="card shadow-sm mb-4">
+        <div class="card shadow-sm mb-4" style="overflow: visible;">
             <div class="card-header bg-white border-0 d-flex align-items-center">
                 <div>
                     <h5 class="mb-1">Detail Produk</h5>
@@ -53,7 +52,7 @@
                     @enderror
                 </div>
             </div>
-            <div class="card-body">
+            <div class="card-body" style="overflow: visible;">
                 <livewire:purchase-return.purchase-return-table :location-id="$location_id" />
 
                 @if (!$supplier_id)
