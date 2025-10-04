@@ -441,4 +441,47 @@ class SaleMonetaryValuesTest extends TestCase
         $this->assertEquals(64.50, (float) $sale->due_amount);
         $this->assertEquals('Partial', $sale->payment_status);
     }
+
+    public function test_sales_index_returns_unpaid_badge_for_new_sale(): void
+    {
+        $this->addCartItem(24.80, 1.20, 0.80, 48.40);
+
+        $this->post(route('sales.store'), [
+            'customer_id' => $this->customer->id,
+            'reference' => 'SL-BADGE',
+            'date' => '2024-05-01',
+            'due_date' => '2024-05-11',
+            'tax_id' => null,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 48.40,
+            'payment_term_id' => $this->paymentTerm->id,
+            'note' => null,
+            'is_tax_included' => false,
+        ])->assertRedirect(route('sales.index'));
+
+        $sale = Sale::latest('id')->first();
+        $this->assertNotNull($sale);
+
+        $query = http_build_query([
+            'draw' => 1,
+            'columns' => [
+                ['data' => 'reference', 'name' => 'reference', 'searchable' => 'true', 'orderable' => 'true'],
+                ['data' => 'payment_status', 'name' => 'payment_status', 'searchable' => 'true', 'orderable' => 'true'],
+            ],
+            'start' => 0,
+            'length' => 10,
+        ]);
+
+        $response = $this->get(
+            route('sales.index') . '?' . $query,
+            ['Accept' => 'application/json', 'X-Requested-With' => 'XMLHttpRequest']
+        );
+
+        $response->assertOk();
+        $data = $response->json('data');
+        $this->assertNotEmpty($data);
+        $this->assertStringContainsString('badge badge-danger', $data[0]['payment_status']);
+        $this->assertStringContainsString('Unpaid', $data[0]['payment_status']);
+    }
 }

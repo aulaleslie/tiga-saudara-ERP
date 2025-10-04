@@ -149,7 +149,7 @@ class SaleController extends Controller
                 'total_amount' => $request->total_amount,
                 'due_amount' => $request->total_amount,
                 'status' => Sale::STATUS_DRAFTED, // Adjust as necessary (or use Sale::STATUS_DRAFTED).
-                'payment_status' => 'unpaid',
+                'payment_status' => 'Unpaid',
                 'payment_term_id' => $request->payment_term_id,
                 'note' => $request->note,
                 'setting_id' => $setting_id,

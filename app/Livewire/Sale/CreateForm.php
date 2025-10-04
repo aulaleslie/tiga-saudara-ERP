@@ -134,7 +134,7 @@ class CreateForm extends Component
                 'total_amount'       => $grandTotal,
                 'due_amount'         => $grandTotal,
                 'status'             => Sale::STATUS_DRAFTED,
-                'payment_status'     => 'unpaid',
+                'payment_status'     => 'Unpaid',
                 'payment_term_id'    => $this->paymentTermId,
                 'note'               => $this->note,
                 'setting_id'         => $settingId,
