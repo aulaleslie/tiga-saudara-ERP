@@ -13,7 +13,7 @@
 
 @can('purchaseReturns.edit')
     @if($purchase_return->approval_status === 'pending')
-        @push('scripts')
+        @push('page_scripts')
             <script>
                 function purchaseReturnReject{{ $purchase_return->id }}() {
                     const reason = prompt('Masukkan alasan penolakan (opsional):');
