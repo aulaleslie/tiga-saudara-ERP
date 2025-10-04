@@ -12,6 +12,14 @@ class SaleDetails extends BaseModel
 {
     protected $guarded = [];
 
+    protected $casts = [
+        'price' => 'decimal:2',
+        'unit_price' => 'decimal:2',
+        'sub_total' => 'decimal:2',
+        'product_discount_amount' => 'decimal:2',
+        'product_tax_amount' => 'decimal:2',
+    ];
+
     protected $with = ['product'];
 
     public function product(): BelongsTo

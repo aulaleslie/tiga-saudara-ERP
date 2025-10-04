@@ -10,6 +10,11 @@ class SaleBundleItem extends BaseModel
 {
     protected $guarded = [];
 
+    protected $casts = [
+        'price' => 'decimal:2',
+        'sub_total' => 'decimal:2',
+    ];
+
     /**
      * Relationship to the sale detail this bundle item belongs to.
      */

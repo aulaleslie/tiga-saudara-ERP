@@ -35,9 +35,12 @@ class PosController extends Controller
     public function store(StorePosSaleRequest $request) {
         abort_if(Gate::denies('pos.access'), 403);
         DB::transaction(function () use ($request) {
-            $due_amount = $request->total_amount - $request->paid_amount;
+            $due_amount = round((float) $request->total_amount - (float) $request->paid_amount, 2);
+            $due_amount = max($due_amount, 0);
 
-            if ($due_amount == $request->total_amount) {
+            $total_amount = round((float) $request->total_amount, 2);
+
+            if (round($due_amount, 2) >= $total_amount) {
                 $payment_status = 'Unpaid';
             } elseif ($due_amount > 0) {
                 $payment_status = 'Partial';
@@ -52,16 +55,16 @@ class PosController extends Controller
                 'customer_name' => Customer::findOrFail($request->customer_id)->customer_name,
                 'tax_percentage' => $request->tax_percentage,
                 'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => $request->shipping_amount * 100,
-                'paid_amount' => $request->paid_amount * 100,
-                'total_amount' => $request->total_amount * 100,
-                'due_amount' => $due_amount * 100,
+                'shipping_amount' => round((float) $request->shipping_amount, 2),
+                'paid_amount' => round((float) $request->paid_amount, 2),
+                'total_amount' => $total_amount,
+                'due_amount' => $due_amount,
                 'status' => 'Completed',
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
-                'tax_amount' => Cart::instance('sale')->tax() * 100,
-                'discount_amount' => Cart::instance('sale')->discount() * 100,
+                'tax_amount' => round((float) Cart::instance('sale')->tax(), 2),
+                'discount_amount' => round((float) Cart::instance('sale')->discount(), 2),
             ]);
 
             foreach (Cart::instance('sale')->content() as $cart_item) {
@@ -71,12 +74,12 @@ class PosController extends Controller
                     'product_name' => $cart_item->name,
                     'product_code' => $cart_item->options->code,
                     'quantity' => $cart_item->qty,
-                    'price' => $cart_item->price * 100,
-                    'unit_price' => $cart_item->options->unit_price * 100,
-                    'sub_total' => $cart_item->options->sub_total * 100,
-                    'product_discount_amount' => $cart_item->options->product_discount * 100,
+                    'price' => round((float) $cart_item->price, 2),
+                    'unit_price' => round((float) $cart_item->options->unit_price, 2),
+                    'sub_total' => round((float) $cart_item->options->sub_total, 2),
+                    'product_discount_amount' => round((float) $cart_item->options->product_discount, 2),
                     'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => $cart_item->options->product_tax * 100,
+                    'product_tax_amount' => round((float) $cart_item->options->product_tax, 2),
                 ]);
 
                 $product = Product::findOrFail($cart_item->id);
