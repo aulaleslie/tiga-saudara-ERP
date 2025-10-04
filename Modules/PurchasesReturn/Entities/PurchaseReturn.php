@@ -27,6 +27,7 @@ class PurchaseReturn extends BaseModel
         'date'             => 'date',
         'approved_at'      => 'datetime',
         'rejected_at'      => 'datetime',
+        'settled_at'       => 'datetime',
     ];
 
     public function purchaseReturnDetails(): Builder|HasMany|PurchaseReturn
@@ -79,6 +80,11 @@ class PurchaseReturn extends BaseModel
     public function rejectedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'rejected_by');
+    }
+
+    public function settledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'settled_by');
     }
     public function goods()
     {

@@ -122,6 +122,19 @@ class PurchasesReturnController extends Controller
     }
 
 
+    public function settlement(PurchaseReturn $purchase_return)
+    {
+        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+
+        if ($purchase_return->approval_status !== 'approved') {
+            toast('Penyelesaian hanya dapat diproses setelah retur disetujui.', 'error');
+            return redirect()->route('purchase-returns.show', $purchase_return);
+        }
+
+        return view('purchasesreturn::settlement', compact('purchase_return'));
+    }
+
+
     public function edit(PurchaseReturn $purchase_return) {
         abort_if(Gate::denies('purchaseReturns.edit'), 403);
 
@@ -242,11 +255,6 @@ class PurchasesReturnController extends Controller
     {
         abort_if(Gate::denies('purchaseReturns.edit'), 403);
 
-        if (! $purchase_return->return_type) {
-            toast('Tidak dapat menyetujui retur tanpa metode penyelesaian.', 'error');
-            return back();
-        }
-
         if ($purchase_return->approval_status === 'approved') {
             toast('Retur pembelian sudah disetujui.', 'info');
             return back();
@@ -256,10 +264,12 @@ class PurchasesReturnController extends Controller
             'approval_status' => 'approved',
             'approved_by' => auth()->id(),
             'approved_at' => now(),
-            'status' => 'Completed',
+            'status' => 'Awaiting Settlement',
             'rejected_by' => null,
             'rejected_at' => null,
             'rejection_reason' => null,
+            'settled_at' => null,
+            'settled_by' => null,
         ]);
 
         toast('Retur pembelian disetujui.', 'success');

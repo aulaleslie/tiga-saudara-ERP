@@ -11,18 +11,13 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
-use Livewire\WithFileUploads;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
-use Modules\PurchasesReturn\Entities\PurchaseReturnGood;
-use Modules\PurchasesReturn\Entities\PurchaseReturnPayment;
-use Modules\PurchasesReturn\Entities\SupplierCredit;
 
 class PurchaseReturnCreateForm extends Component
 {
-    use WithFileUploads;
 
     public $supplier_id = '';
     public $date;
@@ -30,15 +25,11 @@ class PurchaseReturnCreateForm extends Component
     public $note;
     public $grand_total = 0.0;
     public $location_id = null;
-    public $return_type = '';
-    public $cash_proof;
-    public $replacement_goods = [];
 
     protected $listeners = [
         'supplierSelected' => 'handleSupplierSelected',
         'updateRows' => 'handleUpdatedRows',
         'purchaseReturnLocationSelected' => 'handleLocationSelected',
-        'replacementProductSelected' => 'handleReplacementProductSelected',
     ];
 
     public function mount(): void
@@ -62,55 +53,6 @@ class PurchaseReturnCreateForm extends Component
         $this->dispatch('locationUpdated', $this->location_id);
     }
 
-    public function addReplacementGood(): void
-    {
-        $this->replacement_goods[] = [
-            'product_id' => null,
-            'product_name' => '',
-            'product_code' => '',
-            'quantity' => 1,
-            'unit_value' => 0.0,
-            'sub_total' => 0.0,
-        ];
-    }
-
-    public function removeReplacementGood($index): void
-    {
-        if (isset($this->replacement_goods[$index])) {
-            unset($this->replacement_goods[$index]);
-            $this->replacement_goods = array_values($this->replacement_goods);
-        }
-    }
-
-    public function recalculateReplacement($index): void
-    {
-        if (! isset($this->replacement_goods[$index])) {
-            return;
-        }
-
-        $quantity = max(0, (int) ($this->replacement_goods[$index]['quantity'] ?? 0));
-        $unitValue = (float) ($this->replacement_goods[$index]['unit_value'] ?? 0);
-        $this->replacement_goods[$index]['quantity'] = $quantity;
-        $this->replacement_goods[$index]['unit_value'] = $unitValue;
-        $this->replacement_goods[$index]['sub_total'] = round($quantity * $unitValue, 2);
-    }
-
-    public function handleReplacementProductSelected($payload): void
-    {
-        $index = $payload['index'] ?? null;
-        $product = $payload['product'] ?? [];
-
-        if ($index === null || ! isset($this->replacement_goods[$index])) {
-            return;
-        }
-
-        $this->replacement_goods[$index]['product_id'] = $product['id'];
-        $this->replacement_goods[$index]['product_name'] = $product['product_name'];
-        $this->replacement_goods[$index]['product_code'] = $product['product_code'] ?? '';
-        $this->replacement_goods[$index]['unit_value'] = (float) ($product['last_purchase_price'] ?? 0);
-        $this->recalculateReplacement($index);
-    }
-
     public function handleUpdatedRows($updatedRows): void
     {
         $this->rows = $updatedRows;
@@ -131,12 +73,10 @@ class PurchaseReturnCreateForm extends Component
             'supplier_id' => 'required|exists:suppliers,id',
             'date' => 'required|date',
             'location_id' => 'required|exists:locations,id',
-            'return_type' => 'required|in:exchange,deposit,cash',
             'rows' => 'required|array|min:1',
             'rows.*.product_id' => 'required|exists:products,id',
             'rows.*.quantity' => 'required|integer|min:1',
             'rows.*.purchase_order_id' => 'nullable|exists:purchases,id',
-            'cash_proof' => 'nullable|file|max:4096|mimes:jpg,jpeg,png,pdf',
         ];
     }
 
@@ -149,8 +89,6 @@ class PurchaseReturnCreateForm extends Component
             'date.date' => 'Format tanggal tidak valid.',
             'location_id.required' => 'Lokasi wajib dipilih.',
             'location_id.exists' => 'Lokasi yang dipilih tidak valid.',
-            'return_type.required' => 'Pilih metode penyelesaian retur.',
-            'return_type.in' => 'Metode penyelesaian retur tidak valid.',
             'rows.required' => 'Setidaknya satu produk harus ditambahkan.',
             'rows.array' => 'Format produk tidak valid.',
             'rows.min' => 'Setidaknya satu produk harus ditambahkan.',
@@ -160,19 +98,7 @@ class PurchaseReturnCreateForm extends Component
             'rows.*.quantity.integer' => 'Jumlah produk harus berupa angka.',
             'rows.*.quantity.min' => 'Jumlah produk minimal 1.',
             'rows.*.purchase_order_id.exists' => 'Nomor purchase order tidak valid.',
-            'cash_proof.file' => 'Bukti pengembalian harus berupa berkas.',
-            'cash_proof.mimes' => 'Format bukti tidak didukung.',
-            'cash_proof.max' => 'Ukuran bukti maksimal 4MB.',
         ];
-    }
-
-    protected function calculateCreditAmount(): float
-    {
-        return round(collect($this->rows)->sum(function ($row) {
-            $unit = (float) ($row['purchase_price'] ?? 0);
-            $qty = (int) ($row['quantity'] ?? 0);
-            return $unit * $qty;
-        }), 2);
     }
 
     /**
@@ -186,14 +112,8 @@ class PurchaseReturnCreateForm extends Component
             'supplier_id' => $this->supplier_id,
             'date' => $this->date,
             'location_id' => $this->location_id,
-            'return_type' => $this->return_type,
             'rows' => $this->rows,
-            'cash_proof' => $this->cash_proof,
         ];
-
-        if ($this->return_type === 'exchange') {
-            $data['replacement_goods'] = $this->replacement_goods;
-        }
 
         try {
             $validator = Validator::make($data, $this->rules(), $this->messages());
@@ -251,28 +171,8 @@ class PurchaseReturnCreateForm extends Component
                     }
                 }
 
-                if ($this->return_type === 'exchange') {
-                    if (empty($this->replacement_goods)) {
-                        $validator->errors()->add('replacement_goods', 'Tambahkan setidaknya satu produk pengganti.');
-                    } else {
-                        foreach ($this->replacement_goods as $idx => $replacement) {
-                            if (empty($replacement['product_id'])) {
-                                $validator->errors()->add("replacement_goods.$idx.product_id", 'Produk pengganti wajib dipilih.');
-                            }
-
-                            if ((int) ($replacement['quantity'] ?? 0) <= 0) {
-                                $validator->errors()->add("replacement_goods.$idx.quantity", 'Jumlah pengganti harus lebih dari 0.');
-                            }
-                        }
-                    }
-                }
-
-                if ($this->return_type === 'cash' && empty($this->cash_proof)) {
-                    $validator->errors()->add('cash_proof', 'Unggah bukti pengembalian tunai.');
-                }
-
-                if ($this->return_type === 'deposit' && $this->calculateCreditAmount() <= 0) {
-                    $validator->errors()->add('rows', 'Nilai retur tidak valid untuk dijadikan deposit.');
+                if ($this->calculateReturnTotal() <= 0) {
+                    $validator->errors()->add('rows', 'Nilai retur harus lebih dari 0.');
                 }
             });
 
@@ -280,17 +180,11 @@ class PurchaseReturnCreateForm extends Component
             $this->dispatch('updateTableErrors', []);
 
             $total = $this->calculateReturnTotal();
-            $paidAmount = in_array($this->return_type, ['exchange', 'deposit', 'cash'], true) ? $total : 0.0;
+            $paidAmount = 0.0;
             $dueAmount = round(max($total - $paidAmount, 0), 2);
             $paymentStatus = $dueAmount > 0 ? 'Unpaid' : 'Paid';
-            $paymentMethod = $this->return_type === 'cash' ? 'Cash' : 'Settlement';
-            $proofPath = null;
 
-            if ($this->return_type === 'cash' && $this->cash_proof) {
-                $proofPath = $this->cash_proof->store('purchase-returns/proofs', 'public');
-            }
-
-            DB::transaction(function () use ($total, $paidAmount, $dueAmount, $paymentStatus, $paymentMethod, $proofPath) {
+            DB::transaction(function () use ($total, $paidAmount, $dueAmount, $paymentStatus) {
                 $supplier = Supplier::find($this->supplier_id);
 
                 $purchaseReturn = PurchaseReturn::create([
@@ -304,16 +198,16 @@ class PurchaseReturnCreateForm extends Component
                     'discount_percentage' => 0,
                     'discount_amount' => 0,
                     'shipping_amount' => 0,
-                    'total_amount' => $total,
-                    'paid_amount' => $paidAmount,
-                    'due_amount' => $dueAmount,
+                    'total_amount' => round($total, 2),
+                    'paid_amount' => round($paidAmount, 2),
+                    'due_amount' => round($dueAmount, 2),
                     'approval_status' => 'pending',
-                    'return_type' => $this->return_type,
+                    'return_type' => null,
                     'status' => 'Pending Approval',
                     'payment_status' => $paymentStatus,
-                    'payment_method' => $paymentMethod,
+                    'payment_method' => 'Pending',
                     'note' => $this->note,
-                    'cash_proof_path' => $proofPath,
+                    'cash_proof_path' => null,
                 ]);
 
                 foreach ($this->rows as $row) {
@@ -338,53 +232,9 @@ class PurchaseReturnCreateForm extends Component
                         'serial_number_ids' => $serialNumberIds,
                     ]);
                 }
-
-                if ($this->return_type === 'exchange') {
-                    foreach ($this->replacement_goods as $replacement) {
-                        if (empty($replacement['product_id'])) {
-                            continue;
-                        }
-
-                        $quantity = (int) ($replacement['quantity'] ?? 0);
-                        $unitValue = (float) ($replacement['unit_value'] ?? 0);
-
-                        PurchaseReturnGood::create([
-                            'purchase_return_id' => $purchaseReturn->id,
-                            'product_id' => $replacement['product_id'],
-                            'product_name' => $replacement['product_name'],
-                            'product_code' => $replacement['product_code'] ?? null,
-                            'quantity' => $quantity,
-                            'unit_value' => $unitValue,
-                            'sub_total' => round($quantity * $unitValue, 2),
-                        ]);
-                    }
-                }
-
-                if ($this->return_type === 'deposit') {
-                    $creditAmount = $this->calculateCreditAmount();
-                    SupplierCredit::create([
-                        'supplier_id' => $this->supplier_id,
-                        'purchase_return_id' => $purchaseReturn->id,
-                        'amount' => $creditAmount,
-                        'remaining_amount' => $creditAmount,
-                        'status' => 'open',
-                    ]);
-                }
-
-                if ($this->return_type === 'cash') {
-                    PurchaseReturnPayment::create([
-                        'purchase_return_id' => $purchaseReturn->id,
-                        'amount' => $total,
-                        'date' => $this->date,
-                        'reference' => 'PRPAY/' . $purchaseReturn->reference,
-                        'payment_method' => 'Cash',
-                        'payment_method_id' => null,
-                        'note' => 'Pengembalian tunai',
-                    ]);
-                }
             });
 
-            session()->flash('success', 'Retur pembelian berhasil disimpan.');
+            session()->flash('success', 'Retur pembelian berhasil disimpan dan menunggu persetujuan.');
             return redirect()->route('purchase-returns.index');
         } catch (ValidationException $e) {
             Log::warning('Validation failed for purchase return', ['errors' => $e->validator->errors()->getMessages()]);
@@ -408,7 +258,6 @@ class PurchaseReturnCreateForm extends Component
 
         return view('livewire.purchase-return.purchase-return-create-form', [
             'rows' => $this->rows,
-            'replacement_goods' => $this->replacement_goods,
         ]);
     }
 }

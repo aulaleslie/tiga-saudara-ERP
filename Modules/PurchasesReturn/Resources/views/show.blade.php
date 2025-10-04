@@ -24,6 +24,13 @@
                         <div class="ms-auto d-flex flex-wrap align-items-center">
                             <span class="badge bg-secondary text-uppercase me-2 mb-1">{{ $purchase_return->status }}</span>
                             <span class="badge {{ $purchase_return->approval_status === 'approved' ? 'bg-success' : ($purchase_return->approval_status === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase me-2 mb-1">{{ $purchase_return->approval_status }}</span>
+                            @can('purchaseReturns.edit')
+                                @if($purchase_return->approval_status === 'approved')
+                                    <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
+                                        <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
+                                    </a>
+                                @endif
+                            @endcan
                             <a target="_blank" class="btn btn-outline-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.pdf', $purchase_return->id) }}">
                                 <i class="bi bi-printer"></i> Cetak
                             </a>
@@ -61,9 +68,13 @@
                                         <dt class="col-5 text-muted">Lokasi</dt>
                                         <dd class="col-7 fw-semibold">{{ $purchase_return->location->name ?? '-' }}</dd>
                                         <dt class="col-5 text-muted">Metode</dt>
-                                        <dd class="col-7 fw-semibold">{{ ucfirst($purchase_return->return_type ?? 'Tidak Ditentukan') }}</dd>
+                                        <dd class="col-7 fw-semibold">{{ $purchase_return->return_type ? ucfirst($purchase_return->return_type) : 'Belum ditentukan' }}</dd>
                                         <dt class="col-5 text-muted">Status Pembayaran</dt>
                                         <dd class="col-7 fw-semibold">{{ $purchase_return->payment_status }}</dd>
+                                        @if($purchase_return->settled_at)
+                                            <dt class="col-5 text-muted">Tanggal Selesai</dt>
+                                            <dd class="col-7 fw-semibold">{{ $purchase_return->settled_at->translatedFormat('d F Y H:i') }}</dd>
+                                        @endif
                                     </dl>
                                 </div>
                             </div>
@@ -123,6 +134,12 @@
                                 </div>
                             </div>
                         </div>
+
+                        @if(!$purchase_return->return_type && $purchase_return->approval_status === 'approved')
+                            <div class="alert alert-warning mt-4" role="alert">
+                                Metode penyelesaian belum ditentukan. Silakan proses melalui halaman penyelesaian retur.
+                            </div>
+                        @endif
 
                         @if($purchase_return->return_type === 'exchange' && $purchase_return->goods->isNotEmpty())
                             <div class="mt-4">

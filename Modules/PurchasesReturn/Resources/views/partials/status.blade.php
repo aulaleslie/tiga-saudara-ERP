@@ -7,6 +7,9 @@
     @case('Pending Approval')
         <span class="badge bg-warning text-dark text-uppercase">{{ $status }}</span>
         @break
+    @case('Awaiting Settlement')
+        <span class="badge bg-info text-dark text-uppercase">{{ $status }}</span>
+        @break
     @case('Rejected')
         <span class="badge bg-danger text-uppercase">{{ $status }}</span>
         @break

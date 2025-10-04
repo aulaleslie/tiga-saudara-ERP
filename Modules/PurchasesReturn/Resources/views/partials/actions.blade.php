@@ -59,6 +59,14 @@
             </a>
         @endcan
 
+        @can('purchaseReturns.edit')
+            @if($data->approval_status === 'approved')
+                <a href="{{ route('purchase-returns.settlement', $data->id) }}" class="dropdown-item d-flex align-items-center">
+                    <i class="bi bi-arrow-repeat text-primary me-2"></i> <span>Metode Penyelesaian</span>
+                </a>
+            @endif
+        @endcan
+
         @can('purchaseReturns.delete')
             @if($data->approval_status === 'pending')
                 <button id="delete" type="button" class="dropdown-item d-flex align-items-center" onclick="
