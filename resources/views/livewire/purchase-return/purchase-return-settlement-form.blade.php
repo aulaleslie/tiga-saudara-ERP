@@ -42,7 +42,7 @@
                 @if($isReadOnly)
                     <div class="alert alert-success d-flex align-items-center gap-2 mt-3 mb-0" role="alert">
                         <i class="bi bi-check-circle-fill"></i>
-                        <span>Metode penyelesaian sudah ditetapkan sebagai <strong>{{ ucfirst($purchaseReturn->return_type) }}</strong>.</span>
+                        <span>Metode penyelesaian sudah ditetapkan sebagai <strong>{{ $displayReturnType }}</strong>.</span>
                     </div>
                 @endif
             </div>
@@ -190,8 +190,8 @@
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-sm table-striped mb-0">
-                        <thead class="table-light">
+                    <table class="table table-hover table-sm align-middle mb-0">
+                        <thead class="table-light text-muted text-uppercase small">
                             <tr>
                                 <th>Produk</th>
                                 <th class="text-center">Jumlah</th>
@@ -200,18 +200,32 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach($details as $detail)
+                            @forelse($details as $detail)
                                 <tr>
                                     <td>
                                         <div class="fw-semibold">{{ $detail->product_name }}</div>
-                                        <small class="text-muted">{{ $detail->product_code }}</small>
+                                        @if($detail->product_code)
+                                            <span class="badge bg-light text-secondary border">{{ $detail->product_code }}</span>
+                                        @endif
                                     </td>
-                                    <td class="text-center">{{ $detail->quantity }}</td>
+                                    <td class="text-center">
+                                        <span class="fw-semibold">{{ $detail->quantity }}</span>
+                                    </td>
                                     <td class="text-end">{{ format_currency($detail->unit_price) }}</td>
                                     <td class="text-end">{{ format_currency($detail->sub_total) }}</td>
                                 </tr>
-                            @endforeach
+                            @empty
+                                <tr>
+                                    <td colspan="4" class="text-center text-muted py-4">Tidak ada detail produk retur.</td>
+                                </tr>
+                            @endforelse
                         </tbody>
+                        <tfoot class="table-light">
+                            <tr>
+                                <th colspan="3" class="text-end text-muted">Total Retur</th>
+                                <th class="text-end fw-semibold">{{ format_currency($total) }}</th>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             </div>

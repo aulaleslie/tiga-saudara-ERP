@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -57,7 +58,9 @@ class PurchaseReturnSettlementForm extends Component
         ])->findOrFail($this->purchaseReturnId);
 
         $this->isReadOnly = ! empty($this->purchaseReturn->return_type);
-        $this->return_type = $this->purchaseReturn->return_type ?? '';
+        $this->return_type = $this->purchaseReturn->return_type
+            ? Str::lower($this->purchaseReturn->return_type)
+            : '';
         $this->replacement_goods = [];
 
         if ($this->purchaseReturn->goods->isNotEmpty()) {
@@ -319,6 +322,9 @@ class PurchaseReturnSettlementForm extends Component
             'total' => $this->settlementTotal(),
             'creditAmount' => $this->calculateCreditAmount(),
             'isReadOnly' => $this->isReadOnly,
+            'displayReturnType' => $this->return_type !== ''
+                ? Str::of($this->return_type)->lower()->ucfirst()
+                : '',
         ]);
     }
 }
