@@ -9,12 +9,11 @@ use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
-use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 
 class PurchaseReturnTable extends Component
 {
-    public $supplier_id = '';
+    public $supplierId = '';
     public $rows = [];
     public $validationErrors = [];
     public $location_id = null;
@@ -28,26 +27,27 @@ class PurchaseReturnTable extends Component
         'locationUpdated' => 'setLocation',
     ];
 
-    public function mount($rows = [], $locationId = null)
+    public function mount($rows = [], $locationId = null, $supplierId = null)
     {
         $this->rows = $rows; // ✅ Initialize `rows` from parent
         $this->location_id = $locationId;
+        $this->supplierId = $supplierId;
     }
 
     public function resetTable($supplier): void
     {
         if ($supplier) {
             Log::info('Updated supplier id: ', ['$supplier' => $supplier]);
-            $this->supplier_id = $supplier['id'];
+            $this->supplierId = $supplier['id'];
         } else {
-            $this->supplier_id = null;
+            $this->supplierId = null;
         }
         $this->rows = []; // Clear table when supplier changes
     }
 
     public function addProductRow(): void
     {
-        if (!$this->supplier_id) {
+        if (!$this->supplierId) {
             return;
         }
 
