@@ -40,11 +40,16 @@ class TransferStockForm extends Component
     public function onOriginLocationSelected($payload)
     {
         Log::info('onOriginLocationSelected', ['payload' => $payload]);
+
         if ($payload) {
             $this->originLocation = $payload['id'];
             unset($this->selfManagedValidationErrors['origin_location']);
             $this->destinationLocation = null;
+        } else {
+            $this->originLocation = null;
         }
+
+        $this->notifyLocationChange();
     }
 
     public function onDestinationLocationSelected($payload)
@@ -53,7 +58,11 @@ class TransferStockForm extends Component
         if ($payload) {
             $this->destinationLocation = $payload['id'];
             unset($this->selfManagedValidationErrors['destination_location']);
+        } else {
+            $this->destinationLocation = null;
         }
+
+        $this->notifyLocationChange();
     }
 
     public function onRowsUpdated(array $rows)
@@ -79,36 +88,74 @@ class TransferStockForm extends Component
             $this->selfManagedValidationErrors['destination_location'] = 'Silakan pilih Lokasi Tujuan.';
         }
 
+        if ($this->originLocation && $this->destinationLocation && $this->originLocation === $this->destinationLocation) {
+            $this->selfManagedValidationErrors['destination_location'] = 'Lokasi tujuan harus berbeda dari lokasi asal.';
+        }
+
         // validate rows
+        $preparedRows = [];
+
         if (empty($this->rows)) {
             $this->selfManagedValidationErrors['rows'] = 'Silakan pilih minimal satu produk.';
         } else {
             foreach ($this->rows as $i => $row) {
-                $qt  = $row['quantity_tax']            ?? 0;
-                $qn  = $row['quantity_non_tax']        ?? 0;
-                $bqt = $row['broken_quantity_tax']     ?? 0;
-                $bqn = $row['broken_quantity_non_tax'] ?? 0;
-                $total = $qt + $qn + $bqt + $bqn;
+                $manualQuantities = [
+                    'quantity_tax'            => max(0, (int) ($row['quantity_tax']            ?? 0)),
+                    'quantity_non_tax'        => max(0, (int) ($row['quantity_non_tax']        ?? 0)),
+                    'quantity_broken_tax'     => max(0, (int) ($row['broken_quantity_tax']     ?? 0)),
+                    'quantity_broken_non_tax' => max(0, (int) ($row['broken_quantity_non_tax'] ?? 0)),
+                ];
+
+                $serials       = $this->normalizeSerialPayload($row['serial_numbers'] ?? []);
+                $serialDetails = $this->calculateSerialBreakdown($serials);
+
+                $finalQuantities = $manualQuantities;
+                $requiresSerial  = ! empty($row['serial_number_required']);
+
+                if (! empty($serials)) {
+                    if ($manualQuantities !== $serialDetails['quantities']) {
+                        $tableErrors["row.{$i}.serial_numbers"] =
+                            'Jumlah nomor seri tidak sesuai dengan rincian kuantitas yang dimasukkan.';
+                    }
+
+                    $finalQuantities = $serialDetails['quantities'];
+                }
+
+                if ($requiresSerial && empty($serials)) {
+                    $tableErrors["row.{$i}.serial_numbers"] = 'Produk ini memerlukan nomor seri.';
+                }
+
+                $total = array_sum($finalQuantities);
 
                 if ($total <= 0) {
                     $tableErrors["row.{$i}"] = "Jumlah keseluruhan produk harus lebih besar dari 0.";
                 }
-                if ($qt > ($row['stock']['quantity_tax'] ?? 0)) {
+
+                $stock = $row['stock'] ?? [];
+
+                if ($finalQuantities['quantity_tax'] > ($stock['quantity_tax'] ?? 0)) {
                     $tableErrors["row.{$i}.quantity_tax"] =
-                        "Jumlah Pajak tidak boleh lebih dari stok ({$row['stock']['quantity_tax']}).";
+                        "Jumlah Pajak tidak boleh lebih dari stok ({$stock['quantity_tax']}).";
                 }
-                if ($qn > ($row['stock']['quantity_non_tax'] ?? 0)) {
+                if ($finalQuantities['quantity_non_tax'] > ($stock['quantity_non_tax'] ?? 0)) {
                     $tableErrors["row.{$i}.quantity_non_tax"] =
-                        "Jumlah Non Pajak tidak boleh lebih dari stok ({$row['stock']['quantity_non_tax']}).";
+                        "Jumlah Non Pajak tidak boleh lebih dari stok ({$stock['quantity_non_tax']}).";
                 }
-                if ($bqt > ($row['stock']['broken_quantity_tax'] ?? 0)) {
+                if ($finalQuantities['quantity_broken_tax'] > ($stock['broken_quantity_tax'] ?? 0)) {
                     $tableErrors["row.{$i}.broken_quantity_tax"] =
-                        "Rusak Pajak tidak boleh lebih dari stok rusak ({$row['stock']['broken_quantity_tax']}).";
+                        "Rusak Pajak tidak boleh lebih dari stok rusak ({$stock['broken_quantity_tax']}).";
                 }
-                if ($bqn > ($row['stock']['broken_quantity_non_tax'] ?? 0)) {
+                if ($finalQuantities['quantity_broken_non_tax'] > ($stock['broken_quantity_non_tax'] ?? 0)) {
                     $tableErrors["row.{$i}.broken_quantity_non_tax"] =
-                        "Rusak Non Pajak tidak boleh lebih dari stok rusak ({$row['stock']['broken_quantity_non_tax']}).";
+                        "Rusak Non Pajak tidak boleh lebih dari stok rusak ({$stock['broken_quantity_non_tax']}).";
                 }
+
+                $preparedRows[] = [
+                    'id'                       => $row['id'],
+                    'serial_numbers'           => $serials,
+                    'quantities'               => $finalQuantities,
+                    'total'                    => $total,
+                ];
             }
         }
 
@@ -129,33 +176,28 @@ class TransferStockForm extends Component
                 'origin_location_id'      => $this->originLocation,
                 'destination_location_id' => $this->destinationLocation,
                 'created_by'              => auth()->id(),
-                'status'                  => 'PENDING',
+                'status'                  => Transfer::STATUS_PENDING,
             ]);
 
             // 2) create each transfer_product row
-            foreach ($this->rows as $row) {
-                $qt  = $row['quantity_tax']            ?? 0;
-                $qn  = $row['quantity_non_tax']        ?? 0;
-                $bqt = $row['broken_quantity_tax']     ?? 0;
-                $bqn = $row['broken_quantity_non_tax'] ?? 0;
-                $total = $qt + $qn + $bqt + $bqn;
-
+            foreach ($preparedRows as $row) {
+                $quantities = $row['quantities'];
                 TransferProduct::create([
                     'transfer_id'               => $transfer->id,
                     'product_id'                => $row['id'],
-                    'quantity'                  => $total,
-                    'quantity_tax'              => $qt,
-                    'quantity_non_tax'          => $qn,
-                    'quantity_broken_tax'       => $bqt,
-                    'quantity_broken_non_tax'   => $bqn,
-                    // serial_numbers left null here; will be filled at dispatch
+                    'quantity'                  => $row['total'],
+                    'quantity_tax'              => $quantities['quantity_tax'],
+                    'quantity_non_tax'          => $quantities['quantity_non_tax'],
+                    'quantity_broken_tax'       => $quantities['quantity_broken_tax'],
+                    'quantity_broken_non_tax'   => $quantities['quantity_broken_non_tax'],
+                    'serial_numbers'            => ! empty($row['serial_numbers']) ? $row['serial_numbers'] : null,
                 ]);
             }
 
             DB::commit();
 
             // 3) reset form and show success
-            toast('Transfer Stok Dibuat!', 'success');
+            toast('Transfer Stok Dibuat! No. Dokumen: ' . $transfer->document_number, 'success');
             //
             return redirect()->route('transfers.index');
         }
@@ -169,5 +211,76 @@ class TransferStockForm extends Component
     public function render()
     {
         return view('livewire.transfer.transfer-stock-form');
+    }
+
+    protected function notifyLocationChange(): void
+    {
+        $this->dispatch('locationsConfirmed', [
+            'originLocationId'      => $this->originLocation,
+            'destinationLocationId' => $this->destinationLocation,
+        ]);
+    }
+
+    private function normalizeSerialPayload(array $serials): array
+    {
+        return collect($serials)
+            ->map(function ($serial) {
+                $id = (int) ($serial['id'] ?? 0);
+
+                if ($id <= 0) {
+                    return null;
+                }
+
+                $taxId   = $serial['tax_id'] ?? null;
+                $taxable = array_key_exists('taxable', $serial)
+                    ? (bool) $serial['taxable']
+                    : ! empty($taxId);
+
+                return [
+                    'id'            => $id,
+                    'serial_number' => $serial['serial_number'] ?? null,
+                    'tax_id'        => $taxId !== null ? (int) $taxId : null,
+                    'taxable'       => $taxable,
+                    'is_broken'     => (bool) ($serial['is_broken'] ?? false),
+                ];
+            })
+            ->filter()
+            ->values()
+            ->toArray();
+    }
+
+    private function calculateSerialBreakdown(array $serials): array
+    {
+        $quantityTax           = 0;
+        $quantityNonTax        = 0;
+        $brokenQuantityTax     = 0;
+        $brokenQuantityNonTax  = 0;
+
+        foreach ($serials as $serial) {
+            $isBroken = (bool) ($serial['is_broken'] ?? false);
+            $isTaxed  = array_key_exists('taxable', $serial)
+                ? (bool) $serial['taxable']
+                : ! empty($serial['tax_id']);
+
+            if ($isBroken && $isTaxed) {
+                $brokenQuantityTax++;
+            } elseif ($isBroken && ! $isTaxed) {
+                $brokenQuantityNonTax++;
+            } elseif ($isTaxed) {
+                $quantityTax++;
+            } else {
+                $quantityNonTax++;
+            }
+        }
+
+        return [
+            'quantities' => [
+                'quantity_tax'            => $quantityTax,
+                'quantity_non_tax'        => $quantityNonTax,
+                'quantity_broken_tax'     => $brokenQuantityTax,
+                'quantity_broken_non_tax' => $brokenQuantityNonTax,
+            ],
+            'total' => $quantityTax + $quantityNonTax + $brokenQuantityTax + $brokenQuantityNonTax,
+        ];
     }
 }

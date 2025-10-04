@@ -19,6 +19,9 @@ class StockTransfersDataTable extends DataTable
     {
         return datatables()
             ->eloquent($query)
+            ->editColumn('document_number', function ($data) {
+                return $data->document_number ?? '-';
+            })
             ->addColumn('action', function ($data) {
                 return view('adjustment::transfers.partials.actions', compact('data'));
             })
@@ -29,10 +32,42 @@ class StockTransfersDataTable extends DataTable
                 return $data->created_at ? $data->created_at->format('Y-m-d H:i:s') : '-';
             })
             ->addColumn('origin_location_name', function ($data) {
-                return $data->originLocation ? $data->originLocation->name : '-';
+                $location = $data->originLocation;
+
+                if (! $location) {
+                    return '-';
+                }
+
+                $name            = $location->name ?? '-';
+                $currentSetting  = session('setting_id');
+                $locationSetting = $location->setting_id;
+
+                if ($locationSetting && (string) $locationSetting !== (string) $currentSetting) {
+                    $tenant = optional($location->setting)->company_name ?? ('Setting #' . $locationSetting);
+
+                    return sprintf('%s (%s)', $name, $tenant);
+                }
+
+                return $name;
             })
             ->addColumn('destination_location_name', function ($data) {
-                return $data->destinationLocation ? $data->destinationLocation->name : '-';
+                $location = $data->destinationLocation;
+
+                if (! $location) {
+                    return '-';
+                }
+
+                $name            = $location->name ?? '-';
+                $currentSetting  = session('setting_id');
+                $locationSetting = $location->setting_id;
+
+                if ($locationSetting && (string) $locationSetting !== (string) $currentSetting) {
+                    $tenant = optional($location->setting)->company_name ?? ('Setting #' . $locationSetting);
+
+                    return sprintf('%s (%s)', $name, $tenant);
+                }
+
+                return $name;
             });
     }
 
@@ -42,18 +77,17 @@ class StockTransfersDataTable extends DataTable
         $settingId = session('setting_id');
 
         return $model->newQuery()
-            ->with('originLocation', 'destinationLocation')
+            ->with(['originLocation.setting', 'destinationLocation.setting'])
             ->where(function($q) use ($settingId) {
                 // 1) All transfers where current setting is the ORIGIN
                 $q->whereHas('originLocation.setting', function ($q1) use ($settingId) {
                     $q1->where('id', $settingId);
                 })
-                    // 2) OR: transfers where current setting is the DESTINATION AND status is DISPATCHED
+                    // 2) OR: transfers where current setting is the DESTINATION regardless of status
                     ->orWhere(function($q2) use ($settingId) {
                         $q2->whereHas('destinationLocation.setting', function ($q3) use ($settingId) {
                             $q3->where('id', $settingId);
-                        })
-                            ->where('status', 'DISPATCHED');
+                        });
                     });
             });
     }
@@ -67,7 +101,7 @@ class StockTransfersDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                         'tr' .
                                         <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(4)
+            ->orderBy(0, 'desc')
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -83,6 +117,10 @@ class StockTransfersDataTable extends DataTable
     protected function getColumns(): array
     {
         return [
+            Column::make('document_number')
+                ->title('No. Dokumen')
+                ->className('text-center align-middle'),
+
             Column::make('created_at')
                 ->title('Tanggal Transfer')
                 ->className('text-center align-middle'),

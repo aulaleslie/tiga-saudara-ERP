@@ -1,3 +1,4 @@
+@php use Modules\Adjustment\Entities\Transfer; @endphp
 @extends('layouts.app')
 
 @section('title', 'Detail Pemindahan Barang')
@@ -19,47 +20,93 @@
                         <h5 class="card-title">Informasi Pemindahan Stok</h5>
                         <table class="table table-bordered mb-4">
                             <tr>
-                                <th>Tanggal:</th>
-                                <td>{{ $transfer->created_at->format('Y-m-d H:i:s') }}</td>
+                                <th>Nomor Dokumen</th>
+                                <td>{{ $transfer->document_number ?? '-' }}</td>
                             </tr>
                             <tr>
-                                <th>Lokasi Asal:</th>
+                                <th>Tanggal Dokumen</th>
+                                <td>{{ optional($transfer->created_at)->format('Y-m-d H:i:s') ?? '-' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Lokasi Asal</th>
                                 <td>
                                     {{ $transfer->originLocation->name ?? '-' }}<br>
                                     <small>{{ $transfer->originLocation->setting->company_name ?? '-' }}</small>
                                 </td>
                             </tr>
                             <tr>
-                                <th>Lokasi Tujuan:</th>
+                                <th>Lokasi Tujuan</th>
                                 <td>
                                     {{ $transfer->destinationLocation->name ?? '-' }}<br>
                                     <small>{{ $transfer->destinationLocation->setting->company_name ?? '-' }}</small>
                                 </td>
                             </tr>
                             <tr>
-                                <th>Status:</th>
-                                <td>{{ strtoupper($transfer->status) }}</td>
+                                <th>Status Saat Ini</th>
+                                <td>
+                                    <span class="badge badge-info">{{ str_replace('_', ' ', $transfer->status) }}</span>
+                                    @if($transfer->status === Transfer::STATUS_RETURN_RECEIVED && $isOrigin && $requiresReturn)
+                                        <span class="badge badge-success">Barang Sudah Dikembalikan</span>
+                                    @else
+                                        <span class="badge badge-info">{{ str_replace('_', ' ', $transfer->status) }}</span>
+                                        @if($requiresReturn && $transfer->status !== Transfer::STATUS_RETURN_RECEIVED)
+                                            <span class="badge badge-warning ml-2">Butuh Pengembalian</span>
+                                        @endif
+                                    @endif
+                                </td>
                             </tr>
                             <tr>
-                                <th>Dibuat Oleh:</th>
+                                <th>Dibuat Oleh</th>
                                 <td>{{ $transfer->createdBy->name ?? '-' }}</td>
                             </tr>
-                            @if($transfer->approver)
+                            @if($transfer->approvedBy)
                                 <tr>
-                                    <th>Disetujui Oleh:</th>
-                                    <td>{{ $transfer->approver->name }}</td>
+                                    <th>Disetujui Oleh</th>
+                                    <td>
+                                        {{ $transfer->approvedBy->name }}<br>
+                                        <small
+                                            class="text-muted">{{ optional($transfer->approved_at)->format('Y-m-d H:i:s') }}</small>
+                                    </td>
                                 </tr>
                             @endif
-                            @if($transfer->dispatcher)
+                            @if($transfer->dispatchedBy)
                                 <tr>
-                                    <th>Dikeluarkan Oleh:</th>
-                                    <td>{{ $transfer->dispatcher->name }}</td>
+                                    <th>Dikirim Oleh</th>
+                                    <td>
+                                        {{ $transfer->dispatchedBy->name }}<br>
+                                        <small
+                                            class="text-muted">{{ optional($transfer->dispatched_at)->format('Y-m-d H:i:s') }}</small>
+                                    </td>
                                 </tr>
                             @endif
-                            @if($transfer->receiver)
+                            @if($transfer->receivedBy)
                                 <tr>
-                                    <th>Diterima Oleh:</th>
-                                    <td>{{ $transfer->receiver->name }}</td>
+                                    <th>Diterima Oleh</th>
+                                    <td>
+                                        {{ $transfer->receivedBy->name }}<br>
+                                        <small
+                                            class="text-muted">{{ optional($transfer->received_at)->format('Y-m-d H:i:s') }}</small>
+                                    </td>
+                                </tr>
+                            @endif
+                            @if($transfer->returnDispatchedBy)
+                                <tr>
+                                    <th>Dikirim Kembali Oleh</th>
+                                    <td>
+                                        {{ $transfer->returnDispatchedBy->name }}<br>
+                                        <small
+                                            class="text-muted">{{ optional($transfer->return_dispatched_at)->format('Y-m-d H:i:s') }}</small>
+                                    </td>
+                                </tr>
+                            @endif
+                            @if($transfer->returnReceivedBy)
+                                <tr>
+                                    <th>Diterima Kembali Oleh</th>
+                                    <td>
+                                        {{ $transfer->returnReceivedBy->name }}<br>
+                                        <small
+                                            class="text-muted">{{ optional($transfer->return_received_at)->format('Y-m-d H:i:s') }}</small>
+                                    </td>
                                 </tr>
                             @endif
                         </table>
@@ -102,34 +149,54 @@
                         </table>
 
                         <div class="mt-4">
-                            {{-- Approve/Reject: only DESTINATION on PENDING --}}
-                            @if($transfer->status === 'PENDING' && $isDestination)
+                            {{-- Approve/Reject: only ORIGIN on PENDING --}}
+                            @if($transfer->status === Transfer::STATUS_PENDING && $isOrigin)
                                 @canany(['stockTransfers.edit','stockTransfers.approval'])
-                                    <form action="{{ route('transfers.approve', $transfer) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('transfers.approve', $transfer) }}" method="POST"
+                                          class="d-inline">
                                         @csrf
                                         <button class="btn btn-success">Setujui</button>
                                     </form>
-                                    <form action="{{ route('transfers.reject', $transfer) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('transfers.reject', $transfer) }}" method="POST"
+                                          class="d-inline">
                                         @csrf
                                         <button class="btn btn-danger">Tolak</button>
                                     </form>
                                 @endcanany
 
                                 {{-- Dispatch: only ORIGIN on APPROVED --}}
-                            @elseif($transfer->status === 'APPROVED' && $isOrigin)
+                            @elseif($transfer->status === Transfer::STATUS_APPROVED && $isOrigin)
                                 @can('stockTransfers.dispatch')
-                                    <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST"
+                                          class="d-inline">
                                         @csrf
                                         <button class="btn btn-primary">Keluarkan</button>
                                     </form>
                                 @endcan
 
                                 {{-- Receive: only DESTINATION on DISPATCHED --}}
-                            @elseif($transfer->status === 'DISPATCHED' && $isDestination)
+                            @elseif($transfer->status === Transfer::STATUS_DISPATCHED && $isDestination)
                                 @can('stockTransfers.receive')
-                                    <form action="{{ route('transfers.receive', $transfer) }}" method="POST" class="d-inline">
+                                    <form action="{{ route('transfers.receive', $transfer) }}" method="POST"
+                                          class="d-inline">
                                         @csrf
                                         <button class="btn btn-success">Terima</button>
+                                    </form>
+                                @endcan
+                            @elseif($transfer->status === Transfer::STATUS_RECEIVED && $requiresReturn && $isDestination)
+                                @can('stockTransfers.dispatch')
+                                    <form action="{{ route('transfers.return-dispatch', $transfer) }}" method="POST"
+                                          class="d-inline">
+                                        @csrf
+                                        <button class="btn btn-warning">Kirim Kembali</button>
+                                    </form>
+                                @endcan
+                            @elseif($transfer->status === Transfer::STATUS_RETURN_DISPATCHED && $isOrigin)
+                                @can('stockTransfers.receive')
+                                    <form action="{{ route('transfers.return-receive', $transfer) }}" method="POST"
+                                          class="d-inline">
+                                        @csrf
+                                        <button class="btn btn-success">Terima Kembali</button>
                                     </form>
                                 @endcan
                             @endif
