@@ -69,6 +69,8 @@ class ProductSearchPurchaseReturn extends Component
     {
         $product = Product::find($productId);
         if ($product) {
+            $product->last_purchase_price = (float) ($product->lastPurchasePrice(session('setting_id')) ?? 0);
+            $product->serial_number_required = (bool) $product->serial_number_required;
             $this->search_results = array($product);
             // Set input to show full product name and code
             $this->query = "$product->product_code | $product->product_name";

@@ -2,6 +2,7 @@
 
 namespace Modules\PurchasesReturn\Http\Controllers;
 
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Modules\PurchasesReturn\DataTables\PurchaseReturnsDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
@@ -114,6 +115,7 @@ class PurchasesReturnController extends Controller
     public function show(PurchaseReturn $purchase_return) {
         abort_if(Gate::denies('purchaseReturns.show'), 403);
 
+        $purchase_return->loadMissing(['purchaseReturnDetails.product', 'goods.product', 'supplierCredit', 'purchaseReturnPayments', 'location']);
         $supplier = Supplier::findOrFail($purchase_return->supplier_id);
 
         return view('purchasesreturn::show', compact('purchase_return', 'supplier'));
@@ -234,5 +236,60 @@ class PurchasesReturnController extends Controller
         toast('Retur Pembelian Dihapus!', 'warning');
 
         return redirect()->route('purchase-returns.index');
+    }
+
+    public function approve(PurchaseReturn $purchase_return)
+    {
+        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+
+        if (! $purchase_return->return_type) {
+            toast('Tidak dapat menyetujui retur tanpa metode penyelesaian.', 'error');
+            return back();
+        }
+
+        if ($purchase_return->approval_status === 'approved') {
+            toast('Retur pembelian sudah disetujui.', 'info');
+            return back();
+        }
+
+        $purchase_return->update([
+            'approval_status' => 'approved',
+            'approved_by' => auth()->id(),
+            'approved_at' => now(),
+            'status' => 'Completed',
+            'rejected_by' => null,
+            'rejected_at' => null,
+            'rejection_reason' => null,
+        ]);
+
+        toast('Retur pembelian disetujui.', 'success');
+
+        return back();
+    }
+
+    public function reject(Request $request, PurchaseReturn $purchase_return)
+    {
+        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+
+        if ($purchase_return->approval_status === 'approved') {
+            toast('Retur yang sudah disetujui tidak dapat ditolak.', 'error');
+            return back();
+        }
+
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $purchase_return->update([
+            'approval_status' => 'rejected',
+            'status' => 'Rejected',
+            'rejected_by' => auth()->id(),
+            'rejected_at' => now(),
+            'rejection_reason' => $data['reason'] ?? null,
+        ]);
+
+        toast('Retur pembelian ditolak.', 'warning');
+
+        return back();
     }
 }

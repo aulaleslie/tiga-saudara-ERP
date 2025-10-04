@@ -45,7 +45,11 @@ class PurchaseReturnsDataTable extends DataTable
 
     public function query(PurchaseReturn $model): Builder
     {
-        return $model->newQuery()->with('supplier');
+        return $model->newQuery()
+            ->with(['supplier', 'location'])
+            ->when(session('setting_id'), function (Builder $query, $settingId) {
+                $query->where('setting_id', $settingId);
+            });
     }
 
     public function html(): \Yajra\DataTables\Html\Builder

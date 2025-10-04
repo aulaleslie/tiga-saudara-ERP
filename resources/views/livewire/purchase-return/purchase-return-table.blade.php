@@ -4,7 +4,8 @@
             <thead class="table-primary">
             <tr class="text-center">
                 <th style="width: 20%">Produk</th>
-                <th style="width: 10%">Stok Rusak</th>
+                <th style="width: 10%">Tersedia Non Pajak</th>
+                <th style="width: 10%">Tersedia Pajak</th>
                 <th style="width: 10%">Jumlah</th>
                 <th style="width: 20%">Nomor Purchase Order</th>
                 <th style="width: 10%">Tanggal Purchase Order</th>
@@ -34,8 +35,13 @@
                         @endif
                     </td>
                     <td class="text-center">
-                        <span class="fw-bold text-warning">
-                            {{ $row['product_quantity'] ?? '-' }}
+                        <span class="fw-bold text-primary">
+                            {{ $row['available_quantity_non_tax'] ?? 0 }}
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        <span class="fw-bold text-success">
+                            {{ $row['available_quantity_tax'] ?? 0 }}
                         </span>
                     </td>
                     <td class="text-center">
@@ -104,6 +110,7 @@
                                 <livewire:purchase-return.purchase-order-serial-number-loader
                                     :index="$index"
                                     :product_id="$row['product_id']"
+                                    :location_id="$location_id"
                                     :is_broken="true"
                                     wire:key="serial-number-{{ $index }}" />
 

@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\People\Entities\Supplier;
+use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Setting;
 
 class PurchaseReturn extends BaseModel
 {
@@ -81,6 +83,16 @@ class PurchaseReturn extends BaseModel
     public function goods()
     {
         return $this->hasMany(PurchaseReturnGood::class, 'purchase_return_id');
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'location_id');
+    }
+
+    public function setting(): BelongsTo
+    {
+        return $this->belongsTo(Setting::class, 'setting_id');
     }
     public function supplierCredit(): HasOne|Builder|PurchaseReturn
     {

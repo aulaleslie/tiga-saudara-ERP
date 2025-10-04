@@ -1,3 +1,4 @@
+@php use Illuminate\Support\Facades\Storage; @endphp
 @extends('layouts.app')
 
 @section('title', 'Purchase Details')
@@ -47,13 +48,12 @@
                             <div class="col-sm-4 mb-3 mb-md-0">
                                 <h5 class="mb-2 border-bottom pb-2">Invoice Info:</h5>
                                 <div>Invoice: <strong>INV/{{ $purchase_return->reference }}</strong></div>
-                                <div>Date: {{ \Carbon\Carbon::parse($purchase_return->date)->format('d M, Y') }}</div>
-                                <div>
-                                    Status: <strong>{{ $purchase_return->status }}</strong>
-                                </div>
-                                <div>
-                                    Payment Status: <strong>{{ $purchase_return->payment_status }}</strong>
-                                </div>
+                                <div>Tanggal: {{ \Carbon\Carbon::parse($purchase_return->date)->format('d M, Y') }}</div>
+                                <div>Lokasi: <strong>{{ $purchase_return->location->name ?? '-' }}</strong></div>
+                                <div>Status Dokumen: <span class="badge bg-secondary text-uppercase">{{ $purchase_return->status }}</span></div>
+                                <div>Status Persetujuan: <span class="badge {{ $purchase_return->approval_status === 'approved' ? 'bg-success' : ($purchase_return->approval_status === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase">{{ $purchase_return->approval_status }}</span></div>
+                                <div>Metode Penyelesaian: <strong>{{ ucfirst($purchase_return->return_type ?? 'Tidak Ditentukan') }}</strong></div>
+                                <div>Payment Status: <strong>{{ $purchase_return->payment_status }}</strong></div>
                             </div>
 
                         </div>
@@ -126,6 +126,53 @@
                                 </table>
                             </div>
                         </div>
+
+                        @if($purchase_return->return_type === 'exchange' && $purchase_return->goods->isNotEmpty())
+                            <div class="mt-4">
+                                <h5 class="mb-3">Produk Pengganti</h5>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead class="table-light">
+                                        <tr class="text-center">
+                                            <th>Produk</th>
+                                            <th>Jumlah</th>
+                                            <th>Nilai Satuan</th>
+                                            <th>Subtotal</th>
+                                        </tr>
+                                        </thead>
+                                        <tbody>
+                                        @foreach($purchase_return->goods as $good)
+                                            <tr>
+                                                <td>{{ $good->product_name }} <br><small class="text-muted">{{ $good->product_code }}</small></td>
+                                                <td class="text-center">{{ $good->quantity }}</td>
+                                                <td class="text-end">{{ format_currency($good->unit_value) }}</td>
+                                                <td class="text-end">{{ format_currency($good->sub_total) }}</td>
+                                            </tr>
+                                        @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        @endif
+
+                        @if($purchase_return->return_type === 'deposit' && $purchase_return->supplierCredit)
+                            <div class="alert alert-info mt-4" role="alert">
+                                Kredit pemasok sebesar <strong>{{ format_currency($purchase_return->supplierCredit->amount) }}</strong> telah dibuat.
+                                Sisa kredit: <strong>{{ format_currency($purchase_return->supplierCredit->remaining_amount) }}</strong> (Status: {{ ucfirst($purchase_return->supplierCredit->status) }}).
+                            </div>
+                        @endif
+
+                        @if($purchase_return->return_type === 'cash')
+                            <div class="mt-4">
+                                <h5 class="mb-3">Pengembalian Tunai</h5>
+                                <p>Total dikembalikan: <strong>{{ format_currency($purchase_return->total_amount) }}</strong></p>
+                                @if($purchase_return->cash_proof_path)
+                                    <a href="{{ Storage::url($purchase_return->cash_proof_path) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-paperclip"></i> Lihat Bukti Pengembalian
+                                    </a>
+                                @endif
+                            </div>
+                        @endif
                     </div>
                 </div>
             </div>

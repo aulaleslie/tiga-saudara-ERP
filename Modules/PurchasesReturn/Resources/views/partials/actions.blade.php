@@ -10,7 +10,7 @@
         @endcan
 
         @can('purchaseReturnPayments.create')
-            @if(Str::startsWith($data->status, 'APPROVED') && $data->due_amount > 0)
+            @if($data->approval_status === 'approved' && $data->due_amount > 0)
                 <a href="{{ route('purchase-return-payments.create', $data->id) }}" class="dropdown-item">
                     <i class="bi bi-plus-circle-dotted mr-2 text-success" style="line-height: 1;"></i> Add Payment
                 </a>
@@ -18,10 +18,38 @@
         @endcan
 
         @can('purchaseReturns.edit')
-            @if($data->status === 'PENDING')
+            @if($data->approval_status === 'pending')
                 <a href="{{ route('purchase-returns.edit', $data->id) }}" class="dropdown-item">
                     <i class="bi bi-pencil mr-2 text-primary" style="line-height: 1;"></i> Edit
                 </a>
+            @endif
+        @endcan
+
+        @can('purchaseReturns.edit')
+            @if($data->approval_status === 'pending')
+                <form method="POST" action="{{ route('purchase-returns.approve', $data->id) }}">
+                    @csrf
+                    <button type="submit" class="dropdown-item" onclick="return confirm('Setujui retur pembelian ini?')">
+                        <i class="bi bi-check2-circle mr-2 text-success" style="line-height: 1;"></i> Approve
+                    </button>
+                </form>
+                <a href="#" class="dropdown-item" onclick="event.preventDefault(); purchaseReturnReject{{ $data->id }}();">
+                    <i class="bi bi-x-circle mr-2 text-danger" style="line-height: 1;"></i> Reject
+                </a>
+                <form id="reject-form-{{ $data->id }}" method="POST" action="{{ route('purchase-returns.reject', $data->id) }}" class="d-none">
+                    @csrf
+                    <input type="hidden" name="reason" value="">
+                </form>
+                <script>
+                    function purchaseReturnReject{{ $data->id }}() {
+                        const reason = prompt('Masukkan alasan penolakan (opsional):');
+                        if (reason !== null) {
+                            const form = document.getElementById('reject-form-{{ $data->id }}');
+                            form.querySelector('input[name="reason"]').value = reason;
+                            form.submit();
+                        }
+                    }
+                </script>
             @endif
         @endcan
 
@@ -32,7 +60,7 @@
         @endcan
 
         @can('purchaseReturns.delete')
-            @if($data->status === 'PENDING')
+            @if($data->approval_status === 'pending')
                 <button id="delete" class="dropdown-item" onclick="
                     event.preventDefault();
                     if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {
