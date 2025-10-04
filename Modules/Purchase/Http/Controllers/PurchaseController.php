@@ -138,10 +138,7 @@ class PurchaseController extends Controller
     {
         abort_if(Gate::denies('purchases.show'), 403);
 
-        $currentSettingId = (int) session('setting_id');
-        if ((int) $purchase->setting_id !== $currentSettingId) {
-            abort(404);
-        }
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 
@@ -161,6 +158,8 @@ class PurchaseController extends Controller
     public function edit(Purchase $purchase)
     {
         abort_if(Gate::denies('purchases.edit'), 403);
+
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
 
         // Filter PaymentTerms by the setting_id
@@ -221,6 +220,7 @@ class PurchaseController extends Controller
     public function update(UpdatePurchaseRequest $request, Purchase $purchase)
     {
         abort_if(Gate::denies('purchases.edit'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
         Log::info('Cart count at start of update:', ['count' => Cart::instance('purchase')->count()]);
         if (Cart::instance('purchase')->count() == 0) {
             return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
@@ -283,6 +283,8 @@ class PurchaseController extends Controller
     {
         abort_if(Gate::denies('purchases.delete'), 403);
 
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
         $purchase->delete();
 
         toast('Pembelian Dihapus!', 'warning');
@@ -293,6 +295,7 @@ class PurchaseController extends Controller
     public function updateStatus(Request $request, Purchase $purchase): RedirectResponse
     {
         abort_unless(Gate::any(['purchases.edit', 'purchases.approval']), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
                     Purchase::STATUS_WAITING_APPROVAL,
@@ -322,6 +325,8 @@ class PurchaseController extends Controller
     {
         abort_if(Gate::denies('purchases.receive'), 403);
 
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
         $currentSettingId = session('setting_id');
         $locations = Location::where('setting_id', $currentSettingId)->get();
 
@@ -337,6 +342,8 @@ class PurchaseController extends Controller
     public function storeReceive(Request $request, Purchase $purchase): RedirectResponse
     {
         abort_if(Gate::denies('purchases.receive'), 403);
+
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $data = $request->validate([
             'received.*' => 'nullable|integer|min:0',
@@ -551,6 +558,16 @@ class PurchaseController extends Controller
         abort_if(Gate::denies('purchases.receive'), 403);
 
         $purchase = Purchase::findOrFail($purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
         return $dataTable->render('purchase::receivings.index', compact('purchase'));
+    }
+
+    private function ensurePurchaseBelongsToCurrentSetting(Purchase $purchase): void
+    {
+        $currentSettingId = session('setting_id');
+
+        if (! is_null($currentSettingId) && (int) $purchase->setting_id !== (int) $currentSettingId) {
+            abort(404);
+        }
     }
 }

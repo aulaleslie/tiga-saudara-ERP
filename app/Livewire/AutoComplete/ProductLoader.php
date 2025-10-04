@@ -38,17 +38,14 @@ class ProductLoader extends Component
 
     public function searchProducts(): void
     {
-        $setting_id = session('setting_id');
         if ($this->query) {
             $this->query_count = Product::where('stock_managed', true)
-                ->where('setting_id', $setting_id)
                 ->where(function ($query) {
                     $query->where('product_name', 'like', '%' . $this->query . '%')
                         ->orWhere('product_code', 'like', '%' . $this->query . '%');
                 })
                 ->count();
             $this->search_results = Product::where('stock_managed', true)
-                ->where('setting_id', $setting_id)
                 ->where(function ($query) {
                     $query->where('product_name', 'like', '%' . $this->query . '%')
                         ->orWhere('product_code', 'like', '%' . $this->query . '%');

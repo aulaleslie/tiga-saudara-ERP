@@ -19,6 +19,7 @@ class PurchasePaymentsController extends Controller
         abort_if(Gate::denies('purchasePayments.access'), 403);
 
         $purchase = Purchase::findOrFail($purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         return $dataTable->render('purchase::payments.index', compact('purchase'));
     }
@@ -28,6 +29,7 @@ class PurchasePaymentsController extends Controller
         abort_if(Gate::denies('purchasePayments.create'), 403);
 
         $purchase = Purchase::findOrFail($purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $payment_methods = PaymentMethod::where('setting_id', session('setting_id'))->get();
         return view('purchase::payments.create', compact('purchase', 'payment_methods'));
@@ -39,6 +41,7 @@ class PurchasePaymentsController extends Controller
 
 
         $purchase = Purchase::findOrFail($request->purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $request->validate([
             'date' => 'required|date',
@@ -88,6 +91,8 @@ class PurchasePaymentsController extends Controller
         abort_if(Gate::denies('purchasePayments.edit'), 403);
 
         $purchase = Purchase::findOrFail($purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
 
         return view('purchase::payments.edit', compact('purchasePayment', 'purchase'));
     }
@@ -95,6 +100,8 @@ class PurchasePaymentsController extends Controller
 
     public function update(Request $request, PurchasePayment $purchasePayment) {
         abort_if(Gate::denies('purchasePayments.edit'), 403);
+
+        $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
 
         $request->validate([
             'date' => 'required|date',
@@ -143,6 +150,8 @@ class PurchasePaymentsController extends Controller
     public function destroy(PurchasePayment $purchasePayment) {
         abort_if(Gate::denies('purchasePayments.delete'), 403);
 
+        $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
+
         $purchasePayment->delete();
 
         toast('Purchase Payment Deleted!', 'warning');
@@ -153,7 +162,17 @@ class PurchasePaymentsController extends Controller
     public function datatable($purchase_id, PurchasePaymentsDataTable $dataTable)
     {
         $purchase = Purchase::findOrFail($purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         return $dataTable->render('purchase::payments.index', compact('purchase'));
+    }
+
+    private function ensurePurchaseBelongsToCurrentSetting(Purchase $purchase): void
+    {
+        $currentSettingId = session('setting_id');
+
+        if (! is_null($currentSettingId) && (int) $purchase->setting_id !== (int) $currentSettingId) {
+            abort(404);
+        }
     }
 }
