@@ -130,7 +130,7 @@ class SaleSharedMasterDataTest extends TestCase
             'paid_amount' => 0,
             'due_amount' => 100,
             'status' => Sale::STATUS_DRAFTED,
-            'payment_status' => 'unpaid',
+            'payment_status' => 'Unpaid',
             'payment_method' => '',
             'note' => null,
             'payment_term_id' => $this->sharedTerm->id,

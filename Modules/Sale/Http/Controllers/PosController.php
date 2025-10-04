@@ -130,7 +130,7 @@ class PosController extends Controller
                 'paid_amount' => 0,
                 'due_amount' => $request->total_amount,
                 'status' => Sale::STATUS_DRAFTED,
-                'payment_status' => 'unpaid',
+                'payment_status' => 'Unpaid',
                 'payment_method' => '', // leave blank if unknown
                 'note' => $request->note ?? '',
                 'setting_id' => session('setting_id'),
