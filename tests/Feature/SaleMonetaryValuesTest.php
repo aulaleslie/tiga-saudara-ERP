@@ -3,17 +3,22 @@
 namespace Tests\Feature;
 
 use App\Http\Middleware\CheckUserRoleForSetting;
+use App\Livewire\Sale\CreateForm;
 use App\Models\User;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
+use Livewire\Livewire;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductBundle;
+use Modules\Product\Entities\ProductBundleItem;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
 use Modules\Setting\Entities\ChartOfAccount;
@@ -31,6 +36,9 @@ class SaleMonetaryValuesTest extends TestCase
     protected Setting $setting;
     protected Customer $customer;
     protected Product $product;
+    protected Product $bundleProduct;
+    protected ProductBundle $bundle;
+    protected ProductBundleItem $bundleItem;
     protected PaymentTerm $paymentTerm;
     protected PaymentMethod $paymentMethod;
     protected Tax $tax;
@@ -125,6 +133,41 @@ class SaleMonetaryValuesTest extends TestCase
             'tier_2_price' => 15.75,
         ]);
 
+        $this->bundleProduct = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'product_name' => 'Bundle Component',
+            'product_code' => 'PRD-BND-01',
+            'product_barcode_symbology' => null,
+            'product_quantity' => 100,
+            'product_cost' => 2.40,
+            'product_price' => 6.50,
+            'product_unit' => 'PCS',
+            'product_stock_alert' => 5,
+            'product_order_tax' => 0,
+            'product_tax_type' => 0,
+            'stock_managed' => true,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+            'sale_price' => 6.50,
+            'tier_1_price' => 6.50,
+            'tier_2_price' => 6.50,
+        ]);
+
+        $this->bundle = ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'name' => 'Starter Bundle',
+            'description' => 'Bundle used for sales tests',
+            'price' => 6.50,
+        ]);
+
+        $this->bundleItem = ProductBundleItem::create([
+            'bundle_id' => $this->bundle->id,
+            'product_id' => $this->bundleProduct->id,
+            'price' => 3.25,
+            'quantity' => 2,
+        ]);
+
         $chartOfAccount = ChartOfAccount::create([
             'name' => 'Kas',
             'account_number' => '1000',
@@ -167,6 +210,60 @@ class SaleMonetaryValuesTest extends TestCase
                 'sub_total_before_tax' => $subTotal - $taxAmount,
                 'bundle_items' => [],
                 'stock' => 100,
+            ],
+        ]);
+    }
+
+    protected function addBundleCartItem(int $parentQuantity = 1): void
+    {
+        Cart::instance('sale')->destroy();
+
+        $parentQuantity = max(1, $parentQuantity);
+        $bundleUnitPrice = (float) $this->bundleItem->price;
+        $quantityPerBundle = (int) $this->bundleItem->quantity;
+        $bundleSubtotalPerUnit = round($bundleUnitPrice * $quantityPerBundle, 2);
+        $bundleRowSubtotal = round($bundleUnitPrice * $quantityPerBundle * $parentQuantity, 2);
+
+        $parentUnitPrice = (float) $this->product->sale_price;
+        $finalUnitPrice = round($parentUnitPrice + $bundleSubtotalPerUnit, 2);
+        $rowSubtotal = round($finalUnitPrice * $parentQuantity, 2);
+
+        $bundleItems = [[
+            'bundle_id' => $this->bundle->id,
+            'bundle_item_id' => $this->bundleItem->id,
+            'product_id' => $this->bundleProduct->id,
+            'name' => $this->bundleProduct->product_name,
+            'price' => $bundleUnitPrice,
+            'quantity' => $quantityPerBundle * $parentQuantity,
+            'quantity_per_bundle' => $quantityPerBundle,
+            'sub_total' => $bundleRowSubtotal,
+        ]];
+
+        Cart::instance('sale')->add([
+            'id' => Str::uuid()->toString(),
+            'name' => $this->product->product_name,
+            'qty' => $parentQuantity,
+            'price' => $finalUnitPrice,
+            'weight' => 1,
+            'options' => [
+                'product_id' => $this->product->id,
+                'code' => $this->product->product_code,
+                'unit_price' => $finalUnitPrice,
+                'product_discount' => 0.0,
+                'product_discount_type' => 'fixed',
+                'product_tax' => null,
+                'sub_total' => $rowSubtotal,
+                'sub_total_before_tax' => $rowSubtotal,
+                'bundle_items' => $bundleItems,
+                'bundle_price' => $bundleRowSubtotal,
+                'bundle_name' => $this->bundle->name,
+                'stock' => 100,
+                'unit' => 'PCS',
+                'sale_price' => $parentUnitPrice,
+                'tier_1_price' => $this->product->tier_1_price,
+                'tier_2_price' => $this->product->tier_2_price,
+                'quantity_non_tax' => 0,
+                'quantity_tax' => 0,
             ],
         ]);
     }
@@ -273,6 +370,61 @@ class SaleMonetaryValuesTest extends TestCase
         $bundleItem = $detail->bundleItems->first();
         $this->assertEquals(4, (int) $bundleItem->quantity);
         $this->assertEquals(12.00, (float) $bundleItem->sub_total);
+    }
+
+    public function test_sale_store_persists_bundle_item_amounts(): void
+    {
+        $this->addBundleCartItem();
+
+        $response = $this->post(route('sales.store'), [
+            'customer_id' => $this->customer->id,
+            'reference' => 'SL-BUNDLE',
+            'date' => '2024-04-01',
+            'due_date' => '2024-04-11',
+            'tax_id' => null,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 22.25,
+            'payment_term_id' => $this->paymentTerm->id,
+            'note' => 'Store bundle amounts',
+            'is_tax_included' => false,
+        ]);
+
+        $response->assertRedirect(route('sales.index'));
+
+        $sale = Sale::latest('id')->with('saleDetails.bundleItems')->first();
+
+        $this->assertNotNull($sale);
+        $this->assertCount(1, $sale->saleDetails);
+
+        $detail = $sale->saleDetails->first();
+        $this->assertEquals(22.25, (float) $detail->sub_total);
+
+        $bundleItem = $detail->bundleItems->first();
+        $this->assertNotNull($bundleItem);
+        $this->assertEquals(3.25, (float) $bundleItem->price);
+        $this->assertEquals(6.50, (float) $bundleItem->sub_total);
+        $this->assertEquals(2, (int) $bundleItem->quantity);
+    }
+
+    public function test_livewire_submit_persists_bundle_item_amounts(): void
+    {
+        $this->addBundleCartItem();
+
+        Livewire::test(CreateForm::class)
+            ->set('customerId', $this->customer->id)
+            ->set('date', '2024-04-01')
+            ->set('dueDate', '2024-04-11')
+            ->set('paymentTermId', $this->paymentTerm->id)
+            ->call('submit')
+            ->assertRedirect(route('sales.index'));
+
+        $bundleItem = SaleBundleItem::latest('id')->first();
+
+        $this->assertNotNull($bundleItem);
+        $this->assertEquals(3.25, (float) $bundleItem->price);
+        $this->assertEquals(6.50, (float) $bundleItem->sub_total);
+        $this->assertEquals(2, (int) $bundleItem->quantity);
     }
 
     public function test_sale_update_persists_decimal_amounts(): void
