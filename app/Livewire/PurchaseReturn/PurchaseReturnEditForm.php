@@ -18,8 +18,14 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
 {
     public PurchaseReturn $purchaseReturn;
 
-    public function mount(PurchaseReturn $purchaseReturn): void
+    public function mount(?PurchaseReturn $purchaseReturn = null): void
     {
+        parent::mount();
+
+        if (! $purchaseReturn) {
+            abort(404);
+        }
+
         $this->purchaseReturn = $purchaseReturn->loadMissing([
             'purchaseReturnDetails.product',
             'purchaseReturnDetails.purchase',
