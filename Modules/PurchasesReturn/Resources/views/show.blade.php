@@ -11,6 +11,23 @@
     </ol>
 @endsection
 
+@can('purchaseReturns.edit')
+    @if($purchase_return->approval_status === 'pending')
+        @push('scripts')
+            <script>
+                function purchaseReturnReject{{ $purchase_return->id }}() {
+                    const reason = prompt('Masukkan alasan penolakan (opsional):');
+                    if (reason !== null) {
+                        const form = document.getElementById('reject-form-{{ $purchase_return->id }}');
+                        form.querySelector('input[name="reason"]').value = reason;
+                        form.submit();
+                    }
+                }
+            </script>
+        @endpush
+    @endif
+@endcan
+
 @section('content')
     <div class="container-fluid">
         <div class="row">
@@ -25,7 +42,24 @@
                             <span class="badge bg-secondary text-uppercase me-2 mb-1">{{ $purchase_return->status }}</span>
                             <span class="badge {{ $purchase_return->approval_status === 'approved' ? 'bg-success' : ($purchase_return->approval_status === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase me-2 mb-1">{{ $purchase_return->approval_status }}</span>
                             @can('purchaseReturns.edit')
-                                @if($purchase_return->approval_status === 'approved')
+                                @if($purchase_return->approval_status === 'pending')
+                                    <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.edit', $purchase_return) }}">
+                                        <i class="bi bi-pencil"></i> Edit
+                                    </a>
+                                    <form method="POST" action="{{ route('purchase-returns.approve', $purchase_return) }}" class="me-2 mb-1 d-inline">
+                                        @csrf
+                                        <button type="submit" class="btn btn-success btn-sm d-print-none" onclick="return confirm('Setujui retur pembelian ini?')">
+                                            <i class="bi bi-check2-circle"></i> Setujui
+                                        </button>
+                                    </form>
+                                    <form id="reject-form-{{ $purchase_return->id }}" method="POST" action="{{ route('purchase-returns.reject', $purchase_return) }}" class="d-none">
+                                        @csrf
+                                        <input type="hidden" name="reason" value="">
+                                    </form>
+                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none me-2 mb-1" onclick="purchaseReturnReject{{ $purchase_return->id }}()">
+                                        <i class="bi bi-x-circle"></i> Tolak
+                                    </button>
+                                @elseif($purchase_return->approval_status === 'approved')
                                     <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
                                         <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
                                     </a>
