@@ -58,6 +58,12 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
 
     public function submit()
     {
+        $this->grand_total = round($this->calculateReturnTotal(), 2);
+
+        if (! empty($this->getErrorBag()->messages())) {
+            $this->dispatch('updateTableErrors', $this->getErrorBag()->messages());
+        }
+
         Log::info('Updating purchase return form', [
             'purchase_return_id' => $this->purchaseReturn->id,
             'payload' => get_object_vars($this),
@@ -65,6 +71,9 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
 
         try {
             $prepared = $this->validateAndPrepare();
+
+            $this->grand_total = round($prepared['total'], 2);
+            $this->dispatch('updateTableErrors', []);
 
             DB::transaction(function () use ($prepared) {
                 $supplier = Supplier::find($this->supplier_id);
