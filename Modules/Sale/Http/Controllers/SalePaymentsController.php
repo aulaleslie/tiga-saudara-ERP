@@ -27,8 +27,7 @@ class SalePaymentsController extends Controller
         abort_if(Gate::denies('salePayments.create'), 403);
 
         $sale = Sale::findOrFail($sale_id);
-        // Retrieve payment methods for the current setting.
-        $payment_methods = PaymentMethod::where('setting_id', session('setting_id'))->get();
+        $payment_methods = PaymentMethod::all();
 
         return view('sale::payments.create', compact('sale', 'payment_methods'));
     }
@@ -44,7 +43,7 @@ class SalePaymentsController extends Controller
             'reference'          => 'required|string|max:255',
             'amount'             => 'required|numeric|max:' . (float) $sale->due_amount,
             'note'               => 'nullable|string|max:1000',
-            'sale_id'            => 'required',
+            'sale_id'            => 'required|integer|exists:sales,id',
             'payment_method_id'  => 'required|integer|exists:payment_methods,id',
             'attachment'         => 'nullable|string', // file upload via Dropzone returns file name
         ], [
@@ -98,8 +97,7 @@ class SalePaymentsController extends Controller
         abort_if(Gate::denies('salePayments.edit'), 403);
 
         $sale = Sale::findOrFail($sale_id);
-        // Retrieve payment methods for the current setting.
-        $payment_methods = PaymentMethod::where('setting_id', session('setting_id'))->get();
+        $payment_methods = PaymentMethod::all();
 
         return view('sale::payments.edit', compact('salePayment', 'sale', 'payment_methods'));
     }
@@ -115,7 +113,7 @@ class SalePaymentsController extends Controller
             'reference'          => 'required|string|max:255',
             'amount'             => 'required|numeric|max:' . ((float) $sale->due_amount + (float) $salePayment->amount),
             'note'               => 'nullable|string|max:1000',
-            'sale_id'            => 'required',
+            'sale_id'            => 'required|integer|exists:sales,id',
             'payment_method_id'  => 'required|integer|exists:payment_methods,id',
             // Attachment is optional on update.
             'attachment'         => 'nullable|string',

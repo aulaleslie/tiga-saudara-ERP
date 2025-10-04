@@ -54,12 +54,8 @@ class SaleController extends Controller
             Cart::instance('sale')->destroy();
         }
 
-        // Retrieve the current setting_id from the session
-        $setting_id = session('setting_id');
-
-        // Filter PaymentTerms by the setting_id
-        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
-        $customers = Customer::where('setting_id', $setting_id)->get();
+        $paymentTerms = PaymentTerm::all();
+        $customers = Customer::all();
 
         return view('sale::create', compact('paymentTerms', 'customers'));
     }

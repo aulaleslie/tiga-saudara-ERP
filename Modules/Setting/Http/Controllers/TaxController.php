@@ -53,14 +53,13 @@ class TaxController extends Controller
         ]);
 
         $request->validate([
-            'name'  => 'required|string|max:255|unique:taxes,name,NULL,id,setting_id,' . session('setting_id'),
+            'name'  => 'required|string|max:255|unique:taxes,name',
             'value' => 'required|numeric|gt:0|lte:100',
         ]);
 
         Tax::create([
             'name'       => $request->name,         // already uppercased
             'value'      => $request->value,
-            'setting_id' => session('setting_id'),
         ]);
 
         toast('Pajak Berhasil ditambahkan!', 'success');
@@ -95,7 +94,7 @@ class TaxController extends Controller
         ]);
 
         $request->validate([
-            'name'  => 'required|string|max:255|unique:taxes,name,' . $tax->id . ',id,setting_id,' . session('setting_id'),
+            'name'  => 'required|string|max:255|unique:taxes,name,' . $tax->id,
             'value' => 'required|numeric|gt:0|lte:100',
         ]);
 

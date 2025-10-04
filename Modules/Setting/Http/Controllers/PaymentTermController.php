@@ -47,7 +47,7 @@ class PaymentTermController extends Controller
         abort_if(Gate::denies('paymentTerms.create'), 403);
 
         $request->validate([
-            'name'      => 'required|string|max:255|unique:payment_terms,name,NULL,id,setting_id,' . session('setting_id'),
+            'name'      => 'required|string|max:255|unique:payment_terms,name',
             'longevity' => 'required|integer|min:0', // allow 0
         ], [
             'longevity.min' => 'Tempo tidak boleh lebih kecil dari 0',
@@ -57,7 +57,6 @@ class PaymentTermController extends Controller
         PaymentTerm::create([
             'name'       => $request->name,
             'longevity'  => (int) $request->longevity,
-            'setting_id' => session('setting_id'),
         ]);
 
         toast('Term Pembayaran Berhasil ditambahkan!', 'success');
@@ -88,7 +87,7 @@ class PaymentTermController extends Controller
         abort_if(Gate::denies('paymentTerms.edit'), 403);
 
         $request->validate([
-            'name'      => 'required|string|max:255|unique:payment_terms,name,' . $payment_term->id . ',id,setting_id,' . session('setting_id'),
+            'name'      => 'required|string|max:255|unique:payment_terms,name,' . $payment_term->id,
             'longevity' => 'required|integer|min:0', // allow 0
         ], [
             'longevity.min' => 'Tempo tidak boleh lebih kecil dari 0',

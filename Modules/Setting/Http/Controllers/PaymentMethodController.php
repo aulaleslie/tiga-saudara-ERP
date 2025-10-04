@@ -42,7 +42,6 @@ class PaymentMethodController extends Controller
         PaymentMethod::create([
             'name' => $request->name,
             'coa_id' => $request->coa_id,
-            'setting_id' => session('setting_id'), // Autofill setting_id from session
         ]);
 
         toast('Payment method created successfully!', 'success');

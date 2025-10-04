@@ -37,7 +37,7 @@ class CreateForm extends Component
         $this->reference = 'SL'; // This can be dynamic if needed
         $this->date = now()->format('Y-m-d');
         $this->due_date = now()->format('Y-m-d');
-        $this->paymentTerms = PaymentTerm::where('setting_id', session('setting_id'))->get();
+        $this->paymentTerms = PaymentTerm::all();
     }
 
     public function updatedCustomerId($value)

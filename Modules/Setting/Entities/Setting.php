@@ -6,9 +6,7 @@ use App\Models\BaseModel;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Currency\Entities\Currency;
-use Modules\Purchase\Entities\PaymentTerm;
 
 class Setting extends BaseModel
 {
@@ -27,8 +25,4 @@ class Setting extends BaseModel
             ->withPivot('role_id');
     }
 
-    public function paymentTerms(): HasMany
-    {
-        return $this->hasMany(PaymentTerm::class, 'setting_id', 'id');
-    }
 }

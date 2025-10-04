@@ -125,7 +125,7 @@ class ProcessProductImportChunk implements ShouldQueue
                         return null;
                     };
 
-                    $firstOrCreateTax = function (?string $name) use (&$cacheTax, $settingIdForCreations, $parseTaxPercent) {
+                    $firstOrCreateTax = function (?string $name) use (&$cacheTax, $parseTaxPercent) {
                         $n = trim((string) $name);
                         if ($n === '') return null;
                         $k = mb_strtolower($n);
@@ -136,7 +136,6 @@ class ProcessProductImportChunk implements ShouldQueue
                             $row = Tax::create([
                                 'name'       => $n,
                                 'value'      => $parseTaxPercent($n) ?? 0.0,
-                                'setting_id' => $settingIdForCreations,
                             ]);
                         }
                         return $cacheTax[$k] = (int) $row->id;

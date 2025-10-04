@@ -7,7 +7,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\People\Entities\Customer;
 use Modules\People\Entities\Supplier;
-use Modules\Setting\Entities\Setting;
 
 class PaymentTerm extends BaseModel
 {
@@ -26,18 +25,9 @@ class PaymentTerm extends BaseModel
      */
     protected $fillable = [
         'id',
-        'setting_id',
         'name',
         'longevity',
     ];
-
-    /**
-     * Get the setting associated with the payment term.
-     */
-    public function setting(): BelongsTo
-    {
-        return $this->belongsTo(Setting::class, 'setting_id', 'id');
-    }
     public function customers(): HasMany
     {
         return $this->hasMany(Customer::class, 'payment_term_id', 'id');

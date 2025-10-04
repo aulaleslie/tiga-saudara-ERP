@@ -40,7 +40,7 @@ class EditForm extends Component
         $this->dueDate        = Carbon::parse($sale->due_date)->format('Y-m-d');
         $this->paymentTermId  = $sale->payment_term_id;
         $this->note           = $sale->note;
-        $this->paymentTerms   = PaymentTerm::where('setting_id', session('setting_id'))->get();
+        $this->paymentTerms   = PaymentTerm::all();
 
         // Rebuild the cart from the existing sale details
         Cart::instance('sale')->destroy();
