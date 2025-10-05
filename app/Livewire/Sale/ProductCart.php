@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductUnitConversion;
@@ -47,6 +48,8 @@ class ProductCart extends Component
     public $quantityBreakdowns = [];
     public $priceBreakdowns = [];
 
+    protected ?int $settingId = null;
+
     protected $rules = [
         'unit_price.*' => 'required|numeric|min:0', // Unit price per row.
         'quantity.*' => 'required|integer|min:1', // Quantity must be at least 1.
@@ -60,6 +63,7 @@ class ProductCart extends Component
     public function mount($cartInstance, $data = null): void
     {
         $this->cart_instance = $cartInstance;
+        $this->settingId = (int) session('setting_id');
         $this->taxes = Tax::all();
 
         if ($data) {
@@ -179,7 +183,7 @@ class ProductCart extends Component
             foreach ($cart_items as $cart_item) {
                 // Reconstruct the parent product array for recalculation.
                 $product = [
-                    'id' => $cart_item->product_id,
+                    'id' => $cart_item->options->product_id,
                     'sale_price' => $cart_item->options->sale_price,
                     'tier_1_price' => $cart_item->options->tier_1_price ?? $cart_item->price,
                     'tier_2_price' => $cart_item->options->tier_2_price ?? $cart_item->price,
@@ -188,6 +192,7 @@ class ProductCart extends Component
                 // First, get the new unit price using the calculate() method.
                 // This returns the price for a single unit based on the customer's tier.
                 $newPriceCalc = $this->calculate($product);
+                $resolvedPrices = $newPriceCalc['resolved_prices'] ?? $this->resolveProductPricing($product);
 
                 // Apply cascading price logic if needed (override unit price)
                 if (!in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
@@ -230,6 +235,9 @@ class ProductCart extends Component
                     'options' => array_merge($cart_item->options->toArray(), [
                         'sub_total' => $newSubTotal,
                         'sub_total_before_tax' => $newSubTotalBeforeTax,
+                        'sale_price' => $resolvedPrices['sale_price'] ?? $cart_item->options->sale_price,
+                        'tier_1_price' => $resolvedPrices['tier_1_price'] ?? $cart_item->options->tier_1_price,
+                        'tier_2_price' => $resolvedPrices['tier_2_price'] ?? $cart_item->options->tier_2_price,
                         'bundle_items' => $updatedBundleItems,
                         'bundle_price' => $bundleTotal,
                     ]),
@@ -268,26 +276,29 @@ class ProductCart extends Component
             ->selectRaw('SUM(quantity_non_tax) as quantity_non_tax, SUM(quantity_tax) as quantity_tax')
             ->first();
 
+        $calculated = $this->calculate($product);
+        $resolvedPrices = $calculated['resolved_prices'] ?? $this->resolveProductPricing($product);
+
         $cartItem = $cart->add([
             'id' => Str::uuid()->toString(),
             'name' => $product['product_name'],
             'qty' => 1,
-            'price' => $this->calculate($product)['price'],
+            'price' => $calculated['price'],
             'weight' => 1,
             'options' => [
                 'product_id' => $product['id'],
                 'product_discount' => 0.00,
                 'product_discount_type' => 'fixed',
-                'sub_total' => $this->calculate($product)['sub_total'],
-                'sub_total_before_tax' => $this->calculate($product)['sub_total'],
+                'sub_total' => $calculated['sub_total'],
+                'sub_total_before_tax' => $calculated['sub_total'],
                 'code' => $product['product_code'],
                 'stock' => $product['product_quantity'],
                 'unit' => $product['product_unit'],
                 'product_tax' => null, // Initialize as null
-                'unit_price' => $this->calculate($product)['unit_price'],
-                'sale_price' => $product['sale_price'] ?? 0,
-                'tier_1_price' => $product['tier_1_price'] ?? 0,
-                'tier_2_price' => $product['tier_2_price'] ?? 0,
+                'unit_price' => $calculated['unit_price'],
+                'sale_price' => $resolvedPrices['sale_price'] ?? 0,
+                'tier_1_price' => $resolvedPrices['tier_1_price'] ?? 0,
+                'tier_2_price' => $resolvedPrices['tier_2_price'] ?? 0,
                 'quantity_non_tax' => $stockData->quantity_non_tax ?? 0,
                 'quantity_tax' => $stockData->quantity_tax ?? 0,
             ]
@@ -363,10 +374,12 @@ class ProductCart extends Component
         $selectedBundleItems = [];
         $bundleTotal = 0.0;
         foreach ($bundle->items as $bundleItem) {
-            $itemPrice = (float) ($bundleItem->price
-                ?? $bundleItem->product->sale_price
-                ?? $bundleItem->product->product_price
-                ?? 0);
+            if ($bundleItem->price !== null) {
+                $itemPrice = (float) $bundleItem->price;
+            } else {
+                $itemPricing = $this->resolveProductPricing($bundleItem->product);
+                $itemPrice = $this->determineTierPrice($itemPricing);
+            }
 
             $initialQuantity = (int) $bundleItem->quantity;
             $itemSubTotal = round($itemPrice * $initialQuantity, 2);
@@ -392,6 +405,7 @@ class ProductCart extends Component
                 ->first();
 
             $parentCalculated = $this->calculate($this->pendingProduct);
+            $parentResolved = $parentCalculated['resolved_prices'] ?? $this->resolveProductPricing($this->pendingProduct);
             $final_sub_total = $parentCalculated['sub_total'] + $bundleTotal;
 
             $cartItem = $cart->add([
@@ -411,9 +425,9 @@ class ProductCart extends Component
                     'unit' => $this->pendingProduct['product_unit'],
                     'product_tax' => null,
                     'unit_price' => $final_sub_total,
-                    'sale_price' => $this->pendingProduct['sale_price'] ?? 0,
-                    'tier_1_price' => $this->pendingProduct['tier_1_price'] ?? 0,
-                    'tier_2_price' => $this->pendingProduct['tier_2_price'] ?? 0,
+                    'sale_price' => $parentResolved['sale_price'] ?? 0,
+                    'tier_1_price' => $parentResolved['tier_1_price'] ?? 0,
+                    'tier_2_price' => $parentResolved['tier_2_price'] ?? 0,
                     'quantity_non_tax' => $stockData->quantity_non_tax ?? 0,
                     'quantity_tax' => $stockData->quantity_tax ?? 0,
                     'bundle_price' => $bundleTotal,
@@ -834,6 +848,54 @@ class ProductCart extends Component
         $this->recalculateCart();
     }
 
+    private function resolveProductPricing($product): array
+    {
+        $productId = 0;
+
+        if ($product instanceof Product) {
+            $productId = (int) $product->getKey();
+        } else {
+            $productId = (int) data_get($product, 'id', data_get($product, 'product_id', 0));
+        }
+
+        $saleFallback = (float) data_get($product, 'sale_price', data_get($product, 'product_price', 0)) ?: 0.0;
+        $tier1Fallback = (float) data_get($product, 'tier_1_price', $saleFallback);
+        $tier2Fallback = (float) data_get($product, 'tier_2_price', $saleFallback);
+
+        $priceRow = null;
+        if ($productId > 0 && $this->settingId) {
+            $priceRow = ProductPrice::query()
+                ->forProduct($productId)
+                ->forSetting((int) $this->settingId)
+                ->first();
+        }
+
+        return [
+            'product_id' => $productId,
+            'sale_price' => (float) ($priceRow?->sale_price ?? $saleFallback ?? 0),
+            'tier_1_price' => (float) ($priceRow?->tier_1_price ?? $tier1Fallback ?? $saleFallback ?? 0),
+            'tier_2_price' => (float) ($priceRow?->tier_2_price ?? $tier2Fallback ?? $saleFallback ?? 0),
+        ];
+    }
+
+    private function determineTierPrice(array $pricing, ?string $tier = null): float
+    {
+        $baseSalePrice = (float) ($pricing['sale_price'] ?? 0);
+        $tier = $tier ?? ($this->customer['tier'] ?? null);
+
+        if ($tier === 'WHOLESALER') {
+            $tierPrice = (float) ($pricing['tier_1_price'] ?? 0);
+            return $tierPrice > 0 ? $tierPrice : $baseSalePrice;
+        }
+
+        if ($tier === 'RESELLER') {
+            $tierPrice = (float) ($pricing['tier_2_price'] ?? 0);
+            return $tierPrice > 0 ? $tierPrice : $baseSalePrice;
+        }
+
+        return $baseSalePrice;
+    }
+
     public function calculate($product, $new_price = null)
     {
         // Determine the base price
@@ -842,24 +904,18 @@ class ProductCart extends Component
             'product' => $product,
         ]);
 
-        if ($this->customer && $new_price === null) {
-            $product_price = match ($this->customer['tier']) {
-                "WHOLESALER" => $product['tier_1_price'] ?? 0,
-                "RESELLER" => $product['tier_2_price'] ?? 0,
-                default => $product['sale_price'] ?? 0,
-            };
-        } else {
-            $product_price = $product['sale_price'] ?? 0;
-        }
+        $pricing = $this->resolveProductPricing($product);
+        $product_price = $new_price ?? $this->determineTierPrice($pricing);
 
         $product_tax = 0;
-        $sub_total = $product_price; // Start with base price as subtotal
+        $sub_total = (float) $product_price; // Start with base price as subtotal
 
         return [
-            'price' => $product_price,
-            'unit_price' => $product_price,
+            'price' => (float) $product_price,
+            'unit_price' => (float) $product_price,
             'product_tax' => $product_tax,
             'sub_total' => $sub_total,
+            'resolved_prices' => $pricing,
         ];
     }
 
