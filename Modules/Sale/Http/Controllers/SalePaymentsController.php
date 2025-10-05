@@ -9,8 +9,11 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
+use Modules\SalesReturn\Entities\CustomerCredit;
+use Modules\SalesReturn\Entities\SalePaymentCreditApplication;
 use Modules\Setting\Entities\PaymentMethod;
 
 class SalePaymentsController extends Controller
@@ -20,7 +23,7 @@ class SalePaymentsController extends Controller
 
         $sale = Sale::findOrFail($sale_id);
 
-        return $dataTable->render('sale::payments.index', compact('sale'));
+        return $dataTable->with(['sale_id' => $sale_id])->render('sale::payments.index', compact('sale'));
     }
 
     public function create($sale_id) {
@@ -29,7 +32,14 @@ class SalePaymentsController extends Controller
         $sale = Sale::findOrFail($sale_id);
         $payment_methods = PaymentMethod::all();
 
-        return view('sale::payments.create', compact('sale', 'payment_methods'));
+        $customerCredits = CustomerCredit::query()
+            ->with('saleReturn')
+            ->open()
+            ->where('customer_id', $sale->customer_id)
+            ->orderByDesc('created_at')
+            ->get();
+
+        return view('sale::payments.create', compact('sale', 'payment_methods', 'customerCredits'));
     }
 
     public function store(Request $request) {
@@ -38,24 +48,70 @@ class SalePaymentsController extends Controller
         // Retrieve sale to determine due amount.
         $sale = Sale::findOrFail($request->sale_id);
 
-        $request->validate([
+        $validated = $request->validate([
             'date'               => 'required|date',
             'reference'          => 'required|string|max:255',
-            'amount'             => 'required|numeric|max:' . (float) $sale->due_amount,
+            'amount'             => 'required|numeric|min:0',
             'note'               => 'nullable|string|max:1000',
             'sale_id'            => 'required|integer|exists:sales,id',
             'payment_method_id'  => 'required|integer|exists:payment_methods,id',
-            'attachment'         => 'nullable|string', // file upload via Dropzone returns file name
-        ], [
-            'amount.max' => 'The payment amount cannot be greater than the due amount.'
+            'attachment'         => 'nullable|string',
+            'credit_customer_credit_id' => 'nullable|integer|exists:customer_credits,id',
+            'credit_amount'      => 'nullable|numeric|min:0',
         ]);
 
-        DB::transaction(function () use ($request, $sale) {
+        $cashAmount = round((float) $validated['amount'], 2);
+        $creditId = $validated['credit_customer_credit_id'] ?? null;
+        $creditAmount = round((float) ($validated['credit_amount'] ?? 0), 2);
+        $credit = null;
+
+        if ($creditId) {
+            $credit = CustomerCredit::query()
+                ->open()
+                ->where('customer_id', $sale->customer_id)
+                ->find($creditId);
+
+            if (! $credit) {
+                throw ValidationException::withMessages([
+                    'credit_customer_credit_id' => 'Kredit pelanggan tidak valid.',
+                ]);
+            }
+
+            if ($creditAmount <= 0) {
+                throw ValidationException::withMessages([
+                    'credit_amount' => 'Masukkan nominal kredit yang digunakan.',
+                ]);
+            }
+
+            if ($creditAmount > (float) $credit->remaining_amount) {
+                throw ValidationException::withMessages([
+                    'credit_amount' => 'Nominal kredit melebihi saldo kredit yang tersedia.',
+                ]);
+            }
+        } else {
+            $creditAmount = 0.0;
+        }
+
+        $totalApplied = round($cashAmount + $creditAmount, 2);
+
+        if ($totalApplied <= 0) {
+            throw ValidationException::withMessages([
+                'amount' => 'Jumlah pembayaran atau kredit harus lebih dari 0.',
+            ]);
+        }
+
+        if ($totalApplied - (float) $sale->due_amount > 0.0001) {
+            throw ValidationException::withMessages([
+                'amount' => 'Total pembayaran melebihi sisa tagihan.',
+            ]);
+        }
+
+        DB::transaction(function () use ($request, $sale, $cashAmount, $creditAmount, $credit, $totalApplied) {
             // Create the sale payment record.
             $payment = SalePayment::create([
                 'date'              => $request->date,
                 'reference'         => $request->reference,
-                'amount'            => $request->amount,
+                'amount'            => $cashAmount,
                 'note'              => $request->note,
                 'sale_id'           => $request->sale_id,
                 'payment_method_id' => $request->payment_method_id,
@@ -68,8 +124,22 @@ class SalePaymentsController extends Controller
                     ->toMediaCollection('attachments');
             }
 
+            if ($creditAmount > 0 && $credit) {
+                SalePaymentCreditApplication::create([
+                    'sale_payment_id' => $payment->id,
+                    'customer_credit_id' => $credit->id,
+                    'amount' => $creditAmount,
+                ]);
+
+                $remaining = round((float) $credit->remaining_amount - $creditAmount, 2);
+                $credit->update([
+                    'remaining_amount' => max($remaining, 0),
+                    'status' => $remaining <= 0 ? 'closed' : 'open',
+                ]);
+            }
+
             // Update the sale amounts.
-            $due_amount = round((float) $sale->due_amount - (float) $request->amount, 2);
+            $due_amount = round((float) $sale->due_amount - $totalApplied, 2);
             $due_amount = max($due_amount, 0);
             $total_amount = round((float) $sale->total_amount, 2);
 
@@ -82,7 +152,7 @@ class SalePaymentsController extends Controller
             }
 
             $sale->update([
-                'paid_amount'    => round((float) $sale->paid_amount + (float) $request->amount, 2),
+                'paid_amount'    => round((float) $sale->paid_amount + $totalApplied, 2),
                 'due_amount'     => $due_amount,
                 'payment_status' => $payment_status,
             ]);
@@ -99,6 +169,11 @@ class SalePaymentsController extends Controller
         $sale = Sale::findOrFail($sale_id);
         $payment_methods = PaymentMethod::all();
 
+        if ($salePayment->creditApplications()->exists()) {
+            toast('Pembayaran dengan kredit tidak dapat diedit. Batalkan pembayaran dan buat baru jika diperlukan.', 'warning');
+            return redirect()->route('sale-payments.index', $sale_id);
+        }
+
         return view('sale::payments.edit', compact('salePayment', 'sale', 'payment_methods'));
     }
 
@@ -107,6 +182,11 @@ class SalePaymentsController extends Controller
 
         // Retrieve sale to check due amount.
         $sale = $salePayment->sale;
+
+        if ($salePayment->creditApplications()->exists()) {
+            toast('Pembayaran dengan kredit tidak dapat diperbarui.', 'warning');
+            return redirect()->route('sale-payments.index', $sale->id);
+        }
 
         $request->validate([
             'date'               => 'required|date',
@@ -165,6 +245,11 @@ class SalePaymentsController extends Controller
 
     public function destroy(SalePayment $salePayment) {
         abort_if(Gate::denies('salePayments.delete'), 403);
+
+        if ($salePayment->creditApplications()->exists()) {
+            toast('Pembayaran dengan kredit tidak dapat dihapus.', 'warning');
+            return redirect()->route('sale-payments.index', $salePayment->sale_id);
+        }
 
         $salePayment->delete();
 

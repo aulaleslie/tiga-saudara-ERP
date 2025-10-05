@@ -63,6 +63,38 @@
                                 </div>
                             </div>
 
+                            @if(isset($customerCredits) && $customerCredits->isNotEmpty())
+                                <div class="card mb-3 border shadow-sm">
+                                    <div class="card-header bg-light">
+                                        <strong>Gunakan Kredit Pelanggan</strong>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="form-row">
+                                            <div class="col-lg-6">
+                                                <div class="form-group mb-0">
+                                                    <label for="credit_customer_credit_id">Pilih Kredit</label>
+                                                    <select name="credit_customer_credit_id" id="credit_customer_credit_id" class="form-control">
+                                                        <option value="">Tidak menggunakan kredit</option>
+                                                        @foreach($customerCredits as $credit)
+                                                            <option value="{{ $credit->id }}" @selected(old('credit_customer_credit_id') == $credit->id) data-remaining="{{ $credit->remaining_amount }}">
+                                                                {{ optional($credit->saleReturn)->reference ?? 'Retur' }} - Sisa {{ format_currency($credit->remaining_amount) }}
+                                                            </option>
+                                                        @endforeach
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="col-lg-6">
+                                                <div class="form-group mb-0">
+                                                    <label for="credit_amount">Nominal Kredit yang Dipakai</label>
+                                                    <input type="number" step="0.01" min="0" class="form-control" name="credit_amount" id="credit_amount" value="{{ old('credit_amount', 0) }}">
+                                                    <small class="form-text text-muted">Maksimal sesuai saldo kredit terpilih.</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            @endif
+
                             <div class="form-group">
                                 <label for="note">Catatan</label>
                                 <textarea class="form-control" rows="4" name="note">{{ old('note') }}</textarea>
@@ -137,6 +169,33 @@
                     .trim();
                 $('#amount').val(raw);
             });
+
+            var creditSelect = $('#credit_customer_credit_id');
+            var creditAmountInput = $('#credit_amount');
+
+            function syncCreditMax() {
+                if (!creditSelect.length) {
+                    return;
+                }
+
+                var remaining = parseFloat(creditSelect.find('option:selected').data('remaining'));
+
+                if (!isNaN(remaining)) {
+                    creditAmountInput.attr('max', remaining.toFixed(2));
+                } else {
+                    creditAmountInput.removeAttr('max');
+                }
+            }
+
+            creditSelect.on('change', function () {
+                syncCreditMax();
+
+                if (!creditSelect.val()) {
+                    creditAmountInput.val(0);
+                }
+            });
+
+            syncCreditMax();
         });
     </script>
 

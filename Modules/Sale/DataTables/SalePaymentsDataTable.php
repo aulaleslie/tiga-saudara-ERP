@@ -24,6 +24,11 @@ class SalePaymentsDataTable extends DataTable
                 // Display the payment method name
                 return $data->paymentMethod ? $data->paymentMethod->name : 'N/A';
             })
+            ->addColumn('credit_usage', function ($data) {
+                $totalCredit = $data->creditApplications->sum('amount');
+
+                return $totalCredit > 0 ? format_currency($totalCredit) : '-';
+            })
             ->addColumn('attachment', function ($data) {
                 // Check if there is a file attached
                 if ($data->getMedia('attachments')->isNotEmpty()) {
@@ -51,7 +56,8 @@ class SalePaymentsDataTable extends DataTable
 
         return $model->newQuery()
             ->when($saleId, fn($q) => $q->where('sale_id', $saleId))
-            ->with(['paymentMethod']); // you only need paymentMethod for the table
+            ->with(['paymentMethod', 'creditApplications.customerCredit'])
+            ->withCount('creditApplications');
     }
 
     public function html() {
@@ -92,6 +98,10 @@ class SalePaymentsDataTable extends DataTable
             Column::make('payment_method')
                 ->data('payment_method')
                 ->title('Metode Pembayaran')
+                ->className('align-middle text-center'),
+
+            Column::computed('credit_usage')
+                ->title('Kredit Terpakai')
                 ->className('align-middle text-center'),
 
             Column::computed('attachment')

@@ -21,8 +21,9 @@ class SaleReturnsDataTable extends DataTable
             ->addColumn('status', fn ($data) => view('salesreturn::partials.status', compact('data')))
             ->addColumn('approval_status', fn ($data) => view('salesreturn::partials.approval-status', compact('data')))
             ->addColumn('payment_status', fn ($data) => view('salesreturn::partials.payment-status', compact('data')))
+            ->addColumn('settlement_status', fn ($data) => view('salesreturn::partials.settlement-status', compact('data')))
             ->addColumn('action', fn ($data) => view('salesreturn::partials.actions', compact('data')))
-            ->rawColumns(['status', 'approval_status', 'payment_status', 'action']);
+            ->rawColumns(['status', 'approval_status', 'payment_status', 'settlement_status', 'action']);
     }
 
     public function query(SaleReturn $model) {
@@ -80,6 +81,10 @@ class SaleReturnsDataTable extends DataTable
                 ->className('text-center align-middle'),
 
             Column::computed('payment_status')
+                ->className('text-center align-middle'),
+
+            Column::computed('settlement_status')
+                ->title('Settlement')
                 ->className('text-center align-middle'),
 
             Column::computed('action')
