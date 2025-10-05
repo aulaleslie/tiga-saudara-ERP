@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
@@ -245,6 +246,9 @@ class SaleController extends Controller
 
         // Iterate over each sale detail to rebuild the cart item.
         foreach ($sale->saleDetails as $saleDetail) {
+            $product = $saleDetail->product ?? Product::findOrFail($saleDetail->product_id);
+            $resolvedPricing = $this->resolveSaleDetailPricing($saleDetail, $product);
+
             // Build the options array from the sale detail.
             $subtotal_before_tax = $saleDetail->price * $saleDetail->quantity;
             if ($sale->is_tax_included) {
@@ -270,10 +274,14 @@ class SaleController extends Controller
                 'product_discount_type' => $saleDetail->product_discount_type,
                 'sub_total' => $saleDetail->sub_total,
                 'code' => $saleDetail->product_code,
-                'stock' => Product::findOrFail($saleDetail->product_id)->product_quantity,
+                'stock' => $product?->product_quantity ?? 0,
                 'unit_price' => $saleDetail->unit_price,
                 'product_tax' => $saleDetail->tax_id,
-                'sub_total_before_tax' => $subtotal_before_tax
+                'sub_total_before_tax' => $subtotal_before_tax,
+                'product_id' => $resolvedPricing['product_id'],
+                'sale_price' => $resolvedPricing['sale_price'],
+                'tier_1_price' => $resolvedPricing['tier_1_price'],
+                'tier_2_price' => $resolvedPricing['tier_2_price'],
             ];
 
             // Remap the bundle items if they exist.
@@ -790,5 +798,32 @@ class SaleController extends Controller
         ]);
 
         return $pdf->stream('Sales-Invoice-'.$invoiceNumber.'.pdf');
+    }
+
+    private function resolveSaleDetailPricing(SaleDetails $saleDetail, ?Product $product = null): array
+    {
+        $product = $product ?? $saleDetail->product ?? Product::find($saleDetail->product_id);
+        $productId = (int) optional($product)->getKey() ?: (int) $saleDetail->product_id;
+
+        $saleFallback = (float) ($saleDetail->unit_price ?? $saleDetail->price ?? optional($product)->sale_price ?? 0);
+        $tier1Fallback = (float) (optional($product)->tier_1_price ?? $saleFallback);
+        $tier2Fallback = (float) (optional($product)->tier_2_price ?? $saleFallback);
+
+        $priceRow = null;
+        $settingId = (int) session('setting_id');
+
+        if ($productId > 0 && $settingId > 0) {
+            $priceRow = ProductPrice::query()
+                ->forProduct($productId)
+                ->forSetting($settingId)
+                ->first();
+        }
+
+        return [
+            'product_id' => $productId,
+            'sale_price' => (float) ($priceRow?->sale_price ?? $saleFallback),
+            'tier_1_price' => (float) ($priceRow?->tier_1_price ?? $tier1Fallback),
+            'tier_2_price' => (float) ($priceRow?->tier_2_price ?? $tier2Fallback),
+        ];
     }
 }
