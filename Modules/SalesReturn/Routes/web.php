@@ -25,6 +25,13 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         return $pdf->stream('sale-return-'. $saleReturn->reference .'.pdf');
     })->name('sale-returns.pdf');
 
+    Route::post('sale-returns/{sale_return}/approve', 'SalesReturnController@approve')
+        ->name('sale-returns.approve');
+    Route::post('sale-returns/{sale_return}/reject', 'SalesReturnController@reject')
+        ->name('sale-returns.reject');
+    Route::post('sale-returns/{sale_return}/receive', 'SalesReturnController@receive')
+        ->name('sale-returns.receive');
+
     //Sale Returns
     Route::resource('sale-returns', 'SalesReturnController');
 

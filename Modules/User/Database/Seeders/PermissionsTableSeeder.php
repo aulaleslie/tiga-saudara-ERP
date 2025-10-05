@@ -209,6 +209,8 @@ class PermissionsTableSeeder extends Seeder
             'saleReturns.edit',
             'saleReturns.delete',
             'saleReturns.show',
+            'saleReturns.approve',
+            'saleReturns.receive',
             'sales.access',
             'sales.create',
             'sales.edit',
