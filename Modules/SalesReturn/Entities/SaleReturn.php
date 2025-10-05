@@ -3,12 +3,31 @@
 namespace Modules\SalesReturn\Entities;
 
 use App\Models\BaseModel;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Modules\Sale\Entities\Sale;
+use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Setting;
 
 class SaleReturn extends BaseModel
 {
     protected $guarded = [];
+
+    protected $casts = [
+        'tax_amount'       => 'decimal:2',
+        'discount_amount'  => 'decimal:2',
+        'shipping_amount'  => 'decimal:2',
+        'total_amount'     => 'decimal:2',
+        'paid_amount'      => 'decimal:2',
+        'due_amount'       => 'decimal:2',
+        'date'             => 'date',
+        'approved_at'      => 'datetime',
+        'rejected_at'      => 'datetime',
+        'settled_at'       => 'datetime',
+    ];
 
     public function saleReturnDetails(): Builder|HasMany|SaleReturn
     {
@@ -18,6 +37,46 @@ class SaleReturn extends BaseModel
     public function saleReturnPayments(): Builder|HasMany|SaleReturn
     {
         return $this->hasMany(SaleReturnPayment::class, 'sale_return_id', 'id');
+    }
+
+    public function sale(): BelongsTo
+    {
+        return $this->belongsTo(Sale::class, 'sale_id', 'id');
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'location_id', 'id');
+    }
+
+    public function setting(): BelongsTo
+    {
+        return $this->belongsTo(Setting::class, 'setting_id', 'id');
+    }
+
+    public function saleReturnGoods(): Builder|HasMany|SaleReturnGood
+    {
+        return $this->hasMany(SaleReturnGood::class, 'sale_return_id', 'id');
+    }
+
+    public function customerCredit(): HasOne|Builder|CustomerCredit
+    {
+        return $this->hasOne(CustomerCredit::class, 'sale_return_id', 'id');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function rejectedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
+    }
+
+    public function settledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'settled_by');
     }
 
     public static function boot(): void
@@ -51,33 +110,23 @@ class SaleReturn extends BaseModel
         return $query->where('status', 'Completed');
     }
 
-    public function getShippingAmountAttribute($value): float|int
+    public function scopeApproved($query)
     {
-        return $value / 100;
+        return $query->whereRaw('LOWER(approval_status) = ?', ['approved']);
     }
 
-    public function getPaidAmountAttribute($value): float|int
+    public function scopePending($query)
     {
-        return $value / 100;
+        return $query->whereRaw('LOWER(approval_status) = ?', ['pending']);
     }
 
-    public function getTotalAmountAttribute($value): float|int
+    public function scopeRejected($query)
     {
-        return $value / 100;
+        return $query->whereRaw('LOWER(approval_status) = ?', ['rejected']);
     }
 
-    public function getDueAmountAttribute($value): float|int
+    public function scopeDraft($query)
     {
-        return $value / 100;
-    }
-
-    public function getTaxAmountAttribute($value): float|int
-    {
-        return $value / 100;
-    }
-
-    public function getDiscountAmountAttribute($value): float|int
-    {
-        return $value / 100;
+        return $query->whereRaw('LOWER(approval_status) = ?', ['draft']);
     }
 }
