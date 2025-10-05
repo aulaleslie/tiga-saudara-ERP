@@ -8,6 +8,9 @@
     @case('pending')
         <span class="badge bg-warning text-dark text-uppercase">{{ $status ?: 'Pending' }}</span>
         @break
+    @case('awaiting receiving')
+        <span class="badge bg-primary text-uppercase">{{ $status }}</span>
+        @break
     @case('awaiting settlement')
         <span class="badge bg-info text-dark text-uppercase">{{ $status }}</span>
         @break

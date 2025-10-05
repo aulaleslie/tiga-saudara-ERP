@@ -72,6 +72,8 @@
                                             'saleReturns.edit'   => 'Ubah',
                                             'saleReturns.delete' => 'Hapus',
                                             'saleReturns.show'   => 'Lihat',
+                                            'saleReturns.approve' => 'Persetujuan',
+                                            'saleReturns.receive' => 'Penerimaan',
                                         ],
 
                                         'Pembayaran Penjualan' => [

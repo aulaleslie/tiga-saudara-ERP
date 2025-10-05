@@ -27,6 +27,7 @@ class SaleReturn extends BaseModel
         'approved_at'      => 'datetime',
         'rejected_at'      => 'datetime',
         'settled_at'       => 'datetime',
+        'received_at'      => 'datetime',
     ];
 
     public function saleReturnDetails(): Builder|HasMany|SaleReturn
@@ -77,6 +78,11 @@ class SaleReturn extends BaseModel
     public function settledBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'settled_by');
+    }
+
+    public function receivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by');
     }
 
     public static function boot(): void
