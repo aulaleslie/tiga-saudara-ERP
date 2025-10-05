@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
@@ -46,18 +47,32 @@ class EditForm extends Component
         Cart::instance('sale')->destroy();
 
         foreach ($sale->saleDetails as $detail) {
+            $product   = $detail->product;
+            $stockData = $product
+                ? ProductStock::where('product_id', $product->id)
+                    ->selectRaw('SUM(quantity_non_tax) as quantity_non_tax, SUM(quantity_tax) as quantity_tax')
+                    ->first()
+                : null;
+
             $subtotalBeforeTax = $detail->sub_total - $detail->product_tax_amount;
 
             // build the options *array*
             $options = [
-                'product_discount'      => $detail->product_discount_amount,
-                'product_discount_type' => $detail->product_discount_type,
-                'sub_total'             => $detail->sub_total,
-                'sub_total_before_tax'  => $subtotalBeforeTax,
-                'code'                  => $detail->product_code,
-                'stock'                 => $detail->product->product_quantity,
-                'unit_price'            => $detail->unit_price,
-                'product_tax'           => $detail->tax_id,
+                'product_id'             => $detail->product_id,
+                'product_discount'       => $detail->product_discount_amount,
+                'product_discount_type'  => $detail->product_discount_type,
+                'sub_total'              => $detail->sub_total,
+                'sub_total_before_tax'   => $subtotalBeforeTax,
+                'code'                   => $detail->product_code,
+                'stock'                  => $product?->product_quantity ?? 0,
+                'unit'                   => $product?->product_unit,
+                'unit_price'             => $detail->unit_price,
+                'product_tax'            => $detail->tax_id,
+                'sale_price'             => $product?->sale_price ?? $detail->unit_price,
+                'tier_1_price'           => $product?->tier_1_price ?? $product?->sale_price ?? $detail->unit_price,
+                'tier_2_price'           => $product?->tier_2_price ?? $product?->sale_price ?? $detail->unit_price,
+                'quantity_non_tax'       => $stockData->quantity_non_tax ?? 0,
+                'quantity_tax'           => $stockData->quantity_tax ?? 0,
                 // bundles below
             ];
 
@@ -74,6 +89,7 @@ class EditForm extends Component
                 ];
             }
             $options['bundle_items'] = $bundleItems;
+            $options['bundle_price'] = collect($bundleItems)->sum('sub_total');
 
             // pass options as array, not object
             Cart::instance('sale')->add([
