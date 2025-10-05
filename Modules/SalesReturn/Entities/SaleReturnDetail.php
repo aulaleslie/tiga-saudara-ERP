@@ -5,12 +5,26 @@ namespace Modules\SalesReturn\Entities;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
+use Modules\Sale\Entities\DispatchDetail;
+use Modules\Sale\Entities\SaleDetails;
+use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Tax;
 
 class SaleReturnDetail extends BaseModel
 {
     protected $guarded = [];
 
     protected $with = ['product'];
+
+    protected $casts = [
+        'quantity'                => 'integer',
+        'price'                   => 'decimal:2',
+        'unit_price'              => 'decimal:2',
+        'sub_total'               => 'decimal:2',
+        'product_discount_amount' => 'decimal:2',
+        'product_tax_amount'      => 'decimal:2',
+        'serial_number_ids'       => 'array',
+    ];
 
     public function product(): BelongsTo
     {
@@ -19,31 +33,26 @@ class SaleReturnDetail extends BaseModel
 
     public function saleReturn(): BelongsTo
     {
-        return $this->belongsTo(SaleReturnPayment::class, 'sale_return_id', 'id');
+        return $this->belongsTo(SaleReturn::class, 'sale_return_id', 'id');
     }
 
-    public function getPriceAttribute($value): float|int
+    public function saleDetail(): BelongsTo
     {
-        return $value / 100;
+        return $this->belongsTo(SaleDetails::class, 'sale_detail_id', 'id');
     }
 
-    public function getUnitPriceAttribute($value): float|int
+    public function dispatchDetail(): BelongsTo
     {
-        return $value / 100;
+        return $this->belongsTo(DispatchDetail::class, 'dispatch_detail_id', 'id');
     }
 
-    public function getSubTotalAttribute($value): float|int
+    public function location(): BelongsTo
     {
-        return $value / 100;
+        return $this->belongsTo(Location::class, 'location_id', 'id');
     }
 
-    public function getProductDiscountAmountAttribute($value): float|int
+    public function tax(): BelongsTo
     {
-        return $value / 100;
-    }
-
-    public function getProductTaxAmountAttribute($value): float|int
-    {
-        return $value / 100;
+        return $this->belongsTo(Tax::class, 'tax_id', 'id');
     }
 }
