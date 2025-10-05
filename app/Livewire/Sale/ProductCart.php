@@ -48,7 +48,7 @@ class ProductCart extends Component
     public $quantityBreakdowns = [];
     public $priceBreakdowns = [];
 
-    protected ?int $settingId = null;
+    public ?int $settingId = null;
 
     protected $rules = [
         'unit_price.*' => 'required|numeric|min:0', // Unit price per row.
@@ -863,10 +863,16 @@ class ProductCart extends Component
         $tier2Fallback = (float) data_get($product, 'tier_2_price', $saleFallback);
 
         $priceRow = null;
-        if ($productId > 0 && $this->settingId) {
+        $settingId = $this->settingId ?: (int) session('setting_id');
+
+        if (!$this->settingId && $settingId) {
+            $this->settingId = $settingId;
+        }
+
+        if ($productId > 0 && $settingId) {
             $priceRow = ProductPrice::query()
                 ->forProduct($productId)
-                ->forSetting((int) $this->settingId)
+                ->forSetting((int) $settingId)
                 ->first();
         }
 
