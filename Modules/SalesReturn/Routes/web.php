@@ -31,6 +31,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('sale-returns.reject');
     Route::post('sale-returns/{sale_return}/receive', 'SalesReturnController@receive')
         ->name('sale-returns.receive');
+    Route::get('sale-returns/{sale_return}/settlement', 'SalesReturnController@settlement')
+        ->name('sale-returns.settlement');
 
     //Sale Returns
     Route::resource('sale-returns', 'SalesReturnController');
@@ -38,14 +40,4 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Payments
     Route::get('/sale-return-payments/{sale_return_id}', 'SaleReturnPaymentsController@index')
         ->name('sale-return-payments.index');
-    Route::get('/sale-return-payments/{sale_return_id}/create', 'SaleReturnPaymentsController@create')
-        ->name('sale-return-payments.create');
-    Route::post('/sale-return-payments/store', 'SaleReturnPaymentsController@store')
-        ->name('sale-return-payments.store');
-    Route::get('/sale-return-payments/{sale_return_id}/edit/{saleReturnPayment}', 'SaleReturnPaymentsController@edit')
-        ->name('sale-return-payments.edit');
-    Route::patch('/sale-return-payments/update/{saleReturnPayment}', 'SaleReturnPaymentsController@update')
-        ->name('sale-return-payments.update');
-    Route::delete('/sale-return-payments/destroy/{saleReturnPayment}', 'SaleReturnPaymentsController@destroy')
-        ->name('sale-return-payments.destroy');
 });

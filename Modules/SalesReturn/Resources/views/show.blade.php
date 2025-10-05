@@ -1,5 +1,6 @@
 @php($approvalStatus = strtolower($sale_return->approval_status ?? ''))
 @php($status = strtolower($sale_return->status ?? ''))
+@php use Illuminate\Support\Facades\Storage; @endphp
 @extends('layouts.app')
 
 @section('title', 'Sales Details')
@@ -47,11 +48,18 @@
                             <span class="me-2 mb-1">
                                 @include('salesreturn::partials.approval-status', ['data' => $sale_return])
                             </span>
+                            <span class="me-2 mb-1">
+                                @include('salesreturn::partials.settlement-status', ['data' => $sale_return])
+                            </span>
 
                             @can('saleReturns.edit')
                                 @if(in_array($approvalStatus, ['pending', 'draft']))
                                     <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('sale-returns.edit', $sale_return) }}">
                                         <i class="bi bi-pencil"></i> Edit
+                                    </a>
+                                @elseif($approvalStatus === 'approved' && ! $sale_return->settled_at)
+                                    <a class="btn btn-success btn-sm d-print-none me-2 mb-1" href="{{ route('sale-returns.settlement', $sale_return) }}">
+                                        <i class="bi bi-clipboard-check"></i> Penyelesaian
                                     </a>
                                 @endif
                             @endcan
@@ -130,6 +138,20 @@
                                         @if($sale_return->received_at)
                                             <dt class="col-5 text-muted">Diterima</dt>
                                             <dd class="col-7 fw-semibold">{{ $sale_return->received_at->translatedFormat('d F Y H:i') }} oleh {{ optional($sale_return->receivedBy)->name ?? '-' }}</dd>
+                                        @endif
+                                        @if($sale_return->settled_at)
+                                            <dt class="col-5 text-muted">Penyelesaian</dt>
+                                            <dd class="col-7 fw-semibold">{{ $sale_return->settled_at->translatedFormat('d F Y H:i') }} oleh {{ optional($sale_return->settledBy)->name ?? '-' }}</dd>
+                                            <dt class="col-5 text-muted">Metode</dt>
+                                            <dd class="col-7">{{ $sale_return->payment_method ?? '-' }} ({{ $sale_return->return_type ?? 'n/a' }})</dd>
+                                            @if($sale_return->customerCredit)
+                                                <dt class="col-5 text-muted">Kredit Pelanggan</dt>
+                                                <dd class="col-7">{{ format_currency($sale_return->customerCredit->remaining_amount) }} tersisa dari {{ format_currency($sale_return->customerCredit->amount) }}</dd>
+                                            @endif
+                                            @if($sale_return->cash_proof_path)
+                                                <dt class="col-5 text-muted">Bukti Pembayaran</dt>
+                                                <dd class="col-7"><a href="{{ Storage::url($sale_return->cash_proof_path) }}" target="_blank" class="text-decoration-none"><i class="bi bi-paperclip"></i> Lihat Bukti</a></dd>
+                                            @endif
                                         @endif
                                         @if($sale_return->rejection_reason)
                                             <dt class="col-5 text-muted">Alasan Penolakan</dt>

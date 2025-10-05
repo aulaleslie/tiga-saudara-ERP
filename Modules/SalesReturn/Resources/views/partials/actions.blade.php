@@ -50,6 +50,14 @@
             </a>
         @endcan
 
+        @can('saleReturns.edit')
+            @if($approvalStatus === 'approved')
+                <a href="{{ route('sale-returns.settlement', $data->id) }}" class="dropdown-item d-flex align-items-center">
+                    <i class="bi bi-clipboard-check text-success me-2"></i> <span>Penyelesaian</span>
+                </a>
+            @endif
+        @endcan
+
         @can('saleReturns.receive')
             @if($status === 'awaiting receiving')
                 <form method="POST" action="{{ route('sale-returns.receive', $data->id) }}" class="m-0">
@@ -65,14 +73,6 @@
             <a href="{{ route('sale-return-payments.index', $data->id) }}" class="dropdown-item d-flex align-items-center">
                 <i class="bi bi-cash-coin text-warning me-2"></i> <span>Pembayaran</span>
             </a>
-        @endcan
-
-        @can('salePayments.create')
-            @if($data->due_amount > 0)
-                <a href="{{ route('sale-return-payments.create', $data->id) }}" class="dropdown-item d-flex align-items-center">
-                    <i class="bi bi-plus-circle text-success me-2"></i> <span>Tambah Pembayaran</span>
-                </a>
-            @endif
         @endcan
 
         @can('saleReturns.delete')

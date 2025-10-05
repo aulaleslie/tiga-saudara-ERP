@@ -43,6 +43,16 @@ class SalesReturnController extends Controller
     public function show(SaleReturn $sale_return) {
         abort_if(Gate::denies('saleReturns.show'), 403);
 
+        $sale_return->load([
+            'saleReturnDetails',
+            'saleReturnGoods',
+            'saleReturnPayments',
+            'customerCredit',
+            'sale',
+            'location',
+            'settledBy',
+        ]);
+
         return view('salesreturn::show', compact('sale_return'));
     }
 
@@ -50,12 +60,38 @@ class SalesReturnController extends Controller
     public function edit(SaleReturn $sale_return) {
         abort_if(Gate::denies('saleReturns.edit'), 403);
 
+        if ($sale_return->settled_at) {
+            toast('Retur penjualan sudah diselesaikan dan tidak dapat diedit.', 'info');
+            return redirect()->route('sale-returns.show', $sale_return);
+        }
+
         return view('salesreturn::edit', compact('sale_return'));
     }
 
 
     public function update(SaleReturn $sale_return) {
         abort(404, 'Gunakan formulir Livewire untuk memperbarui retur penjualan.');
+    }
+
+
+    public function settlement(SaleReturn $sale_return)
+    {
+        abort_if(Gate::denies('saleReturns.edit'), 403);
+
+        $status = Str::lower($sale_return->approval_status ?? '');
+
+        if ($status !== 'approved') {
+            toast('Penyelesaian hanya dapat diproses setelah retur disetujui.', 'error');
+            return redirect()->route('sale-returns.show', $sale_return);
+        }
+
+        $sale_return->load([
+            'saleReturnDetails',
+            'saleReturnGoods',
+            'customerCredit',
+        ]);
+
+        return view('salesreturn::settlement', compact('sale_return'));
     }
 
 
