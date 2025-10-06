@@ -6,7 +6,6 @@ use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use Laravel\Scout\Searchable;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
@@ -17,7 +16,7 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class Product extends BaseModel implements HasMedia
 {
-    use InteractsWithMedia, Searchable;
+    use InteractsWithMedia;
 
     protected $guarded = [];
 
