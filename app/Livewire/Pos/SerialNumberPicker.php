@@ -11,6 +11,12 @@ class SerialNumberPicker extends Component
     /** Target product */
     public ?int $productId = null;
 
+    /** Optional bundle context */
+    public ?array $bundle = null;
+
+    /** Expected serial count (from conversion factor) */
+    public ?int $expectedCount = null;
+
     /** Modal visibility */
     public bool $show = false;
 
@@ -34,9 +40,18 @@ class SerialNumberPicker extends Component
     }
 
     /** Open from parent: $dispatch('openSerialPicker', productId) */
-    public function open(int $productId): void
+    public function open($payload): void
     {
-        $this->productId = $productId;
+        if (is_array($payload)) {
+            $this->productId    = isset($payload['product_id']) ? (int) $payload['product_id'] : $this->productId;
+            $this->expectedCount = isset($payload['expected_count']) ? (int) $payload['expected_count'] : null;
+            $this->bundle       = $payload['bundle'] ?? null;
+        } else {
+            $this->productId    = (int) $payload;
+            $this->expectedCount = null;
+            $this->bundle       = null;
+        }
+
         $this->show = true;
 
         // Let the browser focus the input as soon as modal is visible
@@ -47,6 +62,8 @@ class SerialNumberPicker extends Component
     {
         $this->show = false;
         $this->scan = '';
+        $this->bundle = null;
+        $this->expectedCount = null;
     }
 
     public function render()
@@ -107,6 +124,7 @@ class SerialNumberPicker extends Component
                     'id' => (int)$row->id,
                     'serial_number' => (string)$row->serial_number,
                 ],
+                'bundle' => $this->bundle,
             ]);
 
             // UX: show as "recent", clear input, keep modal open for next scan

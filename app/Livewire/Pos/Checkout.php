@@ -2,8 +2,9 @@
 
 namespace App\Livewire\Pos;
 
+use App\Support\ProductBundleResolver;
 use Gloudemans\Shoppingcart\Facades\Cart;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Collection;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
@@ -38,7 +39,9 @@ class Checkout extends Component
     public $total_amount;
     public $conversion_breakdowns = [];
     public $pendingProduct = null;
-    public $bundleOptions = [];
+    public Collection $bundleOptions;
+    public $pendingSerials = null;
+    public $serialSelectionContext = null;
     public $paymentMethods = [];
     public $selected_payment_method_id = null;
 
@@ -55,9 +58,11 @@ class Checkout extends Component
         $this->discount_type = [];
         $this->item_discount = [];
         $this->total_amount = 0;
-
+        
         session('setting_id');
         $this->paymentMethods = PaymentMethod::all();
+
+        $this->bundleOptions = collect();
     }
 
     public function hydrate()
@@ -101,69 +106,41 @@ class Checkout extends Component
 
     public function productSelected($product)
     {
-        $product = is_array($product) ? $product : (array) $product;
+        [$product, $pendingSerials] = $this->normalizeProductInput($product);
+
+        if (!$product) {
+            return;
+        }
 
         if (($product['product_quantity'] ?? 0) <= 0) {
             session()->flash('message', 'Product is out of stock!');
             return;
         }
 
-        $productId   = (int) $product['id'];
-        $bundleId    = null; // selection comes later, if any
-        $cartKey     = $this->generateCartItemKey($productId, $bundleId);
-        $qtyToAdd    = max(1, (int) ($product['conversion_factor'] ?? 1)); // base=1, conversion>1
+        [$hydratedProduct, $bundles] = $this->resolveProductContext($product);
 
-        $requiresSerial = (bool) (Product::whereKey($productId)->value('serial_number_required') ?? false);
-        if ($requiresSerial) {
-            $this->dispatch('openSerialPicker', [
-                'product_id'     => $productId,
-                'expected_count' => $qtyToAdd, // e.g. scan of a 6-pack expects 6 serials
-            ]);
+        if (!$hydratedProduct) {
+            session()->flash('message', 'Product could not be loaded.');
             return;
         }
 
-        // If already in cart -> increment by CF
-        $cart = Cart::instance($this->cart_instance);
-        $exists = $cart->search(fn($item) => $item->id === $cartKey);
-
-        if ($exists->isNotEmpty()) {
-            $rowId  = $exists->first()->rowId;
-            $newQty = $exists->first()->qty + $qtyToAdd;
-            $this->quantity[$cartKey]       = $newQty;
-            $this->check_quantity[$cartKey] = (int) ($product['product_quantity'] ?? PHP_INT_MAX);
-            $this->updateQuantity($rowId, $cartKey);
+        if ($this->promptBundleSelection($hydratedProduct, $bundles, $pendingSerials)) {
             return;
         }
 
-        $this->addProduct($product, null);
+        $this->continueProductAdd($hydratedProduct, null, $pendingSerials);
     }
 
     public function addProduct($product, $bundle = null)
     {
-        $cartKey      = $this->generateCartItemKey($product['id'], $bundle['id'] ?? null);
+        $bundleMeta   = $this->formatBundleForCart($bundle);
+        $bundleId     = $bundleMeta['id'];
+        $cartKey      = $this->generateCartItemKey($product['id'], $bundleId);
         $convertedQty = max(1, (int) ($product['conversion_factor'] ?? 1));
-
-        $bundle_items = [];
-        $bundle_price = 0;
-        $bundle_name  = null;
-
-        if ($bundle) {
-            $bundle_price = (float) ($bundle['price'] ?? 0);
-            $bundle_name  = $bundle['name'] ?? null;
-            foreach ($bundle['items'] as $item) {
-                $bundle_items[] = [
-                    'bundle_id'      => $bundle['id'],
-                    'bundle_item_id' => $item['id'],
-                    'product_id'     => $item['product_id'],
-                    'name'           => $item['product']['product_name'],
-                    'quantity'       => $item['quantity'],
-                ];
-            }
-        }
 
         // Centralized calc (handles conversion-pack costs via ProductUnitConversion)
         $calculated = $this->calculate($product, $convertedQty);
-        $final_sub_total = $calculated['sub_total'] + $bundle_price;
+        $final_sub_total = $calculated['sub_total'] + $bundleMeta['bundle_price'];
 
         Cart::instance($this->cart_instance)->add([
             'id'      => $cartKey,
@@ -171,7 +148,7 @@ class Checkout extends Component
             'qty'     => $convertedQty,
             'price'   => $calculated['unit_price'],   // <<< always unit price
             'weight'  => 1,
-            'options' => [
+            'options' => array_merge([
                 'product_discount'      => 0.00,
                 'product_discount_type' => 'fixed',
                 'sub_total'             => $final_sub_total, // <<< line total
@@ -179,10 +156,12 @@ class Checkout extends Component
                 'stock'                 => (int) ($product['product_quantity'] ?? PHP_INT_MAX),
                 'product_tax'           => 0,
                 'unit_price'            => $calculated['unit_price'],
-                'bundle_items'          => $bundle_items,
-                'bundle_price'          => $bundle_price,
-                'bundle_name'           => $bundle_name,
-            ],
+                'serial_number_required'=> $this->productRequiresSerial($product),
+            ], [
+                'bundle_items'          => $bundleMeta['bundle_items'],
+                'bundle_price'          => $bundleMeta['bundle_price'],
+                'bundle_name'           => $bundleMeta['bundle_name'],
+            ]),
         ]);
 
         $this->check_quantity[$cartKey] = (int) ($product['product_quantity'] ?? PHP_INT_MAX);
@@ -196,30 +175,30 @@ class Checkout extends Component
 
     public function confirmBundleSelection($bundleId)
     {
-        $bundle = ProductBundle::with('items.product')->find($bundleId);
-        if (!$bundle || !$this->pendingProduct) {
+        if (!$this->pendingProduct) {
             session()->flash('message', 'Invalid bundle selected.');
             return;
         }
 
-        $cartKey = $this->generateCartItemKey($this->pendingProduct['id'], $bundle->id);
-        $cart = Cart::instance($this->cart_instance);
-        $exists = $cart->search(fn($item) => $item->id === $cartKey);
-
-        if ($exists->isNotEmpty()) {
-            $rowId = $exists->first()->rowId;
-            $newQty = $exists->first()->qty + (int) $this->pendingProduct['conversion_factor'];
-            $this->quantity[$cartKey] = $newQty;
-            $this->check_quantity[$cartKey] = $this->pendingProduct['product_quantity'];
-            $this->updateQuantity($rowId, $cartKey);
-            $this->pendingProduct = null;
-            $this->bundleOptions = [];
+        $bundle = ProductBundle::with('items.product')->find($bundleId);
+        if (!$bundle) {
+            session()->flash('message', 'Invalid bundle selected.');
             return;
         }
 
-        $this->addProduct($this->pendingProduct, $bundle->toArray());
-        $this->pendingProduct = null;
-        $this->bundleOptions = [];
+        $formatted = $this->formatBundle($bundle);
+
+        $this->continueProductAdd($this->pendingProduct, $formatted, $this->pendingSerials ?? []);
+    }
+
+    public function proceedWithoutBundle(): void
+    {
+        if (!$this->pendingProduct) {
+            $this->resetBundleState();
+            return;
+        }
+
+        $this->continueProductAdd($this->pendingProduct, null, $this->pendingSerials ?? []);
     }
 
     public function removeItem($row_id)
@@ -300,6 +279,290 @@ class Checkout extends Component
         $this->updateCartOptions($row_id, $cart_key, $cart_item, $discount);
 
         session()->flash('discount_message' . $cart_key, 'Discount added to the product!');
+    }
+
+    private function normalizeProductInput($product): array
+    {
+        if ($product === null) {
+            return [null, []];
+        }
+
+        $data = is_array($product) ? $product : (array) $product;
+        if (empty($data['id'])) {
+            return [null, []];
+        }
+
+        $serials = [];
+        if (isset($data['pending_serials']) && is_array($data['pending_serials'])) {
+            foreach ($data['pending_serials'] as $serial) {
+                $normalized = $this->normalizeSerial($serial);
+                if ($normalized) {
+                    $serials[] = $normalized;
+                }
+            }
+            unset($data['pending_serials']);
+        }
+
+        $data['id'] = (int) $data['id'];
+        $data['conversion_factor'] = max(1, (int) ($data['conversion_factor'] ?? 1));
+
+        return [$data, $serials];
+    }
+
+    private function resolveProductContext(array $product): array
+    {
+        $productId = (int) ($product['id'] ?? 0);
+        if ($productId <= 0) {
+            return [null, collect()];
+        }
+
+        $model = Product::find($productId);
+        if (!$model) {
+            return [null, collect()];
+        }
+
+        $modelArray = $model->toArray();
+        $hydrated = array_merge($modelArray, $product);
+        $hydrated['id'] = $productId;
+
+        if (!isset($hydrated['serial_number_required'])) {
+            $hydrated['serial_number_required'] = (bool) $model->serial_number_required;
+        }
+
+        $bundles = ProductBundleResolver::forProduct($productId);
+
+        return [$hydrated, $bundles];
+    }
+
+    private function promptBundleSelection(array $product, Collection $bundles, array $serials = []): bool
+    {
+        if ($bundles->isEmpty()) {
+            return false;
+        }
+
+        $this->pendingProduct = $product;
+        $this->bundleOptions = $bundles;
+        $this->pendingSerials = $serials;
+
+        $this->dispatch('showBundleSelectionModal');
+
+        return true;
+    }
+
+    private function continueProductAdd(array $product, ?array $bundle = null, array $serials = []): void
+    {
+        if (!empty($serials)) {
+            foreach ($serials as $serial) {
+                $this->addSerialEntry($product, $serial, $bundle);
+            }
+
+            $this->resetBundleState();
+            $this->total_amount = $this->calculateTotal();
+            return;
+        }
+
+        if ($this->productRequiresSerial($product)) {
+            $this->serialSelectionContext = [
+                'product' => $product,
+                'bundle'  => $bundle,
+            ];
+
+            $expectedCount = max(1, (int) ($product['conversion_factor'] ?? 1));
+            $this->dispatch('openSerialPicker', [
+                'product_id'     => (int) $product['id'],
+                'expected_count' => $expectedCount,
+                'bundle'         => $bundle,
+            ]);
+
+            $this->resetBundleState();
+            return;
+        }
+
+        $this->handleStandardAddition($product, $bundle);
+        $this->resetBundleState();
+    }
+
+    private function productRequiresSerial(array $product): bool
+    {
+        return (bool) ($product['serial_number_required'] ?? false);
+    }
+
+    private function handleStandardAddition(array $product, ?array $bundle = null): void
+    {
+        $bundleId = $bundle['id'] ?? null;
+        $cartKey  = $this->generateCartItemKey($product['id'], $bundleId);
+        $qtyToAdd = max(1, (int) ($product['conversion_factor'] ?? 1));
+
+        $cart = Cart::instance($this->cart_instance);
+        $exists = $cart->search(fn($item) => $item->id === $cartKey);
+
+        if ($exists->isNotEmpty()) {
+            $rowId  = $exists->first()->rowId;
+            $newQty = $exists->first()->qty + $qtyToAdd;
+            $this->quantity[$cartKey]       = $newQty;
+            $this->check_quantity[$cartKey] = (int) ($product['product_quantity'] ?? PHP_INT_MAX);
+            $this->updateQuantity($rowId, $cartKey);
+            return;
+        }
+
+        $this->addProduct($product, $bundle);
+    }
+
+    private function formatBundle(ProductBundle $bundle): array
+    {
+        $bundle->loadMissing('items.product');
+
+        return [
+            'id'    => $bundle->id,
+            'name'  => $bundle->name,
+            'price' => (float) ($bundle->price ?? 0),
+            'items' => $bundle->items->map(function ($item) {
+                return [
+                    'id'         => $item->id,
+                    'bundle_id'  => $item->bundle_id,
+                    'product_id' => $item->product_id,
+                    'quantity'   => $item->quantity,
+                    'price'      => isset($item->price) ? (float) $item->price : null,
+                    'product'    => $item->product ? $item->product->toArray() : null,
+                ];
+            })->all(),
+        ];
+    }
+
+    private function formatBundleForCart(?array $bundle): array
+    {
+        if (!$bundle) {
+            return [
+                'id'           => null,
+                'bundle_items' => [],
+                'bundle_price' => 0.0,
+                'bundle_name'  => null,
+            ];
+        }
+
+        $items = [];
+        foreach ($bundle['items'] ?? [] as $item) {
+            $items[] = [
+                'bundle_id'      => $bundle['id'] ?? null,
+                'bundle_item_id' => $item['id'] ?? null,
+                'product_id'     => $item['product_id'] ?? null,
+                'name'           => $item['product']['product_name'] ?? ($item['name'] ?? null),
+                'quantity'       => $item['quantity'] ?? 0,
+                'price'          => isset($item['price']) ? (float) $item['price'] : null,
+            ];
+        }
+
+        return [
+            'id'           => $bundle['id'] ?? null,
+            'bundle_items' => $items,
+            'bundle_price' => isset($bundle['price']) ? (float) $bundle['price'] : 0.0,
+            'bundle_name'  => $bundle['name'] ?? null,
+        ];
+    }
+
+    private function addSerialEntry(array $product, array $serial, ?array $bundle = null): void
+    {
+        if (!isset($serial['id'], $serial['serial_number'])) {
+            return;
+        }
+
+        $bundleMeta = $this->formatBundleForCart($bundle);
+        $cartKey    = $this->generateCartItemKey($product['id'], $bundleMeta['id']);
+
+        $cart = Cart::instance($this->cart_instance);
+        $existing = $cart->search(fn($item) => $item->id === $cartKey)->first();
+
+        $serialPayload = [
+            'id'            => (int) $serial['id'],
+            'serial_number' => (string) $serial['serial_number'],
+        ];
+
+        if ($existing) {
+            $options = $existing->options->toArray();
+            $list = $options['serial_numbers'] ?? [];
+            $already = array_filter($list, fn($row) => (int) ($row['id'] ?? 0) === $serialPayload['id']);
+            if (!empty($already)) {
+                return;
+            }
+
+            $list[] = $serialPayload;
+            $options['serial_numbers'] = array_values($list);
+
+            $quantity = count($options['serial_numbers']);
+
+            $calculated = $this->calculate($product, $quantity);
+            $finalSubTotal = $calculated['sub_total'] + ($options['bundle_price'] ?? $bundleMeta['bundle_price']);
+
+            Cart::instance($this->cart_instance)->update($existing->rowId, [
+                'qty'     => $quantity,
+                'price'   => $calculated['unit_price'],
+                'options' => array_merge($options, [
+                    'sub_total' => $finalSubTotal,
+                    'unit_price'=> $calculated['unit_price'],
+                ]),
+            ]);
+
+            $this->quantity[$cartKey]       = $quantity;
+            $this->check_quantity[$cartKey] = $options['stock'] ?? ($existing->options->stock ?? PHP_INT_MAX);
+            $this->conversion_breakdowns[$cartKey] = $this->calculateConversionBreakdown((int)$product['id'], $quantity);
+            return;
+        }
+
+        $calculated = $this->calculate($product, 1);
+        $finalSubTotal = $calculated['sub_total'] + $bundleMeta['bundle_price'];
+
+        Cart::instance($this->cart_instance)->add([
+            'id'     => $cartKey,
+            'name'   => $product['product_name'],
+            'qty'    => 1,
+            'price'  => $calculated['unit_price'],   // unit price
+            'weight' => 1,
+            'options' => array_merge([
+                'product_discount'        => 0.00,
+                'product_discount_type'   => 'fixed',
+                'sub_total'               => $finalSubTotal,
+                'code'                    => $product['product_code'] ?? null,
+                'stock'                   => $product['product_quantity'] ?? PHP_INT_MAX,
+                'product_tax'             => 0,
+                'unit_price'              => $calculated['unit_price'],
+                'serial_number_required'  => true,
+                'serial_numbers'          => [$serialPayload],
+            ], [
+                'bundle_items'            => $bundleMeta['bundle_items'],
+                'bundle_price'            => $bundleMeta['bundle_price'],
+                'bundle_name'             => $bundleMeta['bundle_name'],
+            ]),
+        ]);
+
+        $this->check_quantity[$cartKey] = $product['product_quantity'] ?? PHP_INT_MAX;
+        $this->quantity[$cartKey]       = 1;
+        $this->discount_type[$cartKey]  = 'fixed';
+        $this->item_discount[$cartKey]  = 0;
+        $this->conversion_breakdowns[$cartKey] = $this->calculateConversionBreakdown((int)$product['id'], 1);
+    }
+
+    private function normalizeSerial($serial): ?array
+    {
+        if (!$serial) {
+            return null;
+        }
+
+        $data = is_array($serial) ? $serial : (array) $serial;
+        if (!isset($data['id'], $data['serial_number'])) {
+            return null;
+        }
+
+        return [
+            'id'            => (int) $data['id'],
+            'serial_number' => (string) $data['serial_number'],
+        ];
+    }
+
+    private function resetBundleState(): void
+    {
+        $this->pendingProduct = null;
+        $this->bundleOptions = collect();
+        $this->pendingSerials = null;
     }
 
     private function generateCartItemKey($productId, $bundleId = null): string
@@ -447,74 +710,42 @@ class Checkout extends Component
     public function onSerialScanned(array $payload): void
     {
         $productId = (int)($payload['product_id'] ?? 0);
-        $serial    = $payload['serial'] ?? null;
-        if (!$productId || !$serial || !isset($serial['id'], $serial['serial_number'])) return;
+        $serial    = $this->normalizeSerial($payload['serial'] ?? null);
 
-        $product = Product::find($productId);
-        if (!$product) return;
-
-        $cartKey = $this->generateCartItemKey($productId, null);
-        $cart = Cart::instance($this->cart_instance);
-        $exists = $cart->search(fn($item) => $item->id === $cartKey)->first();
-
-        if ($exists) {
-            $opts = $exists->options->toArray();
-            $list = $opts['serial_numbers'] ?? [];
-            $already = array_filter($list, fn($s) => (int)($s['id'] ?? 0) === (int)$serial['id']);
-            if (empty($already)) {
-                $list[] = ['id' => (int)$serial['id'], 'serial_number' => (string)$serial['serial_number']];
-            }
-            $opts['serial_numbers'] = array_values($list);
-            $serialCount = count($opts['serial_numbers']);
-
-            $calculated = $this->calculate($product->toArray(), $serialCount);
-            Cart::instance($this->cart_instance)->update($exists->rowId, [
-                'qty'     => $serialCount,
-                'price'   => $calculated['unit_price'],
-                'options' => array_merge($opts, [
-                    'serial_number_required' => true,
-                    'sub_total'              => $calculated['sub_total'],
-                    'unit_price'             => $calculated['unit_price'],
-                ]),
-            ]);
-
-            $this->quantity[$cartKey]       = $serialCount;
-            $this->check_quantity[$cartKey] = $opts['stock'] ?? ($exists->options->stock ?? PHP_INT_MAX);
-        } else {
-            // first serial → add line
-            $productArr  = $product->toArray();
-            $calculated  = $this->calculate($productArr, 1);
-
-            Cart::instance($this->cart_instance)->add([
-                'id'     => $cartKey,
-                'name'   => $product->product_name,
-                'qty'    => 1,
-                'price'  => $calculated['unit_price'],   // unit price
-                'weight' => 1,
-                'options' => [
-                    'product_discount'        => 0.00,
-                    'product_discount_type'   => 'fixed',
-                    'sub_total'               => $calculated['sub_total'],
-                    'code'                    => $product->product_code,
-                    'stock'                   => $productArr['product_quantity'] ?? PHP_INT_MAX,
-                    'product_tax'             => 0,
-                    'unit_price'              => $calculated['unit_price'],
-                    'bundle_items'            => [],
-                    'bundle_price'            => 0,
-                    'bundle_name'             => null,
-                    'serial_number_required'  => true,
-                    'serial_numbers'          => [[
-                        'id' => (int)$serial['id'], 'serial_number' => (string)$serial['serial_number']
-                    ]],
-                ],
-            ]);
-
-            $this->check_quantity[$cartKey] = $productArr['product_quantity'] ?? PHP_INT_MAX;
-            $this->quantity[$cartKey]       = 1;
-            $this->discount_type[$cartKey]  = 'fixed';
-            $this->item_discount[$cartKey]  = 0;
+        if (!$productId || !$serial) {
+            return;
         }
 
+        $bundleFromPayload = $payload['bundle'] ?? null;
+
+        $product = null;
+        $bundle  = null;
+        $bundles = collect();
+
+        if ($this->serialSelectionContext && (int)($this->serialSelectionContext['product']['id'] ?? 0) === $productId) {
+            $product = $this->serialSelectionContext['product'];
+            $bundle  = $this->serialSelectionContext['bundle'] ?? null;
+        }
+
+        if ($bundleFromPayload) {
+            $bundle = $bundleFromPayload;
+        }
+
+        if (!$product) {
+            [$product, $bundles] = $this->resolveProductContext(['id' => $productId]);
+        } else {
+            $bundles = $bundle ? collect() : ProductBundleResolver::forProduct($productId);
+        }
+
+        if (!$product) {
+            return;
+        }
+
+        if (!$bundle && $this->promptBundleSelection($product, $bundles, [$serial])) {
+            return;
+        }
+
+        $this->addSerialEntry($product, $serial, $bundle);
         $this->total_amount = $this->calculateTotal();
     }
 
