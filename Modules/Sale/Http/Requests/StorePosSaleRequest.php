@@ -21,6 +21,7 @@ class StorePosSaleRequest extends FormRequest
             'shipping_amount' => 'required|numeric',
             'total_amount' => 'required|numeric',
             'paid_amount' => 'required|numeric',
+            'payment_method_id' => 'required|integer|exists:payment_methods,id',
             'note' => 'nullable|string|max:1000'
         ];
     }
