@@ -39,6 +39,8 @@ class ProductList extends Component
 
     public function render()
     {
+        $settingId = session('setting_id');
+
         $query = DB::table('products as p')
             ->join('units as u', 'u.id', '=', 'p.base_unit_id')
             ->leftJoin('categories as c', 'c.id', '=', 'p.category_id')
@@ -46,6 +48,13 @@ class ProductList extends Component
                 $join->on('m.model_id', '=', 'p.id')
                     ->where('m.model_type', '=', \Modules\Product\Entities\Product::class)
                     ->where('m.collection_name', '=', 'images');
+            })
+            ->leftJoin('product_prices as pp', function ($join) use ($settingId) {
+                $join->on('pp.product_id', '=', 'p.id')
+                    ->when($settingId,
+                        fn ($q) => $q->where('pp.setting_id', '=', $settingId),
+                        fn ($q) => $q->whereRaw('1 = 0')
+                    );
             })
             ->leftJoinSub(function ($sub) {
                 $sub->from('product_stocks')
@@ -61,7 +70,7 @@ class ProductList extends Component
                 'p.id',
                 'p.product_name',
                 'p.product_code',
-                'p.sale_price',
+                DB::raw('COALESCE(pp.sale_price, p.sale_price) as sale_price'),
                 'p.barcode',
                 'p.unit_id',
                 DB::raw('COALESCE(st.stock_qty, 0) as product_quantity'),
@@ -75,6 +84,10 @@ class ProductList extends Component
                 'm.disk',
                 'm.id as media_id',
                 'm.uuid',
+                DB::raw('COALESCE(pp.tier_1_price, p.tier_1_price) as tier_1_price'),
+                DB::raw('COALESCE(pp.tier_2_price, p.tier_2_price) as tier_2_price'),
+                DB::raw('COALESCE(pp.last_purchase_price, p.last_purchase_price) as last_purchase_price'),
+                DB::raw('COALESCE(pp.average_purchase_price, p.average_purchase_price) as average_purchase_price'),
             ])
             ->when($this->category_id, fn ($q) => $q->where('p.category_id', $this->category_id))
             // Ensure stock > 0
