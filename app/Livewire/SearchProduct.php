@@ -103,18 +103,19 @@ class SearchProduct extends Component
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
             FROM product_stocks
-            WHERE (location_id = COALESCE(:posLocationId1, location_id))
+            WHERE (location_id = COALESCE(:stockLocationId, location_id))
             GROUP BY product_id
         ) st ON st.product_id = p.id
         WHERE LOWER(psn.serial_number) = LOWER(:code)
           AND psn.is_broken = 0
-          AND (psn.location_id = COALESCE(:posLocationId1, psn.location_id))
+          AND (psn.location_id = COALESCE(:serialLocationId, psn.location_id))
         LIMIT 1
     ";
 
         $row = DB::selectOne($sql, [
-            'code'            => $code,
-            'posLocationId1'  => $this->posLocationId,
+            'code'              => $code,
+            'stockLocationId'   => $this->posLocationId,
+            'serialLocationId'  => $this->posLocationId,
         ]);
 
         if (!$row) return false;
