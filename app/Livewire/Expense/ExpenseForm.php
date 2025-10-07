@@ -93,7 +93,13 @@ class ExpenseForm extends Component
         $normalized = [];
         foreach ($this->details as $row) {
             $amount = floatval(preg_replace('/[^0-9]/', '', $row['amount']));
-            $normalized[] = array_merge($row, ['amount' => $amount]);
+            $taxId = $row['tax_id'] ?? null;
+            $taxId = empty($taxId) ? null : (int) $taxId;
+
+            $normalized[] = array_merge($row, [
+                'amount' => $amount,
+                'tax_id' => $taxId,
+            ]);
         }
         $this->details = $normalized;
     }
