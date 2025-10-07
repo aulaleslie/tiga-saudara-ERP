@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Expense;
 
+use Illuminate\Support\Arr;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Modules\Expense\Entities\Expense;
@@ -17,91 +18,82 @@ class ExpenseForm extends Component
     public $category_id;
     public $details = [];
     public $files = [];
+    public $existingAttachments = [];
+    public $removedAttachmentIds = [];
     public $is_tax_included = false;
     public $taxRates = [];
+    public $expenseId;
 
-    public function mount()
+    public function mount(?Expense $expense = null): void
     {
+        $this->taxRates = Tax::pluck('value', 'id')->map(fn ($value) => (float) $value)->toArray();
+
+        if ($expense) {
+            $this->hydrateFromExpense($expense);
+            return;
+        }
+
         $this->date = now()->format('Y-m-d');
-        $this->details[] = ['name' => '', 'tax_id' => null, 'amount' => 0];
-
-        // Cache tax rates for live calculation
-        $this->taxRates = Tax::pluck('value', 'id')->toArray();
+        $this->details[] = ['id' => null, 'name' => '', 'tax_id' => null, 'amount' => 0];
     }
 
-    public function addDetail()
+    public function addDetail(): void
     {
-        $this->details[] = ['name' => '', 'tax_id' => null, 'amount' => 0];
+        $this->details[] = ['id' => null, 'name' => '', 'tax_id' => null, 'amount' => 0];
     }
 
-    public function removeDetail($index)
+    public function removeDetail($index): void
     {
         unset($this->details[$index]);
         $this->details = array_values($this->details);
     }
 
-    public function formatAmount($index)
+    public function formatAmount($index): void
     {
-        if (!isset($this->details[$index]['amount'])) return;
+        if (!isset($this->details[$index]['amount'])) {
+            return;
+        }
+
         $amount = $this->details[$index]['amount'];
         $amount = floatval(preg_replace('/[^0-9]/', '', $amount));
         $this->details[$index]['amount'] = 'Rp ' . number_format($amount, 0, ',', '.');
     }
 
-    public function unformatAmount($index)
+    public function unformatAmount($index): void
     {
-        if (!isset($this->details[$index]['amount'])) return;
+        if (!isset($this->details[$index]['amount'])) {
+            return;
+        }
+
         $raw = preg_replace('/[^0-9]/', '', $this->details[$index]['amount']);
         $this->details[$index]['amount'] = floatval($raw);
     }
 
-    public function updatedIsTaxIncluded()
+    public function updatedIsTaxIncluded(): void
     {
         // force re-render for recalculation
     }
 
-    public function getTotalFormattedProperty()
+    public function getTotalFormattedProperty(): string
     {
-        $total = 0;
-
-        foreach ($this->details as $detail) {
-            $amount = $this->extractFloat($detail['amount'] ?? 0);
-            $taxRate = Tax::find($detail['tax_id'])?->value ?? 0;
-
-            if ($this->is_tax_included || $taxRate == 0) {
-                $total += $amount;
-            } else {
-                $total += $amount + ($amount * $taxRate / 100);
-            }
-        }
-
-        return $this->formatRupiah($total);
+        return $this->formatRupiah($this->calculateTotalAmount());
     }
 
-    public function handleTaxIncluded()
+    public function handleTaxIncluded(): void
     {
         $this->details = $this->details; // triggers Livewire reactivity
     }
 
-    private function formatRupiah($number)
+    public function removeExistingAttachment($mediaId): void
     {
-        return 'Rp ' . number_format($number, 0, ',', '.');
-    }
+        $this->existingAttachments = array_values(array_filter(
+            $this->existingAttachments,
+            fn ($media) => $media['id'] !== $mediaId
+        ));
 
-    private function normalizeAmounts()
-    {
-        $normalized = [];
-        foreach ($this->details as $row) {
-            $amount = floatval(preg_replace('/[^0-9]/', '', $row['amount']));
-            $taxId = $row['tax_id'] ?? null;
-            $taxId = empty($taxId) ? null : (int) $taxId;
-
-            $normalized[] = array_merge($row, [
-                'amount' => $amount,
-                'tax_id' => $taxId,
-            ]);
+        if (!in_array($mediaId, $this->removedAttachmentIds, true)) {
+            $this->removedAttachmentIds[] = $mediaId;
         }
-        $this->details = $normalized;
     }
 
     public function save()
@@ -118,24 +110,14 @@ class ExpenseForm extends Component
         $this->normalizeAmounts();
 
         $settingId = session('setting_id');
-        $totalAmount = collect($this->details)->sum('amount');
+        $totalAmount = $this->calculateTotalAmount();
 
-        $expense = Expense::create([
-            'date' => $this->date,
-            'category_id' => $this->category_id,
-            'amount' => $totalAmount,
-            'setting_id' => $settingId,
-        ]);
-
-        foreach ($this->details as $detail) {
-            $expense->details()->create($detail);
+        if ($this->expenseId) {
+            $this->updateExpense($totalAmount);
+        } else {
+            $this->createExpense($settingId, $totalAmount);
         }
 
-        foreach ($this->files as $file) {
-            $expense->addMedia($file)->toMediaCollection('attachments');
-        }
-
-        toast('Expense Created!', 'success');
         return redirect()->route('expenses.index');
     }
 
@@ -147,40 +129,190 @@ class ExpenseForm extends Component
         ]);
     }
 
-    public function getTotalBeforeTaxFormattedProperty()
+    public function getTotalBeforeTaxFormattedProperty(): string
+    {
+        return $this->formatRupiah($this->calculateBeforeTax());
+    }
+
+    public function getTotalTaxFormattedProperty(): string
+    {
+        return $this->formatRupiah($this->calculateTaxTotal());
+    }
+
+    private function hydrateFromExpense(Expense $expense): void
+    {
+        $this->expenseId = $expense->id;
+        $this->reference = $expense->reference;
+        $this->date = $expense->getRawOriginal('date');
+        $this->category_id = $expense->category_id;
+        $this->is_tax_included = (bool) data_get($expense, 'is_tax_included', false);
+
+        $this->details = $expense->details
+            ->map(function ($detail) {
+                return [
+                    'id' => $detail->id,
+                    'name' => $detail->name,
+                    'tax_id' => $detail->tax_id,
+                    'amount' => $this->formatRupiah($detail->amount),
+                ];
+            })
+            ->toArray();
+
+        $this->existingAttachments = $expense->getMedia('attachments')
+            ->map(function ($media) {
+                return [
+                    'id' => $media->id,
+                    'name' => $media->file_name,
+                    'size' => $media->humanReadableSize,
+                ];
+            })
+            ->toArray();
+
+        if (empty($this->details)) {
+            $this->details[] = ['id' => null, 'name' => '', 'tax_id' => null, 'amount' => 0];
+        }
+    }
+
+    private function formatRupiah($number): string
+    {
+        return 'Rp ' . number_format($number, 0, ',', '.');
+    }
+
+    private function normalizeAmounts(): void
+    {
+        $normalized = [];
+
+        foreach ($this->details as $row) {
+            $amount = floatval(preg_replace('/[^0-9]/', '', $row['amount']));
+            $taxId = $row['tax_id'] ?? null;
+            $taxId = empty($taxId) ? null : (int) $taxId;
+
+            $normalized[] = [
+                'id' => $row['id'] ?? null,
+                'name' => $row['name'],
+                'amount' => $amount,
+                'tax_id' => $taxId,
+            ];
+        }
+
+        $this->details = $normalized;
+    }
+
+    private function calculateBeforeTax(): float
     {
         $total = 0;
 
         foreach ($this->details as $detail) {
-            $amount = $this->extractFloat($detail['amount'] ?? 0);
-            $total += $amount;
+            $total += $this->extractFloat($detail['amount'] ?? 0);
         }
 
-        return $this->formatRupiah($total);
+        return $total;
     }
 
-    public function getTotalTaxFormattedProperty()
+    private function calculateTaxTotal(): float
     {
+        if ($this->is_tax_included) {
+            return 0;
+        }
+
         $taxTotal = 0;
 
         foreach ($this->details as $detail) {
             $amount = $this->extractFloat($detail['amount'] ?? 0);
+            $taxRate = $this->getTaxRate($detail['tax_id'] ?? null);
 
-            if (!empty($detail['tax_id'])) {
-                $taxRate = Tax::find($detail['tax_id'])?->value ?? 0;
-
-                if (!$this->is_tax_included) {
-                    $taxTotal += ($amount * $taxRate) / 100;
-                }
+            if ($taxRate > 0) {
+                $taxTotal += ($amount * $taxRate) / 100;
             }
         }
 
-        return $this->formatRupiah($taxTotal);
+        return $taxTotal;
     }
 
-    private function extractFloat($value)
+    private function calculateTotalAmount(): float
+    {
+        return $this->calculateBeforeTax() + $this->calculateTaxTotal();
+    }
+
+    private function getTaxRate($taxId): float
+    {
+        if (empty($taxId)) {
+            return 0;
+        }
+
+        return (float) ($this->taxRates[$taxId] ?? 0);
+    }
+
+    private function createExpense($settingId, float $totalAmount): void
+    {
+        $expense = Expense::create([
+            'date' => $this->date,
+            'category_id' => $this->category_id,
+            'amount' => $totalAmount,
+            'setting_id' => $settingId,
+        ]);
+
+        foreach ($this->details as $detail) {
+            $expense->details()->create([
+                'name' => $detail['name'],
+                'tax_id' => $detail['tax_id'],
+                'amount' => $detail['amount'],
+            ]);
+        }
+
+        foreach ($this->files as $file) {
+            $expense->addMedia($file)->toMediaCollection('attachments');
+        }
+
+        toast('Expense Created!', 'success');
+    }
+
+    private function updateExpense(float $totalAmount): void
+    {
+        $expense = Expense::with('details', 'media')->findOrFail($this->expenseId);
+
+        $expense->update([
+            'date' => $this->date,
+            'category_id' => $this->category_id,
+            'amount' => $totalAmount,
+        ]);
+
+        $existingIds = $expense->details->pluck('id')->all();
+        $retainedIds = [];
+
+        foreach ($this->details as $detail) {
+            $detailData = Arr::only($detail, ['name', 'tax_id', 'amount']);
+
+            if (!empty($detail['id']) && in_array($detail['id'], $existingIds, true)) {
+                $expense->details()->whereKey($detail['id'])->update($detailData);
+                $retainedIds[] = $detail['id'];
+            } else {
+                $newDetail = $expense->details()->create($detailData);
+                $retainedIds[] = $newDetail->id;
+            }
+        }
+
+        $idsToDelete = array_diff($existingIds, $retainedIds);
+        if (!empty($idsToDelete)) {
+            $expense->details()->whereIn('id', $idsToDelete)->delete();
+        }
+
+        if (!empty($this->removedAttachmentIds)) {
+            $expense->media()->whereIn('id', $this->removedAttachmentIds)->get()->each->delete();
+        }
+
+        foreach ($this->files as $file) {
+            $expense->addMedia($file)->toMediaCollection('attachments');
+        }
+
+        toast('Expense Updated!', 'info');
+    }
+
+    private function extractFloat($value): float
     {
         $clean = preg_replace('/[^0-9]/', '', $value);
+
         return floatval($clean);
     }
 }
+
