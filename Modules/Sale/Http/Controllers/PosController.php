@@ -2,6 +2,7 @@
 
 namespace Modules\Sale\Http\Controllers;
 
+use App\Support\PosLocationResolver;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Http\Request;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\Schema;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
@@ -25,6 +28,8 @@ class PosController extends Controller
     private static ?bool $salesHasPaymentMethodIdColumn = null;
 
     private static ?bool $saleDetailsHasSerialNumbersColumn = null;
+
+    private static ?bool $saleBundleItemsHasTaxIdColumn = null;
 
     public function index() {
         abort_if(Gate::denies('pos.access'), 403);
@@ -66,6 +71,8 @@ class PosController extends Controller
             $payment_status = 'Paid';
         }
 
+        $posLocationId = PosLocationResolver::resolveId();
+
         DB::beginTransaction();
 
         try {
@@ -94,7 +101,7 @@ class PosController extends Controller
 
             $sale = Sale::create($saleData);
 
-            $this->persistSaleDetailsFromCart($sale, $cart->content(), true);
+            $this->persistSaleDetailsFromCart($sale, $cart->content(), true, $posLocationId);
 
             if ($sale->paid_amount > 0) {
                 SalePayment::create([
@@ -135,6 +142,8 @@ class PosController extends Controller
             return back()->withErrors(['cart' => 'Cart is empty'])->withInput();
         }
 
+        $posLocationId = PosLocationResolver::resolveId();
+
         DB::beginTransaction();
         try {
             $customer = Customer::findOrFail($request->customer_id);
@@ -159,7 +168,7 @@ class PosController extends Controller
                 'discount_amount' => round((float) $cart->discount(), 2),
             ]);
 
-            $this->persistSaleDetailsFromCart($sale, $cart->content(), false);
+            $this->persistSaleDetailsFromCart($sale, $cart->content(), false, $posLocationId);
 
             DB::commit();
         } catch (Exception $e) {
@@ -176,7 +185,7 @@ class PosController extends Controller
         return redirect()->route('sales.index')->with('message', 'Quotation created successfully!');
     }
 
-    private function persistSaleDetailsFromCart(Sale $sale, $cartItems, bool $adjustInventory): void
+    private function persistSaleDetailsFromCart(Sale $sale, $cartItems, bool $adjustInventory, ?int $posLocationId = null): void
     {
         foreach ($cartItems as $cartItem) {
             $detailData = $this->mapCartItemToSaleDetailData($sale, $cartItem);
@@ -190,18 +199,128 @@ class PosController extends Controller
                     continue;
                 }
 
-                $product = Product::find($productId);
+                $this->applyInventoryAdjustments($sale, $saleDetail, $cartItem, $posLocationId);
+            }
+        }
+    }
 
-                if (! $product) {
-                    Log::warning('Product not found when adjusting POS sale inventory', [
-                        'product_id' => $productId,
-                        'sale_id' => $sale->id,
-                    ]);
-                    continue;
-                }
+    private function applyInventoryAdjustments(Sale $sale, SaleDetails $saleDetail, $cartItem, ?int $posLocationId): void
+    {
+        $options = $this->normalizeCartOptions($cartItem->options ?? []);
+        $productId = (int) ($options['product_id'] ?? 0);
 
-                $newQuantity = max(0, $product->product_quantity - (int) $cartItem->qty);
+        if ($productId && $posLocationId) {
+            $this->deductProductStock($productId, $posLocationId, (int) $saleDetail->quantity, $options, $sale);
+        }
+
+        if ($productId) {
+            $product = Product::query()->lockForUpdate()->find($productId);
+
+            if ($product) {
+                $newQuantity = max(0, (int) $product->product_quantity - (int) $saleDetail->quantity);
                 $product->update(['product_quantity' => $newQuantity]);
+            } else {
+                Log::warning('Product not found when adjusting POS stock summary', [
+                    'product_id' => $productId,
+                    'sale_id' => $sale->id,
+                ]);
+            }
+        }
+
+        $this->markSerialNumbersAsSold($saleDetail, $options);
+    }
+
+    private function deductProductStock(int $productId, int $locationId, int $quantity, array $options, Sale $sale): void
+    {
+        if ($quantity <= 0) {
+            return;
+        }
+
+        $stock = ProductStock::query()
+            ->where('product_id', $productId)
+            ->where('location_id', $locationId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $stock) {
+            Log::warning('POS sale could not locate stock row for deduction', [
+                'product_id' => $productId,
+                'location_id' => $locationId,
+                'sale_id' => $sale->id,
+            ]);
+            return;
+        }
+
+        $availableNonTax = max(0, (int) $stock->quantity_non_tax);
+        $availableTax = max(0, (int) $stock->quantity_tax);
+
+        $allocatedNonTax = min($quantity, max(0, (int) ($options['allocated_non_tax'] ?? 0)));
+        $allocatedTax = min($quantity - $allocatedNonTax, max(0, (int) ($options['allocated_tax'] ?? 0)));
+
+        $remaining = $quantity - ($allocatedNonTax + $allocatedTax);
+
+        if ($remaining > 0 && $allocatedNonTax < $availableNonTax) {
+            $additional = min($remaining, max(0, $availableNonTax - $allocatedNonTax));
+            $allocatedNonTax += $additional;
+            $remaining -= $additional;
+        }
+
+        if ($remaining > 0 && $allocatedTax < $availableTax) {
+            $additionalTax = min($remaining, max(0, $availableTax - $allocatedTax));
+            $allocatedTax += $additionalTax;
+            $remaining -= $additionalTax;
+        }
+
+        if ($remaining > 0) {
+            Log::warning('POS sale deducted more stock than available', [
+                'product_id' => $productId,
+                'location_id' => $locationId,
+                'sale_id' => $sale->id,
+                'quantity_requested' => $quantity,
+                'non_tax_allocated' => $allocatedNonTax,
+                'tax_allocated' => $allocatedTax,
+                'remaining' => $remaining,
+            ]);
+        }
+
+        $stock->quantity_non_tax = max(0, $availableNonTax - $allocatedNonTax);
+        $stock->quantity_tax = max(0, $availableTax - $allocatedTax);
+        $stock->quantity = max(0, (int) $stock->quantity_non_tax + (int) $stock->quantity_tax);
+        $stock->broken_quantity = max(0, (int) $stock->broken_quantity_non_tax + (int) $stock->broken_quantity_tax);
+        $stock->save();
+    }
+
+    private function markSerialNumbersAsSold(SaleDetails $saleDetail, array $options): void
+    {
+        $serials = $this->resolveSerialNumbers($options);
+        if (! $serials) {
+            return;
+        }
+
+        $serialIds = collect($serials)
+            ->map(fn ($serial) => (int) ($serial['id'] ?? 0))
+            ->filter()
+            ->values();
+
+        if ($serialIds->isEmpty()) {
+            return;
+        }
+
+        $records = ProductSerialNumber::query()
+            ->whereIn('id', $serialIds)
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($records as $record) {
+            $record->dispatch_detail_id = $saleDetail->id;
+            $record->save();
+        }
+
+        if (! $saleDetail->tax_id) {
+            $taxIds = $records->pluck('tax_id')->filter()->unique()->values();
+            if ($taxIds->count() === 1) {
+                $saleDetail->tax_id = $taxIds->first();
+                $saleDetail->save();
             }
         }
     }
@@ -215,7 +334,18 @@ class PosController extends Controller
         $discountAmount = $options['product_discount'] ?? 0;
         $discountType = $options['product_discount_type'] ?? 'fixed';
         $taxAmount = $options['tax_amount'] ?? ($options['product_tax_amount'] ?? 0);
-        $taxId = $options['product_tax'] ?? null;
+        $taxId = $options['resolved_tax_id'] ?? ($options['product_tax'] ?? ($options['tax_id'] ?? null));
+
+        if ($taxId === '' || $taxId === 0 || $taxId === '0') {
+            $taxId = null;
+        }
+
+        if ($taxId === null && ! empty($options['serial_tax_ids'])) {
+            $uniqueTaxIds = array_values(array_unique(array_filter(array_map('intval', (array) $options['serial_tax_ids']))));
+            if (count($uniqueTaxIds) === 1) {
+                $taxId = $uniqueTaxIds[0];
+            }
+        }
 
         $data = [
             'sale_id' => $sale->id,
@@ -278,7 +408,7 @@ class PosController extends Controller
                 continue;
             }
 
-            SaleBundleItem::create([
+            $bundlePayload = [
                 'sale_detail_id' => $saleDetail->id,
                 'sale_id' => $sale->id,
                 'bundle_id' => $bundleId,
@@ -288,7 +418,13 @@ class PosController extends Controller
                 'price' => round((float) ($bundleItem['price'] ?? 0), 2),
                 'quantity' => (int) ($bundleItem['quantity'] ?? 0),
                 'sub_total' => round((float) ($bundleItem['sub_total'] ?? 0), 2),
-            ]);
+            ];
+
+            if ($this->saleBundleItemsHasTaxIdColumn()) {
+                $bundlePayload['tax_id'] = $saleDetail->tax_id;
+            }
+
+            SaleBundleItem::create($bundlePayload);
         }
     }
 
@@ -329,6 +465,7 @@ class PosController extends Controller
         }
 
         $normalized = [];
+        $missingTaxLookup = [];
 
         foreach ($serials as $serial) {
             if ($serial instanceof \Illuminate\Support\Collection) {
@@ -343,7 +480,32 @@ class PosController extends Controller
                 continue;
             }
 
+            $serial['id'] = isset($serial['id']) ? (int) $serial['id'] : null;
+            if (! isset($serial['tax_id']) || $serial['tax_id'] === '' || $serial['tax_id'] === null) {
+                if ($serial['id']) {
+                    $missingTaxLookup[] = $serial['id'];
+                }
+                $serial['tax_id'] = null;
+            } else {
+                $serial['tax_id'] = (int) $serial['tax_id'];
+            }
+
             $normalized[] = $serial;
+        }
+
+        if (! empty($missingTaxLookup)) {
+            $taxMap = ProductSerialNumber::query()
+                ->whereIn('id', $missingTaxLookup)
+                ->pluck('tax_id', 'id');
+
+            foreach ($normalized as &$entry) {
+                $id = $entry['id'] ?? null;
+                if ($id && ($entry['tax_id'] === null || $entry['tax_id'] === '')) {
+                    $taxId = $taxMap[$id] ?? null;
+                    $entry['tax_id'] = $taxId !== null ? (int) $taxId : null;
+                }
+            }
+            unset($entry);
         }
 
         return $normalized ?: null;
@@ -365,5 +527,14 @@ class PosController extends Controller
         }
 
         return self::$saleDetailsHasSerialNumbersColumn;
+    }
+
+    private function saleBundleItemsHasTaxIdColumn(): bool
+    {
+        if (self::$saleBundleItemsHasTaxIdColumn === null) {
+            self::$saleBundleItemsHasTaxIdColumn = Schema::hasColumn('sale_bundle_items', 'tax_id');
+        }
+
+        return self::$saleBundleItemsHasTaxIdColumn;
     }
 }

@@ -2,12 +2,15 @@
 
 namespace App\Livewire\Pos;
 
+use App\Support\PosLocationResolver;
 use App\Support\ProductBundleResolver;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Support\Collection;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Setting\Entities\PaymentMethod;
 
@@ -43,6 +46,7 @@ class Checkout extends Component
     public $serialSelectionContext = null;
     public $paymentMethods = [];
     public $selected_payment_method_id = null;
+    public ?int $posLocationId = null;
 
     public function mount($cartInstance, $customers)
     {
@@ -62,6 +66,8 @@ class Checkout extends Component
         $this->paymentMethods = PaymentMethod::all();
 
         $this->bundleOptions = collect();
+
+        $this->posLocationId = PosLocationResolver::resolveId();
     }
 
     public function hydrate()
@@ -137,10 +143,37 @@ class Checkout extends Component
         $cartKey      = $this->generateCartItemKey($product['id'], $bundleId);
         $convertedQty = max(1, (int) ($product['conversion_factor'] ?? 1));
 
+        $stockContext = $this->resolveStockForProduct($product, $convertedQty);
+
+        if (!$stockContext['sufficient']) {
+            session()->flash('message', 'The requested quantity exceeds available POS stock.');
+            return;
+        }
+
         // Centralized calc (handles conversion-pack costs via ProductUnitConversion)
         $calculated = $this->calculate($product, $convertedQty);
         $bundleOptions = $this->prepareBundleOptionsForQuantity($bundleMeta, $convertedQty);
         $final_sub_total = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
+
+        $baseOptions = array_merge([
+            'product_discount'       => 0.00,
+            'product_discount_type'  => 'fixed',
+            'sub_total'              => $final_sub_total, // <<< line total
+            'code'                   => $product['product_code'],
+            'stock'                  => (int) ($product['product_quantity'] ?? PHP_INT_MAX),
+            'product_tax'            => 0,
+            'unit_price'             => $calculated['unit_price'],
+            'serial_number_required' => $this->productRequiresSerial($product),
+            'product_id'             => (int) $product['id'],
+            'sale_price'             => (float) ($product['sale_price'] ?? 0),
+            'conversion_context'     => $calculated['conversion_context'],
+            'cart_key'               => $cartKey,
+            'allocated_non_tax'      => 0,
+            'allocated_tax'          => 0,
+            'serial_tax_ids'         => [],
+        ], $bundleOptions);
+
+        $finalOptions = $this->applyStockContextToOptions($baseOptions, $stockContext);
 
         Cart::instance($this->cart_instance)->add([
             'id'      => $cartKey,
@@ -148,23 +181,10 @@ class Checkout extends Component
             'qty'     => $convertedQty,
             'price'   => $calculated['unit_price'],   // <<< always unit price
             'weight'  => 1,
-            'options' => array_merge([
-                'product_discount'      => 0.00,
-                'product_discount_type' => 'fixed',
-                'sub_total'             => $final_sub_total, // <<< line total
-                'code'                  => $product['product_code'],
-                'stock'                 => (int) ($product['product_quantity'] ?? PHP_INT_MAX),
-                'product_tax'           => 0,
-                'unit_price'            => $calculated['unit_price'],
-                'serial_number_required'=> $this->productRequiresSerial($product),
-                'product_id'            => (int) $product['id'],
-                'sale_price'            => (float) ($product['sale_price'] ?? 0),
-                'conversion_context'    => $calculated['conversion_context'],
-                'cart_key'              => $cartKey,
-            ], $bundleOptions),
+            'options' => $finalOptions,
         ]);
 
-        $this->check_quantity[$cartKey] = (int) ($product['product_quantity'] ?? PHP_INT_MAX);
+        $this->check_quantity[$cartKey] = (int) ($stockContext['available_total'] ?? ($product['product_quantity'] ?? PHP_INT_MAX));
         $this->quantity[$cartKey]       = $convertedQty;
         $this->discount_type[$cartKey]  = 'fixed';
         $this->item_discount[$cartKey]  = 0;
@@ -242,11 +262,6 @@ class Checkout extends Component
             $this->quantity[$cart_key] = $cart_item->qty;
         }
 
-        if (($this->check_quantity[$cart_key] ?? PHP_INT_MAX) < $this->quantity[$cart_key]) {
-            session()->flash('message', 'The requested quantity is not available in stock.');
-            return;
-        }
-
         $newQty = $this->quantity[$cart_key];
         $productId = (int) ($cart_item->options->product_id ?? 0);
         $product = $productId ? Product::find($productId) : null;
@@ -254,26 +269,49 @@ class Checkout extends Component
             return;
         }
 
+        $existingOptions = $cart_item->options->toArray();
+        $forcedAllocation = null;
+        if (!empty($existingOptions['serial_numbers'])) {
+            $forcedAllocation = $this->buildSerialAllocation($existingOptions['serial_numbers']);
+        }
+
+        $stockContext = $this->resolveStockForProduct($product->toArray(), $newQty, $forcedAllocation);
+
+        if (!$stockContext['sufficient']) {
+            session()->flash('message', 'The requested quantity is not available in stock.');
+            $this->quantity[$cart_key] = $cart_item->qty;
+            return;
+        }
+
         $calculated = $this->calculate($product->toArray(), $newQty);
-        $bundleOptions = $this->recalculateBundleOptions($cart_item->options->toArray(), $newQty);
+        $bundleOptions = $this->recalculateBundleOptions($existingOptions, $newQty);
         $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
+
+        $mergedOptions = array_merge(
+            $existingOptions,
+            $bundleOptions,
+            [
+                'unit_price' => $calculated['unit_price'],
+                'sub_total' => $finalSubTotal,
+                'conversion_context' => $calculated['conversion_context'],
+                'cart_key' => $cart_key,
+            ]
+        );
+
+        $mergedOptions = $this->applyStockContextToOptions($mergedOptions, $stockContext);
+
+        if ($forcedAllocation) {
+            $mergedOptions['serial_tax_ids'] = $forcedAllocation['tax_ids'];
+        }
 
         $cart->update($row_id, [
             'qty' => $newQty,
             'price' => $calculated['unit_price'],
-            'options' => array_merge(
-                $cart_item->options->toArray(),
-                $bundleOptions,
-                [
-                    'unit_price' => $calculated['unit_price'],
-                    'sub_total' => $finalSubTotal,
-                    'conversion_context' => $calculated['conversion_context'],
-                    'cart_key' => $cart_key,
-                ]
-            ),
+            'options' => $mergedOptions,
         ]);
 
         $this->conversion_breakdowns[$cart_key] = $calculated['conversion_context']['breakdown'] ?? '';
+        $this->check_quantity[$cart_key] = (int) ($stockContext['available_total'] ?? $newQty);
         $this->total_amount = $this->calculateTotal();
     }
 
@@ -318,7 +356,7 @@ class Checkout extends Component
         $serials = [];
         if (isset($data['pending_serials']) && is_array($data['pending_serials'])) {
             foreach ($data['pending_serials'] as $serial) {
-                $normalized = $this->normalizeSerial($serial);
+                $normalized = $this->normalizeSerial($serial, (int) ($data['id'] ?? 0));
                 if ($normalized) {
                     $serials[] = $normalized;
                 }
@@ -579,6 +617,7 @@ class Checkout extends Component
         $serialPayload = [
             'id'            => (int) $serial['id'],
             'serial_number' => (string) $serial['serial_number'],
+            'tax_id'        => isset($serial['tax_id']) ? ($serial['tax_id'] !== null ? (int) $serial['tax_id'] : null) : null,
         ];
 
         if ($existing) {
@@ -598,23 +637,37 @@ class Checkout extends Component
             $bundleOptions = $this->recalculateBundleOptions($options, $quantity);
             $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
+            $allocation = $this->buildSerialAllocation($options['serial_numbers']);
+            $stockContext = $this->resolveStockForProduct($product, $quantity, $allocation);
+
+            if (!$stockContext['sufficient']) {
+                session()->flash('message', 'The selected serial exceeds available POS stock.');
+                return;
+            }
+
+            $mergedOptions = array_merge(
+                $options,
+                $bundleOptions,
+                [
+                    'sub_total' => $finalSubTotal,
+                    'unit_price'=> $calculated['unit_price'],
+                    'conversion_context' => $calculated['conversion_context'],
+                    'cart_key' => $cartKey,
+                ]
+            );
+
+            $mergedOptions = $this->applyStockContextToOptions($mergedOptions, $stockContext);
+            $mergedOptions['serial_numbers'] = array_values($options['serial_numbers']);
+            $mergedOptions['serial_tax_ids'] = $allocation['tax_ids'];
+
             $cart->update($existing->rowId, [
                 'qty'     => $quantity,
                 'price'   => $calculated['unit_price'],
-                'options' => array_merge(
-                    $options,
-                    $bundleOptions,
-                    [
-                        'sub_total' => $finalSubTotal,
-                        'unit_price'=> $calculated['unit_price'],
-                        'conversion_context' => $calculated['conversion_context'],
-                        'cart_key' => $cartKey,
-                    ]
-                ),
+                'options' => $mergedOptions,
             ]);
 
             $this->quantity[$cartKey]       = $quantity;
-            $this->check_quantity[$cartKey] = $options['stock'] ?? ($existing->options->stock ?? PHP_INT_MAX);
+            $this->check_quantity[$cartKey] = (int) ($stockContext['available_total'] ?? ($existing->options->stock ?? PHP_INT_MAX));
             $this->conversion_breakdowns[$cartKey] = $calculated['conversion_context']['breakdown'] ?? '';
             return;
         }
@@ -623,37 +676,54 @@ class Checkout extends Component
         $bundleOptions = $this->prepareBundleOptionsForQuantity($bundleMeta, 1);
         $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
+        $allocation = $this->buildSerialAllocation([$serialPayload]);
+        $stockContext = $this->resolveStockForProduct($product, 1, $allocation);
+
+        if (!$stockContext['sufficient']) {
+            session()->flash('message', 'The selected serial exceeds available POS stock.');
+            return;
+        }
+
+        $baseOptions = array_merge([
+            'product_discount'        => 0.00,
+            'product_discount_type'   => 'fixed',
+            'sub_total'               => $finalSubTotal,
+            'code'                    => $product['product_code'] ?? null,
+            'stock'                   => $product['product_quantity'] ?? PHP_INT_MAX,
+            'product_tax'             => 0,
+            'unit_price'              => $calculated['unit_price'],
+            'serial_number_required'  => true,
+            'serial_numbers'          => [$serialPayload],
+            'product_id'              => (int) $product['id'],
+            'sale_price'              => (float) ($product['sale_price'] ?? 0),
+            'conversion_context'      => $calculated['conversion_context'],
+            'cart_key'                => $cartKey,
+            'allocated_non_tax'       => 0,
+            'allocated_tax'           => 0,
+            'serial_tax_ids'          => $allocation['tax_ids'],
+        ], $bundleOptions);
+
+        $finalOptions = $this->applyStockContextToOptions($baseOptions, $stockContext);
+        $finalOptions['serial_numbers'] = [$serialPayload];
+        $finalOptions['serial_tax_ids'] = $allocation['tax_ids'];
+
         Cart::instance($this->cart_instance)->add([
             'id'     => $cartKey,
             'name'   => $product['product_name'],
             'qty'    => 1,
             'price'  => $calculated['unit_price'],   // unit price
             'weight' => 1,
-            'options' => array_merge([
-                'product_discount'        => 0.00,
-                'product_discount_type'   => 'fixed',
-                'sub_total'               => $finalSubTotal,
-                'code'                    => $product['product_code'] ?? null,
-                'stock'                   => $product['product_quantity'] ?? PHP_INT_MAX,
-                'product_tax'             => 0,
-                'unit_price'              => $calculated['unit_price'],
-                'serial_number_required'  => true,
-                'serial_numbers'          => [$serialPayload],
-                'product_id'              => (int) $product['id'],
-                'sale_price'              => (float) ($product['sale_price'] ?? 0),
-                'conversion_context'      => $calculated['conversion_context'],
-                'cart_key'                => $cartKey,
-            ], $bundleOptions),
+            'options' => $finalOptions,
         ]);
 
-        $this->check_quantity[$cartKey] = $product['product_quantity'] ?? PHP_INT_MAX;
+        $this->check_quantity[$cartKey] = (int) ($stockContext['available_total'] ?? ($product['product_quantity'] ?? PHP_INT_MAX));
         $this->quantity[$cartKey]       = 1;
         $this->discount_type[$cartKey]  = 'fixed';
         $this->item_discount[$cartKey]  = 0;
         $this->conversion_breakdowns[$cartKey] = $calculated['conversion_context']['breakdown'] ?? '';
     }
 
-    private function normalizeSerial($serial): ?array
+    private function normalizeSerial($serial, ?int $productId = null): ?array
     {
         if (!$serial) {
             return null;
@@ -664,9 +734,36 @@ class Checkout extends Component
             return null;
         }
 
+        $serialId = (int) $data['id'];
+        $serialNumber = (string) $data['serial_number'];
+
+        if ($serialId <= 0) {
+            return null;
+        }
+
+        if ($productId) {
+            $record = ProductSerialNumber::query()
+                ->where('id', $serialId)
+                ->where('product_id', $productId)
+                ->when($this->posLocationId, fn($query) => $query->where('location_id', $this->posLocationId))
+                ->whereNull('dispatch_detail_id')
+                ->first();
+
+            if (!$record) {
+                return null;
+            }
+
+            return [
+                'id'            => $record->id,
+                'serial_number' => $record->serial_number,
+                'tax_id'        => $record->tax_id !== null ? (int) $record->tax_id : null,
+            ];
+        }
+
         return [
-            'id'            => (int) $data['id'],
-            'serial_number' => (string) $data['serial_number'],
+            'id'            => $serialId,
+            'serial_number' => $serialNumber,
+            'tax_id'        => isset($data['tax_id']) && $data['tax_id'] !== null ? (int) $data['tax_id'] : null,
         ];
     }
 
@@ -831,6 +928,196 @@ class Checkout extends Component
         return $context['breakdown'] ?? '';
     }
 
+    private function resolveStockForProduct(array $product, int $quantity, ?array $forcedAllocation = null): array
+    {
+        $quantity = max(0, (int) $quantity);
+        $productId = (int) ($product['id'] ?? 0);
+
+        $availableNonTax = null;
+        $availableTax = null;
+        $availableTotal = null;
+        $resolvedTaxId = null;
+        $stockTaxId = $product['product_tax'] ?? null;
+
+        if ($this->posLocationId && $productId > 0) {
+            $stock = ProductStock::query()
+                ->select(['id', 'quantity_non_tax', 'quantity_tax', 'broken_quantity_non_tax', 'broken_quantity_tax', 'tax_id'])
+                ->where('product_id', $productId)
+                ->where('location_id', $this->posLocationId)
+                ->first();
+
+            if ($stock) {
+                $availableNonTax = max(0, (int) $stock->quantity_non_tax - (int) $stock->broken_quantity_non_tax);
+                $availableTax = max(0, (int) $stock->quantity_tax - (int) $stock->broken_quantity_tax);
+                $availableTotal = $availableNonTax + $availableTax;
+                $stockTaxId = $stock->tax_id !== null ? (int) $stock->tax_id : null;
+            } else {
+                $availableNonTax = 0;
+                $availableTax = 0;
+                $availableTotal = 0;
+            }
+        }
+
+        if ($availableTotal === null) {
+            $availableTotal = (int) ($product['product_quantity'] ?? PHP_INT_MAX);
+        }
+
+        $allocatedNonTax = 0;
+        $allocatedTax = 0;
+
+        if ($forcedAllocation) {
+            $allocatedNonTax = max(0, (int) ($forcedAllocation['allocated_non_tax'] ?? 0));
+            $allocatedTax = max(0, (int) ($forcedAllocation['allocated_tax'] ?? 0));
+            $forcedTaxId = $forcedAllocation['resolved_tax_id'] ?? null;
+
+            if ($availableNonTax !== null && $allocatedNonTax > $availableNonTax) {
+                $allocatedNonTax = $availableNonTax;
+            }
+
+            if ($availableTax !== null && $allocatedTax > $availableTax) {
+                $allocatedTax = $availableTax;
+            }
+
+            $allocatedTotal = $allocatedNonTax + $allocatedTax;
+            if ($allocatedTotal < $quantity) {
+                $remaining = $quantity - $allocatedTotal;
+
+                if ($availableNonTax !== null && $allocatedNonTax < $availableNonTax) {
+                    $additional = min($remaining, max(0, $availableNonTax - $allocatedNonTax));
+                    $allocatedNonTax += $additional;
+                    $remaining -= $additional;
+                }
+
+                if ($remaining > 0 && $availableTax !== null && $allocatedTax < $availableTax) {
+                    $additionalTax = min($remaining, max(0, $availableTax - $allocatedTax));
+                    $allocatedTax += $additionalTax;
+                    $remaining -= $additionalTax;
+                }
+
+                if ($remaining > 0) {
+                    $allocatedTax += $remaining;
+                }
+            }
+
+            $resolvedTaxId = $forcedTaxId !== null ? (int) $forcedTaxId : null;
+            if ($resolvedTaxId === null && $allocatedTax > 0) {
+                $resolvedTaxId = $stockTaxId !== null ? (int) $stockTaxId : null;
+            }
+        } else {
+            if ($availableNonTax !== null && $availableTax !== null) {
+                $allocatedNonTax = min($quantity, $availableNonTax);
+                $allocatedTax = min(max(0, $quantity - $allocatedNonTax), $availableTax);
+            } else {
+                $allocatedNonTax = min($quantity, $availableTotal);
+                $allocatedTax = max(0, $quantity - $allocatedNonTax);
+            }
+
+            $resolvedTaxId = $allocatedTax > 0 && $stockTaxId !== null ? (int) $stockTaxId : null;
+        }
+
+        $totalAllocated = $allocatedNonTax + $allocatedTax;
+
+        $sufficient = true;
+        if ($availableTotal !== null) {
+            $sufficient = $quantity <= $availableTotal;
+        }
+        if ($availableNonTax !== null && $allocatedNonTax > $availableNonTax) {
+            $sufficient = false;
+        }
+        if ($availableTax !== null && $allocatedTax > $availableTax) {
+            $sufficient = false;
+        }
+        if ($totalAllocated < $quantity) {
+            $sufficient = false;
+        }
+
+        $remainingNonTax = $availableNonTax !== null ? max(0, $availableNonTax - $allocatedNonTax) : null;
+        $remainingTax = $availableTax !== null ? max(0, $availableTax - $allocatedTax) : null;
+
+        return [
+            'sufficient' => $sufficient,
+            'allocated_non_tax' => $allocatedNonTax,
+            'allocated_tax' => $allocatedTax,
+            'resolved_tax_id' => $resolvedTaxId,
+            'remaining_non_tax' => $remainingNonTax,
+            'remaining_tax' => $remainingTax,
+            'available_non_tax' => $availableNonTax,
+            'available_tax' => $availableTax,
+            'available_total' => $availableTotal,
+        ];
+    }
+
+    private function applyStockContextToOptions(array $options, array $stockContext): array
+    {
+        $resolvedTaxId = $stockContext['resolved_tax_id'] ?? null;
+        if ($resolvedTaxId === 0 || $resolvedTaxId === '0' || $resolvedTaxId === '') {
+            $resolvedTaxId = null;
+        }
+
+        $options['product_tax'] = $resolvedTaxId;
+        $options['resolved_tax_id'] = $resolvedTaxId;
+        $options['allocated_non_tax'] = (int) ($stockContext['allocated_non_tax'] ?? 0);
+        $options['allocated_tax'] = (int) ($stockContext['allocated_tax'] ?? 0);
+        $options['available_quantity_non_tax'] = isset($stockContext['remaining_non_tax'])
+            ? max(0, (int) $stockContext['remaining_non_tax'])
+            : null;
+        $options['available_quantity_tax'] = isset($stockContext['remaining_tax'])
+            ? max(0, (int) $stockContext['remaining_tax'])
+            : null;
+        $options['available_stock_non_tax'] = isset($stockContext['available_non_tax'])
+            ? max(0, (int) $stockContext['available_non_tax'])
+            : null;
+        $options['available_stock_tax'] = isset($stockContext['available_tax'])
+            ? max(0, (int) $stockContext['available_tax'])
+            : null;
+        if (isset($stockContext['available_total'])) {
+            $options['stock'] = max(0, (int) $stockContext['available_total']);
+        }
+        $options['pos_location_id'] = $this->posLocationId;
+
+        return $options;
+    }
+
+    private function buildSerialAllocation(array $serials): array
+    {
+        $nonTax = 0;
+        $tax = 0;
+        $taxIds = [];
+
+        foreach ($serials as $serial) {
+            if ($serial instanceof Collection) {
+                $serial = $serial->toArray();
+            } elseif (is_object($serial) && method_exists($serial, 'toArray')) {
+                $serial = $serial->toArray();
+            }
+
+            if (!is_array($serial)) {
+                continue;
+            }
+
+            $taxId = $serial['tax_id'] ?? null;
+            if ($taxId !== null && $taxId !== '') {
+                $tax++;
+                $taxIds[] = (int) $taxId;
+            } else {
+                $nonTax++;
+            }
+        }
+
+        $uniqueTaxIds = array_values(array_unique($taxIds));
+        $resolvedTaxId = null;
+        if ($tax > 0 && count($uniqueTaxIds) === 1) {
+            $resolvedTaxId = $uniqueTaxIds[0];
+        }
+
+        return [
+            'allocated_non_tax' => $nonTax,
+            'allocated_tax' => $tax,
+            'resolved_tax_id' => $resolvedTaxId,
+            'tax_ids' => $uniqueTaxIds,
+        ];
+    }
+
     public function setCustomer($customer)
     {
         $this->customer_id = $customer['id'];
@@ -844,23 +1131,40 @@ class Checkout extends Component
             $productData = $product->toArray();
             $qty = $item->qty;
             $calculated = $this->calculate($productData, $qty);
-            $bundleOptions = $this->recalculateBundleOptions($item->options->toArray(), $qty);
+            $existingOptions = $item->options->toArray();
+            $bundleOptions = $this->recalculateBundleOptions($existingOptions, $qty);
             $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
+
+            $forcedAllocation = null;
+            if (!empty($existingOptions['serial_numbers'])) {
+                $forcedAllocation = $this->buildSerialAllocation($existingOptions['serial_numbers']);
+            }
+
+            $stockContext = $this->resolveStockForProduct($productData, $qty, $forcedAllocation);
+
+            $options = array_merge($existingOptions, $bundleOptions, [
+                'unit_price' => $calculated['unit_price'],
+                'product_tax' => $calculated['product_tax'],
+                'sub_total' => $finalSubTotal,
+                'conversion_context' => $calculated['conversion_context'],
+                'cart_key' => $item->options->cart_key ?? $item->id,
+            ]);
+
+            $options = $this->applyStockContextToOptions($options, $stockContext);
+
+            if ($forcedAllocation) {
+                $options['serial_tax_ids'] = $forcedAllocation['tax_ids'];
+            }
 
             Cart::instance($this->cart_instance)->update($item->rowId, [
                 'price' => $calculated['unit_price'],
-                'options' => array_merge($item->options->toArray(), $bundleOptions, [
-                    'unit_price' => $calculated['unit_price'],
-                    'product_tax' => $calculated['product_tax'],
-                    'sub_total' => $finalSubTotal,
-                    'conversion_context' => $calculated['conversion_context'],
-                    'cart_key' => $item->options->cart_key ?? $item->id,
-                ]),
+                'options' => $options,
             ]);
 
             $cartKey = $item->options->cart_key ?? $item->id;
             $this->quantity[$cartKey] = $qty;
             $this->conversion_breakdowns[$cartKey] = $calculated['conversion_context']['breakdown'] ?? '';
+            $this->check_quantity[$cartKey] = (int) ($stockContext['available_total'] ?? $qty);
         }
 
         $this->total_amount = $this->calculateTotal();
@@ -890,7 +1194,7 @@ class Checkout extends Component
     public function onSerialScanned(array $payload): void
     {
         $productId = (int)($payload['product_id'] ?? 0);
-        $serial    = $this->normalizeSerial($payload['serial'] ?? null);
+        $serial    = $this->normalizeSerial($payload['serial'] ?? null, $productId);
 
         if (!$productId || !$serial) {
             return;
@@ -961,32 +1265,53 @@ class Checkout extends Component
         $productId = (int) ($item->options->product_id ?? 0);
         $product = $productId ? Product::find($productId) : null;
 
+        $cart_key = $item->options->cart_key ?? $item->id;
+        $allocation = $this->buildSerialAllocation($options['serial_numbers'] ?? []);
+        $stockContext = null;
+
+        if ($product) {
+            $stockContext = $this->resolveStockForProduct($product->toArray(), max($newQty, 0), $allocation);
+        }
+
         if ($product && $newQty > 0) {
             $calculated = $this->calculate($product->toArray(), $newQty);
             $bundleOptions = $this->recalculateBundleOptions($options, $newQty);
             $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
+            $mergedOptions = array_merge($options, $bundleOptions, [
+                'sub_total' => $finalSubTotal,
+                'unit_price' => $calculated['unit_price'],
+                'conversion_context' => $calculated['conversion_context'],
+                'cart_key' => $cart_key,
+            ]);
+
+            if ($stockContext) {
+                $mergedOptions = $this->applyStockContextToOptions($mergedOptions, $stockContext);
+            }
+
+            $mergedOptions['serial_numbers'] = $options['serial_numbers'];
+            $mergedOptions['serial_tax_ids'] = $allocation['tax_ids'];
+
             Cart::instance($this->cart_instance)->update($rowId, [
                 'qty' => $newQty,
                 'price' => $calculated['unit_price'],
-                'options' => array_merge($options, $bundleOptions, [
-                    'sub_total' => $finalSubTotal,
-                    'unit_price' => $calculated['unit_price'],
-                    'conversion_context' => $calculated['conversion_context'],
-                    'cart_key' => $item->options->cart_key ?? $item->id,
-                ]),
+                'options' => $mergedOptions,
             ]);
 
-            $cart_key = $item->options->cart_key ?? $item->id;
-            $this->quantity[$cart_key] = $newQty;
+            $this->check_quantity[$cart_key] = (int) ($stockContext['available_total'] ?? $newQty);
             $this->conversion_breakdowns[$cart_key] = $calculated['conversion_context']['breakdown'] ?? '';
         } else {
+            if ($stockContext) {
+                $options = $this->applyStockContextToOptions($options, $stockContext);
+            }
+
+            $options['serial_tax_ids'] = $allocation['tax_ids'];
             Cart::instance($this->cart_instance)->update($rowId, ['options' => $options, 'qty' => $newQty]);
-            $cart_key = $item->options->cart_key ?? $item->id;
-            $this->quantity[$cart_key] = $newQty;
+            $this->check_quantity[$cart_key] = $stockContext['available_total'] ?? ($options['stock'] ?? PHP_INT_MAX);
             $this->conversion_breakdowns[$cart_key] = '';
         }
 
+        $this->quantity[$cart_key] = $newQty;
         $this->total_amount = $this->calculateTotal();
     }
 }
