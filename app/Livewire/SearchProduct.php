@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Livewire\Pos\Checkout;
+use App\Support\ProductBundleResolver;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
@@ -93,10 +94,18 @@ class SearchProduct extends Component
             p.unit_id,
             p.base_unit_id,
             CASE WHEN p.sale_price > 0 THEN p.sale_price ELSE p.product_price END AS price,
-            u.name          AS unit_name
+            u.name          AS unit_name,
+            COALESCE(st.stock_qty, 0) AS stock_qty
         FROM product_serial_numbers psn
         JOIN products p ON p.id = psn.product_id
         LEFT JOIN units u ON u.id = p.base_unit_id
+        LEFT JOIN (
+            SELECT product_id,
+                   SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
+            FROM product_stocks
+            WHERE (location_id = COALESCE(:posLocationId1, location_id))
+            GROUP BY product_id
+        ) st ON st.product_id = p.id
         WHERE LOWER(psn.serial_number) = LOWER(:code)
           AND psn.is_broken = 0
           AND (psn.location_id = COALESCE(:posLocationId1, psn.location_id))
@@ -109,6 +118,29 @@ class SearchProduct extends Component
         ]);
 
         if (!$row) return false;
+
+        if ((int) $row->stock_qty <= 0) {
+            return false;
+        }
+
+        $bundles = ProductBundleResolver::forProduct((int) $row->product_id);
+        if ($bundles->isNotEmpty()) {
+            $payload = [
+                'id'                    => (int) $row->product_id,
+                'product_name'          => (string) $row->product_name,
+                'product_code'          => (string) $row->product_code,
+                'product_quantity'      => (int) $row->stock_qty,
+                'conversion_factor'     => 1,
+                'serial_number_required'=> (bool) $row->serial_number_required,
+                'pending_serials'       => [[
+                    'id'            => (int) $row->serial_id,
+                    'serial_number' => (string) $row->serial_number,
+                ]],
+            ];
+
+            $this->dispatch('productSelected', $payload)->to(Checkout::class);
+            return true;
+        }
 
         // Send to Checkout listener
         $this->dispatch('serialScanned', [
