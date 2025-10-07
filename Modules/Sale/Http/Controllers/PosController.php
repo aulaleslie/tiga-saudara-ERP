@@ -182,7 +182,9 @@ class PosController extends Controller
 
         $cart->destroy();
 
-        return redirect()->route('sales.index')->with('message', 'Quotation created successfully!');
+        toast('Dokumen penjualan disimpan sebagai draft!', 'success');
+
+        return redirect()->route('app.pos.index');
     }
 
     private function persistSaleDetailsFromCart(Sale $sale, $cartItems, bool $adjustInventory, ?int $posLocationId = null): void

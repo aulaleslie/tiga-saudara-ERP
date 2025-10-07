@@ -46,7 +46,7 @@
                                         <label for="paid_amount">Received Amount <span
                                                 class="text-danger">*</span></label>
                                         <input id="paid_amount" type="text" class="form-control" name="paid_amount"
-                                               value="{{ $total_amount }}" required>
+                                               wire:model.live.debounce.300ms="paid_amount" required>
                                     </div>
                                 </div>
                             </div>
@@ -91,7 +91,20 @@
                                     <tr class="text-primary">
                                         <th>Grand Total</th>
                                         <th>
-                                            (=) {{ format_currency(Cart::instance($cart_instance)->total()) }}
+                                            (=) {{ format_currency($total_amount) }}
+                                        </th>
+                                    </tr>
+                                    <tr>
+                                        <th>Received Amount</th>
+                                        <td>
+                                            {{ format_currency($paidAmount ?? 0) }}
+                                        </td>
+                                    </tr>
+                                    @php $computedChange = $changeDue ?? 0; @endphp
+                                    <tr class="{{ $computedChange < 0 ? 'text-danger' : 'text-success' }}">
+                                        <th>Change</th>
+                                        <th>
+                                            {{ $computedChange < 0 ? '(-)' : '(+)' }} {{ format_currency(abs($computedChange)) }}
                                         </th>
                                     </tr>
                                 </table>
@@ -104,7 +117,7 @@
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
                     <button type="submit" formaction="{{ route('app.pos.store-as-quotation') }}"
                             class="btn btn-warning">
-                        Simpan Sebagai Quotation
+                        Simpan Sebagai Dokumen Penjualan
                     </button>
                     <button type="submit" class="btn btn-primary">Submit</button>
                 </div>
