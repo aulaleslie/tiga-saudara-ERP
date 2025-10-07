@@ -2,6 +2,7 @@
 
 namespace Modules\Sale\Http\Controllers;
 
+use App\Events\PrintJobEvent;
 use App\Support\PosLocationResolver;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
@@ -22,6 +23,7 @@ use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
 use Modules\Sale\Http\Requests\StorePosSaleRequest;
 use Modules\Setting\Entities\PaymentMethod;
+use Throwable;
 
 class PosController extends Controller
 {
@@ -75,6 +77,9 @@ class PosController extends Controller
 
         DB::beginTransaction();
 
+        /** @var Sale|null $sale */
+        $sale = null;
+
         try {
             $saleData = [
                 'date' => now()->format('Y-m-d'),
@@ -124,6 +129,10 @@ class PosController extends Controller
             ]);
 
             return back()->withErrors(['error' => 'Failed to create POS sale.'])->withInput();
+        }
+
+        if ($sale) {
+            $this->triggerReceiptPrint($sale);
         }
 
         $cart->destroy();
@@ -428,6 +437,31 @@ class PosController extends Controller
 
             SaleBundleItem::create($bundlePayload);
         }
+    }
+
+    private function triggerReceiptPrint(Sale $sale): void
+    {
+        $userId = auth()->id();
+
+        if (! $userId) {
+            return;
+        }
+
+        try {
+            $sale->loadMissing(['saleDetails.product']);
+            $htmlContent = view('sale::print-pos', [
+                'sale' => $sale,
+            ])->render();
+        } catch (Throwable $throwable) {
+            Log::error('Failed to render POS sale receipt for printing', [
+                'sale_id' => $sale->id,
+                'error' => $throwable->getMessage(),
+            ]);
+
+            return;
+        }
+
+        event(new PrintJobEvent($htmlContent, 'pos-sale', (int) $userId));
     }
 
     private function normalizeCartOptions($options): array
