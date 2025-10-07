@@ -12,7 +12,6 @@
 */
 
 use Illuminate\Support\Facades\Route;
-use Modules\People\Entities\Customer;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Http\Controllers\PosController;
 use Modules\Sale\Http\Controllers\SaleController;
@@ -23,6 +22,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/app/pos', 'PosController@index')->name('app.pos.index');
     Route::post('/app/pos', 'PosController@store')->name('app.pos.store');
     Route::post('/pos/store-as-quotation', [PosController::class, 'storeAsQuotation'])->name('app.pos.store-as-quotation');
+
+    Route::view('/app/pos/cash-settlement', 'sale::pos.cash-settlement')->name('app.pos.cash-settlement');
+    Route::view('/app/pos/cash-pickup', 'sale::pos.cash-pickup')->name('app.pos.cash-pickup');
+    Route::view('/app/pos/cash-reconciliation', 'sale::pos.cash-reconciliation')->name('app.pos.cash-reconciliation');
 
 
     //Generate PDF

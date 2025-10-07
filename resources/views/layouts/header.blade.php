@@ -13,6 +13,23 @@
                         <i class="bi bi-cart mr-1"></i> POS System
                     </a>
         </li>
+        @if(request()->routeIs('app.pos.*'))
+            <li class="c-header-nav-item mr-2">
+                <a class="btn btn-outline-light btn-pill {{ request()->routeIs('app.pos.cash-settlement') ? 'active' : '' }}" href="{{ route('app.pos.cash-settlement') }}">
+                    <i class="bi bi-wallet2 mr-1"></i> Penyetoran
+                </a>
+            </li>
+            <li class="c-header-nav-item mr-2">
+                <a class="btn btn-outline-light btn-pill {{ request()->routeIs('app.pos.cash-pickup') ? 'active' : '' }}" href="{{ route('app.pos.cash-pickup') }}">
+                    <i class="bi bi-truck mr-1"></i> Penjemputan
+                </a>
+            </li>
+            <li class="c-header-nav-item mr-3">
+                <a class="btn btn-outline-light btn-pill {{ request()->routeIs('app.pos.cash-reconciliation') ? 'active' : '' }}" href="{{ route('app.pos.cash-reconciliation') }}">
+                    <i class="bi bi-calculator mr-1"></i> Rekonsiliasi
+                </a>
+            </li>
+        @endif
     @endcan
 
     @if(session('user_settings'))
