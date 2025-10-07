@@ -1,7 +1,10 @@
 <div>
     <form wire:submit.prevent="save" enctype="multipart/form-data">
         <div class="d-flex justify-content-end mb-3">
-            <button class="btn btn-primary">Simpan Biaya <i class="bi bi-check"></i></button>
+            <button class="btn btn-primary">
+                {{ $expenseId ? 'Ubah Biaya' : 'Simpan Biaya' }}
+                <i class="bi bi-check"></i>
+            </button>
         </div>
 
         <div class="card mb-4">
@@ -49,7 +52,7 @@
                     </thead>
                     <tbody>
                     @foreach($details as $index => $row)
-                        <tr>
+                        <tr wire:key="detail-{{ $row['id'] ?? 'new-'.$index }}">
                             <td>
                                 <input type="text" class="form-control" wire:model="details.{{ $index }}.name">
                                 @error("details.$index.name") <span class="text-danger small">{{ $message }}</span> @enderror
@@ -124,11 +127,34 @@
                 <input type="file" class="form-control" wire:model="files" multiple>
                 @error('files.*') <span class="text-danger">{{ $message }}</span> @enderror
                 <div wire:loading wire:target="files" class="text-info mt-2">Mengunggah file...</div>
+
+                @if(!empty($existingAttachments))
+                    <div class="mt-3">
+                        <label class="form-label">Lampiran Saat Ini</label>
+                        <ul class="list-group">
+                            @foreach($existingAttachments as $attachment)
+                                <li class="list-group-item d-flex justify-content-between align-items-center"
+                                    wire:key="attachment-{{ $attachment['id'] }}">
+                                    <span>
+                                        {{ $attachment['name'] }}
+                                        <small class="text-muted">({{ $attachment['size'] }})</small>
+                                    </span>
+                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                            wire:click="removeExistingAttachment({{ $attachment['id'] }})">
+                                        Hapus
+                                    </button>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
             </div>
         </div>
 
         <div class="form-group">
-            <button class="btn btn-success">Simpan</button>
+            <button class="btn btn-success">
+                {{ $expenseId ? 'Perbarui' : 'Simpan' }}
+            </button>
         </div>
     </form>
 </div>
