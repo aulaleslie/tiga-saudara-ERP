@@ -10,7 +10,6 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Setting\Entities\PaymentMethod;
-use Modules\Setting\Entities\Unit;
 
 class Checkout extends Component
 {
@@ -140,7 +139,8 @@ class Checkout extends Component
 
         // Centralized calc (handles conversion-pack costs via ProductUnitConversion)
         $calculated = $this->calculate($product, $convertedQty);
-        $final_sub_total = $calculated['sub_total'] + $bundleMeta['bundle_price'];
+        $bundleOptions = $this->prepareBundleOptionsForQuantity($bundleMeta, $convertedQty);
+        $final_sub_total = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
         Cart::instance($this->cart_instance)->add([
             'id'      => $cartKey,
@@ -157,18 +157,18 @@ class Checkout extends Component
                 'product_tax'           => 0,
                 'unit_price'            => $calculated['unit_price'],
                 'serial_number_required'=> $this->productRequiresSerial($product),
-            ], [
-                'bundle_items'          => $bundleMeta['bundle_items'],
-                'bundle_price'          => $bundleMeta['bundle_price'],
-                'bundle_name'           => $bundleMeta['bundle_name'],
-            ]),
+                'product_id'            => (int) $product['id'],
+                'sale_price'            => (float) ($product['sale_price'] ?? 0),
+                'conversion_context'    => $calculated['conversion_context'],
+                'cart_key'              => $cartKey,
+            ], $bundleOptions),
         ]);
 
         $this->check_quantity[$cartKey] = (int) ($product['product_quantity'] ?? PHP_INT_MAX);
         $this->quantity[$cartKey]       = $convertedQty;
         $this->discount_type[$cartKey]  = 'fixed';
         $this->item_discount[$cartKey]  = 0;
-        $this->conversion_breakdowns[$cartKey] = $this->calculateConversionBreakdown((int)$product['id'], $convertedQty);
+        $this->conversion_breakdowns[$cartKey] = $calculated['conversion_context']['breakdown'] ?? '';
 
         $this->total_amount = $this->calculateTotal();
     }
@@ -204,7 +204,7 @@ class Checkout extends Component
     public function removeItem($row_id)
     {
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
-        $cart_key = $cart_item->id;
+        $cart_key = $cart_item->options->cart_key ?? $cart_item->id;
 
         Cart::instance($this->cart_instance)->remove($row_id);
 
@@ -213,6 +213,7 @@ class Checkout extends Component
         unset($this->unit_price[$cart_key]);
         unset($this->discount_type[$cart_key]);
         unset($this->item_discount[$cart_key]);
+        unset($this->conversion_breakdowns[$cart_key]);
     }
 
     public function updatedGlobalTax()
@@ -227,30 +228,52 @@ class Checkout extends Component
 
     public function updateQuantity($row_id, $cart_key)
     {
-        if ($this->check_quantity[$cart_key] < $this->quantity[$cart_key]) {
+        $cart = Cart::instance($this->cart_instance);
+        $cart_item = $cart->get($row_id);
+        if (!$cart_item) {
+            return;
+        }
+
+        if (!array_key_exists($cart_key, $this->check_quantity)) {
+            $this->check_quantity[$cart_key] = (int) ($cart_item->options->stock ?? PHP_INT_MAX);
+        }
+
+        if (!array_key_exists($cart_key, $this->quantity)) {
+            $this->quantity[$cart_key] = $cart_item->qty;
+        }
+
+        if (($this->check_quantity[$cart_key] ?? PHP_INT_MAX) < $this->quantity[$cart_key]) {
             session()->flash('message', 'The requested quantity is not available in stock.');
             return;
         }
 
         $newQty = $this->quantity[$cart_key];
-        $product_id = explode('-', $cart_key)[0]; // extract product ID
-        $product = Product::find($product_id);
-        if (!$product) return;
+        $productId = (int) ($cart_item->options->product_id ?? 0);
+        $product = $productId ? Product::find($productId) : null;
+        if (!$product) {
+            return;
+        }
 
         $calculated = $this->calculate($product->toArray(), $newQty);
+        $bundleOptions = $this->recalculateBundleOptions($cart_item->options->toArray(), $newQty);
+        $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
-        Cart::instance($this->cart_instance)->update($row_id, [
+        $cart->update($row_id, [
             'qty' => $newQty,
             'price' => $calculated['unit_price'],
             'options' => array_merge(
-                Cart::instance($this->cart_instance)->get($row_id)->options->toArray(), [
+                $cart_item->options->toArray(),
+                $bundleOptions,
+                [
                     'unit_price' => $calculated['unit_price'],
-                    'sub_total' => $calculated['sub_total'],
+                    'sub_total' => $finalSubTotal,
+                    'conversion_context' => $calculated['conversion_context'],
+                    'cart_key' => $cart_key,
                 ]
             ),
         ]);
 
-        $this->conversion_breakdowns[$cart_key] = $this->calculateConversionBreakdown($product_id, $newQty);
+        $this->conversion_breakdowns[$cart_key] = $calculated['conversion_context']['breakdown'] ?? '';
         $this->total_amount = $this->calculateTotal();
     }
 
@@ -436,6 +459,7 @@ class Checkout extends Component
                 'id'           => null,
                 'bundle_items' => [],
                 'bundle_price' => 0.0,
+                'bundle_price_per_bundle' => 0.0,
                 'bundle_name'  => null,
             ];
         }
@@ -447,8 +471,9 @@ class Checkout extends Component
                 'bundle_item_id' => $item['id'] ?? null,
                 'product_id'     => $item['product_id'] ?? null,
                 'name'           => $item['product']['product_name'] ?? ($item['name'] ?? null),
-                'quantity'       => $item['quantity'] ?? 0,
-                'price'          => isset($item['price']) ? (float) $item['price'] : null,
+                'quantity_per_bundle' => (float) ($item['quantity'] ?? 0),
+                'price'          => isset($item['price']) ? (float) $item['price'] : 0.0,
+                'sub_total'      => isset($item['price']) ? round(((float) ($item['quantity'] ?? 0)) * (float) $item['price'], 2) : 0.0,
             ];
         }
 
@@ -456,7 +481,86 @@ class Checkout extends Component
             'id'           => $bundle['id'] ?? null,
             'bundle_items' => $items,
             'bundle_price' => isset($bundle['price']) ? (float) $bundle['price'] : 0.0,
+            'bundle_price_per_bundle' => isset($bundle['price']) ? (float) $bundle['price'] : 0.0,
             'bundle_name'  => $bundle['name'] ?? null,
+        ];
+    }
+
+    private function prepareBundleOptionsForQuantity(array $bundleMeta, int $quantity): array
+    {
+        if (empty($bundleMeta['id'])) {
+            return [
+                'bundle_items' => [],
+                'bundle_price' => 0.0,
+                'bundle_price_per_bundle' => 0.0,
+                'bundle_name' => null,
+                'bundle_id' => null,
+            ];
+        }
+
+        $quantity = max(1, (int) $quantity);
+        $perBundlePrice = (float) ($bundleMeta['bundle_price_per_bundle'] ?? 0.0);
+        $items = [];
+
+        foreach ($bundleMeta['bundle_items'] as $item) {
+            $quantityPerBundle = (float) ($item['quantity_per_bundle'] ?? 0.0);
+            $unitPrice = (float) ($item['price'] ?? 0.0);
+            $lineQuantity = $quantityPerBundle * $quantity;
+
+            $items[] = array_merge($item, [
+                'quantity_per_bundle' => $quantityPerBundle,
+                'line_quantity' => $lineQuantity,
+                'sub_total_per_bundle' => round($quantityPerBundle * $unitPrice, 2),
+                'sub_total' => round($lineQuantity * $unitPrice, 2),
+            ]);
+        }
+
+        return [
+            'bundle_items' => $items,
+            'bundle_price' => round($perBundlePrice * $quantity, 2),
+            'bundle_price_per_bundle' => $perBundlePrice,
+            'bundle_name' => $bundleMeta['bundle_name'] ?? null,
+            'bundle_id' => $bundleMeta['id'] ?? null,
+        ];
+    }
+
+    private function recalculateBundleOptions(array $existingOptions, int $quantity): array
+    {
+        $hasBundle = !empty($existingOptions['bundle_id']) || !empty($existingOptions['bundle_items'] ?? []);
+
+        if (!$hasBundle) {
+            return [
+                'bundle_items' => [],
+                'bundle_price' => 0.0,
+                'bundle_price_per_bundle' => 0.0,
+                'bundle_name' => null,
+                'bundle_id' => null,
+            ];
+        }
+
+        $quantity = max(0, (int) $quantity);
+        $perBundlePrice = (float) ($existingOptions['bundle_price_per_bundle'] ?? 0.0);
+        $items = [];
+
+        foreach ($existingOptions['bundle_items'] ?? [] as $item) {
+            $quantityPerBundle = (float) ($item['quantity_per_bundle'] ?? ($item['quantity'] ?? 0));
+            $unitPrice = (float) ($item['price'] ?? 0.0);
+            $lineQuantity = $quantityPerBundle * $quantity;
+
+            $items[] = array_merge($item, [
+                'quantity_per_bundle' => $quantityPerBundle,
+                'line_quantity' => $lineQuantity,
+                'sub_total_per_bundle' => round($quantityPerBundle * $unitPrice, 2),
+                'sub_total' => round($lineQuantity * $unitPrice, 2),
+            ]);
+        }
+
+        return [
+            'bundle_items' => $items,
+            'bundle_price' => round($perBundlePrice * $quantity, 2),
+            'bundle_price_per_bundle' => $perBundlePrice,
+            'bundle_name' => $existingOptions['bundle_name'] ?? null,
+            'bundle_id' => $existingOptions['bundle_id'] ?? null,
         ];
     }
 
@@ -491,25 +595,33 @@ class Checkout extends Component
             $quantity = count($options['serial_numbers']);
 
             $calculated = $this->calculate($product, $quantity);
-            $finalSubTotal = $calculated['sub_total'] + ($options['bundle_price'] ?? $bundleMeta['bundle_price']);
+            $bundleOptions = $this->recalculateBundleOptions($options, $quantity);
+            $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
-            Cart::instance($this->cart_instance)->update($existing->rowId, [
+            $cart->update($existing->rowId, [
                 'qty'     => $quantity,
                 'price'   => $calculated['unit_price'],
-                'options' => array_merge($options, [
-                    'sub_total' => $finalSubTotal,
-                    'unit_price'=> $calculated['unit_price'],
-                ]),
+                'options' => array_merge(
+                    $options,
+                    $bundleOptions,
+                    [
+                        'sub_total' => $finalSubTotal,
+                        'unit_price'=> $calculated['unit_price'],
+                        'conversion_context' => $calculated['conversion_context'],
+                        'cart_key' => $cartKey,
+                    ]
+                ),
             ]);
 
             $this->quantity[$cartKey]       = $quantity;
             $this->check_quantity[$cartKey] = $options['stock'] ?? ($existing->options->stock ?? PHP_INT_MAX);
-            $this->conversion_breakdowns[$cartKey] = $this->calculateConversionBreakdown((int)$product['id'], $quantity);
+            $this->conversion_breakdowns[$cartKey] = $calculated['conversion_context']['breakdown'] ?? '';
             return;
         }
 
         $calculated = $this->calculate($product, 1);
-        $finalSubTotal = $calculated['sub_total'] + $bundleMeta['bundle_price'];
+        $bundleOptions = $this->prepareBundleOptionsForQuantity($bundleMeta, 1);
+        $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
         Cart::instance($this->cart_instance)->add([
             'id'     => $cartKey,
@@ -527,18 +639,18 @@ class Checkout extends Component
                 'unit_price'              => $calculated['unit_price'],
                 'serial_number_required'  => true,
                 'serial_numbers'          => [$serialPayload],
-            ], [
-                'bundle_items'            => $bundleMeta['bundle_items'],
-                'bundle_price'            => $bundleMeta['bundle_price'],
-                'bundle_name'             => $bundleMeta['bundle_name'],
-            ]),
+                'product_id'              => (int) $product['id'],
+                'sale_price'              => (float) ($product['sale_price'] ?? 0),
+                'conversion_context'      => $calculated['conversion_context'],
+                'cart_key'                => $cartKey,
+            ], $bundleOptions),
         ]);
 
         $this->check_quantity[$cartKey] = $product['product_quantity'] ?? PHP_INT_MAX;
         $this->quantity[$cartKey]       = 1;
         $this->discount_type[$cartKey]  = 'fixed';
         $this->item_discount[$cartKey]  = 0;
-        $this->conversion_breakdowns[$cartKey] = $this->calculateConversionBreakdown((int)$product['id'], 1);
+        $this->conversion_breakdowns[$cartKey] = $calculated['conversion_context']['breakdown'] ?? '';
     }
 
     private function normalizeSerial($serial): ?array
@@ -567,22 +679,43 @@ class Checkout extends Component
 
     private function generateCartItemKey($productId, $bundleId = null): string
     {
-        return $bundleId ? "{$productId}-bundle-{$bundleId}" : (string) $productId;
+        $baseKey = 'product_' . (int) $productId;
+
+        return $bundleId ? $baseKey . '_bundle_' . (int) $bundleId : $baseKey;
     }
 
     public function calculate($product, $qty = 1)
     {
+        $qty = max(1, (int) $qty);
+        $productId = (int) ($product['id'] ?? 0);
+        $salePrice = (float) ($product['sale_price'] ?? 0);
+
         if ($this->customer_tier === 'WHOLESALER') {
-            $unit_price = $product['tier_1_price'] ?? $product['sale_price'];
-            $sub_total = $unit_price * $qty;
+            $unit_price = (float) ($product['tier_1_price'] ?? $salePrice);
+            $sub_total = round($unit_price * $qty, 2);
+            $conversionContext = [
+                'quantity' => $qty,
+                'breakdown' => $this->calculateConversionBreakdown($productId, $qty),
+                'segments' => [],
+            ];
         } elseif ($this->customer_tier === 'RESELLER') {
-            $unit_price = $product['tier_2_price'] ?? $product['sale_price'];
-            $sub_total = $unit_price * $qty;
+            $unit_price = (float) ($product['tier_2_price'] ?? $salePrice);
+            $sub_total = round($unit_price * $qty, 2);
+            $conversionContext = [
+                'quantity' => $qty,
+                'breakdown' => $this->calculateConversionBreakdown($productId, $qty),
+                'segments' => [],
+            ];
         } else {
             // Calculate conversion-based total and average price
-            $conversion = $this->calculateCascadingUnitPrice($product['id'], $qty, $product['sale_price']);
-            $unit_price = $conversion['price'];
+            $conversion = $this->calculateCascadingUnitPrice($productId, $qty, $salePrice);
+            $unit_price = $conversion['unit_price'];
             $sub_total = $conversion['sub_total'];
+            $conversionContext = [
+                'quantity' => $qty,
+                'breakdown' => $conversion['breakdown'] ?? '',
+                'segments' => $conversion['segments'] ?? [],
+            ];
         }
 
         return [
@@ -590,41 +723,102 @@ class Checkout extends Component
             'unit_price' => $unit_price,   // same for consistency
             'product_tax' => 0,
             'sub_total' => $sub_total,     // total price of qty
+            'conversion_context' => $conversionContext,
         ];
     }
 
     private function calculateCascadingUnitPrice(int $productId, int $quantity, float $fallback): array
     {
-        $conversions = ProductUnitConversion::where('product_id', $productId)
+        $conversions = ProductUnitConversion::with(['unit', 'baseUnit'])
+            ->where('product_id', $productId)
             ->orderByDesc('conversion_factor')
             ->get();
 
-        $total_cost = 0;
+        $total_cost = 0.0;
         $used_qty = 0;
-        $remaining = $quantity;
+        $remaining = max(0, (int) $quantity);
+        $segments = [];
 
         foreach ($conversions as $conv) {
-            if ($conv->conversion_factor < 1 || $conv->price === null) continue;
+            $factor = (int) $conv->conversion_factor;
+            $price = $conv->price !== null ? (float) $conv->price : null;
 
-            $factor = $conv->conversion_factor;
-            $price = $conv->price;
-
-            $unit_count = floor($remaining / $factor);
-            if ($unit_count > 0) {
-                $total_cost += $unit_count * $price;
-                $used_qty += $unit_count * $factor;
-                $remaining -= $unit_count * $factor;
+            if ($factor < 1 || $price === null || $remaining <= 0) {
+                continue;
             }
+
+            $unit_count = intdiv($remaining, $factor);
+            if ($unit_count <= 0) {
+                continue;
+            }
+
+            $segmentQuantity = $unit_count * $factor;
+            $segmentCost = $unit_count * $price;
+
+            $segments[] = [
+                'unit_name' => optional($conv->unit)->name ?? 'unit',
+                'count' => $unit_count,
+                'quantity_per_segment' => $factor,
+                'line_quantity' => $segmentQuantity,
+                'price' => $price,
+                'sub_total' => round($segmentCost, 2),
+            ];
+
+            $total_cost += $segmentCost;
+            $used_qty += $segmentQuantity;
+            $remaining -= $segmentQuantity;
         }
 
         if ($remaining > 0) {
-            $total_cost += $remaining * $fallback;
+            $baseUnitName = $conversions->first()?->baseUnit->name
+                ?? $conversions->first()?->unit->name
+                ?? 'pc';
+            $segmentCost = $remaining * $fallback;
+
+            $segments[] = [
+                'unit_name' => $baseUnitName,
+                'count' => $remaining,
+                'quantity_per_segment' => 1,
+                'line_quantity' => $remaining,
+                'price' => $fallback,
+                'sub_total' => round($segmentCost, 2),
+            ];
+
+            $total_cost += $segmentCost;
             $used_qty += $remaining;
+            $remaining = 0;
         }
 
+        if ($used_qty === 0) {
+            $segmentCost = $quantity * $fallback;
+            $segments[] = [
+                'unit_name' => 'pc',
+                'count' => $quantity,
+                'quantity_per_segment' => 1,
+                'line_quantity' => $quantity,
+                'price' => $fallback,
+                'sub_total' => round($segmentCost, 2),
+            ];
+
+            $total_cost += $segmentCost;
+            $used_qty = max(1, $quantity);
+        }
+
+        $breakdown = collect($segments)
+            ->map(function ($segment) {
+                $count = (int) ($segment['count'] ?? 0);
+                $unitName = $segment['unit_name'] ?? 'unit';
+                $plural = $count > 1 ? 's' : '';
+                return $count > 0 ? sprintf('%d %s%s', $count, $unitName, $plural) : null;
+            })
+            ->filter()
+            ->implode(', ');
+
         return [
-            'price' => $used_qty > 0 ? round($total_cost / $used_qty, 2) : $fallback,
+            'unit_price' => $used_qty > 0 ? round($total_cost / $used_qty, 2) : $fallback,
             'sub_total' => round($total_cost, 2),
+            'segments' => $segments,
+            'breakdown' => $breakdown,
         ];
     }
 
@@ -632,33 +826,9 @@ class Checkout extends Component
     {
         if ($quantity < 1) return '';
 
-        $conversions = ProductUnitConversion::with(['unit', 'baseUnit'])
-            ->where('product_id', $productId)
-            ->orderByDesc('conversion_factor')
-            ->get();
+        $context = $this->calculateCascadingUnitPrice($productId, $quantity, 0.0);
 
-        $parts = [];
-        $remaining = $quantity;
-
-        foreach ($conversions as $conv) {
-            $factor = (int) $conv->conversion_factor;
-            if ($factor < 1) continue;
-
-            $count = intdiv($remaining, $factor);
-            if ($count > 0) {
-                $unitName = optional($conv->unit)->name ?? "unit";
-                $parts[] = "{$count} {$unitName}(s)";
-                $remaining -= $count * $factor;
-            }
-        }
-
-        if ($remaining > 0) {
-            $baseUnitId = $conversions->first()->base_unit_id ?? null;
-            $baseName = optional(Unit::find($baseUnitId))->name ?? "pc";
-            $parts[] = "{$remaining} {$baseName}(s)";
-        }
-
-        return implode(', ', $parts);
+        return $context['breakdown'] ?? '';
     }
 
     public function setCustomer($customer)
@@ -667,21 +837,30 @@ class Checkout extends Component
         $this->customer_tier = $customer['tier'] ?? null;
 
         foreach (Cart::instance($this->cart_instance)->content() as $item) {
-            $product = Product::find($item->id);
+            $productId = (int) ($item->options->product_id ?? 0);
+            $product = $productId ? Product::find($productId) : null;
             if (!$product) continue;
 
             $productData = $product->toArray();
             $qty = $item->qty;
             $calculated = $this->calculate($productData, $qty);
+            $bundleOptions = $this->recalculateBundleOptions($item->options->toArray(), $qty);
+            $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
             Cart::instance($this->cart_instance)->update($item->rowId, [
                 'price' => $calculated['unit_price'],
-                'options' => array_merge($item->options->toArray(), [
+                'options' => array_merge($item->options->toArray(), $bundleOptions, [
                     'unit_price' => $calculated['unit_price'],
                     'product_tax' => $calculated['product_tax'],
-                    'sub_total' => $calculated['sub_total'],
+                    'sub_total' => $finalSubTotal,
+                    'conversion_context' => $calculated['conversion_context'],
+                    'cart_key' => $item->options->cart_key ?? $item->id,
                 ]),
             ]);
+
+            $cartKey = $item->options->cart_key ?? $item->id;
+            $this->quantity[$cartKey] = $qty;
+            $this->conversion_breakdowns[$cartKey] = $calculated['conversion_context']['breakdown'] ?? '';
         }
 
         $this->total_amount = $this->calculateTotal();
@@ -696,9 +875,10 @@ class Checkout extends Component
     {
         Cart::instance($this->cart_instance)->update($row_id, [
             'options' => array_merge($cart_item->options->toArray(), [
-                'sub_total' => $cart_item->price * $cart_item->qty,
+                'sub_total' => round(($cart_item->price * $cart_item->qty) + ($cart_item->options->bundle_price ?? 0), 2),
                 'product_discount' => $discount_amount,
                 'product_discount_type' => $this->discount_type[$cart_key],
+                'cart_key' => $cart_key,
             ]),
         ]);
     }
@@ -777,24 +957,36 @@ class Checkout extends Component
         $options['serial_numbers'] = $list;
 
         // adjust qty = number of serials
-        $newQty = count($list);
-        $product = Product::find((int)explode('-', $item->id)[0]);
-        if ($product) {
+        $newQty = max(0, count($list));
+        $productId = (int) ($item->options->product_id ?? 0);
+        $product = $productId ? Product::find($productId) : null;
+
+        if ($product && $newQty > 0) {
             $calculated = $this->calculate($product->toArray(), $newQty);
+            $bundleOptions = $this->recalculateBundleOptions($options, $newQty);
+            $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
+
             Cart::instance($this->cart_instance)->update($rowId, [
                 'qty' => $newQty,
                 'price' => $calculated['unit_price'],
-                'options' => array_merge($options, [
-                    'sub_total' => $calculated['sub_total'],
+                'options' => array_merge($options, $bundleOptions, [
+                    'sub_total' => $finalSubTotal,
                     'unit_price' => $calculated['unit_price'],
+                    'conversion_context' => $calculated['conversion_context'],
+                    'cart_key' => $item->options->cart_key ?? $item->id,
                 ]),
             ]);
+
+            $cart_key = $item->options->cart_key ?? $item->id;
+            $this->quantity[$cart_key] = $newQty;
+            $this->conversion_breakdowns[$cart_key] = $calculated['conversion_context']['breakdown'] ?? '';
         } else {
             Cart::instance($this->cart_instance)->update($rowId, ['options' => $options, 'qty' => $newQty]);
+            $cart_key = $item->options->cart_key ?? $item->id;
+            $this->quantity[$cart_key] = $newQty;
+            $this->conversion_breakdowns[$cart_key] = '';
         }
 
-        $cart_key = $item->id;
-        $this->quantity[$cart_key] = $newQty;
         $this->total_amount = $this->calculateTotal();
     }
 }
