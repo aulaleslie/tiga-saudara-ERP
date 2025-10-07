@@ -71,11 +71,13 @@ class SupplierLoader extends Component
     {
         if ($this->query) {
             $this->query_count = Supplier::where(function ($query) {
-                $query->where('supplier_name', 'like', '%' . $this->query . '%');
+                $query->where('supplier_name', 'like', '%' . $this->query . '%')
+                    ->orWhere('contact_name', 'like', '%' . $this->query . '%');
             })
                 ->count();
             $this->search_results = Supplier::where(function ($query) {
-                $query->where('supplier_name', 'like', '%' . $this->query . '%');
+                $query->where('supplier_name', 'like', '%' . $this->query . '%')
+                    ->orWhere('contact_name', 'like', '%' . $this->query . '%');
             })
                 ->limit($this->how_many)
                 ->get();
