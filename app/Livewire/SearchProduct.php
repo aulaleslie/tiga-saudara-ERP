@@ -83,6 +83,8 @@ class SearchProduct extends Component
 
     private function tryHandleExactSerial(string $code): bool
     {
+        $settingId = session('setting_id');
+
         $sql = "
         SELECT
             psn.id          AS serial_id,          -- include id
@@ -93,11 +95,15 @@ class SearchProduct extends Component
             p.serial_number_required,
             p.unit_id,
             p.base_unit_id,
-            CASE WHEN p.sale_price > 0 THEN p.sale_price ELSE p.product_price END AS price,
+            COALESCE(pp.sale_price, p.sale_price, p.product_price) AS price,
+            COALESCE(pp.sale_price, p.sale_price, p.product_price) AS sale_price,
+            COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
+            COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
             u.name          AS unit_name,
             COALESCE(st.stock_qty, 0) AS stock_qty
         FROM product_serial_numbers psn
         JOIN products p ON p.id = psn.product_id
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
         LEFT JOIN units u ON u.id = p.base_unit_id
         LEFT JOIN (
             SELECT product_id,
@@ -116,6 +122,7 @@ class SearchProduct extends Component
             'code'              => $code,
             'stockLocationId'   => $this->posLocationId,
             'serialLocationId'  => $this->posLocationId,
+            'settingId'         => $settingId,
         ]);
 
         if (!$row) return false;
@@ -133,6 +140,10 @@ class SearchProduct extends Component
                 'product_quantity'      => (int) $row->stock_qty,
                 'conversion_factor'     => 1,
                 'serial_number_required'=> (bool) $row->serial_number_required,
+                'price'                 => (float) $row->price,
+                'sale_price'            => (float) $row->sale_price,
+                'tier_1_price'          => $row->tier_1_price !== null ? (float) $row->tier_1_price : null,
+                'tier_2_price'          => $row->tier_2_price !== null ? (float) $row->tier_2_price : null,
                 'pending_serials'       => [[
                     'id'            => (int) $row->serial_id,
                     'serial_number' => (string) $row->serial_number,
@@ -150,6 +161,10 @@ class SearchProduct extends Component
                 'id'            => (int) $row->serial_id,
                 'serial_number' => (string) $row->serial_number,
             ],
+            'price'       => (float) $row->price,
+            'sale_price'  => (float) $row->sale_price,
+            'tier_1_price'=> $row->tier_1_price !== null ? (float) $row->tier_1_price : null,
+            'tier_2_price'=> $row->tier_2_price !== null ? (float) $row->tier_2_price : null,
         ])->to(Checkout::class);
 
         return true; // updatedQuery() will call resetQuery() → focuses input
@@ -157,6 +172,8 @@ class SearchProduct extends Component
 
     private function tryHandleExactConversionBarcode(string $barcode): bool
     {
+        $settingId = session('setting_id');
+
         $sql = "
         SELECT
             p.id            AS product_id,
@@ -167,11 +184,15 @@ class SearchProduct extends Component
             puc.unit_id,
             puc.base_unit_id,
             puc.conversion_factor,
-            COALESCE(puc.price, CASE WHEN p.sale_price > 0 THEN p.sale_price ELSE p.product_price END) AS price,
+            COALESCE(puc.price, COALESCE(pp.sale_price, p.sale_price, p.product_price)) AS price,
+            COALESCE(pp.sale_price, p.sale_price, p.product_price) AS sale_price,
+            COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
+            COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
             u.name          AS unit_name,
             COALESCE(st.stock_qty, 0) AS stock_qty
         FROM product_unit_conversions puc
         JOIN products p   ON p.id = puc.product_id
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
         LEFT JOIN units u ON u.id = puc.unit_id
         LEFT JOIN (
             SELECT product_id,
@@ -187,6 +208,7 @@ class SearchProduct extends Component
         $row = DB::selectOne($sql, [
             'code'           => $barcode,
             'posLocationId1' => $this->posLocationId,
+            'settingId'      => $settingId,
         ]);
 
         if (!$row) return false;
@@ -201,6 +223,9 @@ class SearchProduct extends Component
             'unit_name'         => (string) $row->unit_name,
             'conversion_factor' => (float) $row->conversion_factor, // pass CF
             'price'             => (float) $row->price,
+            'sale_price'        => (float) $row->sale_price,
+            'tier_1_price'      => $row->tier_1_price !== null ? (float) $row->tier_1_price : null,
+            'tier_2_price'      => $row->tier_2_price !== null ? (float) $row->tier_2_price : null,
             'barcode'           => (string) $row->barcode,
             'source'            => 'conversion',
         ];
@@ -231,6 +256,14 @@ class SearchProduct extends Component
                     'id' => (int)($data['serial_id'] ?? 0),
                     'serial_number' => (string)$data['serial_number'],
                 ],
+                'price' => isset($data['price']) ? (float)$data['price'] : 0.0,
+                'sale_price' => isset($data['sale_price']) ? (float)$data['sale_price'] : 0.0,
+                'tier_1_price' => array_key_exists('tier_1_price', $data) && $data['tier_1_price'] !== null
+                    ? (float)$data['tier_1_price']
+                    : null,
+                'tier_2_price' => array_key_exists('tier_2_price', $data) && $data['tier_2_price'] !== null
+                    ? (float)$data['tier_2_price']
+                    : null,
             ])->to('pos.checkout');
 
             $this->resetQuery();
@@ -244,6 +277,8 @@ class SearchProduct extends Component
 
     private function tryHandleExactProductBarcode(string $barcode): bool
     {
+        $settingId = session('setting_id');
+
         $sql = "
         SELECT
             p.id            AS product_id,
@@ -253,10 +288,14 @@ class SearchProduct extends Component
             p.barcode,
             p.unit_id,
             p.base_unit_id,
-            CASE WHEN p.sale_price > 0 THEN p.sale_price ELSE p.product_price END AS price,
+            COALESCE(pp.sale_price, p.sale_price, p.product_price) AS price,
+            COALESCE(pp.sale_price, p.sale_price, p.product_price) AS sale_price,
+            COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
+            COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
             u.name          AS unit_name,
             COALESCE(st.stock_qty, 0) AS stock_qty
         FROM products p
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
         LEFT JOIN units u ON u.id = p.unit_id
         LEFT JOIN (
             SELECT product_id,
@@ -272,6 +311,7 @@ class SearchProduct extends Component
         $row = DB::selectOne($sql, [
             'code'           => $barcode,
             'posLocationId1' => $this->posLocationId,
+            'settingId'      => $settingId,
         ]);
 
         if (!$row) return false;
@@ -286,6 +326,9 @@ class SearchProduct extends Component
             'unit_name'         => (string) $row->unit_name,
             'conversion_factor' => 1.0,
             'price'             => (float) $row->price,
+            'sale_price'        => (float) $row->sale_price,
+            'tier_1_price'      => $row->tier_1_price !== null ? (float) $row->tier_1_price : null,
+            'tier_2_price'      => $row->tier_2_price !== null ? (float) $row->tier_2_price : null,
             'barcode'           => (string) $row->barcode,
             'source'            => 'base',
         ];
@@ -302,6 +345,8 @@ class SearchProduct extends Component
         $term  = '%' . mb_strtolower($input) . '%';
         $limit = (int) $this->how_many;
 
+        $settingId = session('setting_id');
+
         $sql = "
     SELECT * FROM (
         /* Base rows */
@@ -309,7 +354,10 @@ class SearchProduct extends Component
             p.id,
             p.product_name,
             p.product_code,
-            CASE WHEN p.sale_price > 0 THEN p.sale_price ELSE p.product_price END AS price,
+            COALESCE(pp.sale_price, p.sale_price, p.product_price) AS price,
+            COALESCE(pp.sale_price, p.sale_price, p.product_price) AS sale_price,
+            COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
+            COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
             p.barcode,
             p.unit_id,
             COALESCE(st.stock_qty, 0) AS product_quantity,
@@ -320,6 +368,7 @@ class SearchProduct extends Component
             NULL AS serial_id,
             NULL AS serial_number
         FROM products p
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
         LEFT JOIN (
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
@@ -336,7 +385,10 @@ class SearchProduct extends Component
             p.id,
             p.product_name,
             p.product_code,
-            COALESCE(puc.price, CASE WHEN p.sale_price > 0 THEN p.sale_price ELSE p.product_price END) AS price,
+            COALESCE(puc.price, COALESCE(pp.sale_price, p.sale_price, p.product_price)) AS price,
+            COALESCE(pp.sale_price, p.sale_price, p.product_price) AS sale_price,
+            COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
+            COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
             puc.barcode,
             puc.unit_id,
             COALESCE(st.stock_qty, 0) AS product_quantity,
@@ -348,6 +400,7 @@ class SearchProduct extends Component
             NULL AS serial_number
         FROM product_unit_conversions puc
         JOIN products p ON p.id = puc.product_id
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
         LEFT JOIN (
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
@@ -365,7 +418,10 @@ class SearchProduct extends Component
             p.id,
             p.product_name,
             p.product_code,
-            CASE WHEN p.sale_price > 0 THEN p.sale_price ELSE p.product_price END AS price,
+            COALESCE(pp.sale_price, p.sale_price, p.product_price) AS price,
+            COALESCE(pp.sale_price, p.sale_price, p.product_price) AS sale_price,
+            COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
+            COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
             p.barcode,
             p.base_unit_id AS unit_id,
             COALESCE(st.stock_qty, 0) AS product_quantity,
@@ -377,6 +433,7 @@ class SearchProduct extends Component
             psn.serial_number
         FROM product_serial_numbers psn
         JOIN products p ON p.id = psn.product_id
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
         LEFT JOIN (
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
@@ -407,6 +464,7 @@ class SearchProduct extends Component
             'term2' => $term,
             'term3' => $term,
             'term4' => $term,
+            'settingId' => $settingId,
         ]));
     }
 }
