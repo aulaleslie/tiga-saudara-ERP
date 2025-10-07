@@ -39,6 +39,7 @@ class Checkout extends Component
     public $customer_id;
     public $customer_tier;
     public $total_amount;
+    public $paid_amount;
     public $conversion_breakdowns = [];
     public $pendingProduct = null;
     public Collection $bundleOptions;
@@ -47,6 +48,7 @@ class Checkout extends Component
     public $paymentMethods = [];
     public $selected_payment_method_id = null;
     public ?int $posLocationId = null;
+    protected bool $paidAmountManuallyUpdated = false;
 
     public function mount($cartInstance, $customers)
     {
@@ -61,18 +63,33 @@ class Checkout extends Component
         $this->discount_type = [];
         $this->item_discount = [];
         $this->total_amount = 0;
-        
+        $this->paid_amount = 0.00;
+
         session('setting_id');
         $this->paymentMethods = PaymentMethod::all();
 
         $this->bundleOptions = collect();
 
         $this->posLocationId = PosLocationResolver::resolveId();
+
+        $this->refreshTotals(true);
     }
 
     public function hydrate()
     {
-        $this->total_amount = $this->calculateTotal();
+        $this->refreshTotals();
+        $this->dispatchBrowserEvent('pos-mask-money-init');
+    }
+
+    public function updatedPaidAmount($value): void
+    {
+        $this->paid_amount = $this->sanitizeCurrencyValue($value);
+        $this->paidAmountManuallyUpdated = abs($this->paid_amount - (float) $this->total_amount) > 0.00001;
+    }
+
+    public function getChangeDueProperty(): float
+    {
+        return round((float) $this->paid_amount - (float) $this->total_amount, 2);
     }
 
     public function render()
@@ -81,6 +98,8 @@ class Checkout extends Component
 
         return view('livewire.pos.checkout', [
             'cart_items' => $cart_items,
+            'changeDue' => $this->changeDue,
+            'paidAmount' => $this->paid_amount,
         ]);
     }
 
@@ -107,6 +126,8 @@ class Checkout extends Component
     public function resetCart()
     {
         Cart::instance($this->cart_instance)->destroy();
+        $this->refreshTotals(true);
+        $this->dispatchBrowserEvent('pos-mask-money-init');
     }
 
     public function productSelected($product)
@@ -190,7 +211,7 @@ class Checkout extends Component
         $this->item_discount[$cartKey]  = 0;
         $this->conversion_breakdowns[$cartKey] = $calculated['conversion_context']['breakdown'] ?? '';
 
-        $this->total_amount = $this->calculateTotal();
+        $this->refreshTotals();
     }
 
     public function confirmBundleSelection($bundleId)
@@ -234,6 +255,8 @@ class Checkout extends Component
         unset($this->discount_type[$cart_key]);
         unset($this->item_discount[$cart_key]);
         unset($this->conversion_breakdowns[$cart_key]);
+
+        $this->refreshTotals();
     }
 
     public function updatedGlobalTax()
@@ -312,7 +335,7 @@ class Checkout extends Component
 
         $this->conversion_breakdowns[$cart_key] = $calculated['conversion_context']['breakdown'] ?? '';
         $this->check_quantity[$cart_key] = (int) ($stockContext['available_total'] ?? $newQty);
-        $this->total_amount = $this->calculateTotal();
+        $this->refreshTotals();
     }
 
     public function updatedDiscountType($value, $name)
@@ -338,6 +361,8 @@ class Checkout extends Component
         ]);
 
         $this->updateCartOptions($row_id, $cart_key, $cart_item, $discount);
+
+        $this->refreshTotals();
 
         session()->flash('discount_message' . $cart_key, 'Discount added to the product!');
     }
@@ -418,7 +443,7 @@ class Checkout extends Component
             }
 
             $this->resetBundleState();
-            $this->total_amount = $this->calculateTotal();
+            $this->refreshTotals();
             return;
         }
 
@@ -1167,7 +1192,7 @@ class Checkout extends Component
             $this->check_quantity[$cartKey] = (int) ($stockContext['available_total'] ?? $qty);
         }
 
-        $this->total_amount = $this->calculateTotal();
+        $this->refreshTotals();
     }
 
     public function triggerCustomerModal()
@@ -1230,7 +1255,7 @@ class Checkout extends Component
         }
 
         $this->addSerialEntry($product, $serial, $bundle);
-        $this->total_amount = $this->calculateTotal();
+        $this->refreshTotals();
     }
 
     /**
@@ -1312,6 +1337,62 @@ class Checkout extends Component
         }
 
         $this->quantity[$cart_key] = $newQty;
+        $this->refreshTotals();
+    }
+
+    protected function refreshTotals(bool $forcePaidAmountSync = false): void
+    {
         $this->total_amount = $this->calculateTotal();
+        $this->syncPaidAmountWithTotal($forcePaidAmountSync);
+    }
+
+    protected function syncPaidAmountWithTotal(bool $force = false): void
+    {
+        if ($force) {
+            $this->paidAmountManuallyUpdated = false;
+        }
+
+        if ($force || !$this->paidAmountManuallyUpdated) {
+            $this->paid_amount = (float) $this->total_amount;
+        }
+    }
+
+    protected function sanitizeCurrencyValue($value): float
+    {
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        $raw = is_string($value) ? $value : (string) ($value ?? '');
+
+        $settings = settings();
+        $currency = $settings ? $settings->currency : null;
+
+        $symbol = $currency->symbol ?? '';
+        $decimalSeparator = $currency->decimal_separator ?? '.';
+        $thousandSeparator = $currency->thousand_separator ?? ',';
+
+        if ($symbol !== '') {
+            $raw = str_replace($symbol, '', $raw);
+        }
+
+        $raw = str_replace("\xc2\xa0", '', $raw); // remove non-breaking spaces
+        $raw = str_replace(' ', '', $raw);
+
+        if ($thousandSeparator !== '') {
+            $raw = str_replace($thousandSeparator, '', $raw);
+        }
+
+        if ($decimalSeparator !== '.') {
+            $raw = str_replace($decimalSeparator, '.', $raw);
+        }
+
+        $normalized = preg_replace('/[^0-9.\-]/', '', $raw);
+
+        if ($normalized === '' || $normalized === '-' || !is_numeric($normalized)) {
+            return 0.0;
+        }
+
+        return (float) $normalized;
     }
 }
