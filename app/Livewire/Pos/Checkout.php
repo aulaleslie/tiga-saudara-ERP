@@ -10,6 +10,7 @@ use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Setting\Entities\PaymentMethod;
@@ -171,8 +172,10 @@ class Checkout extends Component
             return;
         }
 
+        $pricing = $this->resolveTenantPricing($product);
+
         // Centralized calc (handles conversion-pack costs via ProductUnitConversion)
-        $calculated = $this->calculate($product, $convertedQty);
+        $calculated = $this->calculate($product, $convertedQty, $pricing);
         $bundleOptions = $this->prepareBundleOptionsForQuantity($bundleMeta, $convertedQty);
         $final_sub_total = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
@@ -186,15 +189,16 @@ class Checkout extends Component
             'unit_price'             => $calculated['unit_price'],
             'serial_number_required' => $this->productRequiresSerial($product),
             'product_id'             => (int) $product['id'],
-            'sale_price'             => (float) ($product['sale_price'] ?? 0),
             'conversion_context'     => $calculated['conversion_context'],
             'cart_key'               => $cartKey,
             'allocated_non_tax'      => 0,
             'allocated_tax'          => 0,
             'serial_tax_ids'         => [],
         ], $bundleOptions);
+        $baseOptions = $this->injectPricingIntoOptions($baseOptions, $pricing);
 
         $finalOptions = $this->applyStockContextToOptions($baseOptions, $stockContext);
+        $finalOptions = $this->injectPricingIntoOptions($finalOptions, $pricing);
 
         Cart::instance($this->cart_instance)->add([
             'id'      => $cartKey,
@@ -292,13 +296,15 @@ class Checkout extends Component
             return;
         }
 
+        $productData = $product->toArray();
+        $pricing = $this->resolveTenantPricing($productData);
         $existingOptions = $cart_item->options->toArray();
         $forcedAllocation = null;
         if (!empty($existingOptions['serial_numbers'])) {
             $forcedAllocation = $this->buildSerialAllocation($existingOptions['serial_numbers']);
         }
 
-        $stockContext = $this->resolveStockForProduct($product->toArray(), $newQty, $forcedAllocation);
+        $stockContext = $this->resolveStockForProduct($productData, $newQty, $forcedAllocation);
 
         if (!$stockContext['sufficient']) {
             session()->flash('message', 'The requested quantity is not available in stock.');
@@ -306,7 +312,7 @@ class Checkout extends Component
             return;
         }
 
-        $calculated = $this->calculate($product->toArray(), $newQty);
+        $calculated = $this->calculate($productData, $newQty, $pricing);
         $bundleOptions = $this->recalculateBundleOptions($existingOptions, $newQty);
         $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
@@ -322,6 +328,7 @@ class Checkout extends Component
         );
 
         $mergedOptions = $this->applyStockContextToOptions($mergedOptions, $stockContext);
+        $mergedOptions = $this->injectPricingIntoOptions($mergedOptions, $pricing);
 
         if ($forcedAllocation) {
             $mergedOptions['serial_tax_ids'] = $forcedAllocation['tax_ids'];
@@ -633,6 +640,7 @@ class Checkout extends Component
             return;
         }
 
+        $pricing = $this->resolveTenantPricing($product);
         $bundleMeta = $this->formatBundleForCart($bundle);
         $cartKey    = $this->generateCartItemKey($product['id'], $bundleMeta['id']);
 
@@ -658,7 +666,7 @@ class Checkout extends Component
 
             $quantity = count($options['serial_numbers']);
 
-            $calculated = $this->calculate($product, $quantity);
+            $calculated = $this->calculate($product, $quantity, $pricing);
             $bundleOptions = $this->recalculateBundleOptions($options, $quantity);
             $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
@@ -682,6 +690,7 @@ class Checkout extends Component
             );
 
             $mergedOptions = $this->applyStockContextToOptions($mergedOptions, $stockContext);
+            $mergedOptions = $this->injectPricingIntoOptions($mergedOptions, $pricing);
             $mergedOptions['serial_numbers'] = array_values($options['serial_numbers']);
             $mergedOptions['serial_tax_ids'] = $allocation['tax_ids'];
 
@@ -697,7 +706,7 @@ class Checkout extends Component
             return;
         }
 
-        $calculated = $this->calculate($product, 1);
+        $calculated = $this->calculate($product, 1, $pricing);
         $bundleOptions = $this->prepareBundleOptionsForQuantity($bundleMeta, 1);
         $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
@@ -720,15 +729,16 @@ class Checkout extends Component
             'serial_number_required'  => true,
             'serial_numbers'          => [$serialPayload],
             'product_id'              => (int) $product['id'],
-            'sale_price'              => (float) ($product['sale_price'] ?? 0),
             'conversion_context'      => $calculated['conversion_context'],
             'cart_key'                => $cartKey,
             'allocated_non_tax'       => 0,
             'allocated_tax'           => 0,
             'serial_tax_ids'          => $allocation['tax_ids'],
         ], $bundleOptions);
+        $baseOptions = $this->injectPricingIntoOptions($baseOptions, $pricing);
 
         $finalOptions = $this->applyStockContextToOptions($baseOptions, $stockContext);
+        $finalOptions = $this->injectPricingIntoOptions($finalOptions, $pricing);
         $finalOptions['serial_numbers'] = [$serialPayload];
         $finalOptions['serial_tax_ids'] = $allocation['tax_ids'];
 
@@ -806,14 +816,83 @@ class Checkout extends Component
         return $bundleId ? $baseKey . '_bundle_' . (int) $bundleId : $baseKey;
     }
 
-    public function calculate($product, $qty = 1)
+    private function resolveTenantPricing($product): array
+    {
+        $productId = (int) (data_get($product, 'id') ?? 0);
+
+        $baseSalePrice = $this->extractPriceValue($product, 'sale_price') ?? 0.0;
+        $baseTier1Price = $this->extractPriceValue($product, 'tier_1_price');
+        $baseTier2Price = $this->extractPriceValue($product, 'tier_2_price');
+
+        $pricing = [
+            'sale_price' => $baseSalePrice,
+            'tier_1_price' => $baseTier1Price,
+            'tier_2_price' => $baseTier2Price,
+        ];
+
+        $settingId = session('setting_id');
+
+        if ($productId > 0 && $settingId) {
+            $tenantPrice = ProductPrice::query()
+                ->forProduct($productId)
+                ->forSetting((int) $settingId)
+                ->first();
+
+            if ($tenantPrice) {
+                if ($tenantPrice->sale_price !== null) {
+                    $pricing['sale_price'] = (float) $tenantPrice->sale_price;
+                }
+
+                if ($tenantPrice->tier_1_price !== null) {
+                    $pricing['tier_1_price'] = (float) $tenantPrice->tier_1_price;
+                }
+
+                if ($tenantPrice->tier_2_price !== null) {
+                    $pricing['tier_2_price'] = (float) $tenantPrice->tier_2_price;
+                }
+            }
+        }
+
+        $pricing['sale_price'] = (float) ($pricing['sale_price'] ?? 0.0);
+        $pricing['tier_1_price'] = $pricing['tier_1_price'] !== null
+            ? (float) $pricing['tier_1_price']
+            : $pricing['sale_price'];
+        $pricing['tier_2_price'] = $pricing['tier_2_price'] !== null
+            ? (float) $pricing['tier_2_price']
+            : $pricing['sale_price'];
+
+        return $pricing;
+    }
+
+    private function extractPriceValue($source, string $key): ?float
+    {
+        $value = data_get($source, $key);
+
+        if ($value === null) {
+            return null;
+        }
+
+        return (float) $value;
+    }
+
+    private function injectPricingIntoOptions(array $options, array $pricing): array
+    {
+        return array_merge($options, [
+            'sale_price'   => $pricing['sale_price'],
+            'tier_1_price' => $pricing['tier_1_price'],
+            'tier_2_price' => $pricing['tier_2_price'],
+        ]);
+    }
+
+    public function calculate($product, $qty = 1, ?array $resolvedPricing = null)
     {
         $qty = max(1, (int) $qty);
-        $productId = (int) ($product['id'] ?? 0);
-        $salePrice = (float) ($product['sale_price'] ?? 0);
+        $productId = (int) (data_get($product, 'id') ?? 0);
+        $resolvedPricing = $resolvedPricing ?? $this->resolveTenantPricing($product);
+        $salePrice = $resolvedPricing['sale_price'];
 
         if ($this->customer_tier === 'WHOLESALER') {
-            $unit_price = (float) ($product['tier_1_price'] ?? $salePrice);
+            $unit_price = $resolvedPricing['tier_1_price'];
             $sub_total = round($unit_price * $qty, 2);
             $conversionContext = [
                 'quantity' => $qty,
@@ -821,7 +900,7 @@ class Checkout extends Component
                 'segments' => [],
             ];
         } elseif ($this->customer_tier === 'RESELLER') {
-            $unit_price = (float) ($product['tier_2_price'] ?? $salePrice);
+            $unit_price = $resolvedPricing['tier_2_price'];
             $sub_total = round($unit_price * $qty, 2);
             $conversionContext = [
                 'quantity' => $qty,
@@ -1154,8 +1233,9 @@ class Checkout extends Component
             if (!$product) continue;
 
             $productData = $product->toArray();
+            $pricing = $this->resolveTenantPricing($productData);
             $qty = $item->qty;
-            $calculated = $this->calculate($productData, $qty);
+            $calculated = $this->calculate($productData, $qty, $pricing);
             $existingOptions = $item->options->toArray();
             $bundleOptions = $this->recalculateBundleOptions($existingOptions, $qty);
             $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
@@ -1176,6 +1256,7 @@ class Checkout extends Component
             ]);
 
             $options = $this->applyStockContextToOptions($options, $stockContext);
+            $options = $this->injectPricingIntoOptions($options, $pricing);
 
             if ($forcedAllocation) {
                 $options['serial_tax_ids'] = $forcedAllocation['tax_ids'];
@@ -1289,17 +1370,19 @@ class Checkout extends Component
         $newQty = max(0, count($list));
         $productId = (int) ($item->options->product_id ?? 0);
         $product = $productId ? Product::find($productId) : null;
+        $productData = $product ? $product->toArray() : null;
+        $pricing = $productData ? $this->resolveTenantPricing($productData) : null;
 
         $cart_key = $item->options->cart_key ?? $item->id;
         $allocation = $this->buildSerialAllocation($options['serial_numbers'] ?? []);
         $stockContext = null;
 
         if ($product) {
-            $stockContext = $this->resolveStockForProduct($product->toArray(), max($newQty, 0), $allocation);
+            $stockContext = $this->resolveStockForProduct($productData, max($newQty, 0), $allocation);
         }
 
         if ($product && $newQty > 0) {
-            $calculated = $this->calculate($product->toArray(), $newQty);
+            $calculated = $this->calculate($productData, $newQty, $pricing);
             $bundleOptions = $this->recalculateBundleOptions($options, $newQty);
             $finalSubTotal = $calculated['sub_total'] + ($bundleOptions['bundle_price'] ?? 0);
 
@@ -1312,6 +1395,10 @@ class Checkout extends Component
 
             if ($stockContext) {
                 $mergedOptions = $this->applyStockContextToOptions($mergedOptions, $stockContext);
+            }
+
+            if ($pricing) {
+                $mergedOptions = $this->injectPricingIntoOptions($mergedOptions, $pricing);
             }
 
             $mergedOptions['serial_numbers'] = $options['serial_numbers'];
@@ -1328,6 +1415,10 @@ class Checkout extends Component
         } else {
             if ($stockContext) {
                 $options = $this->applyStockContextToOptions($options, $stockContext);
+            }
+
+            if ($pricing) {
+                $options = $this->injectPricingIntoOptions($options, $pricing);
             }
 
             $options['serial_tax_ids'] = $allocation['tax_ids'];
