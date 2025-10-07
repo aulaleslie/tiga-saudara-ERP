@@ -32,6 +32,9 @@
                         @foreach($search_results as $result)
                             <li class="list-group-item list-group-item-action">
                                 <a wire:click.prevent="selectSupplier({{ $result->id }})" href="#">
+                                    @if($result->contact_name)
+                                        {{ $result->contact_name }} —
+                                    @endif
                                     {{ $result->supplier_name }}
                                 </a>
                             </li>
