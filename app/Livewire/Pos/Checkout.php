@@ -78,7 +78,7 @@ class Checkout extends Component
     public function hydrate()
     {
         $this->refreshTotals();
-        $this->dispatchBrowserEvent('pos-mask-money-init');
+        $this->dispatch('pos-mask-money-init');
     }
 
     public function updatedPaidAmount($value): void
@@ -127,7 +127,7 @@ class Checkout extends Component
     {
         Cart::instance($this->cart_instance)->destroy();
         $this->refreshTotals(true);
-        $this->dispatchBrowserEvent('pos-mask-money-init');
+        $this->dispatch('pos-mask-money-init');
     }
 
     public function productSelected($product)
