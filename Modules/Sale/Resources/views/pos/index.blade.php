@@ -34,60 +34,249 @@
 @endsection
 
 @push('page_scripts')
-    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
     <script>
-        function initPosCheckoutMaskMoney() {
-            const $paidAmount = $('#paid_amount');
-            const $totalAmount = $('#total_amount');
-
-            if (!$paidAmount.length || typeof $paidAmount.maskMoney !== 'function') {
-                return;
-            }
-
-            if ($paidAmount.data('maskMoney')) {
-                try { $paidAmount.maskMoney('destroy'); } catch (e) {}
-            }
-
-            if ($totalAmount.length && $totalAmount.data('maskMoney')) {
-                try { $totalAmount.maskMoney('destroy'); } catch (e) {}
-            }
-
-            $paidAmount.maskMoney({
-                prefix:'{{ settings()->currency->symbol }}',
-                thousands:'{{ settings()->currency->thousand_separator }}',
-                decimal:'{{ settings()->currency->decimal_separator }}',
-                allowZero: false,
+        document.addEventListener('DOMContentLoaded', function () {
+            const currencySettings = {
+                symbol: @json(settings()->currency->symbol ?? ''),
+                thousand_separator: @json(settings()->currency->thousand_separator ?? ','),
+                decimal_separator: @json(settings()->currency->decimal_separator ?? '.'),
+                code: @json(settings()->currency->code ?? 'IDR'),
+                locale: @json(data_get(settings()->currency, 'locale')),
+            };
+            const decimalDigits = 2;
+            const localeGuess = currencySettings.decimal_separator === ',' ? 'id-ID' : 'en-US';
+            const formatter = new Intl.NumberFormat(currencySettings.locale || localeGuess, {
+                style: 'currency',
+                currency: currencySettings.code || 'IDR',
+                minimumFractionDigits: decimalDigits,
+                maximumFractionDigits: decimalDigits,
             });
 
-            $totalAmount.maskMoney({
-                prefix:'{{ settings()->currency->symbol }}',
-                thousands:'{{ settings()->currency->thousand_separator }}',
-                decimal:'{{ settings()->currency->decimal_separator }}',
-                allowZero: true,
-            });
+            const displays = () => document.querySelectorAll('[data-pos-currency-target]');
 
-            $paidAmount.maskMoney('mask');
-            $totalAmount.maskMoney('mask');
-        }
+            const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-        $(document).ready(function () {
+            const parseCurrencyInput = (value) => {
+                if (typeof value !== 'string') {
+                    return null;
+                }
+
+                let working = value.trim();
+
+                if (!working) {
+                    return null;
+                }
+
+                if (currencySettings.symbol) {
+                    working = working.replace(new RegExp(escapeRegExp(currencySettings.symbol), 'g'), '');
+                }
+
+                working = working.replace(/\s+/g, '').replace(/[^0-9.,-]/g, '');
+
+                if (!working) {
+                    return null;
+                }
+
+                const configuredDecimal = currencySettings.decimal_separator || null;
+                const configuredMatches = configuredDecimal
+                    ? (working.match(new RegExp(escapeRegExp(configuredDecimal), 'g')) || [])
+                    : [];
+
+                let decimalChar = null;
+
+                if (configuredDecimal && configuredMatches.length === 1) {
+                    decimalChar = configuredDecimal;
+                } else {
+                    const commaMatches = (working.match(/,/g) || []).length;
+                    const dotMatches = (working.match(/\./g) || []).length;
+                    const lastComma = working.lastIndexOf(',');
+                    const lastDot = working.lastIndexOf('.');
+
+                    if (commaMatches === 1 && (lastComma > lastDot || dotMatches !== 1)) {
+                        decimalChar = ',';
+                    } else if (dotMatches === 1) {
+                        decimalChar = '.';
+                    }
+                }
+
+                if (!decimalChar && configuredDecimal && configuredMatches.length === 0) {
+                    decimalChar = configuredDecimal;
+                }
+
+                let integerPart = working;
+                let fractionalPart = '';
+
+                if (decimalChar && integerPart.includes(decimalChar)) {
+                    const decimalIndex = integerPart.lastIndexOf(decimalChar);
+                    fractionalPart = integerPart.slice(decimalIndex + 1);
+                    integerPart = integerPart.slice(0, decimalIndex);
+                }
+
+                const thousandCandidates = [',', '.'].filter((char) => char !== decimalChar);
+
+                thousandCandidates.forEach((char) => {
+                    if (char) {
+                        const regex = new RegExp(escapeRegExp(char), 'g');
+                        integerPart = integerPart.replace(regex, '');
+                        fractionalPart = fractionalPart.replace(regex, '');
+                    }
+                });
+
+                integerPart = integerPart.replace(/[^0-9-]/g, '');
+                fractionalPart = fractionalPart.replace(/[^0-9]/g, '');
+
+                if (!integerPart && !fractionalPart) {
+                    return null;
+                }
+
+                let negative = false;
+
+                if (integerPart.includes('-')) {
+                    negative = integerPart.trim().startsWith('-');
+                    integerPart = integerPart.replace(/-/g, '');
+                }
+
+                let numericString = integerPart || '0';
+
+                if (fractionalPart) {
+                    numericString += '.' + fractionalPart;
+                }
+
+                if (negative && numericString !== '0') {
+                    numericString = '-' + numericString;
+                }
+
+                const numeric = parseFloat(numericString);
+
+                if (Number.isNaN(numeric)) {
+                    return null;
+                }
+
+                return numeric;
+            };
+
+            const refreshDisplayFromHidden = (display, hidden) => {
+                if (!hidden) {
+                    return;
+                }
+
+                if (display.dataset.posCurrencyEditing === 'true') {
+                    return;
+                }
+
+                const hiddenValue = hidden.value;
+
+                if (hiddenValue === null || hiddenValue === undefined || hiddenValue === '') {
+                    display.value = '';
+                    return;
+                }
+
+                const numeric = parseFloat(hiddenValue);
+
+                if (Number.isNaN(numeric)) {
+                    display.value = '';
+                    return;
+                }
+
+                const formatted = formatter.format(numeric);
+
+                if (display.value !== formatted) {
+                    display.value = formatted;
+                }
+            };
+
+            const refreshPosCurrencyDisplays = () => {
+                displays().forEach((display) => {
+                    const targetId = display.getAttribute('data-pos-currency-target');
+                    if (!targetId) {
+                        return;
+                    }
+                    const hidden = document.getElementById(targetId);
+                    refreshDisplayFromHidden(display, hidden);
+                });
+            };
+
+            const bindDisplayFormatter = (display) => {
+                const targetId = display.getAttribute('data-pos-currency-target');
+                if (!targetId) {
+                    return;
+                }
+
+                const hidden = document.getElementById(targetId);
+
+                if (!hidden) {
+                    return;
+                }
+
+                if (display.dataset.posFormatterBound === 'true') {
+                    return;
+                }
+
+                display.dataset.posFormatterBound = 'true';
+
+                display.addEventListener('focus', () => {
+                    display.dataset.posCurrencyEditing = 'true';
+
+                    if (hidden.value !== undefined && hidden.value !== null && hidden.value !== '') {
+                        const numeric = parseFloat(hidden.value);
+                        if (!Number.isNaN(numeric)) {
+                            const asString = numeric.toFixed(decimalDigits);
+                            const localized = currencySettings.decimal_separator && currencySettings.decimal_separator !== '.'
+                                ? asString.replace('.', currencySettings.decimal_separator)
+                                : asString;
+                            display.value = localized;
+                        } else {
+                            display.value = hidden.value;
+                        }
+                    } else {
+                        display.value = '';
+                    }
+
+                    try {
+                        display.select();
+                    } catch (e) {}
+                });
+
+                display.addEventListener('blur', () => {
+                    display.dataset.posCurrencyEditing = 'false';
+                    refreshDisplayFromHidden(display, hidden);
+                });
+
+                display.addEventListener('input', () => {
+                    const numeric = parseCurrencyInput(display.value);
+
+                    if (numeric === null) {
+                        hidden.value = '';
+                        hidden.dispatchEvent(new Event('input', { bubbles: true }));
+                        return;
+                    }
+
+                    hidden.value = numeric.toFixed(decimalDigits);
+                    hidden.dispatchEvent(new Event('input', { bubbles: true }));
+                });
+            };
+
+            window.initPosCurrencyFormatter = function () {
+                displays().forEach((display) => bindDisplayFormatter(display));
+                refreshPosCurrencyDisplays();
+            };
+
             window.addEventListener('showCheckoutModal', () => {
                 $('#checkoutModal').modal('show');
-
-                initPosCheckoutMaskMoney();
-
-                $('#checkout-form').off('submit.pos').on('submit.pos', function () {
-                    const paidAmount = $('#paid_amount').maskMoney('unmasked')[0];
-                    $('#paid_amount').val(paidAmount);
-                    const totalAmount = $('#total_amount').maskMoney('unmasked')[0];
-                    $('#total_amount').val(totalAmount);
-                });
+                window.initPosCurrencyFormatter();
             });
 
             window.addEventListener('pos-mask-money-init', () => {
-                initPosCheckoutMaskMoney();
+                window.initPosCurrencyFormatter();
             });
+
+            if (window.Livewire && typeof window.Livewire.hook === 'function') {
+                window.Livewire.hook('message.processed', () => {
+                    refreshPosCurrencyDisplays();
+                });
+            }
+
+            window.initPosCurrencyFormatter();
         });
     </script>
-
 @endpush
