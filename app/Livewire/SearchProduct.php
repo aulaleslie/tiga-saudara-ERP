@@ -368,7 +368,7 @@ class SearchProduct extends Component
             NULL AS serial_id,
             NULL AS serial_number
         FROM products p
-        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_base
         LEFT JOIN (
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
@@ -400,7 +400,7 @@ class SearchProduct extends Component
             NULL AS serial_number
         FROM product_unit_conversions puc
         JOIN products p ON p.id = puc.product_id
-        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_conversion
         LEFT JOIN (
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
@@ -433,7 +433,7 @@ class SearchProduct extends Component
             psn.serial_number
         FROM product_serial_numbers psn
         JOIN products p ON p.id = psn.product_id
-        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_serial
         LEFT JOIN (
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
@@ -464,7 +464,9 @@ class SearchProduct extends Component
             'term2' => $term,
             'term3' => $term,
             'term4' => $term,
-            'settingId' => $settingId,
+            'settingId_base'        => $settingId,
+            'settingId_conversion'  => $settingId,
+            'settingId_serial'      => $settingId,
         ]));
     }
 }
