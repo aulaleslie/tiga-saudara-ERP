@@ -35,18 +35,27 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="total_amount">Total Amount <span
+                                        <label for="total_amount_display">Total Amount <span
                                                 class="text-danger">*</span></label>
-                                        <input id="total_amount" type="text" class="form-control" name="total_amount"
-                                               value="{{ $total_amount }}" readonly required>
+                                        <div class="pos-currency-input" wire:ignore>
+                                            <input id="total_amount_display" type="text" class="form-control"
+                                                   data-pos-currency-target="total_amount" readonly>
+                                        </div>
+                                        <input id="total_amount" type="hidden" name="total_amount"
+                                               wire:model.live="total_amount" value="{{ $total_amount }}">
                                     </div>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="paid_amount">Received Amount <span
+                                        <label for="paid_amount_display">Received Amount <span
                                                 class="text-danger">*</span></label>
-                                        <input id="paid_amount" type="text" class="form-control" name="paid_amount"
-                                               wire:model.live.debounce.300ms="paid_amount" required>
+                                        <div class="pos-currency-input" wire:ignore>
+                                            <input id="paid_amount_display" type="text" class="form-control"
+                                                   data-pos-currency-target="paid_amount" inputmode="decimal"
+                                                   autocomplete="off" required>
+                                        </div>
+                                        <input id="paid_amount" type="hidden" name="paid_amount"
+                                               wire:model.live="paid_amount" value="{{ $paid_amount }}">
                                     </div>
                                 </div>
                             </div>
@@ -108,6 +117,16 @@
                                         </th>
                                     </tr>
                                 </table>
+                            </div>
+                            <div class="mt-3">
+                                <div class="p-4 rounded border {{ $computedChange < 0 ? 'border-danger bg-light text-danger' : 'border-success bg-light text-success' }}">
+                                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center">
+                                        <span class="h5 mb-3 mb-md-0">Change Due</span>
+                                        <span class="display-4 font-weight-bold mb-0">
+                                            {{ $computedChange < 0 ? '-' : '' }}{{ format_currency(abs($computedChange)) }}
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
