@@ -116,6 +116,35 @@ CREATE TABLE `brands` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `cashier_cash_movements`
+--
+
+DROP TABLE IF EXISTS `cashier_cash_movements`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `cashier_cash_movements` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `movement_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `cash_total` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `expected_total` decimal(15,2) DEFAULT NULL,
+  `variance` decimal(15,2) DEFAULT NULL,
+  `denominations` json DEFAULT NULL,
+  `documents` json DEFAULT NULL,
+  `metadata` json DEFAULT NULL,
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  `recorded_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `cashier_cash_movements_user_id_foreign` (`user_id`),
+  KEY `cashier_cash_movements_movement_type_index` (`movement_type`),
+  KEY `cashier_cash_movements_recorded_at_index` (`recorded_at`),
+  CONSTRAINT `cashier_cash_movements_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `categories`
 --
 
@@ -191,6 +220,30 @@ CREATE TABLE `currencies` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `customer_credits`
+--
+
+DROP TABLE IF EXISTS `customer_credits`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customer_credits` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `customer_id` bigint unsigned NOT NULL,
+  `sale_return_id` bigint unsigned NOT NULL,
+  `amount` decimal(15,2) NOT NULL,
+  `remaining_amount` decimal(15,2) NOT NULL,
+  `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'open',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `customer_credits_sale_return_id_unique` (`sale_return_id`),
+  KEY `customer_credits_customer_id_status_index` (`customer_id`,`status`),
+  CONSTRAINT `customer_credits_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `customer_credits_sale_return_id_foreign` FOREIGN KEY (`sale_return_id`) REFERENCES `sale_returns` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -497,7 +550,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=138 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=141 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1393,6 +1446,28 @@ CREATE TABLE `sale_details` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `sale_payment_credit_applications`
+--
+
+DROP TABLE IF EXISTS `sale_payment_credit_applications`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sale_payment_credit_applications` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `sale_payment_id` bigint unsigned NOT NULL,
+  `customer_credit_id` bigint unsigned NOT NULL,
+  `amount` decimal(15,2) NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_sale_payment_credit` (`sale_payment_id`,`customer_credit_id`),
+  KEY `sale_payment_credit_applications_customer_credit_id_foreign` (`customer_credit_id`),
+  CONSTRAINT `sale_payment_credit_applications_customer_credit_id_foreign` FOREIGN KEY (`customer_credit_id`) REFERENCES `customer_credits` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `sale_payment_credit_applications_sale_payment_id_foreign` FOREIGN KEY (`sale_payment_id`) REFERENCES `sale_payments` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `sale_payments`
 --
 
@@ -1428,23 +1503,64 @@ DROP TABLE IF EXISTS `sale_return_details`;
 CREATE TABLE `sale_return_details` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `sale_return_id` bigint unsigned NOT NULL,
+  `sale_detail_id` bigint unsigned DEFAULT NULL,
+  `dispatch_detail_id` bigint unsigned DEFAULT NULL,
+  `location_id` bigint unsigned DEFAULT NULL,
   `product_id` bigint unsigned DEFAULT NULL,
   `product_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `product_code` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `quantity` int NOT NULL,
-  `price` int NOT NULL,
-  `unit_price` int NOT NULL,
-  `sub_total` int NOT NULL,
-  `product_discount_amount` int NOT NULL,
+  `price` decimal(15,2) NOT NULL,
+  `unit_price` decimal(15,2) NOT NULL,
+  `sub_total` decimal(15,2) NOT NULL,
+  `product_discount_amount` decimal(15,2) NOT NULL,
   `product_discount_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'fixed',
-  `product_tax_amount` int NOT NULL,
+  `product_tax_amount` decimal(15,2) NOT NULL,
+  `tax_id` bigint unsigned DEFAULT NULL,
+  `serial_number_ids` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `sale_return_details_sale_return_id_foreign` (`sale_return_id`),
   KEY `sale_return_details_product_id_foreign` (`product_id`),
+  KEY `sale_return_details_sale_detail_id_foreign` (`sale_detail_id`),
+  KEY `sale_return_details_dispatch_detail_id_foreign` (`dispatch_detail_id`),
+  KEY `sale_return_details_location_id_foreign` (`location_id`),
+  KEY `sale_return_details_tax_id_foreign` (`tax_id`),
+  CONSTRAINT `sale_return_details_dispatch_detail_id_foreign` FOREIGN KEY (`dispatch_detail_id`) REFERENCES `dispatch_details` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_return_details_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_return_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `sale_return_details_sale_return_id_foreign` FOREIGN KEY (`sale_return_id`) REFERENCES `sale_returns` (`id`) ON DELETE CASCADE
+  CONSTRAINT `sale_return_details_sale_detail_id_foreign` FOREIGN KEY (`sale_detail_id`) REFERENCES `sale_details` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_return_details_sale_return_id_foreign` FOREIGN KEY (`sale_return_id`) REFERENCES `sale_returns` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `sale_return_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `sale_return_goods`
+--
+
+DROP TABLE IF EXISTS `sale_return_goods`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sale_return_goods` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `sale_return_id` bigint unsigned NOT NULL,
+  `product_id` bigint unsigned DEFAULT NULL,
+  `product_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `product_code` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `quantity` int NOT NULL,
+  `unit_value` decimal(15,2) DEFAULT NULL,
+  `sub_total` decimal(15,2) DEFAULT NULL,
+  `received_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `sale_return_goods_sale_return_id_index` (`sale_return_id`),
+  KEY `sale_return_goods_product_id_index` (`product_id`),
+  KEY `srg_return_received_idx` (`sale_return_id`,`received_at`),
+  CONSTRAINT `sale_return_goods_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_return_goods_sale_return_id_foreign` FOREIGN KEY (`sale_return_id`) REFERENCES `sale_returns` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1482,25 +1598,57 @@ CREATE TABLE `sale_returns` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `date` date NOT NULL,
   `reference` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sale_id` bigint unsigned DEFAULT NULL,
+  `sale_reference` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `customer_id` bigint unsigned DEFAULT NULL,
+  `setting_id` bigint unsigned DEFAULT NULL,
+  `location_id` bigint unsigned DEFAULT NULL,
   `customer_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `tax_percentage` int NOT NULL DEFAULT '0',
-  `tax_amount` int NOT NULL DEFAULT '0',
+  `tax_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
   `discount_percentage` int NOT NULL DEFAULT '0',
-  `discount_amount` int NOT NULL DEFAULT '0',
-  `shipping_amount` int NOT NULL DEFAULT '0',
-  `total_amount` int NOT NULL,
-  `paid_amount` int NOT NULL,
-  `due_amount` int NOT NULL,
+  `discount_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `shipping_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `total_amount` decimal(15,2) NOT NULL,
+  `paid_amount` decimal(15,2) NOT NULL,
+  `due_amount` decimal(15,2) NOT NULL,
+  `approval_status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `return_type` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `approved_by` bigint unsigned DEFAULT NULL,
+  `approved_at` timestamp NULL DEFAULT NULL,
+  `rejected_by` bigint unsigned DEFAULT NULL,
+  `rejected_at` timestamp NULL DEFAULT NULL,
+  `rejection_reason` text COLLATE utf8mb4_unicode_ci,
+  `settled_at` timestamp NULL DEFAULT NULL,
+  `settled_by` bigint unsigned DEFAULT NULL,
+  `received_by` bigint unsigned DEFAULT NULL,
+  `received_at` timestamp NULL DEFAULT NULL,
   `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `payment_status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `payment_method` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `cash_proof_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `note` text COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `sale_returns_customer_id_foreign` (`customer_id`),
-  CONSTRAINT `sale_returns_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL
+  KEY `sale_returns_sale_id_foreign` (`sale_id`),
+  KEY `sale_returns_setting_id_foreign` (`setting_id`),
+  KEY `sale_returns_location_id_foreign` (`location_id`),
+  KEY `sale_returns_approval_status_index` (`approval_status`),
+  KEY `sale_returns_return_type_index` (`return_type`),
+  KEY `sale_returns_approved_by_foreign` (`approved_by`),
+  KEY `sale_returns_rejected_by_foreign` (`rejected_by`),
+  KEY `sale_returns_settled_by_foreign` (`settled_by`),
+  KEY `sale_returns_received_by_foreign` (`received_by`),
+  CONSTRAINT `sale_returns_approved_by_foreign` FOREIGN KEY (`approved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_returns_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_returns_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_returns_received_by_foreign` FOREIGN KEY (`received_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_returns_rejected_by_foreign` FOREIGN KEY (`rejected_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_returns_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_returns_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_returns_settled_by_foreign` FOREIGN KEY (`settled_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1919,4 +2067,4 @@ CREATE TABLE `websockets_statistics_entries` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-10-05 12:46:13
+-- Dump completed on 2025-10-11  6:39:17
