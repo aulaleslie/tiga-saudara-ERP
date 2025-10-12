@@ -67,7 +67,14 @@ class Checkout extends Component
         $this->paid_amount = 0.00;
 
         session('setting_id');
-        $this->paymentMethods = PaymentMethod::all();
+
+        $this->paymentMethods = PaymentMethod::query()
+            ->where('is_available_in_pos', true)
+            ->orderBy('name')
+            ->get();
+
+        $firstMethod = $this->paymentMethodsCollection()->first();
+        $this->selected_payment_method_id = $firstMethod ? (int) data_get($firstMethod, 'id') : null;
 
         $this->bundleOptions = collect();
 
@@ -88,9 +95,54 @@ class Checkout extends Component
         $this->paidAmountManuallyUpdated = abs($this->paid_amount - (float) $this->total_amount) > 0.00001;
     }
 
-    public function getChangeDueProperty(): float
+    protected function paymentMethodsCollection(): Collection
+    {
+        return $this->paymentMethods instanceof Collection
+            ? $this->paymentMethods
+            : collect($this->paymentMethods);
+    }
+
+    public function getSelectedPaymentMethodProperty(): mixed
+    {
+        if (! $this->selected_payment_method_id) {
+            return null;
+        }
+
+        return $this->paymentMethodsCollection()
+            ->first(function ($method) {
+                return (int) data_get($method, 'id') === (int) $this->selected_payment_method_id;
+            });
+    }
+
+    public function getSelectedPaymentMethodFlagsProperty(): array
+    {
+        $method = $this->selectedPaymentMethod;
+
+        return [
+            'is_cash' => (bool) data_get($method, 'is_cash', false),
+            'is_available_in_pos' => (bool) data_get($method, 'is_available_in_pos', false),
+        ];
+    }
+
+    public function getRawChangeDueProperty(): float
     {
         return round((float) $this->paid_amount - (float) $this->total_amount, 2);
+    }
+
+    public function getOverPaidWithNonCashProperty(): bool
+    {
+        return $this->rawChangeDue > 0 && ! $this->selectedPaymentMethodFlags['is_cash'];
+    }
+
+    public function getChangeDueProperty(): float
+    {
+        $change = $this->rawChangeDue;
+
+        if ($change > 0 && ! $this->selectedPaymentMethodFlags['is_cash']) {
+            return 0.00;
+        }
+
+        return $change;
     }
 
     public function render()
@@ -100,6 +152,10 @@ class Checkout extends Component
         return view('livewire.pos.checkout', [
             'cart_items' => $cart_items,
             'changeDue' => $this->changeDue,
+            'rawChangeDue' => $this->rawChangeDue,
+            'overPaidWithNonCash' => $this->overPaidWithNonCash,
+            'selectedPaymentMethod' => $this->selectedPaymentMethod,
+            'selectedPaymentMethodFlags' => $this->selectedPaymentMethodFlags,
             'paidAmount' => $this->paid_amount,
         ]);
     }
