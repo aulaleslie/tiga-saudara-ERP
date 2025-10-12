@@ -54,7 +54,7 @@
                 <div class="alert alert-warning alert-dismissible fade show" role="alert">
                     <div class="alert-body">
                         <span>{{ session('message') }}</span>
-                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                        <button type="button" class="close" data-bs-dismiss="alert" aria-label="Close">
                             <span aria-hidden="true">×</span>
                         </button>
                     </div>

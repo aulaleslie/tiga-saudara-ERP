@@ -8,7 +8,7 @@
                 <h5 class="modal-title" id="checkoutModalLabel">
                     <i class="bi bi-cart-check text-primary"></i> Konfirmasi Penjualan
                 </h5>
-                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
                     <span aria-hidden="true">&times;</span>
                 </button>
             </div>
@@ -19,7 +19,7 @@
                         <div class="alert alert-success alert-dismissible fade show" role="alert">
                             <div class="alert-body">
                                 <span>{{ session('checkout_message') }}</span>
-                                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                <button type="button" class="close" data-bs-dismiss="alert" aria-label="Close">
                                     <span aria-hidden="true">×</span>
                                 </button>
                             </div>
@@ -180,7 +180,7 @@
 
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Tutup</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Tutup</button>
                     <button type="submit" formaction="{{ route('app.pos.store-as-quotation') }}"
                             class="btn btn-warning">
                         Simpan Sebagai Dokumen Penjualan
