@@ -94,6 +94,8 @@ class SaleSharedMasterDataTest extends TestCase
         $this->sharedMethod = PaymentMethod::create([
             'name' => 'Shared Cash',
             'coa_id' => $chartOfAccount->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
         ]);
 
         $this->sharedTerm = PaymentTerm::create([
