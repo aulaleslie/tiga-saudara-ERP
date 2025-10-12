@@ -31,7 +31,7 @@
                             <input type="hidden" value="{{ $global_tax }}" name="tax_percentage">
                             <input type="hidden" value="{{ $global_discount }}" name="discount_percentage">
                             <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
-                            <input type="hidden" name="payment_method_id" value="{{ $selected_payment_method_id }}">
+                            <input type="hidden" name="paid_amount" wire:model.live="paid_amount" value="{{ $paid_amount }}">
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
@@ -47,26 +47,55 @@
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="paid_amount_display">Jumlah Diterima <span
-                                                class="text-danger">*</span></label>
-                                        <div class="pos-currency-input" wire:ignore>
-                                            <input id="paid_amount_display" type="text" class="form-control"
-                                                   data-pos-currency-target="paid_amount" inputmode="decimal"
-                                                   autocomplete="off" required>
+                                        <label class="d-flex justify-content-between align-items-center">
+                                            <span>Rincian Pembayaran <span class="text-danger">*</span></span>
+                                            <button type="button" class="btn btn-sm btn-outline-primary"
+                                                    wire:click="addPaymentRow">
+                                                Tambah Metode
+                                            </button>
+                                        </label>
+                                        <div class="payment-rows">
+                                            @foreach($payments as $index => $payment)
+                                                <div class="form-row align-items-end mb-2"
+                                                     wire:key="payment-row-{{ $payment['uuid'] ?? $index }}">
+                                                    <div class="col-md-6">
+                                                        <label class="sr-only" for="payment-method-{{ $payment['uuid'] ?? $index }}">Metode Pembayaran</label>
+                                                        <select
+                                                            id="payment-method-{{ $payment['uuid'] ?? $index }}"
+                                                            class="form-control"
+                                                            name="payments[{{ $index }}][method_id]"
+                                                            wire:model="payments.{{ $index }}.method_id"
+                                                            required>
+                                                            <option value="">-- Pilih Metode --</option>
+                                                            @foreach($paymentMethods as $method)
+                                                                <option value="{{ $method->id }}">{{ $method->name }}</option>
+                                                            @endforeach
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-5">
+                                                        <label class="sr-only" for="payment-amount-{{ $payment['uuid'] ?? $index }}">Jumlah</label>
+                                                        <input
+                                                            id="payment-amount-{{ $payment['uuid'] ?? $index }}"
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            class="form-control"
+                                                            name="payments[{{ $index }}][amount]"
+                                                            wire:model.live="payments.{{ $index }}.amount"
+                                                            required>
+                                                    </div>
+                                                    <div class="col-md-1 text-right">
+                                                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                                                wire:click="removePaymentRow({{ $index }})"
+                                                                @if(count($payments) <= 1) disabled @endif>
+                                                            <i class="bi bi-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            @endforeach
                                         </div>
-                                        <input id="paid_amount" type="hidden" name="paid_amount"
-                                               wire:model.live="paid_amount" value="{{ $paid_amount }}">
                                     </div>
                                 </div>
-                            </div>
-                            <div class="form-group">
-                                <label for="payment_method">Metode Pembayaran <span class="text-danger">*</span></label>
-                                <select wire:model="selected_payment_method_id" class="form-control" id="payment_method" required>
-                                    <option value="">-- Pilih Metode Pembayaran --</option>
-                                    @foreach($paymentMethods as $method)
-                                        <option value="{{ $method->id }}">{{ $method->name }}</option>
-                                    @endforeach
-                                </select>
                             </div>
                             <div class="form-group">
                                 <label for="note">Catatan (Jika Diperlukan)</label>
@@ -113,8 +142,6 @@
                                         $computedChange = $changeDue ?? 0;
                                         $rawChange = $rawChangeDue ?? $computedChange;
                                         $overPaidWithNonCash = $overPaidWithNonCash ?? false;
-                                        $selectedPaymentMethodName = data_get($selectedPaymentMethod ?? null, 'name');
-
                                         $changeRowClass = $computedChange < 0 ? 'text-danger' : 'text-success';
                                         if ($overPaidWithNonCash) {
                                             $changeRowClass = 'text-warning';
@@ -125,11 +152,7 @@
                                         <th>
                                             @if($overPaidWithNonCash)
                                                 <span class="d-block text-warning">
-                                                    Kelebihan pembayaran sebesar {{ format_currency(max($rawChange, 0)) }} hanya diperbolehkan untuk pembayaran tunai
-                                                    @if(!empty($selectedPaymentMethodName))
-                                                        ({{ $selectedPaymentMethodName }})
-                                                    @endif
-                                                    . Silakan sesuaikan jumlah yang diterima.
+                                                    Kelebihan pembayaran sebesar {{ format_currency(max($rawChange, 0)) }} hanya diperbolehkan jika terdapat entri pembayaran tunai. Silakan sesuaikan rincian pembayaran.
                                                 </span>
                                             @else
                                                 {{ $computedChange < 0 ? '(-)' : '(+)' }} {{ format_currency(abs($computedChange)) }}
@@ -139,17 +162,14 @@
                                 </table>
                             </div>
                             <div class="mt-3">
-                                @php
-                                    $changeButtonDisabled = !($selectedPaymentMethodFlags['is_cash'] ?? false);
-                                @endphp
                                 <button type="button"
                                         class="btn btn-outline-success btn-block"
                                         wire:click="openChangeModal"
                                         aria-controls="posChangeModal"
-                                        {{ $changeButtonDisabled ? 'disabled' : '' }}>
+                                        {{ $hasCashPayment ? '' : 'disabled' }}>
                                     Tampilkan Kembalian
                                 </button>
-                                @if($changeButtonDisabled)
+                                @if(! $hasCashPayment)
                                     <small class="form-text text-muted mt-2">
                                         Pilih metode pembayaran tunai untuk menampilkan informasi kembalian.
                                     </small>
