@@ -1,4 +1,60 @@
 @php use Gloudemans\Shoppingcart\Facades\Cart; @endphp
+<style>
+    .payment-table-wrapper .table {
+        margin-bottom: 0;
+    }
+
+    .payment-table-wrapper .table td,
+    .payment-table-wrapper .table th {
+        vertical-align: middle;
+    }
+
+    .payment-table-wrapper .form-control {
+        min-width: 8rem;
+    }
+
+    @media (max-width: 575.98px) {
+        .payment-table-wrapper .table thead {
+            display: none;
+        }
+
+        .payment-table-wrapper .table tbody tr {
+            display: block;
+            margin-bottom: 1rem;
+            border: 1px solid var(--bs-border-color, #dee2e6);
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            background-color: var(--bs-body-bg, #fff);
+        }
+
+        .payment-table-wrapper .table tbody tr:last-child {
+            margin-bottom: 0;
+        }
+
+        .payment-table-wrapper .table tbody tr td {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: none;
+            padding: 0.35rem 0;
+        }
+
+        .payment-table-wrapper .table tbody tr td[data-label]::before {
+            content: attr(data-label);
+            font-weight: 600;
+            margin-right: 1rem;
+        }
+
+        .payment-table-wrapper .table tbody tr td:last-child {
+            justify-content: flex-end;
+        }
+
+        .payment-table-wrapper .table tbody tr td .form-control {
+            max-width: none;
+            width: 100%;
+        }
+    }
+</style>
 <div class="modal fade" id="checkoutModal" tabindex="-1" role="dialog"
      aria-labelledby="checkoutModalLabel" aria-hidden="true"
      wire:ignore.self>
@@ -46,52 +102,64 @@
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label class="d-flex justify-content-between align-items-center">
-                                            <span>Rincian Pembayaran <span class="text-danger">*</span></span>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <label class="mb-0">
+                                                Rincian Pembayaran <span class="text-danger">*</span>
+                                            </label>
                                             <button type="button" class="btn btn-sm btn-outline-primary"
                                                     wire:click="addPaymentRow">
                                                 Tambah Metode
                                             </button>
-                                        </label>
-                                        <div class="payment-rows">
-                                            @foreach($payments as $index => $payment)
-                                                <div class="form-row align-items-end mb-2"
-                                                     wire:key="payment-row-{{ $payment['uuid'] ?? $index }}">
-                                                    <div class="col-md-6">
-                                                        <label class="sr-only" for="payment-method-{{ $payment['uuid'] ?? $index }}">Metode Pembayaran</label>
-                                                        <select
-                                                            id="payment-method-{{ $payment['uuid'] ?? $index }}"
-                                                            class="form-control"
-                                                            name="payments[{{ $index }}][method_id]"
-                                                            wire:model="payments.{{ $index }}.method_id"
-                                                            required>
-                                                            <option value="">-- Pilih Metode --</option>
-                                                            @foreach($paymentMethods as $method)
-                                                                <option value="{{ $method->id }}">{{ $method->name }}</option>
-                                                            @endforeach
-                                                        </select>
-                                                    </div>
-                                                    <div class="col-md-5">
-                                                        <label class="sr-only" for="payment-amount-{{ $payment['uuid'] ?? $index }}">Jumlah</label>
-                                                        <input
-                                                            id="payment-amount-{{ $payment['uuid'] ?? $index }}"
-                                                            type="number"
-                                                            min="0"
-                                                            step="0.01"
-                                                            class="form-control"
-                                                            name="payments[{{ $index }}][amount]"
-                                                            wire:model.live="payments.{{ $index }}.amount"
-                                                            required>
-                                                    </div>
-                                                    <div class="col-md-1 text-right">
-                                                        <button type="button" class="btn btn-sm btn-outline-danger"
-                                                                wire:click="removePaymentRow({{ $index }})"
-                                                                @if(count($payments) <= 1) disabled @endif>
-                                                            <i class="bi bi-trash"></i>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            @endforeach
+                                        </div>
+                                        <div class="payment-table-wrapper">
+                                            <table class="table table-sm align-middle payment-table">
+                                                <thead>
+                                                <tr>
+                                                    <th scope="col">Metode</th>
+                                                    <th scope="col" class="text-end">Jumlah</th>
+                                                    <th scope="col" class="text-center">&nbsp;</th>
+                                                </tr>
+                                                </thead>
+                                                <tbody>
+                                                @foreach($payments as $index => $payment)
+                                                    <tr wire:key="payment-row-{{ $payment['uuid'] ?? $index }}">
+                                                        <td data-label="Metode">
+                                                            <label class="sr-only" for="payment-method-{{ $payment['uuid'] ?? $index }}">Metode Pembayaran</label>
+                                                            <select
+                                                                id="payment-method-{{ $payment['uuid'] ?? $index }}"
+                                                                class="form-control"
+                                                                name="payments[{{ $index }}][method_id]"
+                                                                wire:model="payments.{{ $index }}.method_id"
+                                                                required>
+                                                                <option value="">-- Pilih Metode --</option>
+                                                                @foreach($paymentMethods as $method)
+                                                                    <option value="{{ $method->id }}">{{ $method->name }}</option>
+                                                                @endforeach
+                                                            </select>
+                                                        </td>
+                                                        <td data-label="Jumlah" class="text-end text-md-right">
+                                                            <label class="sr-only" for="payment-amount-{{ $payment['uuid'] ?? $index }}">Jumlah</label>
+                                                            <input
+                                                                id="payment-amount-{{ $payment['uuid'] ?? $index }}"
+                                                                type="number"
+                                                                min="0"
+                                                                step="0.01"
+                                                                class="form-control text-end"
+                                                                name="payments[{{ $index }}][amount]"
+                                                                wire:model.live="payments.{{ $index }}.amount"
+                                                                required>
+                                                        </td>
+                                                        <td data-label="Aksi" class="text-center text-md-right">
+                                                            <button type="button" class="btn btn-sm btn-outline-danger"
+                                                                    wire:click="removePaymentRow({{ $index }})"
+                                                                    @if(count($payments) <= 1) disabled @endif>
+                                                                <i class="bi bi-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                @endforeach
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
                                 </div>
