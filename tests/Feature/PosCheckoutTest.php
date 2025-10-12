@@ -185,6 +185,52 @@ class PosCheckoutTest extends TestCase
             ->assertSet('overPaidWithNonCash', false);
     }
 
+    public function test_change_modal_displays_formatted_rupiah_when_change_positive(): void
+    {
+        $cashMethod = PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $this->chartOfAccount->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
+        ]);
+
+        $component = Livewire::test(Checkout::class, [
+            'cartInstance' => 'sale',
+            'customers' => Customer::all(),
+        ]);
+
+        $component
+            ->set('selected_payment_method_id', $cashMethod->id)
+            ->set('total_amount', 100000)
+            ->set('paid_amount', 150000)
+            ->call('openChangeModal')
+            ->assertSet('changeModalHasPositiveChange', true)
+            ->assertSee('KEMBALIAN Rp. 50.000,00 . JANGAN LUPA UCAPKAN TERIMA KASIH!!');
+    }
+
+    public function test_change_modal_displays_thank_you_when_no_change_due(): void
+    {
+        $cashMethod = PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $this->chartOfAccount->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
+        ]);
+
+        $component = Livewire::test(Checkout::class, [
+            'cartInstance' => 'sale',
+            'customers' => Customer::all(),
+        ]);
+
+        $component
+            ->set('selected_payment_method_id', $cashMethod->id)
+            ->set('total_amount', 125000)
+            ->set('paid_amount', 125000)
+            ->call('openChangeModal')
+            ->assertSet('changeModalHasPositiveChange', false)
+            ->assertSee('JANGAN LUPA UCAPKAN TERIMA KASIH');
+    }
+
     public function test_pos_store_rejects_overpayment_for_non_cash_methods(): void
     {
         $nonCashMethod = PaymentMethod::create([

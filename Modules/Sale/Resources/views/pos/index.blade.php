@@ -266,6 +266,23 @@
                 window.initPosCurrencyFormatter();
             });
 
+            window.addEventListener('show-change-modal', (event) => {
+                const modal = $('#posChangeModal');
+                const amount = event?.detail?.amount ?? '';
+
+                if (amount) {
+                    modal.attr('aria-label', `Kembalian Rp. ${amount}`);
+                } else {
+                    modal.removeAttr('aria-label');
+                }
+
+                modal.modal('show');
+            });
+
+            window.addEventListener('hide-change-modal', () => {
+                $('#posChangeModal').modal('hide');
+            });
+
             window.addEventListener('pos-mask-money-init', () => {
                 window.initPosCurrencyFormatter();
             });
