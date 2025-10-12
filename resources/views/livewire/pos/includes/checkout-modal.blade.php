@@ -140,34 +140,20 @@
                             </div>
                             <div class="mt-3">
                                 @php
-                                    $changePanelClass = 'border-success bg-light text-success';
-                                    if ($computedChange < 0) {
-                                        $changePanelClass = 'border-danger bg-light text-danger';
-                                    } elseif ($overPaidWithNonCash) {
-                                        $changePanelClass = 'border-warning bg-light text-warning';
-                                    }
+                                    $changeButtonDisabled = !($selectedPaymentMethodFlags['is_cash'] ?? false);
                                 @endphp
-                                <div class="p-4 rounded border {{ $changePanelClass }}">
-                                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center">
-                                        <span class="h5 mb-3 mb-md-0">Change Due</span>
-                                        <span class="display-4 font-weight-bold mb-0">
-                                            @if($overPaidWithNonCash)
-                                                {{ format_currency(0) }}
-                                            @else
-                                                {{ $computedChange < 0 ? '-' : '' }}{{ format_currency(abs($computedChange)) }}
-                                            @endif
-                                        </span>
-                                    </div>
-                                    @if($overPaidWithNonCash)
-                                        <span class="small d-block mt-3 text-warning">
-                                            Overpayment of {{ format_currency(max($rawChange, 0)) }} is only allowed for cash payments
-                                            @if(!empty($selectedPaymentMethodName))
-                                                ({{ $selectedPaymentMethodName }})
-                                            @endif
-                                            . Please adjust the received amount.
-                                        </span>
-                                    @endif
-                                </div>
+                                <button type="button"
+                                        class="btn btn-outline-success btn-block"
+                                        wire:click="openChangeModal"
+                                        aria-controls="posChangeModal"
+                                        {{ $changeButtonDisabled ? 'disabled' : '' }}>
+                                    Tampilkan Kembalian
+                                </button>
+                                @if($changeButtonDisabled)
+                                    <small class="form-text text-muted mt-2">
+                                        Pilih metode pembayaran tunai untuk menampilkan informasi kembalian.
+                                    </small>
+                                @endif
                             </div>
                         </div>
                     </div>

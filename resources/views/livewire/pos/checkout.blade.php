@@ -315,6 +315,7 @@
 
     {{-- Modals --}}
     @include('livewire.pos.includes.checkout-modal')
+    @include('livewire.pos.includes.change-modal')
     @include('livewire.sale.includes.bundle-confirmation-modal')
     <livewire:customer.create-modal/>
     <livewire:pos.serial-number-picker />

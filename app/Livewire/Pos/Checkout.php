@@ -49,7 +49,10 @@ class Checkout extends Component
     public $paymentMethods = [];
     public $selected_payment_method_id = null;
     public ?int $posLocationId = null;
+    public bool $changeModalHasPositiveChange = false;
+    public ?string $changeModalAmount = null;
     protected bool $paidAmountManuallyUpdated = false;
+    protected ?string $lastChangeModalAmount = null;
 
     public function mount($cartInstance, $customers)
     {
@@ -93,6 +96,14 @@ class Checkout extends Component
     {
         $this->paid_amount = $this->sanitizeCurrencyValue($value);
         $this->paidAmountManuallyUpdated = abs($this->paid_amount - (float) $this->total_amount) > 0.00001;
+        $this->syncChangeModalState();
+        $this->maybeAutoShowChangeModal();
+    }
+
+    public function updatedSelectedPaymentMethodId($value): void
+    {
+        $this->syncChangeModalState();
+        $this->maybeAutoShowChangeModal();
     }
 
     protected function paymentMethodsCollection(): Collection
@@ -143,6 +154,17 @@ class Checkout extends Component
         }
 
         return $change;
+    }
+
+    public function openChangeModal(): void
+    {
+        $this->syncChangeModalState();
+
+        $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
+
+        $this->lastChangeModalAmount = $this->changeModalHasPositiveChange
+            ? $this->changeModalAmount
+            : null;
     }
 
     public function render()
@@ -1491,6 +1513,8 @@ class Checkout extends Component
     {
         $this->total_amount = $this->calculateTotal();
         $this->syncPaidAmountWithTotal($forcePaidAmountSync);
+        $this->syncChangeModalState();
+        $this->maybeAutoShowChangeModal();
     }
 
     protected function syncPaidAmountWithTotal(bool $force = false): void
@@ -1541,5 +1565,45 @@ class Checkout extends Component
         }
 
         return (float) $normalized;
+    }
+
+    protected function syncChangeModalState(): void
+    {
+        $change = $this->changeDue;
+        $isCash = $this->selectedPaymentMethodFlags['is_cash'] ?? false;
+
+        $this->changeModalHasPositiveChange = $isCash && $change > 0;
+        $this->changeModalAmount = $this->changeModalHasPositiveChange
+            ? $this->formatChangeAmount($change)
+            : null;
+    }
+
+    protected function maybeAutoShowChangeModal(): void
+    {
+        if ($this->changeModalHasPositiveChange) {
+            if ($this->lastChangeModalAmount !== $this->changeModalAmount) {
+                $this->lastChangeModalAmount = $this->changeModalAmount;
+                $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
+            }
+
+            return;
+        }
+
+        if ($this->lastChangeModalAmount !== null) {
+            $this->lastChangeModalAmount = null;
+        }
+
+        $this->dispatch('hide-change-modal');
+    }
+
+    protected function formatChangeAmount(float $change): string
+    {
+        $settings = settings();
+        $currency = $settings ? $settings->currency : null;
+
+        $decimalSeparator = $currency->decimal_separator ?? ',';
+        $thousandSeparator = $currency->thousand_separator ?? '.';
+
+        return number_format($change, 2, $decimalSeparator, $thousandSeparator);
     }
 }
