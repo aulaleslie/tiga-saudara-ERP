@@ -30,7 +30,6 @@
                             <input type="hidden" value="{{ $customer_id }}" name="customer_id">
                             <input type="hidden" value="{{ $global_tax }}" name="tax_percentage">
                             <input type="hidden" value="{{ $global_discount }}" name="discount_percentage">
-                            <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
                             <input type="hidden" name="paid_amount" wire:model.live="paid_amount" value="{{ $paid_amount }}">
                             <div class="form-row">
                                 <div class="col-lg-6">
@@ -120,11 +119,6 @@
                                     <tr>
                                         <th>Diskon ({{ $global_discount }}%)</th>
                                         <td>(-) {{ format_currency(Cart::instance($cart_instance)->discount()) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Biaya Pengiriman</th>
-                                        <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
-                                        <td>(+) {{ format_currency($shipping) }}</td>
                                     </tr>
                                     <tr class="text-primary">
                                         <th>Total Akhir</th>
