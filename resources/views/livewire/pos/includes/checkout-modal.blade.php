@@ -100,7 +100,7 @@
                                                wire:model.live="total_amount" value="{{ $total_amount }}">
                                     </div>
                                 </div>
-                                <div class="col-lg-6">
+                                <div class="col-lg-12">
                                     <div class="form-group">
                                         <div class="d-flex justify-content-between align-items-center mb-2">
                                             <label class="mb-0">
