@@ -201,23 +201,26 @@
                                         </td>
                                     </tr>
                                     @php
-                                        $computedChange = $changeDue ?? 0;
-                                        $rawChange = $rawChangeDue ?? $computedChange;
+                                        $resolvedChangeDue = $changeDue ?? 0;
+                                        $resolvedRawChangeDue = $rawChangeDue ?? $resolvedChangeDue;
                                         $overPaidWithNonCash = $overPaidWithNonCash ?? false;
-                                        $changeRowClass = $computedChange < 0 ? 'text-danger' : 'text-success';
+                                        $changeRowClass = $resolvedChangeDue < 0 ? 'text-danger' : 'text-success';
+
                                         if ($overPaidWithNonCash) {
                                             $changeRowClass = 'text-warning';
+                                        } elseif (abs($resolvedChangeDue) < 0.01) {
+                                            $changeRowClass = 'text-primary';
                                         }
                                     @endphp
                                     <tr class="{{ $changeRowClass }}">
-                                        <th>Kembalian</th>
+                                        <th>{{ $changeDescriptor ?? 'Kembalian' }}</th>
                                         <th>
                                             @if($overPaidWithNonCash)
                                                 <span class="d-block text-warning">
-                                                    Kelebihan pembayaran sebesar {{ format_currency(max($rawChange, 0)) }} hanya diperbolehkan jika terdapat entri pembayaran tunai. Silakan sesuaikan rincian pembayaran.
+                                                    Kelebihan pembayaran sebesar {{ format_currency(max($resolvedRawChangeDue, 0)) }} hanya diperbolehkan jika terdapat entri pembayaran tunai. Silakan sesuaikan rincian pembayaran.
                                                 </span>
                                             @else
-                                                {{ $computedChange < 0 ? '(-)' : '(+)' }} {{ format_currency(abs($computedChange)) }}
+                                                {{ $formattedChangeDue ?? ( ($resolvedChangeDue < 0 ? '(-)' : '(+)') . ' ' . format_currency(abs($resolvedChangeDue)) ) }}
                                             @endif
                                         </th>
                                     </tr>
@@ -231,6 +234,22 @@
                                         {{ $hasCashPayment ? '' : 'disabled' }}>
                                     Tampilkan Kembalian
                                 </button>
+                                <dl class="row small mt-3 mb-0">
+                                    <dt class="col-7">Selisih Pembayaran</dt>
+                                    @php
+                                        $rawChangeClass = $resolvedRawChangeDue < 0 ? 'text-danger' : ($resolvedRawChangeDue > 0 ? 'text-success' : 'text-muted');
+                                    @endphp
+                                    <dd class="col-5 text-end {{ $rawChangeClass }}">
+                                        {{ $formattedRawChangeDue ?? ( ($resolvedRawChangeDue < 0 ? '(-)' : '(+)') . ' ' . format_currency(abs($resolvedRawChangeDue)) ) }}
+                                    </dd>
+                                    <dt class="col-7">{{ $changeDescriptor ?? 'Kembalian' }}</dt>
+                                    @php
+                                        $changeSummaryClass = $overPaidWithNonCash ? 'text-warning' : ($resolvedChangeDue < 0 ? 'text-danger' : ($resolvedChangeDue > 0 ? 'text-success' : 'text-muted'));
+                                    @endphp
+                                    <dd class="col-5 text-end {{ $changeSummaryClass }}">
+                                        {{ $formattedChangeDue ?? ( ($resolvedChangeDue < 0 ? '(-)' : '(+)') . ' ' . format_currency(abs($resolvedChangeDue)) ) }}
+                                    </dd>
+                                </dl>
                                 @if(! $hasCashPayment)
                                     <small class="form-text text-muted mt-2">
                                         Pilih metode pembayaran tunai untuk menampilkan informasi kembalian.

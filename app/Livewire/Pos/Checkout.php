@@ -52,6 +52,7 @@ class Checkout extends Component
     public ?int $posLocationId = null;
     public bool $changeModalHasPositiveChange = false;
     public ?string $changeModalAmount = null;
+    public ?string $changeModalDescriptor = null;
     protected bool $paidAmountManuallyUpdated = false;
     protected ?string $lastChangeModalAmount = null;
 
@@ -190,6 +191,25 @@ class Checkout extends Component
         return $change;
     }
 
+    public function getFormattedChangeDueProperty(): string
+    {
+        return $this->formatSignedCurrency($this->changeDue);
+    }
+
+    public function getFormattedRawChangeDueProperty(): string
+    {
+        return $this->formatSignedCurrency($this->rawChangeDue);
+    }
+
+    public function getChangeDescriptorProperty(): string
+    {
+        if ($this->changeDue < 0) {
+            return 'Sisa Pembayaran';
+        }
+
+        return 'Kembalian';
+    }
+
     public function getHasCashPaymentProperty(): bool
     {
         return collect($this->payments)
@@ -206,7 +226,7 @@ class Checkout extends Component
     {
         $this->syncChangeModalState();
 
-        $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
+        $this->dispatch('show-change-modal', amount: $this->changeModalAmount, descriptor: $this->changeModalDescriptor);
 
         $this->lastChangeModalAmount = $this->changeModalHasPositiveChange
             ? $this->changeModalAmount
@@ -224,6 +244,9 @@ class Checkout extends Component
             'overPaidWithNonCash' => $this->overPaidWithNonCash,
             'paidAmount' => $this->paid_amount,
             'hasCashPayment' => $this->hasCashPayment,
+            'formattedChangeDue' => $this->formattedChangeDue,
+            'formattedRawChangeDue' => $this->formattedRawChangeDue,
+            'changeDescriptor' => $this->changeDescriptor,
         ]);
     }
 
@@ -1671,9 +1694,8 @@ class Checkout extends Component
     {
         $change = $this->changeDue;
         $this->changeModalHasPositiveChange = $this->hasCashPayment && $change > 0;
-        $this->changeModalAmount = $this->changeModalHasPositiveChange
-            ? $this->formatChangeAmount($change)
-            : null;
+        $this->changeModalAmount = $this->formattedChangeDue;
+        $this->changeModalDescriptor = $this->changeDescriptor;
     }
 
     protected function maybeAutoShowChangeModal(): void
@@ -1681,7 +1703,7 @@ class Checkout extends Component
         if ($this->changeModalHasPositiveChange) {
             if ($this->lastChangeModalAmount !== $this->changeModalAmount) {
                 $this->lastChangeModalAmount = $this->changeModalAmount;
-                $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
+                $this->dispatch('show-change-modal', amount: $this->changeModalAmount, descriptor: $this->changeModalDescriptor);
             }
 
             return;
@@ -1694,14 +1716,37 @@ class Checkout extends Component
         $this->dispatch('hide-change-modal');
     }
 
-    protected function formatChangeAmount(float $change): string
+    protected function formatSignedCurrency(float $value): string
     {
+        $prefix = '';
+
+        if ($value > 0) {
+            $prefix = '(+) ';
+        } elseif ($value < 0) {
+            $prefix = '(-) ';
+        }
+
         $settings = settings();
-        $currency = $settings ? $settings->currency : null;
+        $decimalSeparator = ',';
+        $thousandSeparator = '.';
+        $symbol = '';
+        $position = 'prefix';
 
-        $decimalSeparator = $currency->decimal_separator ?? ',';
-        $thousandSeparator = $currency->thousand_separator ?? '.';
+        if ($settings) {
+            $decimalSeparator = $settings->currency->decimal_separator ?? $decimalSeparator;
+            $thousandSeparator = $settings->currency->thousand_separator ?? $thousandSeparator;
+            $symbol = $settings->currency->symbol ?? $symbol;
+            $position = $settings->default_currency_position ?? $position;
+        }
 
-        return number_format($change, 2, $decimalSeparator, $thousandSeparator);
+        $formatted = number_format(abs($value), 2, $decimalSeparator, $thousandSeparator);
+
+        if ($symbol !== '') {
+            $formatted = $position === 'prefix'
+                ? $symbol . $formatted
+                : $formatted . $symbol;
+        }
+
+        return trim($prefix . $formatted);
     }
 }
