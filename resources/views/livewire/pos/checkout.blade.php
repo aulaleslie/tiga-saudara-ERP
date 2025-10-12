@@ -95,7 +95,7 @@
                                     {{ $cart_item->name }}<br>
                                     <span class="badge badge-success">{{ $cart_item->options->code }}</span>
                                     @if(!empty($bundleName))
-                                        <div class="small text-muted">Bundle: {{ $bundleName }}</div>
+                                        <div class="small text-muted">Bundel: {{ $bundleName }}</div>
                                     @endif
                                     @if(!empty($bundleItems))
                                         <ul class="mb-0 mt-2 pl-3 small">
@@ -106,12 +106,12 @@
                                                 $lineQtyDisplay = rtrim(rtrim(number_format($lineQty, 2, '.', ''), '0'), '.');
                                             @endphp
                                             <li class="mb-1">
-                                                <div><strong>{{ $bundleItem['name'] ?? 'Bundle Item' }}</strong></div>
+                                                <div><strong>{{ $bundleItem['name'] ?? 'Item Bundel' }}</strong></div>
                                                 <div class="text-muted">
                                                         {{ $lineQtyDisplay }} × {{ format_currency($bundleItem['price'] ?? 0) }}
                                                         (= {{ format_currency($bundleItem['sub_total'] ?? 0) }})
                                                         <br>
-                                                        <small>{{ $bundleItem['quantity_per_bundle'] ?? 0 }} per bundle</small>
+                                                        <small>{{ $bundleItem['quantity_per_bundle'] ?? 0 }} per bundel</small>
                                                 </div>
                                                 </li>
                                             @endforeach
@@ -129,7 +129,7 @@
                                     @if(($cart_item->options->serial_number_required ?? false))
                                         {{-- Read-only qty derived from serial count --}}
                                         <div class="d-inline-flex align-items-center">
-                                            <span class="badge badge-secondary mr-2">Qty</span>
+                                            <span class="badge badge-secondary mr-2">Jml</span>
                                             <strong>{{ $cart_item->qty }}</strong>
                                         </div>
                                     @else
@@ -204,7 +204,7 @@
                                 {{ $cart_item->name }} <br>
                                 <span class="badge badge-success">{{ $cart_item->options->code }}</span>
                                 @if(!empty($bundleName))
-                                    <div class="small text-muted">Bundle: {{ $bundleName }}</div>
+                                    <div class="small text-muted">Bundel: {{ $bundleName }}</div>
                                 @endif
                                 @if(!empty($bundleItems))
                                     <ul class="mb-0 mt-2 pl-3 small">
@@ -215,12 +215,12 @@
                                                 $lineQtyDisplay = rtrim(rtrim(number_format($lineQty, 2, '.', ''), '0'), '.');
                                             @endphp
                                             <li class="mb-1">
-                                                <div><strong>{{ $bundleItem['name'] ?? 'Bundle Item' }}</strong></div>
+                                                <div><strong>{{ $bundleItem['name'] ?? 'Item Bundel' }}</strong></div>
                                                 <div class="text-muted">
                                                     {{ $lineQtyDisplay }} × {{ format_currency($bundleItem['price'] ?? 0) }}
                                                     (= {{ format_currency($bundleItem['sub_total'] ?? 0) }})
                                                     <br>
-                                                    <small>{{ $bundleItem['quantity_per_bundle'] ?? 0 }} per bundle</small>
+                                                    <small>{{ $bundleItem['quantity_per_bundle'] ?? 0 }} per bundel</small>
                                                 </div>
                                             </li>
                                         @endforeach
@@ -232,9 +232,9 @@
                                 @if(($cart_item->options->serial_number_required ?? false))
                                     {{-- Read-only qty derived from serial count --}}
                                     <div class="d-inline-flex align-items-center">
-                                        <span class="badge badge-secondary mr-2">Qty</span>
-                                            <strong>{{ $cart_item->qty }}</strong>
-                                        </div>
+                                        <span class="badge badge-secondary mr-2">Jml</span>
+                                        <strong>{{ $cart_item->qty }}</strong>
+                                    </div>
                                 @else
                                     @include('livewire.includes.product-cart-quantity')
                                 @endif
@@ -303,7 +303,7 @@
             {{-- Actions --}}
             <div class="form-group d-flex justify-content-center flex-wrap mb-0 mt-3">
                 <button wire:click="resetCart" type="button" class="btn btn-pill btn-danger mr-3">
-                    <i class="bi bi-x"></i> Reset
+                    <i class="bi bi-x"></i> Atur Ulang
                 </button>
                 <button wire:loading.attr="disabled" wire:click="proceed" type="button"
                         class="btn btn-pill btn-primary" {{ $total_amount == 0 ? 'disabled' : '' }}>

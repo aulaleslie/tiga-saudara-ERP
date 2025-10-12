@@ -32,7 +32,7 @@
                 @empty
                     <div class="col-12">
                         <div class="alert alert-warning mb-0">
-                            Product tidak ditemukan...
+                            Produk tidak ditemukan...
                         </div>
                     </div>
                 @endforelse

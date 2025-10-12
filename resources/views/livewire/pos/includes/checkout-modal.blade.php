@@ -6,7 +6,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="checkoutModalLabel">
-                    <i class="bi bi-cart-check text-primary"></i> Confirm Sale
+                    <i class="bi bi-cart-check text-primary"></i> Konfirmasi Penjualan
                 </h5>
                 <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                     <span aria-hidden="true">&times;</span>
@@ -35,7 +35,7 @@
                             <div class="form-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="total_amount_display">Total Amount <span
+                                        <label for="total_amount_display">Total Pembayaran <span
                                                 class="text-danger">*</span></label>
                                         <div class="pos-currency-input" wire:ignore>
                                             <input id="total_amount_display" type="text" class="form-control"
@@ -47,7 +47,7 @@
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="paid_amount_display">Received Amount <span
+                                        <label for="paid_amount_display">Jumlah Diterima <span
                                                 class="text-danger">*</span></label>
                                         <div class="pos-currency-input" wire:ignore>
                                             <input id="paid_amount_display" type="text" class="form-control"
@@ -69,7 +69,7 @@
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="note">Note (If Needed)</label>
+                                <label for="note">Catatan (Jika Diperlukan)</label>
                                 <textarea name="note" id="note" rows="5" class="form-control"></textarea>
                             </div>
                         </div>
@@ -77,7 +77,7 @@
                             <div class="table-responsive">
                                 <table class="table table-striped">
                                     <tr>
-                                        <th>Total Products</th>
+                                        <th>Total Produk</th>
                                         <td>
                                                 <span class="badge badge-success">
                                                     {{ Cart::instance($cart_instance)->count() }}
@@ -85,26 +85,26 @@
                                         </td>
                                     </tr>
                                     <tr>
-                                        <th>Order Tax ({{ $global_tax }}%)</th>
+                                        <th>Pajak Pesanan ({{ $global_tax }}%)</th>
                                         <td>(+) {{ format_currency(Cart::instance($cart_instance)->tax()) }}</td>
                                     </tr>
                                     <tr>
-                                        <th>Discount ({{ $global_discount }}%)</th>
+                                        <th>Diskon ({{ $global_discount }}%)</th>
                                         <td>(-) {{ format_currency(Cart::instance($cart_instance)->discount()) }}</td>
                                     </tr>
                                     <tr>
-                                        <th>Shipping</th>
+                                        <th>Biaya Pengiriman</th>
                                         <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
                                         <td>(+) {{ format_currency($shipping) }}</td>
                                     </tr>
                                     <tr class="text-primary">
-                                        <th>Grand Total</th>
+                                        <th>Total Akhir</th>
                                         <th>
                                             (=) {{ format_currency($total_amount) }}
                                         </th>
                                     </tr>
                                     <tr>
-                                        <th>Received Amount</th>
+                                        <th>Jumlah Diterima</th>
                                         <td>
                                             {{ format_currency($paidAmount ?? 0) }}
                                         </td>
@@ -121,15 +121,15 @@
                                         }
                                     @endphp
                                     <tr class="{{ $changeRowClass }}">
-                                        <th>Change</th>
+                                        <th>Kembalian</th>
                                         <th>
                                             @if($overPaidWithNonCash)
                                                 <span class="d-block text-warning">
-                                                    Overpayment of {{ format_currency(max($rawChange, 0)) }} is only allowed for cash payments
+                                                    Kelebihan pembayaran sebesar {{ format_currency(max($rawChange, 0)) }} hanya diperbolehkan untuk pembayaran tunai
                                                     @if(!empty($selectedPaymentMethodName))
                                                         ({{ $selectedPaymentMethodName }})
                                                     @endif
-                                                    . Please adjust the received amount.
+                                                    . Silakan sesuaikan jumlah yang diterima.
                                                 </span>
                                             @else
                                                 {{ $computedChange < 0 ? '(-)' : '(+)' }} {{ format_currency(abs($computedChange)) }}
@@ -160,12 +160,12 @@
 
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Tutup</button>
                     <button type="submit" formaction="{{ route('app.pos.store-as-quotation') }}"
                             class="btn btn-warning">
                         Simpan Sebagai Dokumen Penjualan
                     </button>
-                    <button type="submit" class="btn btn-primary">Submit</button>
+                    <button type="submit" class="btn btn-primary">Kirim</button>
                 </div>
             </form>
         </div>
