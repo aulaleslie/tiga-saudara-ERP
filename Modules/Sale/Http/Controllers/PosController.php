@@ -58,6 +58,7 @@ class PosController extends Controller
         $validated = $request->validated();
         $paymentsInput = collect(data_get($validated, 'payments', []));
         $total_amount = round((float) data_get($validated, 'total_amount', 0), 2);
+        $shippingAmount = round((float) data_get($validated, 'shipping_amount', 0), 2);
 
         $paymentMethodIds = $paymentsInput
             ->pluck('method_id')
@@ -161,7 +162,7 @@ class PosController extends Controller
                 'customer_name' => $customer->customer_name,
                 'tax_percentage' => $request->tax_percentage,
                 'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => round((float) $request->shipping_amount, 2),
+                'shipping_amount' => $shippingAmount,
                 'paid_amount' => $overallPaid,
                 'total_amount' => $total_amount,
                 'due_amount' => $due_amount,
@@ -245,7 +246,7 @@ class PosController extends Controller
                 'customer_name' => $customer->customer_name,
                 'tax_percentage' => $request->tax_percentage ?? 0,
                 'discount_percentage' => $request->discount_percentage ?? 0,
-                'shipping_amount' => round((float) ($request->shipping_amount ?? 0), 2),
+                'shipping_amount' => round((float) $request->input('shipping_amount', 0), 2),
                 'total_amount' => round((float) $request->total_amount, 2),
                 'paid_amount' => 0,
                 'due_amount' => round((float) $request->total_amount, 2),
