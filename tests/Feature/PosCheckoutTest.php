@@ -144,7 +144,10 @@ class PosCheckoutTest extends TestCase
         $methods = collect($component->get('paymentMethods'));
 
         $this->assertSame([$posMethod->id], $methods->pluck('id')->map(fn ($id) => (int) $id)->all());
-        $component->assertSet('selected_payment_method_id', $posMethod->id);
+
+        $payments = collect($component->get('payments'));
+        $this->assertCount(1, $payments);
+        $this->assertSame($posMethod->id, (int) $payments->first()['method_id']);
         $component->assertDontSee('Wire Transfer');
     }
 
@@ -170,17 +173,17 @@ class PosCheckoutTest extends TestCase
         ]);
 
         $component
-            ->set('selected_payment_method_id', $cardMethod->id)
+            ->set('payments.0.method_id', $cardMethod->id)
             ->set('total_amount', 100)
-            ->set('paid_amount', 150)
+            ->set('payments.0.amount', 150)
             ->assertSet('changeDue', 0.0)
             ->assertSet('overPaidWithNonCash', true)
-            ->assertSee('Overpayment of');
+            ->assertSee('Kelebihan pembayaran');
 
         $component
-            ->set('selected_payment_method_id', $cashMethod->id)
+            ->set('payments.0.method_id', $cashMethod->id)
             ->set('total_amount', 100)
-            ->set('paid_amount', 150)
+            ->set('payments.0.amount', 150)
             ->assertSet('changeDue', 50.0)
             ->assertSet('overPaidWithNonCash', false);
     }
@@ -200,9 +203,9 @@ class PosCheckoutTest extends TestCase
         ]);
 
         $component
-            ->set('selected_payment_method_id', $cashMethod->id)
+            ->set('payments.0.method_id', $cashMethod->id)
             ->set('total_amount', 100000)
-            ->set('paid_amount', 150000)
+            ->set('payments.0.amount', 150000)
             ->call('openChangeModal')
             ->assertSet('changeModalHasPositiveChange', true)
             ->assertSee('KEMBALIAN Rp. 50.000,00 . JANGAN LUPA UCAPKAN TERIMA KASIH!!');
@@ -223,9 +226,9 @@ class PosCheckoutTest extends TestCase
         ]);
 
         $component
-            ->set('selected_payment_method_id', $cashMethod->id)
+            ->set('payments.0.method_id', $cashMethod->id)
             ->set('total_amount', 125000)
-            ->set('paid_amount', 125000)
+            ->set('payments.0.amount', 125000)
             ->call('openChangeModal')
             ->assertSet('changeModalHasPositiveChange', false)
             ->assertSee('JANGAN LUPA UCAPKAN TERIMA KASIH');
@@ -267,11 +270,13 @@ class PosCheckoutTest extends TestCase
             'shipping_amount' => 0,
             'total_amount' => 100,
             'paid_amount' => 150,
-            'payment_method_id' => $nonCashMethod->id,
+            'payments' => [
+                ['method_id' => $nonCashMethod->id, 'amount' => 150],
+            ],
             'note' => '',
         ]);
 
-        $response->assertSessionHasErrors(['paid_amount']);
+        $response->assertSessionHasErrors(['payments.0.amount']);
         $this->assertDatabaseCount('sales', 0);
     }
 
@@ -311,10 +316,201 @@ class PosCheckoutTest extends TestCase
             'shipping_amount' => 0,
             'total_amount' => 100,
             'paid_amount' => 100,
-            'payment_method_id' => $nonPosMethod->id,
+            'payments' => [
+                ['method_id' => $nonPosMethod->id, 'amount' => 100],
+            ],
             'note' => '',
         ]);
 
-        $response->assertSessionHasErrors(['payment_method_id']);
+        $response->assertSessionHasErrors(['payments.0.method_id']);
+    }
+
+    public function test_pos_store_accepts_cash_and_card_payments(): void
+    {
+        $cashMethod = PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $this->chartOfAccount->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
+        ]);
+
+        $cardMethod = PaymentMethod::create([
+            'name' => 'Card',
+            'coa_id' => $this->chartOfAccount->id,
+            'is_cash' => false,
+            'is_available_in_pos' => true,
+        ]);
+
+        Cart::instance('sale')->add([
+            'id' => $this->product->id,
+            'name' => $this->product->product_name,
+            'qty' => 1,
+            'price' => 100,
+            'weight' => 1,
+            'options' => [
+                'product_id' => $this->product->id,
+                'code' => $this->product->product_code,
+                'unit_price' => 100,
+                'product_discount' => 0,
+                'product_discount_type' => 'fixed',
+                'product_tax' => 0,
+                'sub_total' => 100,
+                'sub_total_before_tax' => 100,
+                'bundle_items' => [],
+                'stock' => 100,
+            ],
+        ]);
+
+        $response = $this->post(route('app.pos.store'), [
+            'customer_id' => $this->customer->id,
+            'tax_percentage' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100,
+            'paid_amount' => 110,
+            'payments' => [
+                ['method_id' => $cardMethod->id, 'amount' => 60],
+                ['method_id' => $cashMethod->id, 'amount' => 50],
+            ],
+            'note' => '',
+        ]);
+
+        $response->assertRedirect(route('sales.index'));
+
+        $this->assertDatabaseHas('sales', [
+            'customer_id' => $this->customer->id,
+            'total_amount' => 100,
+            'paid_amount' => 110,
+            'payment_method' => 'Multiple',
+            'payment_status' => 'Paid',
+        ]);
+
+        $this->assertDatabaseHas('sale_payments', [
+            'payment_method_id' => $cardMethod->id,
+            'amount' => 60,
+        ]);
+
+        $this->assertDatabaseHas('sale_payments', [
+            'payment_method_id' => $cashMethod->id,
+            'amount' => 50,
+        ]);
+    }
+
+    public function test_pos_store_rejects_non_cash_overpayment_in_sequence(): void
+    {
+        $cardMethod = PaymentMethod::create([
+            'name' => 'Card',
+            'coa_id' => $this->chartOfAccount->id,
+            'is_cash' => false,
+            'is_available_in_pos' => true,
+        ]);
+
+        $transferMethod = PaymentMethod::create([
+            'name' => 'Transfer',
+            'coa_id' => $this->chartOfAccount->id,
+            'is_cash' => false,
+            'is_available_in_pos' => true,
+        ]);
+
+        Cart::instance('sale')->add([
+            'id' => $this->product->id,
+            'name' => $this->product->product_name,
+            'qty' => 1,
+            'price' => 100,
+            'weight' => 1,
+            'options' => [
+                'product_id' => $this->product->id,
+                'code' => $this->product->product_code,
+                'unit_price' => 100,
+                'product_discount' => 0,
+                'product_discount_type' => 'fixed',
+                'product_tax' => 0,
+                'sub_total' => 100,
+                'sub_total_before_tax' => 100,
+                'bundle_items' => [],
+                'stock' => 100,
+            ],
+        ]);
+
+        $response = $this->post(route('app.pos.store'), [
+            'customer_id' => $this->customer->id,
+            'tax_percentage' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100,
+            'paid_amount' => 120,
+            'payments' => [
+                ['method_id' => $cardMethod->id, 'amount' => 80],
+                ['method_id' => $transferMethod->id, 'amount' => 40],
+            ],
+            'note' => '',
+        ]);
+
+        $response->assertSessionHasErrors(['payments.1.amount']);
+        $this->assertDatabaseCount('sales', 0);
+    }
+
+    public function test_pos_store_persists_multiple_cash_entries(): void
+    {
+        $cashMethod = PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $this->chartOfAccount->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
+        ]);
+
+        Cart::instance('sale')->add([
+            'id' => $this->product->id,
+            'name' => $this->product->product_name,
+            'qty' => 1,
+            'price' => 100,
+            'weight' => 1,
+            'options' => [
+                'product_id' => $this->product->id,
+                'code' => $this->product->product_code,
+                'unit_price' => 100,
+                'product_discount' => 0,
+                'product_discount_type' => 'fixed',
+                'product_tax' => 0,
+                'sub_total' => 100,
+                'sub_total_before_tax' => 100,
+                'bundle_items' => [],
+                'stock' => 100,
+            ],
+        ]);
+
+        $response = $this->post(route('app.pos.store'), [
+            'customer_id' => $this->customer->id,
+            'tax_percentage' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100,
+            'paid_amount' => 120,
+            'payments' => [
+                ['method_id' => $cashMethod->id, 'amount' => 70],
+                ['method_id' => $cashMethod->id, 'amount' => 50],
+            ],
+            'note' => '',
+        ]);
+
+        $response->assertRedirect(route('sales.index'));
+
+        $this->assertDatabaseHas('sales', [
+            'customer_id' => $this->customer->id,
+            'total_amount' => 100,
+            'paid_amount' => 120,
+            'payment_method' => 'Cash',
+            'payment_status' => 'Paid',
+        ]);
+
+        $this->assertDatabaseHas('sale_payments', [
+            'payment_method_id' => $cashMethod->id,
+            'amount' => 70,
+        ]);
+
+        $this->assertDatabaseHas('sale_payments', [
+            'payment_method_id' => $cashMethod->id,
+            'amount' => 50,
+        ]);
     }
 }

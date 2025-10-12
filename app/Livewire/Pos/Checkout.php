@@ -6,6 +6,7 @@ use App\Support\PosLocationResolver;
 use App\Support\ProductBundleResolver;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
@@ -47,7 +48,7 @@ class Checkout extends Component
     public $pendingSerials = null;
     public $serialSelectionContext = null;
     public $paymentMethods = [];
-    public $selected_payment_method_id = null;
+    public array $payments = [];
     public ?int $posLocationId = null;
     public bool $changeModalHasPositiveChange = false;
     public ?string $changeModalAmount = null;
@@ -77,7 +78,16 @@ class Checkout extends Component
             ->get();
 
         $firstMethod = $this->paymentMethodsCollection()->first();
-        $this->selected_payment_method_id = $firstMethod ? (int) data_get($firstMethod, 'id') : null;
+
+        if ($firstMethod) {
+            $this->payments = [
+                $this->makePaymentRow((int) data_get($firstMethod, 'id')),
+            ];
+        } else {
+            $this->payments = [
+                $this->makePaymentRow(null),
+            ];
+        }
 
         $this->bundleOptions = collect();
 
@@ -100,8 +110,54 @@ class Checkout extends Component
         $this->maybeAutoShowChangeModal();
     }
 
-    public function updatedSelectedPaymentMethodId($value): void
+    public function updatedPayments($value, $name): void
     {
+        if (! is_string($name)) {
+            return;
+        }
+
+        if (Str::endsWith($name, '.amount')) {
+            $afterProperty = Str::after($name, '.');
+            $index = (int) Str::before($afterProperty, '.');
+            $this->paidAmountManuallyUpdated = true;
+            $amount = $this->sanitizeCurrencyValue($value);
+
+            if (array_key_exists($index, $this->payments)) {
+                $this->payments[$index]['amount'] = $amount;
+            }
+
+            $this->syncPaidAmountFromPayments();
+            $this->syncChangeModalState();
+            $this->maybeAutoShowChangeModal();
+
+            return;
+        }
+
+        if (Str::endsWith($name, '.method_id')) {
+            $this->syncChangeModalState();
+            $this->maybeAutoShowChangeModal();
+        }
+    }
+
+    public function addPaymentRow(): void
+    {
+        $firstMethod = $this->paymentMethodsCollection()->first();
+
+        $this->payments[] = $this->makePaymentRow($firstMethod ? (int) data_get($firstMethod, 'id') : null);
+
+        $this->dispatch('pos-mask-money-init');
+    }
+
+    public function removePaymentRow(int $index): void
+    {
+        if (count($this->payments) <= 1) {
+            return;
+        }
+
+        unset($this->payments[$index]);
+        $this->payments = array_values($this->payments);
+
+        $this->syncPaidAmountFromPayments();
         $this->syncChangeModalState();
         $this->maybeAutoShowChangeModal();
     }
@@ -113,28 +169,6 @@ class Checkout extends Component
             : collect($this->paymentMethods);
     }
 
-    public function getSelectedPaymentMethodProperty(): mixed
-    {
-        if (! $this->selected_payment_method_id) {
-            return null;
-        }
-
-        return $this->paymentMethodsCollection()
-            ->first(function ($method) {
-                return (int) data_get($method, 'id') === (int) $this->selected_payment_method_id;
-            });
-    }
-
-    public function getSelectedPaymentMethodFlagsProperty(): array
-    {
-        $method = $this->selectedPaymentMethod;
-
-        return [
-            'is_cash' => (bool) data_get($method, 'is_cash', false),
-            'is_available_in_pos' => (bool) data_get($method, 'is_available_in_pos', false),
-        ];
-    }
-
     public function getRawChangeDueProperty(): float
     {
         return round((float) $this->paid_amount - (float) $this->total_amount, 2);
@@ -142,18 +176,30 @@ class Checkout extends Component
 
     public function getOverPaidWithNonCashProperty(): bool
     {
-        return $this->rawChangeDue > 0 && ! $this->selectedPaymentMethodFlags['is_cash'];
+        return $this->rawChangeDue > 0 && ! $this->hasCashPayment;
     }
 
     public function getChangeDueProperty(): float
     {
         $change = $this->rawChangeDue;
 
-        if ($change > 0 && ! $this->selectedPaymentMethodFlags['is_cash']) {
+        if ($change > 0 && ! $this->hasCashPayment) {
             return 0.00;
         }
 
         return $change;
+    }
+
+    public function getHasCashPaymentProperty(): bool
+    {
+        return collect($this->payments)
+            ->contains(function ($payment) {
+                if (! $this->paymentMethodIsCash((int) data_get($payment, 'method_id'))) {
+                    return false;
+                }
+
+                return (float) data_get($payment, 'amount', 0) > 0;
+            });
     }
 
     public function openChangeModal(): void
@@ -176,9 +222,8 @@ class Checkout extends Component
             'changeDue' => $this->changeDue,
             'rawChangeDue' => $this->rawChangeDue,
             'overPaidWithNonCash' => $this->overPaidWithNonCash,
-            'selectedPaymentMethod' => $this->selectedPaymentMethod,
-            'selectedPaymentMethodFlags' => $this->selectedPaymentMethodFlags,
             'paidAmount' => $this->paid_amount,
+            'hasCashPayment' => $this->hasCashPayment,
         ]);
     }
 
@@ -1512,20 +1557,47 @@ class Checkout extends Component
     protected function refreshTotals(bool $forcePaidAmountSync = false): void
     {
         $this->total_amount = $this->calculateTotal();
-        $this->syncPaidAmountWithTotal($forcePaidAmountSync);
+        $this->syncPaymentsWithTotal($forcePaidAmountSync);
         $this->syncChangeModalState();
         $this->maybeAutoShowChangeModal();
     }
 
-    protected function syncPaidAmountWithTotal(bool $force = false): void
+    protected function syncPaymentsWithTotal(bool $force = false): void
     {
         if ($force) {
             $this->paidAmountManuallyUpdated = false;
         }
 
-        if ($force || !$this->paidAmountManuallyUpdated) {
-            $this->paid_amount = (float) $this->total_amount;
+        if ($force || ! $this->paidAmountManuallyUpdated) {
+            if (empty($this->payments)) {
+                $this->payments = [
+                    $this->makePaymentRow(null),
+                ];
+            }
+
+            $primaryAmount = (float) $this->total_amount;
+
+            foreach ($this->payments as $index => $payment) {
+                $this->payments[$index]['amount'] = $index === 0
+                    ? $primaryAmount
+                    : 0.0;
+            }
         }
+
+        $this->syncPaidAmountFromPayments();
+    }
+
+    protected function syncPaidAmountFromPayments(): void
+    {
+        $this->paid_amount = $this->calculatePaymentsTotal();
+    }
+
+    protected function calculatePaymentsTotal(): float
+    {
+        return round(collect($this->payments)
+            ->sum(function ($payment) {
+                return (float) data_get($payment, 'amount', 0);
+            }), 2);
     }
 
     protected function sanitizeCurrencyValue($value): float
@@ -1567,12 +1639,38 @@ class Checkout extends Component
         return (float) $normalized;
     }
 
+    protected function makePaymentRow(?int $methodId, float $amount = 0.0): array
+    {
+        return [
+            'uuid' => (string) Str::uuid(),
+            'method_id' => $methodId,
+            'amount' => round($amount, 2),
+        ];
+    }
+
+    protected function findPaymentMethod(?int $methodId): mixed
+    {
+        if (! $methodId) {
+            return null;
+        }
+
+        return $this->paymentMethodsCollection()
+            ->first(function ($method) use ($methodId) {
+                return (int) data_get($method, 'id') === (int) $methodId;
+            });
+    }
+
+    protected function paymentMethodIsCash(?int $methodId): bool
+    {
+        $method = $this->findPaymentMethod($methodId);
+
+        return (bool) data_get($method, 'is_cash', false);
+    }
+
     protected function syncChangeModalState(): void
     {
         $change = $this->changeDue;
-        $isCash = $this->selectedPaymentMethodFlags['is_cash'] ?? false;
-
-        $this->changeModalHasPositiveChange = $isCash && $change > 0;
+        $this->changeModalHasPositiveChange = $this->hasCashPayment && $change > 0;
         $this->changeModalAmount = $this->changeModalHasPositiveChange
             ? $this->formatChangeAmount($change)
             : null;

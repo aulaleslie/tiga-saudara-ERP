@@ -53,23 +53,90 @@ class PosController extends Controller
             return back()->withErrors(['cart' => 'Cart is empty'])->withInput();
         }
 
-        $paymentMethod = PaymentMethod::query()
-            ->where('is_available_in_pos', true)
-            ->find($request->payment_method_id);
-
-        if (! $paymentMethod) {
-            return back()->withErrors(['payment_method_id' => 'Selected payment method is not available for POS.'])->withInput();
-        }
-
-        if (! $paymentMethod->is_cash && (float) $request->paid_amount > (float) $request->total_amount) {
-            return back()->withErrors(['paid_amount' => 'Overpayment is only allowed for cash payments.'])->withInput();
-        }
-
         $customer = Customer::findOrFail($request->customer_id);
 
-        $due_amount = round((float) $request->total_amount - (float) $request->paid_amount, 2);
-        $due_amount = max($due_amount, 0);
-        $total_amount = round((float) $request->total_amount, 2);
+        $validated = $request->validated();
+        $paymentsInput = collect(data_get($validated, 'payments', []));
+        $total_amount = round((float) data_get($validated, 'total_amount', 0), 2);
+
+        $paymentMethodIds = $paymentsInput
+            ->pluck('method_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        $availableMethods = PaymentMethod::query()
+            ->where('is_available_in_pos', true)
+            ->whereIn('id', $paymentMethodIds)
+            ->get()
+            ->keyBy('id');
+
+        $processedPayments = [];
+        $runningBalance = $total_amount;
+        $overallPaid = 0.0;
+
+        foreach ($paymentsInput as $index => $payment) {
+            $methodId = (int) data_get($payment, 'method_id');
+            $amount = round((float) data_get($payment, 'amount', 0), 2);
+
+            if ($amount <= 0) {
+                continue;
+            }
+
+            /** @var PaymentMethod|null $method */
+            $method = $availableMethods->get($methodId);
+
+            if (! $method) {
+                return back()->withErrors([
+                    "payments.$index.method_id" => 'Selected payment method is not available for POS.',
+                ])->withInput();
+            }
+
+            if (! $method->is_cash && $amount > $runningBalance + 0.00001) {
+                return back()->withErrors([
+                    "payments.$index.amount" => 'Non-cash payments cannot exceed the remaining balance.',
+                ])->withInput();
+            }
+
+            $runningBalance = round($runningBalance - $amount, 2);
+
+            if ($runningBalance < -0.01 && ! $method->is_cash) {
+                return back()->withErrors([
+                    "payments.$index.amount" => 'Overpayment is only allowed for cash payments.',
+                ])->withInput();
+            }
+
+            if ($runningBalance < 0) {
+                $runningBalance = 0.0;
+            }
+
+            $processedPayments[] = [
+                'method' => $method,
+                'amount' => $amount,
+            ];
+
+            $overallPaid += $amount;
+        }
+
+        $overallPaid = round($overallPaid, 2);
+        $due_amount = max(round($total_amount - $overallPaid, 2), 0);
+
+        $uniqueMethodIds = collect($processedPayments)
+            ->pluck('method.id')
+            ->filter()
+            ->unique();
+
+        $primaryPayment = collect($processedPayments)
+            ->firstWhere('amount', '>', 0) ?? collect($processedPayments)->first();
+
+        $primaryMethodId = $primaryPayment['method']->id ?? null;
+        $primaryMethodName = $primaryPayment['method']->name ?? '';
+
+        if ($uniqueMethodIds->count() > 1) {
+            $displayMethodName = 'Multiple';
+        } else {
+            $displayMethodName = $primaryMethodName;
+        }
 
         if (round($due_amount, 2) >= $total_amount) {
             $payment_status = 'Unpaid';
@@ -95,34 +162,43 @@ class PosController extends Controller
                 'tax_percentage' => $request->tax_percentage,
                 'discount_percentage' => $request->discount_percentage,
                 'shipping_amount' => round((float) $request->shipping_amount, 2),
-                'paid_amount' => round((float) $request->paid_amount, 2),
+                'paid_amount' => $overallPaid,
                 'total_amount' => $total_amount,
                 'due_amount' => $due_amount,
                 'status' => 'Completed',
                 'payment_status' => $payment_status,
-                'payment_method' => $paymentMethod->name,
+                'payment_method' => $displayMethodName,
                 'note' => $request->note,
                 'tax_amount' => round((float) $cart->tax(), 2),
                 'discount_amount' => round((float) $cart->discount(), 2),
             ];
 
             if ($this->salesHasPaymentMethodIdColumn()) {
-                $saleData['payment_method_id'] = $paymentMethod->id;
+                $saleData['payment_method_id'] = $primaryMethodId;
             }
 
             $sale = Sale::create($saleData);
 
             $this->persistSaleDetailsFromCart($sale, $cart->content(), true, $posLocationId);
 
-            if ($sale->paid_amount > 0) {
-                SalePayment::create([
-                    'date' => now()->format('Y-m-d'),
-                    'reference' => 'INV/' . $sale->reference,
-                    'amount' => $sale->paid_amount,
-                    'sale_id' => $sale->id,
-                    'payment_method_id' => $paymentMethod->id,
-                    'payment_method' => $paymentMethod->name,
-                ]);
+            if ($overallPaid > 0) {
+                foreach ($processedPayments as $payment) {
+                    if ($payment['amount'] <= 0) {
+                        continue;
+                    }
+
+                    /** @var PaymentMethod $method */
+                    $method = $payment['method'];
+
+                    SalePayment::create([
+                        'date' => now()->format('Y-m-d'),
+                        'reference' => 'INV/' . $sale->reference,
+                        'amount' => $payment['amount'],
+                        'sale_id' => $sale->id,
+                        'payment_method_id' => $method->id,
+                        'payment_method' => $method->name,
+                    ]);
+                }
             }
 
             DB::commit();
