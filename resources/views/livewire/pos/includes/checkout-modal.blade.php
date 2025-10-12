@@ -109,23 +109,64 @@
                                             {{ format_currency($paidAmount ?? 0) }}
                                         </td>
                                     </tr>
-                                    @php $computedChange = $changeDue ?? 0; @endphp
-                                    <tr class="{{ $computedChange < 0 ? 'text-danger' : 'text-success' }}">
+                                    @php
+                                        $computedChange = $changeDue ?? 0;
+                                        $rawChange = $rawChangeDue ?? $computedChange;
+                                        $overPaidWithNonCash = $overPaidWithNonCash ?? false;
+                                        $selectedPaymentMethodName = data_get($selectedPaymentMethod ?? null, 'name');
+
+                                        $changeRowClass = $computedChange < 0 ? 'text-danger' : 'text-success';
+                                        if ($overPaidWithNonCash) {
+                                            $changeRowClass = 'text-warning';
+                                        }
+                                    @endphp
+                                    <tr class="{{ $changeRowClass }}">
                                         <th>Change</th>
                                         <th>
-                                            {{ $computedChange < 0 ? '(-)' : '(+)' }} {{ format_currency(abs($computedChange)) }}
+                                            @if($overPaidWithNonCash)
+                                                <span class="d-block text-warning">
+                                                    Overpayment of {{ format_currency(max($rawChange, 0)) }} is only allowed for cash payments
+                                                    @if(!empty($selectedPaymentMethodName))
+                                                        ({{ $selectedPaymentMethodName }})
+                                                    @endif
+                                                    . Please adjust the received amount.
+                                                </span>
+                                            @else
+                                                {{ $computedChange < 0 ? '(-)' : '(+)' }} {{ format_currency(abs($computedChange)) }}
+                                            @endif
                                         </th>
                                     </tr>
                                 </table>
                             </div>
                             <div class="mt-3">
-                                <div class="p-4 rounded border {{ $computedChange < 0 ? 'border-danger bg-light text-danger' : 'border-success bg-light text-success' }}">
+                                @php
+                                    $changePanelClass = 'border-success bg-light text-success';
+                                    if ($computedChange < 0) {
+                                        $changePanelClass = 'border-danger bg-light text-danger';
+                                    } elseif ($overPaidWithNonCash) {
+                                        $changePanelClass = 'border-warning bg-light text-warning';
+                                    }
+                                @endphp
+                                <div class="p-4 rounded border {{ $changePanelClass }}">
                                     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center">
                                         <span class="h5 mb-3 mb-md-0">Change Due</span>
                                         <span class="display-4 font-weight-bold mb-0">
-                                            {{ $computedChange < 0 ? '-' : '' }}{{ format_currency(abs($computedChange)) }}
+                                            @if($overPaidWithNonCash)
+                                                {{ format_currency(0) }}
+                                            @else
+                                                {{ $computedChange < 0 ? '-' : '' }}{{ format_currency(abs($computedChange)) }}
+                                            @endif
                                         </span>
                                     </div>
+                                    @if($overPaidWithNonCash)
+                                        <span class="small d-block mt-3 text-warning">
+                                            Overpayment of {{ format_currency(max($rawChange, 0)) }} is only allowed for cash payments
+                                            @if(!empty($selectedPaymentMethodName))
+                                                ({{ $selectedPaymentMethodName }})
+                                            @endif
+                                            . Please adjust the received amount.
+                                        </span>
+                                    @endif
                                 </div>
                             </div>
                         </div>

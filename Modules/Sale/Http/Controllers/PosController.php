@@ -53,10 +53,16 @@ class PosController extends Controller
             return back()->withErrors(['cart' => 'Cart is empty'])->withInput();
         }
 
-        $paymentMethod = PaymentMethod::find($request->payment_method_id);
+        $paymentMethod = PaymentMethod::query()
+            ->where('is_available_in_pos', true)
+            ->find($request->payment_method_id);
 
         if (! $paymentMethod) {
-            return back()->withErrors(['payment_method_id' => 'Selected payment method is invalid.'])->withInput();
+            return back()->withErrors(['payment_method_id' => 'Selected payment method is not available for POS.'])->withInput();
+        }
+
+        if (! $paymentMethod->is_cash && (float) $request->paid_amount > (float) $request->total_amount) {
+            return back()->withErrors(['paid_amount' => 'Overpayment is only allowed for cash payments.'])->withInput();
         }
 
         $customer = Customer::findOrFail($request->customer_id);
