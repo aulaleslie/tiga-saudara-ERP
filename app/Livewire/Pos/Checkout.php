@@ -187,7 +187,7 @@ class Checkout extends Component
         if ($this->customer_id != null) {
             $this->dispatch('showCheckoutModal');
         } else {
-            session()->flash('message', 'Please Select Customer!');
+            session()->flash('message', 'Silakan pilih pelanggan!');
         }
     }
 
@@ -218,14 +218,14 @@ class Checkout extends Component
         }
 
         if (($product['product_quantity'] ?? 0) <= 0) {
-            session()->flash('message', 'Product is out of stock!');
+            session()->flash('message', 'Produk sedang tidak tersedia!');
             return;
         }
 
         [$hydratedProduct, $bundles] = $this->resolveProductContext($product);
 
         if (!$hydratedProduct) {
-            session()->flash('message', 'Product could not be loaded.');
+            session()->flash('message', 'Produk tidak dapat dimuat.');
             return;
         }
 
@@ -246,7 +246,7 @@ class Checkout extends Component
         $stockContext = $this->resolveStockForProduct($product, $convertedQty);
 
         if (!$stockContext['sufficient']) {
-            session()->flash('message', 'The requested quantity exceeds available POS stock.');
+            session()->flash('message', 'Jumlah yang diminta melebihi stok POS yang tersedia.');
             return;
         }
 
@@ -299,13 +299,13 @@ class Checkout extends Component
     public function confirmBundleSelection($bundleId)
     {
         if (!$this->pendingProduct) {
-            session()->flash('message', 'Invalid bundle selected.');
+            session()->flash('message', 'Bundel yang dipilih tidak valid.');
             return;
         }
 
         $bundle = ProductBundle::with('items.product')->find($bundleId);
         if (!$bundle) {
-            session()->flash('message', 'Invalid bundle selected.');
+            session()->flash('message', 'Bundel yang dipilih tidak valid.');
             return;
         }
 
@@ -385,7 +385,7 @@ class Checkout extends Component
         $stockContext = $this->resolveStockForProduct($productData, $newQty, $forcedAllocation);
 
         if (!$stockContext['sufficient']) {
-            session()->flash('message', 'The requested quantity is not available in stock.');
+            session()->flash('message', 'Jumlah yang diminta tidak tersedia di stok.');
             $this->quantity[$cart_key] = $cart_item->qty;
             return;
         }
@@ -449,7 +449,7 @@ class Checkout extends Component
 
         $this->refreshTotals();
 
-        session()->flash('discount_message' . $cart_key, 'Discount added to the product!');
+        session()->flash('discount_message' . $cart_key, 'Diskon berhasil ditambahkan pada produk!');
     }
 
     private function normalizeProductInput($product): array
@@ -752,7 +752,7 @@ class Checkout extends Component
             $stockContext = $this->resolveStockForProduct($product, $quantity, $allocation);
 
             if (!$stockContext['sufficient']) {
-                session()->flash('message', 'The selected serial exceeds available POS stock.');
+                session()->flash('message', 'Serial yang dipilih melebihi stok POS yang tersedia.');
                 return;
             }
 
@@ -792,7 +792,7 @@ class Checkout extends Component
         $stockContext = $this->resolveStockForProduct($product, 1, $allocation);
 
         if (!$stockContext['sufficient']) {
-            session()->flash('message', 'The selected serial exceeds available POS stock.');
+            session()->flash('message', 'Serial yang dipilih melebihi stok POS yang tersedia.');
             return;
         }
 
