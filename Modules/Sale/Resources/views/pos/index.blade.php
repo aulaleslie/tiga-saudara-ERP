@@ -269,9 +269,10 @@
             window.addEventListener('show-change-modal', (event) => {
                 const modal = $('#posChangeModal');
                 const amount = event?.detail?.amount ?? '';
+                const descriptor = event?.detail?.descriptor ?? 'Kembalian';
 
                 if (amount) {
-                    modal.attr('aria-label', `Kembalian Rp. ${amount}`);
+                    modal.attr('aria-label', `${descriptor} ${amount}`);
                 } else {
                     modal.removeAttr('aria-label');
                 }
