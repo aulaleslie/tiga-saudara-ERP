@@ -30,6 +30,22 @@
                 <div class="invalid-feedback">{{ $message }}</div>
                 @enderror
             </div>
+            <div class="form-check mb-2">
+                <input type="hidden" name="is_cash" value="0">
+                <input class="form-check-input" type="checkbox" id="is_cash" name="is_cash" value="1" {{ old('is_cash', $paymentMethod->is_cash) ? 'checked' : '' }}>
+                <label class="form-check-label" for="is_cash">Metode Tunai</label>
+            </div>
+            @error('is_cash')
+            <div class="text-danger small">{{ $message }}</div>
+            @enderror
+            <div class="form-check mb-3">
+                <input type="hidden" name="is_available_in_pos" value="0">
+                <input class="form-check-input" type="checkbox" id="is_available_in_pos" name="is_available_in_pos" value="1" {{ old('is_available_in_pos', $paymentMethod->is_available_in_pos) ? 'checked' : '' }}>
+                <label class="form-check-label" for="is_available_in_pos">Tersedia di POS</label>
+            </div>
+            @error('is_available_in_pos')
+            <div class="text-danger small">{{ $message }}</div>
+            @enderror
             <button type="submit" class="btn btn-success">Update</button>
             <a href="{{ route('payment-methods.index') }}" class="btn btn-secondary">Batal</a>
         </form>

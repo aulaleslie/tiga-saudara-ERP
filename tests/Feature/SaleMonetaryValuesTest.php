@@ -181,6 +181,8 @@ class SaleMonetaryValuesTest extends TestCase
         $this->paymentMethod = PaymentMethod::create([
             'name' => 'Cash',
             'coa_id' => $chartOfAccount->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
         ]);
 
         $this->tax = Tax::create([
