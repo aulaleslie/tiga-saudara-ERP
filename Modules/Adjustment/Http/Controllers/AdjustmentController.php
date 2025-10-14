@@ -8,6 +8,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Modules\Adjustment\DataTables\AdjustmentsDataTable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -568,11 +569,19 @@ class AdjustmentController extends Controller
         Log::info('[Adjustment] Approving adjustment (full)', $adjustment->toArray());
         Log::info('[Adjustment] Approving adjustment details (full)', $adjustment->adjustedProducts->load('product')->toArray());
 
-        if ($adjustment->type === 'normal') {
+        $normalizedType = Str::of($adjustment->type)->lower()->trim()->value();
+
+        if ($normalizedType === 'normal') {
             return $this->approveNormal($adjustment);
-        } elseif ($adjustment->type === 'breakage') {
+        } elseif ($normalizedType === 'breakage') {
             return $this->approveBreakage($adjustment);
         }
+
+        Log::warning('[Adjustment] Unknown adjustment type encountered during approval.', [
+            'adjustment_id' => $adjustment->id,
+            'raw_type' => $adjustment->type,
+            'normalized_type' => $normalizedType,
+        ]);
 
         session()->flash('error', 'Unknown adjustment type.');
         return redirect()->route('adjustments.index');
