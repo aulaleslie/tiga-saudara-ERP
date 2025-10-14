@@ -3,6 +3,7 @@
 namespace App\Livewire\SalesReturn;
 
 use App\Livewire\SalesReturn\Concerns\ValidatesSaleReturnForm;
+use App\Support\SalesReturn\SaleReturnEligibilityService;
 use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
@@ -39,6 +40,11 @@ class SaleReturnCreateForm extends Component
         'updateRows' => 'handleUpdatedRows',
     ];
 
+    protected function eligibilityService(): SaleReturnEligibilityService
+    {
+        return app(SaleReturnEligibilityService::class);
+    }
+
     public function mount(): void
     {
         $this->date = now()->format('Y-m-d');
@@ -70,20 +76,49 @@ class SaleReturnCreateForm extends Component
             return;
         }
 
-        $sale = Sale::query()
-            ->with(['customer', 'saleDetails', 'saleDispatches.details.product', 'saleDispatches.details.location'])
-            ->find($saleId);
+        $prefetchedRows = collect($saleData['rows'] ?? [])->map(function ($row) {
+            return is_array($row) ? $row : [];
+        })->filter(fn ($row) => ! empty($row))->values();
 
-        if (! $sale) {
-            session()->flash('error', 'Penjualan tidak ditemukan.');
-            return;
+        if ($prefetchedRows->isEmpty()) {
+            $sale = Sale::query()
+                ->with(['customer', 'saleDetails.product', 'saleDetails.bundleItems', 'saleDispatches.details.product', 'saleDispatches.details.location'])
+                ->find($saleId);
+
+            if (! $sale) {
+                session()->flash('error', 'Penjualan tidak ditemukan.');
+                return;
+            }
+
+            if (! $this->eligibilityService()->isSaleEligible($sale)) {
+                session()->flash('error', 'Penjualan belum siap untuk diretur.');
+                return;
+            }
+
+            $summary = $this->eligibilityService()->summariseSale($sale);
+
+            if ($summary['returnable_lines'] === 0) {
+                session()->flash('error', 'Tidak ada produk yang dapat diretur dari penjualan ini.');
+                return;
+            }
+
+            $saleReference = $sale->reference;
+            $customerName = $sale->customer_name ?: optional($sale->customer)->customer_name;
+            $rows = $summary['rows']->map(fn ($row) => $row)->all();
+        } else {
+            $saleReference = $saleData['reference'] ?? null;
+            $customerName = $saleData['customer_name'] ?? null;
+            $rows = $prefetchedRows->all();
         }
 
-        $this->sale_id = $sale->id;
-        $this->saleReference = $sale->reference;
-        $this->customerName = $sale->customer_name ?: optional($sale->customer)->customer_name;
+        $saleReference ??= $saleData['reference'] ?? null;
+        $customerName ??= $saleData['customer_name'] ?? null;
 
-        $this->rows = $this->mapRowsFromSale($sale);
+        $this->sale_id = $saleId;
+        $this->saleReference = $saleReference;
+        $this->customerName = $customerName;
+
+        $this->rows = $rows;
         $this->grand_total = $this->calculateReturnTotal();
 
         $this->dispatch('hydrateSaleReturnRows', $this->rows, $this->sale_id, null);
@@ -97,62 +132,9 @@ class SaleReturnCreateForm extends Component
 
     protected function mapRowsFromSale(Sale $sale, ?int $excludeSaleReturnId = null): array
     {
-        $dispatchDetails = DispatchDetail::query()
-            ->with(['product', 'location'])
-            ->where('sale_id', $sale->id)
-            ->get();
+        $summary = $this->eligibilityService()->summariseSale($sale, $excludeSaleReturnId);
 
-        if ($dispatchDetails->isEmpty()) {
-            return [];
-        }
-
-        $saleDetails = $sale->saleDetails
-            ->groupBy('product_id');
-
-        $returnedQuantities = SaleReturnDetail::query()
-            ->selectRaw('dispatch_detail_id, SUM(quantity) as total')
-            ->whereIn('dispatch_detail_id', $dispatchDetails->pluck('id')->all())
-            ->when($excludeSaleReturnId, function ($query) use ($excludeSaleReturnId) {
-                $query->where('sale_return_id', '!=', $excludeSaleReturnId);
-            })
-            ->whereHas('saleReturn', function ($query) {
-                $query->whereNotIn('approval_status', ['rejected']);
-            })
-            ->groupBy('dispatch_detail_id')
-            ->get()
-            ->keyBy('dispatch_detail_id');
-
-        return $dispatchDetails->map(function (DispatchDetail $detail) use ($saleDetails, $returnedQuantities) {
-            $saleDetail = optional($saleDetails->get($detail->product_id))->first();
-            $dispatched = (int) $detail->dispatched_quantity;
-            $returned = (int) optional($returnedQuantities->get($detail->id))->total;
-            $available = max($dispatched - $returned, 0);
-
-            if ($available <= 0) {
-                return null;
-            }
-
-            $unitPrice = $saleDetail ? (float) ($saleDetail->unit_price ?? $saleDetail->price ?? 0) : 0.0;
-
-            return [
-                'dispatch_detail_id' => $detail->id,
-                'sale_detail_id' => $saleDetail->id ?? null,
-                'product_id' => $detail->product_id,
-                'product_name' => $detail->product->product_name ?? '-',
-                'product_code' => $detail->product->product_code ?? null,
-                'serial_number_required' => (bool) ($detail->product->serial_number_required ?? false),
-                'serial_numbers' => [],
-                'quantity' => 0,
-                'available_quantity' => $available,
-                'dispatched_quantity' => $dispatched,
-                'returned_quantity' => $returned,
-                'unit_price' => $unitPrice,
-                'total' => 0,
-                'location_id' => $detail->location_id,
-                'location_name' => optional($detail->location)->name,
-                'tax_id' => $detail->tax_id ?? null,
-            ];
-        })->filter()->values()->all();
+        return $summary['rows']->map(fn ($row) => $row)->all();
     }
 
     protected function calculateReturnTotal(): float
