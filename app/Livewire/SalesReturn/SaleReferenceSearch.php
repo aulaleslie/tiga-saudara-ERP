@@ -18,8 +18,6 @@ class SaleReferenceSearch extends Component
 
     protected SaleReturnEligibilityService $eligibilityService;
 
-    protected SaleReturnEligibilityService $eligibilityService;
-
     public function mount(): void
     {
         $this->eligibilityService = App::make(SaleReturnEligibilityService::class);
