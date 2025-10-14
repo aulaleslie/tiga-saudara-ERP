@@ -2,6 +2,7 @@
 
 namespace App\Livewire\SalesReturn;
 
+use App\Livewire\SalesReturn\SaleReturnCreateForm;
 use Illuminate\Support\Collection;
 use Livewire\Component;
 use Modules\Sale\Entities\Sale;
@@ -61,7 +62,7 @@ class SaleReferenceSearch extends Component
             'id' => $sale->id,
             'reference' => $sale->reference,
             'customer_name' => $sale->customer_name,
-        ]);
+        ])->to(SaleReturnCreateForm::class);
 
         $this->resetQuery();
     }
