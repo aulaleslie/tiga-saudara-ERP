@@ -6,8 +6,16 @@
                     <span class="input-group-text bg-white border-end-0">
                         <i class="bi bi-search text-primary"></i>
                     </span>
-                    <input wire:keydown.escape="resetQuery" wire:model.debounce.500ms="query" type="text"
-                           class="form-control border-start-0" placeholder="Masukkan nomor referensi penjualan...">
+                    <input
+                        wire:keydown.escape="resetQuery"
+                        wire:keydown.arrow-down.prevent="highlightNext"
+                        wire:keydown.arrow-up.prevent="highlightPrevious"
+                        wire:keydown.enter.prevent="selectExactMatch"
+                        wire:model.debounce.500ms="query"
+                        type="text"
+                        class="form-control border-start-0"
+                        placeholder="Masukkan nomor referensi penjualan..."
+                    >
                 </div>
             </div>
         </div>
@@ -29,13 +37,25 @@
             <div class="card position-absolute mt-1" style="z-index: 4; left: 0; right: 0; border: 0;">
                 <div class="card-body shadow-sm">
                     <ul class="list-group list-group-flush">
-                        @foreach ($searchResults as $result)
-                            <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                                <a wire:click.prevent="selectSale({{ $result->id }})" href="#" class="text-decoration-none">
-                                    <div class="fw-semibold">{{ $result->reference }}</div>
-                                    <div class="small text-muted">{{ $result->customer_name ?? 'Tanpa pelanggan' }}</div>
+                        @foreach ($searchResults as $index => $result)
+                            <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center {{ $index === $highlightedIndex ? 'active' : '' }}"
+                                wire:key="sale-reference-result-{{ $result->id }}">
+                                <a wire:click.prevent="selectSale({{ $result->id }})" href="#" class="text-decoration-none w-100 {{ $index === $highlightedIndex ? 'text-white' : '' }}">
+                                    <div class="fw-semibold d-flex align-items-center justify-content-between">
+                                        <span>{{ $result->reference }}</span>
+                                        <span class="badge {{ $index === $highlightedIndex ? 'bg-white text-primary' : 'bg-light text-muted' }} text-uppercase">{{ $result->status }}</span>
+                                    </div>
+                                    <div class="small {{ $index === $highlightedIndex ? 'text-white-50' : 'text-muted' }}">{{ $result->customer_name ?? 'Tanpa pelanggan' }}</div>
+                                    <div class="small mt-1 {{ $index === $highlightedIndex ? 'text-white-50' : 'text-secondary' }}">
+                                        {{ $result->returnable_lines }} produk dapat diretur &mdash; total {{ $result->total_available_quantity }} qty
+                                        @if($result->requires_serials)
+                                            <span class="badge {{ $index === $highlightedIndex ? 'bg-info text-dark' : 'bg-info text-dark' }} ms-1">Serial</span>
+                                        @endif
+                                        @if(($result->bundle_lines ?? 0) > 0)
+                                            <span class="badge {{ $index === $highlightedIndex ? 'bg-secondary text-light' : 'bg-secondary' }} ms-1">Bundle</span>
+                                        @endif
+                                    </div>
                                 </a>
-                                <span class="badge bg-light text-muted text-uppercase">{{ $result->status }}</span>
                             </li>
                         @endforeach
                         @if($searchResults->count() >= $howMany)
