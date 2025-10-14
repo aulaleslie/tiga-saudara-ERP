@@ -84,6 +84,11 @@ class SaleReturnCreateForm extends Component
         $this->customerName = $sale->customer_name ?: optional($sale->customer)->customer_name;
 
         $this->rows = $this->mapRowsFromSale($sale);
+
+        if (empty($this->rows)) {
+            session()->flash('warning', 'Data pengiriman untuk penjualan yang dipilih tidak ditemukan.');
+        }
+
         $this->grand_total = $this->calculateReturnTotal();
 
         $this->dispatch('hydrateSaleReturnRows', $this->rows, $this->sale_id, null);
@@ -99,8 +104,15 @@ class SaleReturnCreateForm extends Component
     {
         $dispatchDetails = DispatchDetail::query()
             ->with(['product', 'location'])
-            ->where('sale_id', $sale->id)
-            ->get();
+            ->where(function ($query) use ($sale) {
+                $query->where('sale_id', $sale->id)
+                    ->orWhereHas('dispatch', function ($dispatchQuery) use ($sale) {
+                        $dispatchQuery->where('sale_id', $sale->id);
+                    });
+            })
+            ->get()
+            ->unique('id')
+            ->values();
 
         if ($dispatchDetails->isEmpty()) {
             return [];
