@@ -164,7 +164,7 @@
                                                     <!-- Main Row -->
                                                     <tr>
                                                         <td class="text-center">
-                                                            <button class="btn btn-sm btn-outline-primary toggle-details"
+                                                            <button type="button" class="btn btn-sm btn-outline-primary toggle-details"
                                                                     data-bs-toggle="collapse"
                                                                     data-bs-target="#details-{{ $receivedNote->id }}"
                                                                     aria-expanded="false"
@@ -179,9 +179,11 @@
                                                     </tr>
 
                                                     <!-- Expandable Details Row -->
-                                                    <tr id="details-{{ $receivedNote->id }}" class="collapse">
+                                                    <tr class="receiving-details-row">
                                                         <td colspan="5">
-                                                            @include('purchase::receivings.receiving-details', ['data' => $receivedNote])
+                                                            <div id="details-{{ $receivedNote->id }}" class="collapse">
+                                                                @include('purchase::receivings.receiving-details', ['data' => $receivedNote])
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 @endforeach
@@ -299,22 +301,33 @@
 
     <script>
         $(document).ready(function () {
-            $('#purchase-receivings-table tbody').on('click', 'button.toggle-details', function () {
-                let icon = $(this).find('i');
-                let rowId = $(this).attr('data-bs-target');
+            const $receivingsTable = $('#purchase-receivings-table');
 
-                $(rowId).collapse('toggle');
-
-                if ($(rowId).hasClass('show')) {
-                    icon.removeClass('bi-dash-circle').addClass('bi-plus-circle'); // Change to plus
-                } else {
-                    icon.removeClass('bi-plus-circle').addClass('bi-dash-circle'); // Change to minus
-                }
+            $receivingsTable.on('shown.bs.collapse', '.collapse', function () {
+                const targetId = $(this).attr('id');
+                $receivingsTable
+                    .find(`button.toggle-details[data-bs-target="#${targetId}"] i`)
+                    .removeClass('bi-plus-circle')
+                    .addClass('bi-dash-circle');
+                $receivingsTable
+                    .find(`button.toggle-details[data-bs-target="#${targetId}"]`)
+                    .attr('aria-expanded', 'true');
             });
 
-            // Ensure collapsed rows stay open when searching
-            $('#purchase-receivings-table').on('search.dt', function () {
-                $('.collapse').collapse('hide'); // Collapse all details when searching
+            $receivingsTable.on('hidden.bs.collapse', '.collapse', function () {
+                const targetId = $(this).attr('id');
+                $receivingsTable
+                    .find(`button.toggle-details[data-bs-target="#${targetId}"] i`)
+                    .removeClass('bi-dash-circle')
+                    .addClass('bi-plus-circle');
+                $receivingsTable
+                    .find(`button.toggle-details[data-bs-target="#${targetId}"]`)
+                    .attr('aria-expanded', 'false');
+            });
+
+            // Ensure collapsed rows are closed during table searches
+            $receivingsTable.on('search.dt', function () {
+                $receivingsTable.find('.collapse.show').collapse('hide');
             });
         });
     </script>
