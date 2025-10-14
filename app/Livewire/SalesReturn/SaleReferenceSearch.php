@@ -2,7 +2,6 @@
 
 namespace App\Livewire\SalesReturn;
 
-use App\Livewire\SalesReturn\SaleReturnCreateForm;
 use App\Support\SalesReturn\SaleReturnEligibilityService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\App;
@@ -15,6 +14,9 @@ class SaleReferenceSearch extends Component
     public string $query = '';
     public Collection $searchResults;
     public int $howMany = 5;
+    public int $highlightedIndex = -1;
+
+    protected SaleReturnEligibilityService $eligibilityService;
 
     protected SaleReturnEligibilityService $eligibilityService;
 
@@ -31,6 +33,8 @@ class SaleReferenceSearch extends Component
 
     public function updatedQuery(): void
     {
+        $this->highlightedIndex = -1;
+
         if (empty($this->query)) {
             $this->searchResults = Collection::empty();
             return;
@@ -72,6 +76,10 @@ class SaleReferenceSearch extends Component
             })
             ->filter()
             ->values();
+
+        if ($this->searchResults->isNotEmpty()) {
+            $this->highlightedIndex = 0;
+        }
     }
 
     public function loadMore(): void
@@ -85,6 +93,73 @@ class SaleReferenceSearch extends Component
         $this->query = '';
         $this->howMany = 5;
         $this->searchResults = Collection::empty();
+        $this->highlightedIndex = -1;
+    }
+
+    public function highlightNext(): void
+    {
+        if ($this->searchResults->isEmpty()) {
+            return;
+        }
+
+        $count = $this->searchResults->count();
+        $this->highlightedIndex = ($this->highlightedIndex + 1) % $count;
+    }
+
+    public function highlightPrevious(): void
+    {
+        if ($this->searchResults->isEmpty()) {
+            return;
+        }
+
+        $count = $this->searchResults->count();
+        if ($this->highlightedIndex <= 0) {
+            $this->highlightedIndex = $count - 1;
+            return;
+        }
+
+        $this->highlightedIndex--;
+    }
+
+    public function selectExactMatch(): void
+    {
+        if ($this->searchResults->isEmpty()) {
+            $this->updatedQuery();
+        }
+
+        if ($this->searchResults->isEmpty()) {
+            return;
+        }
+
+        if ($this->highlightedIndex >= 0) {
+            $selected = $this->searchResults->get($this->highlightedIndex);
+            $selectedId = $this->getResultId($selected);
+
+            if ($selected && $selectedId) {
+                $this->selectSale($selectedId);
+                return;
+            }
+        }
+
+        $query = trim($this->query);
+
+        $match = $this->searchResults->first(function ($result) use ($query) {
+            $reference = $this->getResultReference($result);
+
+            return $reference && strcasecmp($reference, $query) === 0;
+        });
+
+        if (! $match) {
+            $match = $this->searchResults->first();
+        }
+
+        if ($match) {
+            $matchId = $this->getResultId($match);
+
+            if ($matchId) {
+                $this->selectSale($matchId);
+            }
+        }
     }
 
     public function selectSale(int $saleId): void
@@ -121,8 +196,34 @@ class SaleReferenceSearch extends Component
             $payload = $sale instanceof Fluent ? $sale->toArray() : $sale;
         }
 
-        $this->dispatch('saleReferenceSelected', $payload)->to(SaleReturnCreateForm::class);
+        $this->dispatch('saleReferenceSelected', $payload);
 
         $this->resetQuery();
+    }
+
+    private function getResultId($result): ?int
+    {
+        if ($result instanceof Fluent) {
+            return $result->id ?? null;
+        }
+
+        if (is_array($result)) {
+            return $result['id'] ?? null;
+        }
+
+        return null;
+    }
+
+    private function getResultReference($result): ?string
+    {
+        if ($result instanceof Fluent) {
+            return $result->reference ?? null;
+        }
+
+        if (is_array($result)) {
+            return $result['reference'] ?? null;
+        }
+
+        return null;
     }
 }

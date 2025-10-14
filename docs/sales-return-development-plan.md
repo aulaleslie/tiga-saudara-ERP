@@ -19,9 +19,9 @@ The sales return workflow needs a new entry experience that lets clerks search f
 - Document CRUD gaps so enhancements stay aligned with the established module architecture and coding conventions.
 
 ### 2. Autocomplete sales reference search
-- Build a dedicated Livewire component for reference lookup (new component, not reused from existing troubleshooting plan).
+- Build a dedicated Livewire component for reference lookup (new component, not reused from existing troubleshooting plan) with live suggestions and keyboard navigation.
 - Query only sales with status `partially_dispatched` or `dispatched` and expose dispatched quantities/serials in the search payload.
-- Surface clear UX for no matches and prevent selection of ineligible references.
+- Surface clear UX for no matches, allow enter-key selection from the suggestion list, and prevent selection of ineligible references.
 
 ### 3. Event-driven Livewire interactions & return line validation
 - When the selected sale is partially dispatched, cap the return quantity at the dispatched amount for each line.
@@ -49,7 +49,7 @@ The sales return workflow needs a new entry experience that lets clerks search f
 
 ## Deliverables
 - Revised purchase/sales return module components that share CRUD patterns and honour existing validations.
-- New Livewire autocomplete component integrated into the sales return creation flow.
+- New Livewire autocomplete component integrated into the sales return creation flow, supporting suggestion highlights and quick selection.
 - Validation layer (UI + backend) that constrains quantities and serial numbers to dispatched values, including the serial number loader.
 - Approval lifecycle implementation with UI affordances and audit trail.
 - Bundle-aware return handling backed by automated tests and QA checklist.

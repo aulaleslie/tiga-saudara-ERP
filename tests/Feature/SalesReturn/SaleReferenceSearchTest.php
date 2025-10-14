@@ -293,4 +293,21 @@ class SaleReferenceSearchTest extends TestCase
                 return $this->normaliseResults($results)->isEmpty();
             });
     }
+
+    public function test_enter_key_selects_the_current_match(): void
+    {
+        $data = $this->createDispatchedSale();
+        $sale = $data['sale'];
+
+        Livewire::test(SaleReferenceSearch::class)
+            ->set('query', $sale->reference)
+            ->call('updatedQuery')
+            ->set('highlightedIndex', -1)
+            ->call('selectExactMatch')
+            ->assertDispatched('saleReferenceSelected', function ($payload) use ($sale): bool {
+                return is_array($payload)
+                    && $payload['id'] === $sale->id
+                    && $payload['reference'] === $sale->reference;
+            });
+    }
 }
