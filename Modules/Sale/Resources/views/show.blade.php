@@ -179,8 +179,7 @@
                                             <tr>
                                                 <td class="text-center">
                                                     <button class="btn btn-sm btn-outline-primary toggle-details"
-                                                            data-bs-toggle="collapse"
-                                                            data-bs-target="#dispatch-{{ $dispatch->id }}"
+                                                            data-details-target="dispatch-{{ $dispatch->id }}"
                                                             aria-expanded="false"
                                                             aria-controls="dispatch-{{ $dispatch->id }}">
                                                         <i class="bi bi-plus-circle"></i>
@@ -190,7 +189,7 @@
                                                 <td>{{ $sumQty }}</td>
                                             </tr>
 
-                                            <tr id="dispatch-{{ $dispatch->id }}" class="collapse">
+                                            <tr id="dispatch-{{ $dispatch->id }}" class="dispatch-details-row d-none">
                                                 <td colspan="3">
                                                     <div class="table-responsive">
                                                         <table class="table table-sm table-bordered">
@@ -290,33 +289,58 @@
 @endsection
 
 @push('page_scripts')
-    {{-- Toggle buttons for collapsible dispatch rows --}}
+    {{-- Toggle buttons for dispatch detail rows without Bootstrap collapse --}}
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const table = document.getElementById('sale-dispatches-table');
-            if (!table) return;
+        (function () {
+            function initDispatchToggle() {
+                const table = document.getElementById('sale-dispatches-table');
+                if (!table) {
+                    return;
+                }
 
-            table.addEventListener('click', function (e) {
-                const btn = e.target.closest('button.toggle-details');
-                if (!btn) return;
+                table.addEventListener('click', function (event) {
+                    const button = event.target.closest('button.toggle-details');
+                    if (!button) {
+                        return;
+                    }
 
-                const icon = btn.querySelector('i');
-                const target = btn.getAttribute('data-bs-target');
-                const row = document.querySelector(target);
+                    const targetId = button.getAttribute('data-details-target');
+                    if (!targetId) {
+                        return;
+                    }
 
-                // Bootstrap collapse is already triggered via data attributes,
-                // we just flip the icon after the animation ends
-                row.addEventListener('shown.bs.collapse', () => {
-                    icon.classList.remove('bi-plus-circle');
-                    icon.classList.add('bi-dash-circle');
-                }, { once: true });
+                    const detailRow = document.getElementById(targetId);
+                    if (!detailRow) {
+                        return;
+                    }
 
-                row.addEventListener('hidden.bs.collapse', () => {
-                    icon.classList.remove('bi-dash-circle');
-                    icon.classList.add('bi-plus-circle');
-                }, { once: true });
-            });
-        });
+                    const icon = button.querySelector('i');
+                    const isHidden = detailRow.classList.contains('d-none');
+
+                    if (isHidden) {
+                        detailRow.classList.remove('d-none');
+                        button.setAttribute('aria-expanded', 'true');
+                        if (icon) {
+                            icon.classList.remove('bi-plus-circle');
+                            icon.classList.add('bi-dash-circle');
+                        }
+                    } else {
+                        detailRow.classList.add('d-none');
+                        button.setAttribute('aria-expanded', 'false');
+                        if (icon) {
+                            icon.classList.remove('bi-dash-circle');
+                            icon.classList.add('bi-plus-circle');
+                        }
+                    }
+                });
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initDispatchToggle);
+            } else {
+                initDispatchToggle();
+            }
+        })();
     </script>
 
     {{-- Yajra DataTables scripts for payments --}}

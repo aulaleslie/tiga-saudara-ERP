@@ -165,7 +165,7 @@
                                                     <tr>
                                                         <td class="text-center">
                                                             <button type="button" class="btn btn-sm btn-outline-primary toggle-details"
-                                                                    data-bs-target="#details-{{ $receivedNote->id }}"
+                                                                    data-details-target="details-{{ $receivedNote->id }}"
                                                                     aria-expanded="false"
                                                                     aria-controls="details-{{ $receivedNote->id }}">
                                                                 <i class="bi bi-plus-circle"></i>
@@ -178,7 +178,7 @@
                                                     </tr>
 
                                                     <!-- Expandable Details Row -->
-                                                    <tr id="details-{{ $receivedNote->id }}" class="receiving-details-row collapse">
+                                                    <tr id="details-{{ $receivedNote->id }}" class="receiving-details-row d-none">
                                                         <td colspan="5">
                                                             @include('purchase::receivings.receiving-details', ['data' => $receivedNote])
                                                         </td>
@@ -299,10 +299,6 @@
     <script>
         (function () {
             function initReceivingsToggle() {
-                if (typeof bootstrap === 'undefined' || !bootstrap.Collapse) {
-                    return;
-                }
-
                 const table = document.getElementById('purchase-receivings-table');
                 if (!table) {
                     return;
@@ -314,77 +310,56 @@
                         return;
                     }
 
-                    event.preventDefault();
-
-                    const targetSelector = button.getAttribute('data-bs-target');
-                    if (!targetSelector) {
+                    const targetId = button.getAttribute('data-details-target');
+                    if (!targetId) {
                         return;
                     }
 
-                    const detailRow = table.querySelector(targetSelector);
+                    const detailRow = document.getElementById(targetId);
                     if (!detailRow) {
                         return;
                     }
 
-                    const collapse = bootstrap.Collapse.getOrCreateInstance(detailRow, { toggle: false });
-                    const isExpanded = button.getAttribute('aria-expanded') === 'true';
+                    const icon = button.querySelector('i');
+                    const isHidden = detailRow.classList.contains('d-none');
 
-                    if (isExpanded) {
-                        collapse.hide();
+                    if (isHidden) {
+                        detailRow.classList.remove('d-none');
+                        button.setAttribute('aria-expanded', 'true');
+                        if (icon) {
+                            icon.classList.remove('bi-plus-circle');
+                            icon.classList.add('bi-dash-circle');
+                        }
                     } else {
-                        collapse.show();
-                    }
-                });
-
-                table.addEventListener('shown.bs.collapse', function (event) {
-                    const row = event.target;
-                    if (!row.id) {
-                        return;
-                    }
-
-                    const trigger = table.querySelector(`button.toggle-details[data-bs-target="#${row.id}"]`);
-                    if (!trigger) {
-                        return;
-                    }
-
-                    trigger.setAttribute('aria-expanded', 'true');
-
-                    const icon = trigger.querySelector('i');
-                    if (icon) {
-                        icon.classList.remove('bi-plus-circle');
-                        icon.classList.add('bi-dash-circle');
-                    }
-                });
-
-                table.addEventListener('hidden.bs.collapse', function (event) {
-                    const row = event.target;
-                    if (!row.id) {
-                        return;
-                    }
-
-                    const trigger = table.querySelector(`button.toggle-details[data-bs-target="#${row.id}"]`);
-                    if (!trigger) {
-                        return;
-                    }
-
-                    trigger.setAttribute('aria-expanded', 'false');
-
-                    const icon = trigger.querySelector('i');
-                    if (icon) {
-                        icon.classList.remove('bi-dash-circle');
-                        icon.classList.add('bi-plus-circle');
+                        detailRow.classList.add('d-none');
+                        button.setAttribute('aria-expanded', 'false');
+                        if (icon) {
+                            icon.classList.remove('bi-dash-circle');
+                            icon.classList.add('bi-plus-circle');
+                        }
                     }
                 });
 
                 if (window.jQuery) {
-                    window.jQuery(table).on('search.dt', function () {
-                        table.querySelectorAll('tr.collapse.show').forEach(function (row) {
-                            const instance = bootstrap.Collapse.getInstance(row);
-                            if (instance) {
-                                instance.hide();
-                            }
+                    const $table = window.jQuery(table);
+                    if ($table && $table.on) {
+                        $table.on('search.dt', function () {
+                            table.querySelectorAll('tr.receiving-details-row').forEach(function (row) {
+                                if (!row.classList.contains('d-none')) {
+                                    row.classList.add('d-none');
+                                    const trigger = table.querySelector(`button.toggle-details[data-details-target="${row.id}"]`);
+                                    if (trigger) {
+                                        trigger.setAttribute('aria-expanded', 'false');
+                                        const triggerIcon = trigger.querySelector('i');
+                                        if (triggerIcon) {
+                                            triggerIcon.classList.remove('bi-dash-circle');
+                                            triggerIcon.classList.add('bi-plus-circle');
+                                        }
+                                    }
+                                }
+                            });
                         });
-                    });
+                    }
                 }
             }
 
