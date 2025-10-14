@@ -35,7 +35,11 @@
                         @if ($this->approvalLocked)
                             <input type="text" class="form-control" value="{{ $this->saleReference ?? '-' }}" disabled>
                         @else
-                            <livewire:sales-return.sale-reference-search :key="'sale-reference-' . ($this->sale_id ?? 'new')" />
+                            <livewire:auto-complete.sale-reference-loader
+                                :sale-id="$sale_id"
+                                :sale-reference="$saleReference"
+                                :key="'sale-reference-' . ($this->sale_id ?? 'new')"
+                            />
                         @endif
                         @error('sale_id')
                             <div class="invalid-feedback d-block">{{ $message }}</div>
