@@ -299,22 +299,27 @@
 
     <script>
         $(document).ready(function () {
-            $('#purchase-receivings-table tbody').on('click', 'button.toggle-details', function () {
-                let icon = $(this).find('i');
-                let rowId = $(this).attr('data-bs-target');
+            const $receivingsTable = $('#purchase-receivings-table');
 
-                $(rowId).collapse('toggle');
-
-                if ($(rowId).hasClass('show')) {
-                    icon.removeClass('bi-dash-circle').addClass('bi-plus-circle'); // Change to plus
-                } else {
-                    icon.removeClass('bi-plus-circle').addClass('bi-dash-circle'); // Change to minus
-                }
+            $receivingsTable.on('show.bs.collapse', '.collapse', function () {
+                const targetId = $(this).attr('id');
+                $receivingsTable
+                    .find(`button.toggle-details[data-bs-target="#${targetId}"] i`)
+                    .removeClass('bi-plus-circle')
+                    .addClass('bi-dash-circle');
             });
 
-            // Ensure collapsed rows stay open when searching
-            $('#purchase-receivings-table').on('search.dt', function () {
-                $('.collapse').collapse('hide'); // Collapse all details when searching
+            $receivingsTable.on('hide.bs.collapse', '.collapse', function () {
+                const targetId = $(this).attr('id');
+                $receivingsTable
+                    .find(`button.toggle-details[data-bs-target="#${targetId}"] i`)
+                    .removeClass('bi-dash-circle')
+                    .addClass('bi-plus-circle');
+            });
+
+            // Ensure collapsed rows are closed during table searches
+            $receivingsTable.on('search.dt', function () {
+                $receivingsTable.find('.collapse.show').collapse('hide');
             });
         });
     </script>
