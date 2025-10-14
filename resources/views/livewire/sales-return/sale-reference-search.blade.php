@@ -31,11 +31,22 @@
                     <ul class="list-group list-group-flush">
                         @foreach ($searchResults as $result)
                             <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                                <a wire:click.prevent="selectSale({{ $result->id }})" href="#" class="text-decoration-none">
-                                    <div class="fw-semibold">{{ $result->reference }}</div>
+                                <a wire:click.prevent="selectSale({{ $result->id }})" href="#" class="text-decoration-none w-100">
+                                    <div class="fw-semibold d-flex align-items-center justify-content-between">
+                                        <span>{{ $result->reference }}</span>
+                                        <span class="badge bg-light text-muted text-uppercase">{{ $result->status }}</span>
+                                    </div>
                                     <div class="small text-muted">{{ $result->customer_name ?? 'Tanpa pelanggan' }}</div>
+                                    <div class="small text-secondary mt-1">
+                                        {{ $result->returnable_lines }} produk dapat diretur &mdash; total {{ $result->total_available_quantity }} qty
+                                        @if($result->requires_serials)
+                                            <span class="badge bg-info text-dark ms-1">Serial</span>
+                                        @endif
+                                        @if(($result->bundle_lines ?? 0) > 0)
+                                            <span class="badge bg-secondary ms-1">Bundle</span>
+                                        @endif
+                                    </div>
                                 </a>
-                                <span class="badge bg-light text-muted text-uppercase">{{ $result->status }}</span>
                             </li>
                         @endforeach
                         @if($searchResults->count() >= $howMany)
