@@ -165,7 +165,6 @@
                                                     <tr>
                                                         <td class="text-center">
                                                             <button type="button" class="btn btn-sm btn-outline-primary toggle-details"
-                                                                    data-bs-toggle="collapse"
                                                                     data-bs-target="#details-{{ $receivedNote->id }}"
                                                                     aria-expanded="false"
                                                                     aria-controls="details-{{ $receivedNote->id }}">
@@ -179,11 +178,9 @@
                                                     </tr>
 
                                                     <!-- Expandable Details Row -->
-                                                    <tr class="receiving-details-row">
+                                                    <tr id="details-{{ $receivedNote->id }}" class="receiving-details-row collapse">
                                                         <td colspan="5">
-                                                            <div id="details-{{ $receivedNote->id }}" class="collapse">
-                                                                @include('purchase::receivings.receiving-details', ['data' => $receivedNote])
-                                                            </div>
+                                                            @include('purchase::receivings.receiving-details', ['data' => $receivedNote])
                                                         </td>
                                                     </tr>
                                                 @endforeach
@@ -300,36 +297,102 @@
     </script>
 
     <script>
-        $(document).ready(function () {
-            const $receivingsTable = $('#purchase-receivings-table');
+        (function () {
+            function initReceivingsToggle() {
+                if (typeof bootstrap === 'undefined' || !bootstrap.Collapse) {
+                    return;
+                }
 
-            $receivingsTable.on('shown.bs.collapse', '.collapse', function () {
-                const targetId = $(this).attr('id');
-                $receivingsTable
-                    .find(`button.toggle-details[data-bs-target="#${targetId}"] i`)
-                    .removeClass('bi-plus-circle')
-                    .addClass('bi-dash-circle');
-                $receivingsTable
-                    .find(`button.toggle-details[data-bs-target="#${targetId}"]`)
-                    .attr('aria-expanded', 'true');
-            });
+                const table = document.getElementById('purchase-receivings-table');
+                if (!table) {
+                    return;
+                }
 
-            $receivingsTable.on('hidden.bs.collapse', '.collapse', function () {
-                const targetId = $(this).attr('id');
-                $receivingsTable
-                    .find(`button.toggle-details[data-bs-target="#${targetId}"] i`)
-                    .removeClass('bi-dash-circle')
-                    .addClass('bi-plus-circle');
-                $receivingsTable
-                    .find(`button.toggle-details[data-bs-target="#${targetId}"]`)
-                    .attr('aria-expanded', 'false');
-            });
+                table.addEventListener('click', function (event) {
+                    const button = event.target.closest('button.toggle-details');
+                    if (!button) {
+                        return;
+                    }
 
-            // Ensure collapsed rows are closed during table searches
-            $receivingsTable.on('search.dt', function () {
-                $receivingsTable.find('.collapse.show').collapse('hide');
-            });
-        });
+                    event.preventDefault();
+
+                    const targetSelector = button.getAttribute('data-bs-target');
+                    if (!targetSelector) {
+                        return;
+                    }
+
+                    const detailRow = table.querySelector(targetSelector);
+                    if (!detailRow) {
+                        return;
+                    }
+
+                    const collapse = bootstrap.Collapse.getOrCreateInstance(detailRow, { toggle: false });
+                    const isExpanded = button.getAttribute('aria-expanded') === 'true';
+
+                    if (isExpanded) {
+                        collapse.hide();
+                    } else {
+                        collapse.show();
+                    }
+                });
+
+                table.addEventListener('shown.bs.collapse', function (event) {
+                    const row = event.target;
+                    if (!row.id) {
+                        return;
+                    }
+
+                    const trigger = table.querySelector(`button.toggle-details[data-bs-target="#${row.id}"]`);
+                    if (!trigger) {
+                        return;
+                    }
+
+                    trigger.setAttribute('aria-expanded', 'true');
+
+                    const icon = trigger.querySelector('i');
+                    if (icon) {
+                        icon.classList.remove('bi-plus-circle');
+                        icon.classList.add('bi-dash-circle');
+                    }
+                });
+
+                table.addEventListener('hidden.bs.collapse', function (event) {
+                    const row = event.target;
+                    if (!row.id) {
+                        return;
+                    }
+
+                    const trigger = table.querySelector(`button.toggle-details[data-bs-target="#${row.id}"]`);
+                    if (!trigger) {
+                        return;
+                    }
+
+                    trigger.setAttribute('aria-expanded', 'false');
+
+                    const icon = trigger.querySelector('i');
+                    if (icon) {
+                        icon.classList.remove('bi-dash-circle');
+                        icon.classList.add('bi-plus-circle');
+                    }
+                });
+
+                if (window.jQuery) {
+                    window.jQuery(table).on('search.dt', function () {
+                        table.querySelectorAll('tr.collapse.show').forEach(function (row) {
+                            const instance = bootstrap.Collapse.getInstance(row);
+                            if (instance) {
+                                instance.hide();
+                            }
+                        });
+                    });
+                }
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initReceivingsToggle);
+            } else {
+                initReceivingsToggle();
+            }
+        })();
     </script>
 @endpush
-
