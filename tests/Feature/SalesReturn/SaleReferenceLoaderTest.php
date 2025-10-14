@@ -2,7 +2,7 @@
 
 namespace Tests\Feature\SalesReturn;
 
-use App\Livewire\SalesReturn\SaleReferenceSearch;
+use App\Livewire\AutoComplete\SaleReferenceLoader;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -21,7 +21,7 @@ use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
 
-class SaleReferenceSearchTest extends TestCase
+class SaleReferenceLoaderTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -216,10 +216,10 @@ class SaleReferenceSearchTest extends TestCase
 
         $queryFragment = Str::substr($sale->reference, 0, 6);
 
-        Livewire::test(SaleReferenceSearch::class)
+        Livewire::test(SaleReferenceLoader::class)
             ->set('query', $queryFragment)
             ->call('updatedQuery')
-            ->assertSet('searchResults', function ($results) use ($sale) {
+            ->assertSet('search_results', function ($results) use ($sale) {
                 $collection = $this->normaliseResults($results);
                 $match = $collection->firstWhere('id', $sale->id);
 
@@ -241,10 +241,10 @@ class SaleReferenceSearchTest extends TestCase
 
         $queryFragment = Str::substr($eligible['sale']->reference, 0, 4);
 
-        Livewire::test(SaleReferenceSearch::class)
+        Livewire::test(SaleReferenceLoader::class)
             ->set('query', $queryFragment)
             ->call('updatedQuery')
-            ->assertSet('searchResults', function ($results) use ($eligible, $ineligible) {
+            ->assertSet('search_results', function ($results) use ($eligible, $ineligible) {
                 $collection = $this->normaliseResults($results);
 
                 return $collection->contains('id', $eligible['sale']->id)
@@ -257,10 +257,10 @@ class SaleReferenceSearchTest extends TestCase
         $data = $this->createDispatchedSale();
         $this->createSaleReturnForDispatch($data['sale'], $data['dispatchDetail'], $data['serialIds'], 2);
 
-        Livewire::test(SaleReferenceSearch::class)
+        Livewire::test(SaleReferenceLoader::class)
             ->set('query', $data['sale']->reference)
             ->call('updatedQuery')
-            ->assertSet('searchResults', function ($results) use ($data) {
+            ->assertSet('search_results', function ($results) use ($data) {
                 $collection = $this->normaliseResults($results);
                 $match = $collection->firstWhere('id', $data['sale']->id);
 
@@ -274,7 +274,7 @@ class SaleReferenceSearchTest extends TestCase
         $sale = $data['sale'];
         $dispatchDetail = $data['dispatchDetail'];
 
-        Livewire::test(SaleReferenceSearch::class)
+        Livewire::test(SaleReferenceLoader::class)
             ->set('query', $sale->reference)
             ->call('updatedQuery')
             ->call('selectSale', $sale->id)
@@ -287,9 +287,9 @@ class SaleReferenceSearchTest extends TestCase
                     && count($payload['rows']) === 1
                     && $payload['rows'][0]['dispatch_detail_id'] === $dispatchDetail->id;
             })
-            ->assertSet('query', '')
-            ->assertSet('howMany', 5)
-            ->assertSet('searchResults', function ($results) {
+            ->assertSet('query', $sale->reference)
+            ->assertSet('how_many', 5)
+            ->assertSet('search_results', function ($results) {
                 return $this->normaliseResults($results)->isEmpty();
             });
     }
@@ -299,7 +299,7 @@ class SaleReferenceSearchTest extends TestCase
         $data = $this->createDispatchedSale();
         $sale = $data['sale'];
 
-        Livewire::test(SaleReferenceSearch::class)
+        Livewire::test(SaleReferenceLoader::class)
             ->set('query', $sale->reference)
             ->call('updatedQuery')
             ->set('highlightedIndex', -1)
