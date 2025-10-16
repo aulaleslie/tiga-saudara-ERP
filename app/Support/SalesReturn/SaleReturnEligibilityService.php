@@ -122,7 +122,7 @@ class SaleReturnEligibilityService
                 $serialReturnedCount = (int) ($serialsReturned->get($detail->id) ?? 0);
                 $serialAvailable = max(min($serialTotal - $serialReturnedCount, $available), 0);
 
-                $bundleContext = optional($bundleItems->get($detail->product_id))
+                $bundleContext = collect($bundleItems->get($detail->product_id) ?? [])
                     ->map(function ($bundle) {
                         return [
                             'bundle_sale_detail_id' => $bundle['bundle_sale_detail_id'],
@@ -133,7 +133,7 @@ class SaleReturnEligibilityService
                         ];
                     })
                     ->values()
-                    ->all() ?? [];
+                    ->all();
 
                 return [
                     'dispatch_detail_id' => $detail->id,
