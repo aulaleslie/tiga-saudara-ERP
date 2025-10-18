@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Setting\Http\Controllers\BusinessController;
 use Modules\Setting\Http\Controllers\JournalController;
 use Modules\Setting\Http\Controllers\PaymentMethodController;
+use Modules\Setting\Http\Controllers\SaleLocationConfigurationController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
@@ -30,6 +31,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/update-active-business', [BusinessController::class, 'updateActiveBusiness'])->name('update.active.business');
     // Locations
     Route::resource('locations', 'LocationController')->except('show');
+    Route::resource('sales-location-configurations', SaleLocationConfigurationController::class)
+        ->only(['index', 'store', 'destroy']);
     // Taxes
     Route::resource('taxes', 'TaxController')->except('show');
     // PaymentTerms

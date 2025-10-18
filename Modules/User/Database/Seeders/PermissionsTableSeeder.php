@@ -91,6 +91,10 @@ class PermissionsTableSeeder extends Seeder
             'locations.create',
             'locations.edit',
 
+            // Sale location configuration
+            'saleLocations.access',
+            'saleLocations.edit',
+
             // Payment Methods / Terms
             'paymentMethods.access',
             'paymentMethods.create',
