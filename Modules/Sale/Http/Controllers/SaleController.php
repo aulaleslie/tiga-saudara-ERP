@@ -33,7 +33,8 @@ use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Http\Requests\StoreSaleRequest;
 use Modules\Sale\Http\Requests\UpdateSaleRequest;
-use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\Tax;
 use Modules\Sale\Services\SaleCartAggregator;
 
@@ -435,8 +436,12 @@ class SaleController extends Controller
     public function dispatch(Sale $sale)
     {
         abort_if(Gate::denies('sales.dispatch'), 403);
-        $currentSettingId = session('setting_id');
-        $locations = Location::where('setting_id', $currentSettingId)->get();
+        $currentSettingId = (int) session('setting_id');
+        $locations = Setting::with(['saleLocations.setting:id,company_name'])
+            ->findOrFail($currentSettingId)
+            ->saleLocations
+            ->sortBy('name')
+            ->values();
 
         $aggregatedProducts = [];
 
@@ -515,6 +520,11 @@ class SaleController extends Controller
             'request' => $request->all()
         ]);
 
+        $currentSettingId = (int) session('setting_id');
+        $allowedLocationIds = SettingSaleLocation::where('setting_id', $currentSettingId)
+            ->pluck('location_id')
+            ->all();
+
         $validator = Validator::make($request->all(), [
             'dispatch_date' => 'required|date',
             'dispatchedQuantities' => 'required|array',
@@ -523,7 +533,7 @@ class SaleController extends Controller
             'stockAtLocations' => 'required|array',
         ]);
 
-        $validator->after(function ($validator) use ($request, $sale) {
+        $validator->after(function ($validator) use ($request, $sale, $allowedLocationIds) {
             $dispatchedQuantities = $request->input('dispatchedQuantities', []);
             $selectedLocations = $request->input('selectedLocations', []);
             $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
@@ -565,6 +575,12 @@ class SaleController extends Controller
                 }
                 if (empty($selectedLocations[$compositeKey])) {
                     $validator->errors()->add("selectedLocations.$compositeKey", "Location is required for this product.");
+                    continue;
+                }
+
+                $locationId = (int) $selectedLocations[$compositeKey];
+                if (!in_array($locationId, $allowedLocationIds, true)) {
+                    $validator->errors()->add("selectedLocations.$compositeKey", 'Lokasi tidak tersedia untuk konfigurasi bisnis ini.');
                 }
 
                 list($productId, $taxId) = explode('-', $compositeKey);
@@ -598,8 +614,12 @@ class SaleController extends Controller
 
             foreach ($dispatchedQuantities as $compositeKey => $qty) {
                 list($productId, $taxId) = explode('-', $compositeKey);
-                $locationId = $selectedLocations[$compositeKey] ?? null;
+                $locationId = isset($selectedLocations[$compositeKey]) ? (int) $selectedLocations[$compositeKey] : null;
                 $serialNumbers = $selectedSerialNumbers[$compositeKey] ?? [];
+
+                if (!$locationId || !in_array($locationId, $allowedLocationIds, true)) {
+                    throw new Exception("Lokasi {$locationId} tidak tersedia untuk konfigurasi bisnis ini.");
+                }
 
                 $product = Product::where('id', $productId)->lockForUpdate()->first();
                 if (!$product) {

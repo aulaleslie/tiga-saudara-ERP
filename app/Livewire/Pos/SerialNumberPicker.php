@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Pos;
 
+use App\Support\PosLocationResolver;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -80,15 +81,7 @@ class SerialNumberPicker extends Component
 
     private function resolvePosLocation(): void
     {
-        $settingId = session('setting_id');
-
-        // If your DB has locations.is_pos, prefer that.
-        $hasIsPos = DB::getSchemaBuilder()->hasColumn('locations', 'is_pos');
-
-        $query = DB::table('locations')->where('setting_id', $settingId);
-        $this->posLocationId = $hasIsPos
-            ? $query->where('is_pos', 1)->value('id')
-            : $query->orderBy('id')->value('id');
+        $this->posLocationId = PosLocationResolver::resolveId();
     }
 
     /** Enter pressed in the input (or scanner sends CR/LF) */

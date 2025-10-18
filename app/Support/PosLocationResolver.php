@@ -3,7 +3,7 @@
 namespace App\Support;
 
 use Illuminate\Support\Facades\Cache;
-use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\SettingSaleLocation;
 
 class PosLocationResolver
 {
@@ -21,10 +21,19 @@ class PosLocationResolver
         $cacheKey = "pos_location_id_{$settingId}";
 
         return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($settingId) {
-            return Location::query()
+            return SettingSaleLocation::query()
                 ->where('setting_id', $settingId)
-                ->where('is_pos', true)
-                ->value('id');
+                ->whereHas('location', fn($query) => $query->where('is_pos', true))
+                ->orderBy('id')
+                ->pluck('location_id')
+                ->first();
         });
+    }
+
+    public static function forget(?int ...$settingIds): void
+    {
+        collect($settingIds)
+            ->filter()
+            ->each(fn ($id) => Cache::forget("pos_location_id_{$id}"));
     }
 }

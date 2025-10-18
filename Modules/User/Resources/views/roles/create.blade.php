@@ -266,6 +266,11 @@
                                             'locations.edit'   => 'Ubah',
                                         ],
 
+                                        'Konfigurasi Gudang Penjualan' => [
+                                            'saleLocations.access' => 'Akses Konfigurasi',
+                                            'saleLocations.edit'   => 'Kelola Konfigurasi',
+                                        ],
+
                                         'Metode / Syarat Pembayaran' => [
                                             'paymentMethods.access' => 'Akses Metode Pembayaran',
                                             'paymentMethods.create' => 'Buat Metode Pembayaran',

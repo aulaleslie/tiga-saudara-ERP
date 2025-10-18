@@ -6,6 +6,8 @@ use App\Models\BaseModel;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Currency\Entities\Currency;
 
 class Setting extends BaseModel
@@ -23,6 +25,17 @@ class Setting extends BaseModel
     {
         return $this->belongsToMany(User::class, 'user_setting', 'setting_id', 'user_id')
             ->withPivot('role_id');
+    }
+
+    public function saleLocations(): BelongsToMany
+    {
+        return $this->belongsToMany(Location::class, 'setting_sale_locations')
+            ->withTimestamps();
+    }
+
+    public function saleLocationAssignments(): HasMany
+    {
+        return $this->hasMany(SettingSaleLocation::class);
     }
 
 }
