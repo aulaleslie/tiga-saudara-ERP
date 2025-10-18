@@ -8,9 +8,9 @@ use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
+use App\Support\PosLocationResolver;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
-use Modules\Setting\Entities\Location;
 
 class SearchProduct extends Component
 {
@@ -24,10 +24,7 @@ class SearchProduct extends Component
     public function mount(): void
     {
         // resolve POS location for the current business/setting
-        $settingId = session('setting_id');
-        $this->posLocationId = Location::where('setting_id', $settingId)
-            ->where('is_pos', true)
-            ->value('id');
+        $this->posLocationId = PosLocationResolver::resolveId();
 
         $this->search_results = Collection::empty();
     }

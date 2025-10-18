@@ -54,8 +54,14 @@
                                 wire:model="selectedLocations.{{ $key }}"
                                 wire:change="locationChanged($event.target.value, '{{ $key }}')">
                             <option value="">-- Pilih Lokasi --</option>
+                            @php($currentSettingId = (int) session('setting_id'))
                             @foreach($locations as $location)
-                                <option value="{{ $location->id }}">{{ $location->name }}</option>
+                                <option value="{{ $location->id }}">
+                                    {{ $location->name }}
+                                    @if($location->setting_id !== $currentSettingId)
+                                        ({{ optional($location->setting)->company_name ?? 'Tidak diketahui' }})
+                                    @endif
+                                </option>
                             @endforeach
                         </select>
                     </td>

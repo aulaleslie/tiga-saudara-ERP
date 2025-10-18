@@ -3,10 +3,10 @@
 namespace App\Livewire\Pos;
 
 use Illuminate\Support\Facades\DB;
+use App\Support\PosLocationResolver;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Product\Entities\Product;
-use Modules\Setting\Entities\Location;
 
 class ProductList extends Component
 {
@@ -31,10 +31,7 @@ class ProductList extends Component
         $this->categories  = $categories;
         $this->category_id = '';
 
-        $settingId = session('setting_id');
-        $this->posLocationId = Location::where('setting_id', $settingId)
-            ->where('is_pos', true)
-            ->value('id');
+        $this->posLocationId = PosLocationResolver::resolveId();
     }
 
     public function render()

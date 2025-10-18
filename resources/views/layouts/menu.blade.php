@@ -348,7 +348,7 @@
 
 <li class="c-sidebar-nav-divider"></li>
 
-@canany(['settings.access', 'businesses.access', 'journals.access', 'taxes.access', 'paymentMethods.access', 'paymentTerms.access'])
+@canany(['settings.access', 'businesses.access', 'journals.access', 'taxes.access', 'paymentMethods.access', 'paymentTerms.access', 'saleLocations.access'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-gear-fill" style="line-height: 1;"></i> Pengaturan
@@ -390,6 +390,16 @@
                        href="{{ route('locations.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-geo-alt-fill" style="line-height: 1;"></i>
                         Daftar Lokasi
+                    </a>
+                </li>
+            @endcan
+
+            @can('saleLocations.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('sales-location-configurations*') ? 'c-active' : '' }}"
+                       href="{{ route('sales-location-configurations.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-diagram-3" style="line-height: 1;"></i>
+                        Konfigurasi Gudang Penjualan
                     </a>
                 </li>
             @endcan
