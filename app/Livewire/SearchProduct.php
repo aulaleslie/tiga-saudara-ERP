@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Livewire\Pos\Checkout;
+use App\Livewire\Pos\ProductList;
 use App\Support\ProductBundleResolver;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
@@ -18,13 +19,13 @@ class SearchProduct extends Component
     public $search_results;
     public int $how_many = 5;
 
-    /** POS location resolved from current setting (nullable if none configured) */
-    private ?int $posLocationId = null;
+    /** All sale location ids configured for the active setting */
+    private array $posLocationIds = [];
 
     public function mount(): void
     {
         // resolve POS location for the current business/setting
-        $this->posLocationId = PosLocationResolver::resolveId();
+        $this->posLocationIds = PosLocationResolver::resolveLocationIds()->all();
 
         $this->search_results = Collection::empty();
     }
@@ -39,9 +40,12 @@ class SearchProduct extends Component
         $input = trim($this->query);
 
         if (mb_strlen($input) < 2) {
+            $this->dispatch('posSearchUpdated', '')->to(ProductList::class);
             $this->search_results = Collection::empty();
             return;
         }
+
+        $this->dispatch('posSearchUpdated', $input)->to(ProductList::class);
 
         if ($this->tryHandleExactSerial($input)) {
             $this->resetQuery();
@@ -71,6 +75,7 @@ class SearchProduct extends Component
         $this->how_many = 5;
         $this->search_results = Collection::empty();
 
+        $this->dispatch('posSearchUpdated', '')->to(ProductList::class);
         $this->dispatch('pos:focus-search');
     }
 
@@ -82,9 +87,12 @@ class SearchProduct extends Component
     {
         $settingId = session('setting_id');
 
+        $stockFilter = $this->buildLocationFilter('location_id', 'serial_stock');
+        $serialFilter = $this->buildLocationFilter('psn.location_id', 'serial_loc');
+
         $sql = "
         SELECT
-            psn.id          AS serial_id,          -- include id
+            psn.id          AS serial_id,
             psn.serial_number,
             p.id            AS product_id,
             p.product_name,
@@ -106,21 +114,25 @@ class SearchProduct extends Component
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
             FROM product_stocks
-            WHERE (location_id = COALESCE(:stockLocationId, location_id))
+            WHERE {stock_filter}
             GROUP BY product_id
         ) st ON st.product_id = p.id
         WHERE LOWER(psn.serial_number) = LOWER(:code)
           AND psn.is_broken = 0
-          AND (psn.location_id = COALESCE(:serialLocationId, psn.location_id))
+          AND {serial_filter}
         LIMIT 1
     ";
 
-        $row = DB::selectOne($sql, [
-            'code'              => $code,
-            'stockLocationId'   => $this->posLocationId,
-            'serialLocationId'  => $this->posLocationId,
-            'settingId'         => $settingId,
-        ]);
+        $sql = str_replace('{stock_filter}', $stockFilter['sql'], $sql);
+        $sql = str_replace('{serial_filter}', $serialFilter['sql'], $sql);
+
+        $bindings = array_merge(
+            ['code' => $code, 'settingId' => $settingId],
+            $stockFilter['bindings'],
+            $serialFilter['bindings'],
+        );
+
+        $row = DB::selectOne($sql, $bindings);
 
         if (!$row) return false;
 
@@ -171,6 +183,8 @@ class SearchProduct extends Component
     {
         $settingId = session('setting_id');
 
+        $stockFilter = $this->buildLocationFilter('location_id', 'conversion_stock');
+
         $sql = "
         SELECT
             p.id            AS product_id,
@@ -195,18 +209,21 @@ class SearchProduct extends Component
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
             FROM product_stocks
-            WHERE (location_id = COALESCE(:posLocationId1, location_id))
+            WHERE {stock_filter}
             GROUP BY product_id
         ) st ON st.product_id = p.id
         WHERE LOWER(puc.barcode) = LOWER(:code)
         LIMIT 1
     ";
 
-        $row = DB::selectOne($sql, [
-            'code'           => $barcode,
-            'posLocationId1' => $this->posLocationId,
-            'settingId'      => $settingId,
-        ]);
+        $sql = str_replace('{stock_filter}', $stockFilter['sql'], $sql);
+
+        $bindings = array_merge(
+            ['code' => $barcode, 'settingId' => $settingId],
+            $stockFilter['bindings'],
+        );
+
+        $row = DB::selectOne($sql, $bindings);
 
         if (!$row) return false;
         if ((int) $row->stock_qty <= 0) return false;
@@ -276,6 +293,8 @@ class SearchProduct extends Component
     {
         $settingId = session('setting_id');
 
+        $stockFilter = $this->buildLocationFilter('location_id', 'product_stock');
+
         $sql = "
         SELECT
             p.id            AS product_id,
@@ -298,18 +317,21 @@ class SearchProduct extends Component
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
             FROM product_stocks
-            WHERE (location_id = COALESCE(:posLocationId1, location_id))
+            WHERE {stock_filter}
             GROUP BY product_id
         ) st ON st.product_id = p.id
         WHERE LOWER(p.barcode) = LOWER(:code)
         LIMIT 1
     ";
 
-        $row = DB::selectOne($sql, [
-            'code'           => $barcode,
-            'posLocationId1' => $this->posLocationId,
-            'settingId'      => $settingId,
-        ]);
+        $sql = str_replace('{stock_filter}', $stockFilter['sql'], $sql);
+
+        $bindings = array_merge(
+            ['code' => $barcode, 'settingId' => $settingId],
+            $stockFilter['bindings'],
+        );
+
+        $row = DB::selectOne($sql, $bindings);
 
         if (!$row) return false;
         if ((int) $row->stock_qty <= 0) return false;
@@ -344,6 +366,11 @@ class SearchProduct extends Component
 
         $settingId = session('setting_id');
 
+        $baseStockFilter = $this->buildLocationFilter('location_id', 'suggest_base');
+        $conversionStockFilter = $this->buildLocationFilter('location_id', 'suggest_conversion');
+        $serialStockFilter = $this->buildLocationFilter('location_id', 'suggest_serial');
+        $serialLocationFilter = $this->buildLocationFilter('psn.location_id', 'suggest_serial_loc');
+
         $sql = "
     SELECT * FROM (
         /* Base rows */
@@ -370,7 +397,7 @@ class SearchProduct extends Component
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
             FROM product_stocks
-            WHERE (location_id = COALESCE(:pos1, location_id))
+            WHERE {base_stock_filter}
             GROUP BY product_id
         ) st ON st.product_id = p.id
         LEFT JOIN units u ON u.id = p.unit_id
@@ -402,7 +429,7 @@ class SearchProduct extends Component
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
             FROM product_stocks
-            WHERE (location_id = COALESCE(:pos2, location_id))
+            WHERE {conversion_stock_filter}
             GROUP BY product_id
         ) st ON st.product_id = p.id
         LEFT JOIN units u ON u.id = puc.unit_id
@@ -435,12 +462,12 @@ class SearchProduct extends Component
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
             FROM product_stocks
-            WHERE (location_id = COALESCE(:pos3, location_id))
+            WHERE {serial_stock_filter}
             GROUP BY product_id
         ) st ON st.product_id = p.id
         LEFT JOIN units ub ON ub.id = p.base_unit_id
         WHERE psn.is_broken = 0
-          AND (psn.location_id = COALESCE(:pos4, psn.location_id))
+          AND {serial_location_filter}
     ) results
     WHERE (
         LOWER(results.product_name) LIKE :term1
@@ -452,18 +479,54 @@ class SearchProduct extends Component
     LIMIT {$limit}
     ";
 
-        return collect(DB::select($sql, [
-            'pos1'  => $this->posLocationId,
-            'pos2'  => $this->posLocationId,
-            'pos3'  => $this->posLocationId,
-            'pos4'  => $this->posLocationId,
-            'term1' => $term,
-            'term2' => $term,
-            'term3' => $term,
-            'term4' => $term,
-            'settingId_base'        => $settingId,
-            'settingId_conversion'  => $settingId,
-            'settingId_serial'      => $settingId,
-        ]));
+        $sql = str_replace('{base_stock_filter}', $baseStockFilter['sql'], $sql);
+        $sql = str_replace('{conversion_stock_filter}', $conversionStockFilter['sql'], $sql);
+        $sql = str_replace('{serial_stock_filter}', $serialStockFilter['sql'], $sql);
+        $sql = str_replace('{serial_location_filter}', $serialLocationFilter['sql'], $sql);
+
+        $bindings = array_merge(
+            $baseStockFilter['bindings'],
+            $conversionStockFilter['bindings'],
+            $serialStockFilter['bindings'],
+            $serialLocationFilter['bindings'],
+            [
+                'term1' => $term,
+                'term2' => $term,
+                'term3' => $term,
+                'term4' => $term,
+                'settingId_base'       => $settingId,
+                'settingId_conversion' => $settingId,
+                'settingId_serial'     => $settingId,
+            ]
+        );
+
+        return collect(DB::select($sql, $bindings));
+    }
+
+    /**
+     * Build an SQL IN clause & bindings for the configured POS sale locations.
+     */
+    private function buildLocationFilter(string $column, string $bindingPrefix): array
+    {
+        if (empty($this->posLocationIds)) {
+            return [
+                'sql' => '1 = 0',
+                'bindings' => [],
+            ];
+        }
+
+        $placeholders = [];
+        $bindings = [];
+
+        foreach ($this->posLocationIds as $index => $locationId) {
+            $key = $bindingPrefix . '_' . $index;
+            $placeholders[] = ':' . $key;
+            $bindings[$key] = $locationId;
+        }
+
+        return [
+            'sql' => sprintf('%s IN (%s)', $column, implode(', ', $placeholders)),
+            'bindings' => $bindings,
+        ];
     }
 }

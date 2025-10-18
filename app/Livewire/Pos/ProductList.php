@@ -16,22 +16,25 @@ class ProductList extends Component
 
     protected $listeners = [
         'selectedCategory' => 'categoryChanged',
-        'showCount'        => 'showCountChanged'
+        'showCount'        => 'showCountChanged',
+        'posSearchUpdated' => 'searchChanged',
     ];
 
     public $categories;
     public $category_id;
     public $limit = 9;
 
-    /** POS location id for current setting */
-    public ?int $posLocationId = null;
+    public array $posLocationIds = [];
+
+    public string $searchTerm = '';
 
     public function mount($categories)
     {
         $this->categories  = $categories;
         $this->category_id = '';
 
-        $this->posLocationId = PosLocationResolver::resolveId();
+        $locations = PosLocationResolver::resolveLocationIds();
+        $this->posLocationIds = $locations->all();
     }
 
     public function render()
@@ -57,9 +60,9 @@ class ProductList extends Component
                 $sub->from('product_stocks')
                     ->selectRaw('product_id,
                         SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty')
-                    ->when($this->posLocationId,
-                        fn ($q) => $q->where('location_id', $this->posLocationId),
-                        fn ($q) => $q->whereRaw('1=0') // No POS location → no stock
+                    ->when(!empty($this->posLocationIds),
+                        fn ($q) => $q->whereIn('location_id', $this->posLocationIds),
+                        fn ($q) => $q->whereRaw('1=0') // No POS locations → no stock
                     )
                     ->groupBy('product_id');
             }, 'st', 'st.product_id', '=', 'p.id')
@@ -87,6 +90,14 @@ class ProductList extends Component
                 DB::raw('COALESCE(pp.average_purchase_price, p.average_purchase_price) as average_purchase_price'),
             ])
             ->when($this->category_id, fn ($q) => $q->where('p.category_id', $this->category_id))
+            ->when($this->searchTerm !== '', function ($q) {
+                $term = '%' . mb_strtolower($this->searchTerm) . '%';
+                $q->where(function ($inner) use ($term) {
+                    $inner->whereRaw('LOWER(p.product_name) LIKE ?', [$term])
+                        ->orWhereRaw('LOWER(p.product_code) LIKE ?', [$term])
+                        ->orWhereRaw('LOWER(p.barcode) LIKE ?', [$term]);
+                });
+            })
             // Ensure stock > 0
             ->whereRaw('COALESCE(st.stock_qty, 0) > 0')
             ->paginate($this->limit);
@@ -113,6 +124,12 @@ class ProductList extends Component
     public function showCountChanged($value)
     {
         $this->limit = $value;
+        $this->resetPage();
+    }
+
+    public function searchChanged(string $term)
+    {
+        $this->searchTerm = trim($term);
         $this->resetPage();
     }
 
