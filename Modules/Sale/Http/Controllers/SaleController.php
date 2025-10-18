@@ -523,6 +523,7 @@ class SaleController extends Controller
         $currentSettingId = (int) session('setting_id');
         $allowedLocationIds = SettingSaleLocation::where('setting_id', $currentSettingId)
             ->pluck('location_id')
+            ->map(fn ($locationId) => (int) $locationId)
             ->all();
 
         $validator = Validator::make($request->all(), [
