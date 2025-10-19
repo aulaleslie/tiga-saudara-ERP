@@ -37,7 +37,6 @@ class SearchProduct extends Component
 
         // Fetch products based on the query and setting_id
         $this->search_results = Product::where('stock_managed', true)
-            ->where('setting_id', $this->settingId)
             ->where(function ($query) {
                 $query->where('product_name', 'like', '%' . $this->query . '%')
                     ->orWhere('product_code', 'like', '%' . $this->query . '%');

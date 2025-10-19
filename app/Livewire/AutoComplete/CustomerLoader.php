@@ -48,12 +48,10 @@ class CustomerLoader extends Component
             $this->query_count = Customer::where(function ($query) {
                 $query->where('contact_name', 'like', '%' . $this->query . '%');
             })
-                ->where('setting_id', session('setting_id'))
                 ->count();
             $this->search_results = Customer::where(function ($query) {
                 $query->where('contact_name', 'like', '%' . $this->query . '%');
             })
-                ->where('setting_id', session('setting_id'))
                 ->limit($this->how_many)
                 ->get();
         }
