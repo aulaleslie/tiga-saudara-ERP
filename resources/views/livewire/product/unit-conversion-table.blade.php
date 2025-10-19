@@ -13,6 +13,9 @@
             <tbody>
             @foreach($conversions as $index => $conversion)
                 <tr>
+                    <input type="hidden"
+                           name="conversions[{{ $index }}][id]"
+                           value="{{ $conversion['id'] ?? '' }}">
                     <td>
                         <select name="conversions[{{ $index }}][unit_id]"
                                 class="form-control {{ isset($errors['conversions.' . $index . '.unit_id']) ? 'is-invalid' : '' }}">
