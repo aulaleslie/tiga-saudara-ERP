@@ -56,7 +56,7 @@ class SalePaymentsDataTable extends DataTable
 
         return $model->newQuery()
             ->when($saleId, fn($q) => $q->where('sale_id', $saleId))
-            ->with(['paymentMethod', 'creditApplications.customerCredit'])
+            ->with(['sale', 'paymentMethod', 'creditApplications.customerCredit'])
             ->withCount('creditApplications');
     }
 
