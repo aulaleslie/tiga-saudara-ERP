@@ -138,20 +138,26 @@ class ProcessProductImportBatch implements ShouldQueue
                             $product = Product::create($productPayload);
                         }
 
+                        $wasRecentlyCreated = $product->wasRecentlyCreated;
+
                         // --- 3) Product prices (per setting) ---
-                        foreach ($allSettingIds as $sid) {
-                            ProductPrice::updateOrCreate(
-                                ['product_id' => $product->id, 'setting_id' => $sid],
-                                [
-                                    'sale_price'             => $this->dec($p['sale_price'] ?? null),
-                                    'tier_1_price'           => $this->dec($p['tier_1_price'] ?? null),
-                                    'tier_2_price'           => $this->dec($p['tier_2_price'] ?? null),
-                                    'last_purchase_price'    => $this->dec($p['purchase_price'] ?? null),
-                                    'average_purchase_price' => $this->dec($p['purchase_price'] ?? null),
-                                    'purchase_tax_id'        => $this->taxIdByName($p['purchase_tax_name'] ?? null),
-                                    'sale_tax_id'            => $this->taxIdByName($p['sale_tax_name'] ?? null),
-                                ]
-                            );
+                        $pricePayload = [
+                            'sale_price'             => $this->dec($p['sale_price'] ?? null),
+                            'tier_1_price'           => $this->dec($p['tier_1_price'] ?? null),
+                            'tier_2_price'           => $this->dec($p['tier_2_price'] ?? null),
+                            'last_purchase_price'    => $this->dec($p['purchase_price'] ?? null),
+                            'average_purchase_price' => $this->dec($p['purchase_price'] ?? null),
+                            'purchase_tax_id'        => $this->taxIdByName($p['purchase_tax_name'] ?? null),
+                            'sale_tax_id'            => $this->taxIdByName($p['sale_tax_name'] ?? null),
+                        ];
+
+                        if ($wasRecentlyCreated) {
+                            ProductPrice::seedForSettings($product->id, $pricePayload, $allSettingIds);
+                        } else {
+                            ProductPrice::upsertFor(array_merge($pricePayload, [
+                                'product_id' => $product->id,
+                                'setting_id' => (int) $defaultSettingId,
+                            ]));
                         }
 
                         // --- 4) Stock (for batch’s location only) ---
