@@ -158,10 +158,9 @@ class ProductController extends Controller
             $product = Product::create($validatedData);
 
             // 2) Mirror the submitted prices for every setting
-            foreach ($settingIds as $priceSettingId) {
-                ProductPrice::upsertFor([
-                    'product_id'             => $product->id,
-                    'setting_id'             => $priceSettingId,
+            ProductPrice::seedForSettings(
+                $product->id,
+                [
                     'sale_price'             => $incomingPrices['sale_price'] ?: 0,
                     'tier_1_price'           => $incomingPrices['tier_1_price'] ?: 0,
                     'tier_2_price'           => $incomingPrices['tier_2_price'] ?: 0,
@@ -169,8 +168,9 @@ class ProductController extends Controller
                     'average_purchase_price' => $incomingPrices['average_purchase_price'] ?: 0,
                     'purchase_tax_id'        => $incomingPrices['purchase_tax_id'] ?: null,
                     'sale_tax_id'            => $incomingPrices['sale_tax_id'] ?: null,
-                ]);
-            }
+                ],
+                $settingIds
+            );
 
             // 3) Documents
             if (!empty($documents)) {

@@ -84,4 +84,19 @@ class ProductPrice extends BaseModel
             $attributes
         );
     }
+
+    /**
+     * Seed identical price payloads for the given product across multiple settings.
+     *
+     * @param iterable<int> $settingIds
+     */
+    public static function seedForSettings(int $productId, array $priceAttributes, iterable $settingIds): void
+    {
+        foreach ($settingIds as $settingId) {
+            static::upsertFor(array_merge($priceAttributes, [
+                'product_id' => $productId,
+                'setting_id' => (int) $settingId,
+            ]));
+        }
+    }
 }
