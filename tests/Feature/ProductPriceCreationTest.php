@@ -16,7 +16,7 @@ class ProductPriceCreationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_product_store_creates_single_price_row_for_active_setting(): void
+    public function test_product_store_creates_price_rows_for_all_settings(): void
     {
         Gate::shouldReceive('denies')->with('products.create')->andReturnFalse();
         Gate::shouldReceive('allows')->with('products.create')->andReturnTrue();
@@ -77,16 +77,14 @@ class ProductPriceCreationTest extends TestCase
         $product = Product::first();
         $this->assertNotNull($product);
 
-        $this->assertSame(1, ProductPrice::count());
+        $this->assertSame(2, ProductPrice::count());
 
-        $this->assertDatabaseHas('product_prices', [
-            'product_id' => $product->id,
-            'setting_id' => $activeSetting->id,
-        ]);
-
-        $this->assertDatabaseMissing('product_prices', [
-            'product_id' => $product->id,
-            'setting_id' => $inactiveSetting->id,
-        ]);
+        foreach ([$activeSetting->id, $inactiveSetting->id] as $settingId) {
+            $this->assertDatabaseHas('product_prices', [
+                'product_id' => $product->id,
+                'setting_id' => $settingId,
+                'sale_price' => 2000,
+            ]);
+        }
     }
 }
