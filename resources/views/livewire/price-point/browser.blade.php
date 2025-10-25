@@ -174,7 +174,10 @@
                                                         <span class="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-0.5 text-[13px] md:text-[12px] text-slate-700">
                                                             {{ $uc->unit->short_name ?? $uc->unit->name ?? 'Unit' }}
                                                             @if($uc->quantity) x{{ (int)$uc->quantity }} @endif
-                                                            @if(!is_null($uc->price)) • {{ number_format((float)$uc->price, 0, ',', '.') }} @endif
+                                                            @php($conversionPrice = $uc->priceForSetting($setting->id))
+                                                            @if($conversionPrice)
+                                                                • {{ number_format((float) $conversionPrice->price, 0, ',', '.') }}
+                                                            @endif
                                                             @if($uc->barcode) • <span class="font-mono break-all">{{ $uc->barcode }}</span> @endif
                                                         </span>
                                                     @endforeach

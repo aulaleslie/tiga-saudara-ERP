@@ -19,6 +19,7 @@ use Modules\Product\Entities\ProductImportBatch;
 use Modules\Product\Entities\ProductImportRow;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Product\Entities\ProductUnitConversionPrice;
 use Modules\Product\Entities\Transaction;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Setting;
@@ -73,6 +74,12 @@ class OrchestrateProductImportJob implements ShouldQueue
 
         // Prepare caches
         $settings = Setting::query()->pluck('id')->all();
+        if (empty($settings)) {
+            $batchSettingId = optional($batch->location)->setting_id;
+            if ($batchSettingId) {
+                $settings = [$batchSettingId];
+            }
+        }
         $unitCache = []; $brandCache = []; $categoryCache = []; $taxCache = [];
 
         ProductImportRow::where('batch_id', $batch->id)
@@ -138,14 +145,19 @@ class OrchestrateProductImportJob implements ShouldQueue
                             foreach (($p['conversions'] ?? []) as $conv) {
                                 if (!empty($conv['unit_name'])) {
                                     $convUnitId = $this->firstOrCreateByName(Unit::class, $conv['unit_name'], $unitCache);
-                                    ProductUnitConversion::create([
+                                    $conversion = ProductUnitConversion::create([
                                         'product_id'        => $product->id,
                                         'base_unit_id'      => $baseUnitId,
                                         'unit_id'           => $convUnitId,
                                         'conversion_factor' => (float) $conv['factor'],
                                         'barcode'           => $conv['barcode'] ?? null,
-                                        'price'             => (float) $conv['price'],
                                     ]);
+
+                                    ProductUnitConversionPrice::seedForSettings(
+                                        $conversion->id,
+                                        (float) ($conv['price'] ?? 0),
+                                        $settings
+                                    );
                                 }
                             }
 
