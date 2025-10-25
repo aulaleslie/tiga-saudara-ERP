@@ -43,7 +43,7 @@
                                         <td class="align-middle">{{ $location->name }}</td>
                                         <td class="align-middle">{{ $location->setting->company_name }}</td>
                                         <td class="align-middle">
-                                            @if(optional($location->saleAssignment)->is_pos)
+                                            @if($location->saleAssignment?->is_pos)
                                                 <span class="badge badge-success">Ya</span>
                                             @else
                                                 <span class="badge badge-secondary">Tidak</span>

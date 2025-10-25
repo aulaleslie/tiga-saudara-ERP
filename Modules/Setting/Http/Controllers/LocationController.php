@@ -11,7 +11,6 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Location;
-use Modules\Setting\Entities\SettingSaleLocation;
 
 class LocationController extends Controller
 {
@@ -48,32 +47,15 @@ class LocationController extends Controller
         abort_if(Gate::denies('locations.create'), 403);
 
         $request->validate([
-            'name'   => 'required|string|max:255',
-            'is_pos' => 'nullable|boolean',
+            'name' => 'required|string|max:255',
         ]);
 
         $settingId = session('setting_id');
-        $isPos     = $request->boolean('is_pos');
-
-        if ($isPos) {
-            $exists = SettingSaleLocation::query()
-                ->where('setting_id', $settingId)
-                ->where('is_pos', true)
-                ->exists();
-
-            if ($exists) {
-                return back()
-                    ->withErrors(['is_pos' => 'Hanya boleh ada satu lokasi POS untuk setiap bisnis/setting.'])
-                    ->withInput();
-            }
-        }
 
         $location = Location::create([
             'name'       => $request->name,
             'setting_id' => $settingId,
         ]);
-
-        $location->saleAssignment()->update(['is_pos' => $isPos]);
 
         toast('Lokasi Berhasil ditambahkan!', 'success');
 
@@ -99,31 +81,12 @@ class LocationController extends Controller
         abort_if(Gate::denies('locations.edit'), 403);
 
         $request->validate([
-            'name'   => 'required|string|max:255',
-            'is_pos' => 'nullable|boolean',
+            'name' => 'required|string|max:255',
         ]);
-
-        $isPos = $request->boolean('is_pos');
-
-        if ($isPos) {
-            $exists = SettingSaleLocation::query()
-                ->where('setting_id', $location->setting_id)
-                ->where('is_pos', true)
-                ->where('location_id', '!=', $location->id)
-                ->exists();
-
-            if ($exists) {
-                return back()
-                    ->withErrors(['is_pos' => 'Hanya boleh ada satu lokasi POS untuk setiap bisnis/setting.'])
-                    ->withInput();
-            }
-        }
 
         $location->update([
             'name' => $request->name,
         ]);
-
-        $location->saleAssignment()->update(['is_pos' => $isPos]);
 
         toast('Lokasi diperbaharui!', 'info');
 
