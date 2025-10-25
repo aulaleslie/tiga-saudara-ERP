@@ -67,14 +67,16 @@ class SaleLocationConfigurationTest extends TestCase
         $ownedLocation = Location::create([
             'name'       => 'CVTN 1',
             'setting_id' => $settingA->id,
-            'is_pos'     => false,
         ]);
+
+        $ownedLocation->saleAssignment()->update(['is_pos' => false]);
 
         $borrowable = Location::create([
             'name'       => 'TIT 1',
             'setting_id' => $settingB->id,
-            'is_pos'     => false,
         ]);
+
+        $borrowable->saleAssignment()->update(['is_pos' => false]);
 
         $response = $this->get(route('sales-location-configurations.index'));
 
@@ -96,8 +98,9 @@ class SaleLocationConfigurationTest extends TestCase
         $borrowable = Location::create([
             'name'       => 'TIT 1',
             'setting_id' => $settingB->id,
-            'is_pos'     => true,
         ]);
+
+        $borrowable->saleAssignment()->update(['is_pos' => true]);
 
         $response = $this->post(route('sales-location-configurations.store'), [
             'location_id' => $borrowable->id,
@@ -118,8 +121,9 @@ class SaleLocationConfigurationTest extends TestCase
         $location = Location::create([
             'name'       => 'TIT 1',
             'setting_id' => $settingB->id,
-            'is_pos'     => false,
         ]);
+
+        $location->saleAssignment()->update(['is_pos' => false]);
 
         SettingSaleLocation::where('location_id', $location->id)->update(['setting_id' => $settingC->id]);
 
@@ -141,8 +145,9 @@ class SaleLocationConfigurationTest extends TestCase
         $location = Location::create([
             'name'       => 'TIT 1',
             'setting_id' => $settingB->id,
-            'is_pos'     => false,
         ]);
+
+        $location->saleAssignment()->update(['is_pos' => false]);
 
         $location->saleAssignment()->update(['setting_id' => $settingA->id]);
 

@@ -34,9 +34,6 @@ class Location extends BaseModel
                 PosLocationResolver::forget($location->setting_id, $originalSettingId);
             }
 
-            if ($location->wasChanged('is_pos')) {
-                PosLocationResolver::forget($location->setting_id);
-            }
         });
     }
 

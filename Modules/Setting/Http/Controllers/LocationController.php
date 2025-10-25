@@ -11,6 +11,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\SettingSaleLocation;
 
 class LocationController extends Controller
 {
@@ -21,7 +22,9 @@ class LocationController extends Controller
     {
         abort_if(Gate::denies('locations.access'), 403);
         $currentSettingId = session('setting_id');
-        $locations = Location::with('setting:id,company_name')->where('setting_id', $currentSettingId)->get();
+        $locations = Location::with(['setting:id,company_name', 'saleAssignment'])
+            ->where('setting_id', $currentSettingId)
+            ->get();
 
         return view('setting::locations.index', [
             'locations' => $locations
@@ -53,7 +56,8 @@ class LocationController extends Controller
         $isPos     = $request->boolean('is_pos');
 
         if ($isPos) {
-            $exists = Location::where('setting_id', $settingId)
+            $exists = SettingSaleLocation::query()
+                ->where('setting_id', $settingId)
                 ->where('is_pos', true)
                 ->exists();
 
@@ -64,11 +68,12 @@ class LocationController extends Controller
             }
         }
 
-        Location::create([
+        $location = Location::create([
             'name'       => $request->name,
-            'is_pos'     => $request->boolean('is_pos'),
-            'setting_id' => session('setting_id'),
+            'setting_id' => $settingId,
         ]);
+
+        $location->saleAssignment()->update(['is_pos' => $isPos]);
 
         toast('Lokasi Berhasil ditambahkan!', 'success');
 
@@ -101,9 +106,10 @@ class LocationController extends Controller
         $isPos = $request->boolean('is_pos');
 
         if ($isPos) {
-            $exists = Location::where('setting_id', $location->setting_id)
+            $exists = SettingSaleLocation::query()
+                ->where('setting_id', $location->setting_id)
                 ->where('is_pos', true)
-                ->where('id', '!=', $location->id)
+                ->where('location_id', '!=', $location->id)
                 ->exists();
 
             if ($exists) {
@@ -114,9 +120,10 @@ class LocationController extends Controller
         }
 
         $location->update([
-            'name'   => $request->name,
-            'is_pos' => $request->boolean('is_pos'),
+            'name' => $request->name,
         ]);
+
+        $location->saleAssignment()->update(['is_pos' => $isPos]);
 
         toast('Lokasi diperbaharui!', 'info');
 
