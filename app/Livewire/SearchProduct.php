@@ -203,8 +203,10 @@ class SearchProduct extends Component
             COALESCE(st.stock_qty, 0) AS stock_qty
         FROM product_unit_conversions puc
         JOIN products p   ON p.id = puc.product_id
-        LEFT JOIN product_unit_conversion_prices pucp ON pucp.product_unit_conversion_id = puc.id AND pucp.setting_id = :settingId
-        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
+        LEFT JOIN product_unit_conversion_prices pucp
+            ON pucp.product_unit_conversion_id = puc.id
+           AND pucp.setting_id = :conversionSettingId
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :productSettingId
         LEFT JOIN units u ON u.id = puc.unit_id
         LEFT JOIN (
             SELECT product_id,
@@ -220,7 +222,11 @@ class SearchProduct extends Component
         $sql = str_replace('{stock_filter}', $stockFilter['sql'], $sql);
 
         $bindings = array_merge(
-            ['code' => $barcode, 'settingId' => $settingId],
+            [
+                'code' => $barcode,
+                'conversionSettingId' => $settingId,
+                'productSettingId' => $settingId,
+            ],
             $stockFilter['bindings'],
         );
 
@@ -425,7 +431,9 @@ class SearchProduct extends Component
             NULL AS serial_number
         FROM product_unit_conversions puc
         JOIN products p ON p.id = puc.product_id
-        LEFT JOIN product_unit_conversion_prices pucp ON pucp.product_unit_conversion_id = puc.id AND pucp.setting_id = :settingId_conversion
+        LEFT JOIN product_unit_conversion_prices pucp
+            ON pucp.product_unit_conversion_id = puc.id
+           AND pucp.setting_id = :settingId_conversion
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_conversion
         LEFT JOIN (
             SELECT product_id,
