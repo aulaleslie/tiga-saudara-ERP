@@ -12,10 +12,10 @@ return new class extends Migration
         Schema::create('product_unit_conversion_prices', function (Blueprint $table) {
             $table->id();
             $table->foreignId('product_unit_conversion_id')
-                ->constrained('product_unit_conversions')
+                ->constrained('product_unit_conversions', 'id', 'conv_price_conversion_fk')
                 ->cascadeOnDelete();
             $table->foreignId('setting_id')
-                ->constrained('settings')
+                ->constrained('settings', 'id', 'conv_price_setting_fk')
                 ->cascadeOnDelete();
             $table->decimal('price', 15, 2)->default(0);
             $table->timestamps();
