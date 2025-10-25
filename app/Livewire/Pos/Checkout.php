@@ -1053,7 +1053,22 @@ class Checkout extends Component
 
     private function calculateCascadingUnitPrice(int $productId, int $quantity, float $fallback): array
     {
-        $conversions = ProductUnitConversion::with(['unit', 'baseUnit'])
+        $settingId = session('setting_id');
+        $settingId = $settingId !== null ? (int) $settingId : null;
+
+        $relations = [
+            'unit',
+            'baseUnit',
+        ];
+
+        if ($settingId) {
+            $relations['prices'] = fn ($query) => $query->forSetting($settingId);
+        } else {
+            $relations[] = 'prices';
+        }
+
+        $conversions = ProductUnitConversion::query()
+            ->with($relations)
             ->where('product_id', $productId)
             ->orderByDesc('conversion_factor')
             ->get();
@@ -1065,7 +1080,18 @@ class Checkout extends Component
 
         foreach ($conversions as $conv) {
             $factor = (int) $conv->conversion_factor;
-            $price = $conv->price !== null ? (float) $conv->price : null;
+
+            $price = null;
+
+            if ($settingId) {
+                $resolvedPrice = $conv->priceValueForSetting($settingId);
+
+                if ($resolvedPrice > 0) {
+                    $price = (float) $resolvedPrice;
+                }
+            } elseif ($conv->price !== null && (float) $conv->price > 0) {
+                $price = (float) $conv->price;
+            }
 
             if ($factor < 1 || $price === null || $remaining <= 0) {
                 continue;

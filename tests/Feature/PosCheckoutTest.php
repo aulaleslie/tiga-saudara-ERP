@@ -13,6 +13,8 @@ use Livewire\Livewire;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Product\Entities\ProductUnitConversionPrice;
 use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\Currency;
 use Modules\Setting\Entities\PaymentMethod;
@@ -512,5 +514,73 @@ class PosCheckoutTest extends TestCase
             'payment_method_id' => $cashMethod->id,
             'amount' => 50,
         ]);
+    }
+
+    public function test_cascading_pricing_uses_setting_specific_conversion_prices(): void
+    {
+        $boxUnit = Unit::create([
+            'name' => 'BOX',
+            'short_name' => 'BOX',
+            'operator' => '*',
+            'operation_value' => 1,
+        ]);
+
+        $packUnit = Unit::create([
+            'name' => 'PACK',
+            'short_name' => 'PACK',
+            'operator' => '*',
+            'operation_value' => 1,
+        ]);
+
+        $baseUnitId = $this->product->unit_id;
+
+        $boxConversion = ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $baseUnitId,
+            'conversion_factor' => 12,
+            'price' => 0,
+        ]);
+
+        ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $boxConversion->id,
+            'setting_id' => $this->setting->id,
+            'price' => 100,
+        ]);
+
+        ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $packUnit->id,
+            'base_unit_id' => $baseUnitId,
+            'conversion_factor' => 6,
+            'price' => 0,
+        ]);
+
+        $component = Livewire::test(Checkout::class, [
+            'cartInstance' => 'sale',
+            'customers' => Customer::all(),
+        ]);
+
+        $result = $component->instance()->calculate($this->product->fresh(), 15);
+
+        $this->assertEquals(130.0, $result['sub_total']);
+        $this->assertEquals(8.67, $result['unit_price']);
+        $this->assertSame('1 BOX, 3 PCS', $result['breakdown']);
+
+        $this->assertCount(2, $result['segments']);
+
+        $firstSegment = $result['segments'][0];
+        $this->assertSame('BOX', $firstSegment['unit_name']);
+        $this->assertSame(1, $firstSegment['count']);
+        $this->assertEquals(100.0, $firstSegment['sub_total']);
+
+        $secondSegment = $result['segments'][1];
+        $this->assertSame('PCS', $secondSegment['unit_name']);
+        $this->assertSame(3, $secondSegment['count']);
+        $this->assertEquals(30.0, $secondSegment['sub_total']);
+        $this->assertEquals(10.0, $secondSegment['price']);
+
+        $unitNames = collect($result['segments'])->pluck('unit_name')->all();
+        $this->assertNotContains('PACK', $unitNames);
     }
 }
