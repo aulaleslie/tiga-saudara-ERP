@@ -54,16 +54,18 @@ class SettingSaleLocation extends BaseModel
             }
         });
 
-        static::forceDeleted(function (SettingSaleLocation $assignment) {
-            $settingIds = collect([
-                $assignment->getOriginal('setting_id'),
-                $assignment->setting_id,
-            ])->filter()->unique()->all();
+        if (method_exists(static::class, 'forceDeleted')) {
+            static::forceDeleted(function (SettingSaleLocation $assignment) {
+                $settingIds = collect([
+                    $assignment->getOriginal('setting_id'),
+                    $assignment->setting_id,
+                ])->filter()->unique()->all();
 
-            if (!empty($settingIds)) {
-                PosLocationResolver::forget(...$settingIds);
-            }
-        });
+                if (!empty($settingIds)) {
+                    PosLocationResolver::forget(...$settingIds);
+                }
+            });
+        }
     }
 
     public function setting(): BelongsTo
