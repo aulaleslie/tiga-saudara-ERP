@@ -195,7 +195,7 @@ class SearchProduct extends Component
             puc.unit_id,
             puc.base_unit_id,
             puc.conversion_factor,
-            COALESCE(puc.price, COALESCE(pp.sale_price, p.sale_price, p.product_price)) AS price,
+            COALESCE(pucp.price, COALESCE(pp.sale_price, p.sale_price, p.product_price)) AS price,
             COALESCE(pp.sale_price, p.sale_price, p.product_price) AS sale_price,
             COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
             COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
@@ -203,6 +203,7 @@ class SearchProduct extends Component
             COALESCE(st.stock_qty, 0) AS stock_qty
         FROM product_unit_conversions puc
         JOIN products p   ON p.id = puc.product_id
+        LEFT JOIN product_unit_conversion_prices pucp ON pucp.product_unit_conversion_id = puc.id AND pucp.setting_id = :settingId
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
         LEFT JOIN units u ON u.id = puc.unit_id
         LEFT JOIN (
@@ -409,7 +410,7 @@ class SearchProduct extends Component
             p.id,
             p.product_name,
             p.product_code,
-            COALESCE(puc.price, COALESCE(pp.sale_price, p.sale_price, p.product_price)) AS price,
+            COALESCE(pucp.price, COALESCE(pp.sale_price, p.sale_price, p.product_price)) AS price,
             COALESCE(pp.sale_price, p.sale_price, p.product_price) AS sale_price,
             COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
             COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
@@ -424,6 +425,7 @@ class SearchProduct extends Component
             NULL AS serial_number
         FROM product_unit_conversions puc
         JOIN products p ON p.id = puc.product_id
+        LEFT JOIN product_unit_conversion_prices pucp ON pucp.product_unit_conversion_id = puc.id AND pucp.setting_id = :settingId_conversion
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_conversion
         LEFT JOIN (
             SELECT product_id,
