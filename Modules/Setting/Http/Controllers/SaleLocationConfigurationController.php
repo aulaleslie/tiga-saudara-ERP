@@ -76,12 +76,59 @@ class SaleLocationConfigurationController extends Controller
 
         $location->saleAssignment()->updateOrCreate(
             ['location_id' => $location->id],
-            ['setting_id' => $currentSettingId]
+            [
+                'setting_id' => $currentSettingId,
+                'is_pos'     => false,
+            ]
         );
 
         PosLocationResolver::forget($currentSettingId, $previousSettingId, $location->setting_id);
 
         toast('Lokasi berhasil ditambahkan ke konfigurasi penjualan.', 'success');
+
+        return redirect()->route('sales-location-configurations.index');
+    }
+
+    public function update(Request $request, int $locationId): RedirectResponse
+    {
+        abort_if(Gate::denies('saleLocations.edit'), 403);
+
+        $validated = $request->validate([
+            'is_pos' => ['required', 'boolean'],
+        ]);
+
+        $currentSettingId = (int) session('setting_id');
+
+        $assignment = SettingSaleLocation::query()
+            ->where('location_id', $locationId)
+            ->firstOrFail();
+
+        if ($assignment->setting_id !== $currentSettingId) {
+            abort(404);
+        }
+
+        $enablePos = (bool) $validated['is_pos'];
+
+        if ($enablePos) {
+            SettingSaleLocation::query()
+                ->where('setting_id', $currentSettingId)
+                ->where('location_id', '!=', $locationId)
+                ->where('is_pos', true)
+                ->update([
+                    'is_pos'     => false,
+                    'updated_at' => now(),
+                ]);
+        }
+
+        $assignment->update(['is_pos' => $enablePos]);
+
+        PosLocationResolver::forget($currentSettingId);
+
+        if ($enablePos) {
+            toast('Lokasi berhasil ditetapkan sebagai titik POS.', 'success');
+        } else {
+            toast('Lokasi tidak lagi digunakan sebagai titik POS.', 'success');
+        }
 
         return redirect()->route('sales-location-configurations.index');
     }
@@ -110,7 +157,10 @@ class SaleLocationConfigurationController extends Controller
             return redirect()->route('sales-location-configurations.index');
         }
 
-        $assignment->update(['setting_id' => $ownerId]);
+        $assignment->update([
+            'setting_id' => $ownerId,
+            'is_pos'     => false,
+        ]);
 
         PosLocationResolver::forget($currentSettingId, $ownerId);
         toast('Lokasi dikembalikan ke bisnis asal.', 'success');

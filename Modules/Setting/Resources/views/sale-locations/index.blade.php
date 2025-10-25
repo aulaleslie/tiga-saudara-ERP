@@ -19,6 +19,7 @@
                                     <th>Nama Lokasi</th>
                                     <th>Bisnis Asal</th>
                                     <th>Status</th>
+                                    <th class="text-center">POS</th>
                                     @if($canEdit)
                                         <th class="text-end">Aksi</th>
                                     @endif
@@ -36,24 +37,41 @@
                                                 <span class="badge bg-warning text-dark">Dipinjam</span>
                                             @endif
                                         </td>
+                                        <td class="text-center">
+                                            @if($location->saleAssignment?->is_pos)
+                                                <span class="badge bg-primary">Aktif</span>
+                                            @else
+                                                <span class="badge bg-secondary">Nonaktif</span>
+                                            @endif
+                                        </td>
                                         @if($canEdit)
                                             <td class="text-end">
-                                                @if($location->setting_id !== $setting->id)
-                                                    <form action="{{ route('sales-location-configurations.destroy', $location->id) }}" method="POST" class="d-inline"
-                                                          onsubmit="return confirm('Kembalikan lokasi ini ke bisnis asal?');">
+                                                <div class="d-flex justify-content-end flex-wrap gap-2">
+                                                    <form action="{{ route('sales-location-configurations.update', $location->id) }}" method="POST" class="d-inline">
                                                         @csrf
-                                                        @method('DELETE')
-                                                        <button type="submit" class="btn btn-sm btn-outline-danger">Kembalikan</button>
+                                                        @method('PATCH')
+                                                        <input type="hidden" name="is_pos" value="{{ $location->saleAssignment?->is_pos ? 0 : 1 }}">
+                                                        <button type="submit"
+                                                                class="btn btn-sm {{ $location->saleAssignment?->is_pos ? 'btn-outline-secondary' : 'btn-outline-primary' }}">
+                                                            {{ $location->saleAssignment?->is_pos ? 'Nonaktifkan POS' : 'Jadikan POS' }}
+                                                        </button>
                                                     </form>
-                                                @else
-                                                    <span class="text-muted">-</span>
-                                                @endif
+
+                                                    @if($location->setting_id !== $setting->id)
+                                                        <form action="{{ route('sales-location-configurations.destroy', $location->id) }}" method="POST" class="d-inline"
+                                                              onsubmit="return confirm('Kembalikan lokasi ini ke bisnis asal?');">
+                                                            @csrf
+                                                            @method('DELETE')
+                                                            <button type="submit" class="btn btn-sm btn-outline-danger">Kembalikan</button>
+                                                        </form>
+                                                    @endif
+                                                </div>
                                             </td>
                                         @endif
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="{{ $canEdit ? 4 : 3 }}" class="text-center py-4">
+                                        <td colspan="{{ $canEdit ? 5 : 4 }}" class="text-center py-4">
                                             Belum ada lokasi penjualan yang dikonfigurasi.
                                         </td>
                                     </tr>

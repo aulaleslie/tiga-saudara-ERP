@@ -69,14 +69,10 @@ class SaleLocationConfigurationTest extends TestCase
             'setting_id' => $settingA->id,
         ]);
 
-        $ownedLocation->saleAssignment()->update(['is_pos' => false]);
-
         $borrowable = Location::create([
             'name'       => 'TIT 1',
             'setting_id' => $settingB->id,
         ]);
-
-        $borrowable->saleAssignment()->update(['is_pos' => false]);
 
         $response = $this->get(route('sales-location-configurations.index'));
 
@@ -100,14 +96,13 @@ class SaleLocationConfigurationTest extends TestCase
             'setting_id' => $settingB->id,
         ]);
 
-        $borrowable->saleAssignment()->update(['is_pos' => true]);
-
         $response = $this->post(route('sales-location-configurations.store'), [
             'location_id' => $borrowable->id,
         ]);
 
         $response->assertRedirect(route('sales-location-configurations.index'));
         $this->assertEquals($settingA->id, $borrowable->fresh()->saleAssignment->setting_id);
+        $this->assertFalse($borrowable->fresh()->saleAssignment->is_pos);
     }
 
     public function test_cannot_attach_location_already_borrowed(): void
@@ -122,8 +117,6 @@ class SaleLocationConfigurationTest extends TestCase
             'name'       => 'TIT 1',
             'setting_id' => $settingB->id,
         ]);
-
-        $location->saleAssignment()->update(['is_pos' => false]);
 
         SettingSaleLocation::where('location_id', $location->id)->update(['setting_id' => $settingC->id]);
 
@@ -147,13 +140,69 @@ class SaleLocationConfigurationTest extends TestCase
             'setting_id' => $settingB->id,
         ]);
 
-        $location->saleAssignment()->update(['is_pos' => false]);
-
         $location->saleAssignment()->update(['setting_id' => $settingA->id]);
 
         $response = $this->delete(route('sales-location-configurations.destroy', $location->id));
 
         $response->assertRedirect(route('sales-location-configurations.index'));
         $this->assertEquals($settingB->id, $location->fresh()->saleAssignment->setting_id);
+        $this->assertFalse($location->fresh()->saleAssignment->is_pos);
+    }
+
+    public function test_can_toggle_pos_location_within_setting(): void
+    {
+        $setting = $this->createSetting('CV Tiga Nusa');
+        $this->actingAsSuperAdminForSetting($setting);
+
+        $primary = Location::create([
+            'name'       => 'Gudang Utama',
+            'setting_id' => $setting->id,
+        ]);
+
+        $secondary = Location::create([
+            'name'       => 'Gudang Cabang',
+            'setting_id' => $setting->id,
+        ]);
+
+        $this->patch(route('sales-location-configurations.update', $primary->id), [
+            'is_pos' => true,
+        ])->assertRedirect(route('sales-location-configurations.index'));
+
+        $this->assertTrue($primary->fresh()->saleAssignment->is_pos);
+        $this->assertFalse($secondary->fresh()->saleAssignment->is_pos);
+
+        $this->patch(route('sales-location-configurations.update', $secondary->id), [
+            'is_pos' => true,
+        ])->assertRedirect(route('sales-location-configurations.index'));
+
+        $this->assertFalse($primary->fresh()->saleAssignment->is_pos);
+        $this->assertTrue($secondary->fresh()->saleAssignment->is_pos);
+
+        $this->patch(route('sales-location-configurations.update', $secondary->id), [
+            'is_pos' => false,
+        ])->assertRedirect(route('sales-location-configurations.index'));
+
+        $this->assertFalse($primary->fresh()->saleAssignment->is_pos);
+        $this->assertFalse($secondary->fresh()->saleAssignment->is_pos);
+    }
+
+    public function test_toggle_pos_requires_edit_permission(): void
+    {
+        $setting = $this->createSetting('CV Tiga Nusa');
+
+        $location = Location::create([
+            'name'       => 'Gudang Utama',
+            'setting_id' => $setting->id,
+        ]);
+
+        $user = User::factory()->create();
+        $this->actingAs($user)->withSession([
+            'setting_id'    => $setting->id,
+            'user_settings' => [$setting],
+        ]);
+
+        $this->patch(route('sales-location-configurations.update', $location->id), [
+            'is_pos' => true,
+        ])->assertStatus(403);
     }
 }

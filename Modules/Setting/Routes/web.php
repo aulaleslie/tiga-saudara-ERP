@@ -32,7 +32,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     // Locations
     Route::resource('locations', 'LocationController')->except('show');
     Route::resource('sales-location-configurations', SaleLocationConfigurationController::class)
-        ->only(['index', 'store', 'destroy']);
+        ->only(['index', 'store', 'update', 'destroy']);
     // Taxes
     Route::resource('taxes', 'TaxController')->except('show');
     // PaymentTerms
