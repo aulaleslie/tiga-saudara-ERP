@@ -54,7 +54,7 @@ class SaleReferenceLoaderTest extends TestCase
             'name' => 'Gudang Pusat',
         ]);
 
-        $location->saleAssignment()->update(['is_pos' => false]);
+        $location->saleAssignment()->update(['is_pos' => true]);
 
         return compact('currency', 'setting', 'location');
     }

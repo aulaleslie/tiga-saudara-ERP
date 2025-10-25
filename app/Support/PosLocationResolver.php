@@ -26,7 +26,9 @@ class PosLocationResolver
                 ->where('setting_id', $settingId)
                 ->where('is_pos', true)
                 ->orderBy('id')
-                ->pluck('location_id');
+                ->pluck('location_id')
+                ->map(static fn ($locationId) => (int) $locationId)
+                ->values();
         });
     }
 
