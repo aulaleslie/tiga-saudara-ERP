@@ -12,6 +12,7 @@ use Illuminate\Support\Str;
 
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Product\Entities\ProductUnitConversionPrice;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\Product\Entities\ProductPrice;
@@ -47,6 +48,9 @@ class ProcessProductImportChunk implements ShouldQueue
 
         // We need to replicate prices across ALL settings
         $allSettingIds = Setting::query()->pluck('id')->all();
+        if (empty($allSettingIds)) {
+            $allSettingIds = [$settingIdForCreations];
+        }
 
         foreach ($this->rowIds as $rowId) {
             /** @var ProductImportRow $row */
@@ -221,14 +225,19 @@ class ProcessProductImportChunk implements ShouldQueue
                         $price  = max(0, (float) ($conv['price'] ?? 0));
                         $bar    = trim((string) ($conv['barcode'] ?? ''));
 
-                        ProductUnitConversion::create([
+                        $conversion = ProductUnitConversion::create([
                             'product_id'        => $product->id,
                             'unit_id'           => $unitId,
                             'base_unit_id'      => $baseUnitId,
                             'conversion_factor' => $factor,
-                            'price'             => $price,
                             'barcode'           => $bar ?: null,
                         ]);
+
+                        ProductUnitConversionPrice::seedForSettings(
+                            $conversion->id,
+                            $price,
+                            $allSettingIds
+                        );
                     }
 
                     // ---- prices for ALL settings (same values) ----

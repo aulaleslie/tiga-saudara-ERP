@@ -206,7 +206,7 @@
                                         <div class="card">
                                             <div class="card-body">
                                                 <livewire:product.unit-conversion-table
-                                                    :conversions="old('conversions', $product->conversions->toArray())"
+                                                    :conversions="old('conversions', $conversionFormData)"
                                                     :errors="$errors->toArray()"/>
                                             </div>
                                         </div>
