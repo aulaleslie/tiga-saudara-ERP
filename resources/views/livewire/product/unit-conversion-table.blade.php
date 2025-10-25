@@ -6,6 +6,7 @@
                 <th>ke Unit</th>
                 <th>Faktor Konversi</th>
                 <th>Barcode</th>
+                <th>Harga Konversi per Lokasi</th>
                 <th>Aksi</th>
             </tr>
             </thead>
@@ -45,6 +46,30 @@
                             <span class="invalid-feedback"
                                   role="alert"><strong>{{ $errors['conversions.' . $index . '.barcode'][0] }}</strong></span>
                         @endif
+                    </td>
+                    <td>
+                        @forelse($locations as $locationIndex => $location)
+                            <div class="form-group mb-2">
+                                <label class="small font-weight-bold d-block mb-1">
+                                    {{ $location['name'] ?? ('Lokasi #' . ($location['id'] ?? $locationIndex + 1)) }}
+                                </label>
+                                <input type="hidden" name="conversions[{{ $index }}][locations][{{ $locationIndex }}][location_id]"
+                                       value="{{ $conversion['locations'][$locationIndex]['location_id'] ?? $location['id'] }}">
+                                <input type="number"
+                                       name="conversions[{{ $index }}][locations][{{ $locationIndex }}][price]"
+                                       class="form-control {{ isset($errors['conversions.' . $index . '.locations.' . $locationIndex . '.price']) ? 'is-invalid' : '' }}"
+                                       step="0.01"
+                                       min="0"
+                                       value="{{ $conversion['locations'][$locationIndex]['price'] ?? '' }}">
+                                @if(isset($errors['conversions.' . $index . '.locations.' . $locationIndex . '.price']))
+                                    <span class="invalid-feedback" role="alert">
+                                        <strong>{{ $errors['conversions.' . $index . '.locations.' . $locationIndex . '.price'][0] }}</strong>
+                                    </span>
+                                @endif
+                            </div>
+                        @empty
+                            <p class="text-muted mb-0">Lokasi belum tersedia.</p>
+                        @endforelse
                     </td>
                     <td>
                         <button type="button" class="btn btn-danger" wire:click="removeConversionRow({{ $index }})">
