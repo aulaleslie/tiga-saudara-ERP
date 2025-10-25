@@ -319,7 +319,17 @@ class ProductCart extends Component
             return ['price' => $defaultUnitPrice, 'breakdown' => ''];
         }
 
-        $conversions = ProductUnitConversion::where('product_id', $productId)
+        $settingId = $this->settingId;
+        if (!$settingId) {
+            $settingId = (int) session('setting_id');
+            if ($settingId) {
+                $this->settingId = $settingId;
+            }
+        }
+
+        $conversions = ProductUnitConversion::query()
+            ->where('product_id', $productId)
+            ->with(['prices', 'unit'])
             ->orderByDesc('conversion_factor')
             ->get();
 
@@ -330,9 +340,15 @@ class ProductCart extends Component
 
         foreach ($conversions as $conv) {
             $factor = (float) $conv->conversion_factor;
-            $price = $conv->price;
 
-            if ($factor < 1 || $price === null) {
+            if ($factor < 1) {
+                continue;
+            }
+
+            $conversionPrice = $settingId ? $conv->priceForSetting($settingId) : null;
+            $price = $conversionPrice ? (float) $conversionPrice->price : null;
+
+            if ($price === null) {
                 continue;
             }
 
