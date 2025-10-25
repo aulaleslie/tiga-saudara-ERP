@@ -433,8 +433,8 @@ class SearchProduct extends Component
         JOIN products p ON p.id = puc.product_id
         LEFT JOIN product_unit_conversion_prices pucp
             ON pucp.product_unit_conversion_id = puc.id
-           AND pucp.setting_id = :settingId_conversion
-        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_conversion
+           AND pucp.setting_id = :settingId_conversion_pucp
+        LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_conversion_pp
         LEFT JOIN (
             SELECT product_id,
                    SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
@@ -504,9 +504,10 @@ class SearchProduct extends Component
                 'term2' => $term,
                 'term3' => $term,
                 'term4' => $term,
-                'settingId_base'       => $settingId,
-                'settingId_conversion' => $settingId,
-                'settingId_serial'     => $settingId,
+                'settingId_base'            => $settingId,
+                'settingId_conversion_pucp' => $settingId,
+                'settingId_conversion_pp'   => $settingId,
+                'settingId_serial'          => $settingId,
             ]
         );
 
