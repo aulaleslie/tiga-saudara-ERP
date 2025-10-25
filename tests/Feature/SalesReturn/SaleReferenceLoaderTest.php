@@ -37,7 +37,7 @@ class SaleReferenceLoaderTest extends TestCase
         ]);
 
         $setting = Setting::create([
-            'company_name' => 'Tiga Saudara',
+            'company_name' => 'CV Tiga Computer',
             'company_email' => 'info@example.com',
             'company_phone' => '080000000',
             'default_currency_id' => $currency->id,

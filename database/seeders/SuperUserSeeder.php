@@ -17,12 +17,12 @@ class SuperUserSeeder extends Seeder
     public function run()
     {
         // Check if user already exists
-        $user = User::where('email', 'super.admin@test.com')->first();
-        
+        $user = User::where('email', 'super.admin@tiga-computer.com')->first();
+
         if (!$user) {
             $user = User::create([
                 'name' => 'Administrator',
-                'email' => 'super.admin@test.com',
+                'email' => 'super.admin@tiga-computer.com',
                 'password' => Hash::make(12345678),
                 'is_active' => 1
             ]);
@@ -30,7 +30,7 @@ class SuperUserSeeder extends Seeder
 
         // Check if role already exists
         $superAdmin = Role::where('name', 'Super Admin')->first();
-        
+
         if (!$superAdmin) {
             $superAdmin = Role::create([
                 'name' => 'Super Admin'

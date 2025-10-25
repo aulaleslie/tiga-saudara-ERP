@@ -50,7 +50,7 @@ class ApproveBreakageTest extends TestCase
         ]);
 
         $setting = Setting::create([
-            'company_name' => 'Tiga Saudara',
+            'company_name' => 'CV Tiga Computer',
             'company_email' => 'ops@tiga.test',
             'company_phone' => '0800000000',
             'default_currency_id' => $currency->id,
