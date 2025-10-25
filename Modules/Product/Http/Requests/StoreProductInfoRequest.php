@@ -97,6 +97,9 @@ class StoreProductInfoRequest extends FormRequest
                     }
                 }
             ],
+            'conversions.*.locations' => ['nullable', 'array'],
+            'conversions.*.locations.*.location_id' => ['required', 'integer', 'exists:locations,id'],
+            'conversions.*.locations.*.price' => ['nullable', 'numeric', 'min:0'],
 
             'document' => ['nullable', 'array'],
             'document.*' => ['nullable', 'string'],
@@ -148,6 +151,11 @@ class StoreProductInfoRequest extends FormRequest
             'conversions.*.conversion_factor.min' => 'Faktor konversi harus lebih dari 0.',
             'conversions.*.barcode.digits' => 'Barcode konversi harus terdiri dari 13 digit.',
             'conversions.*.barcode.regex' => 'Barcode konversi harus berupa 13 digit angka.',
+            'conversions.*.locations.*.location_id.required' => 'Lokasi untuk harga konversi wajib diisi.',
+            'conversions.*.locations.*.location_id.integer' => 'Lokasi untuk harga konversi tidak valid.',
+            'conversions.*.locations.*.location_id.exists' => 'Lokasi yang dipilih untuk harga konversi tidak ditemukan.',
+            'conversions.*.locations.*.price.numeric' => 'Harga konversi per lokasi harus berupa angka.',
+            'conversions.*.locations.*.price.min' => 'Harga konversi per lokasi tidak boleh kurang dari 0.',
         ];
     }
 

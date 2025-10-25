@@ -133,8 +133,33 @@ class ProductController extends Controller
             // Handle unit conversions
             if (!empty($conversions)) {
                 foreach ($conversions as $conversion) {
-                    $conversion['base_unit_id'] = $validatedData['base_unit_id'];
-                    $product->conversions()->create($conversion);
+                    $locations = $conversion['locations'] ?? [];
+                    $baseData = [
+                        'unit_id' => $conversion['unit_id'] ?? null,
+                        'base_unit_id' => $validatedData['base_unit_id'] ?? null,
+                        'conversion_factor' => $conversion['conversion_factor'] ?? null,
+                        'barcode' => $conversion['barcode'] ?? null,
+                    ];
+
+                    if (empty($baseData['unit_id']) || $baseData['conversion_factor'] === null) {
+                        continue;
+                    }
+
+                    foreach ($locations as $locationData) {
+                        if (empty($locationData['location_id'])) {
+                            continue;
+                        }
+
+                        $priceValue = $locationData['price'] ?? null;
+                        if ($priceValue === '' || !is_numeric($priceValue)) {
+                            $priceValue = null;
+                        }
+
+                        $product->conversions()->create(array_merge($baseData, [
+                            'location_id' => $locationData['location_id'],
+                            'price' => $priceValue,
+                        ]));
+                    }
                 }
             }
 
@@ -239,7 +264,29 @@ class ProductController extends Controller
             return [$category->id => $formattedName];
         })->sortBy('name')->toArray();
 
-        return view('product::products.edit', compact('product', 'units', 'brands', 'formattedCategories', 'locations'));
+        $conversionFormData = $product->conversions
+            ->groupBy('unit_id')
+            ->map(function ($group) use ($locations) {
+                $first = $group->first();
+
+                return [
+                    'unit_id' => $first?->unit_id,
+                    'conversion_factor' => $first?->conversion_factor,
+                    'barcode' => $first?->barcode,
+                    'locations' => $locations->map(function ($location) use ($group) {
+                        $match = $group->firstWhere('location_id', $location->id);
+
+                        return [
+                            'location_id' => $location->id,
+                            'price' => $match?->price ?? '',
+                        ];
+                    })->toArray(),
+                ];
+            })
+            ->values()
+            ->toArray();
+
+        return view('product::products.edit', compact('product', 'units', 'brands', 'formattedCategories', 'locations', 'conversionFormData'));
     }
 
 
@@ -275,9 +322,35 @@ class ProductController extends Controller
             // Handle unit conversions
             if (!empty($conversions)) {
                 $product->conversions()->delete(); // Remove existing conversions
+
                 foreach ($conversions as $conversion) {
-                    $conversion['base_unit_id'] = $product->base_unit_id;
-                    $product->conversions()->create($conversion);
+                    $locations = $conversion['locations'] ?? [];
+                    $baseData = [
+                        'unit_id' => $conversion['unit_id'] ?? null,
+                        'base_unit_id' => $product->base_unit_id,
+                        'conversion_factor' => $conversion['conversion_factor'] ?? null,
+                        'barcode' => $conversion['barcode'] ?? null,
+                    ];
+
+                    if (empty($baseData['unit_id']) || $baseData['conversion_factor'] === null) {
+                        continue;
+                    }
+
+                    foreach ($locations as $locationData) {
+                        if (empty($locationData['location_id'])) {
+                            continue;
+                        }
+
+                        $priceValue = $locationData['price'] ?? null;
+                        if ($priceValue === '' || !is_numeric($priceValue)) {
+                            $priceValue = null;
+                        }
+
+                        $product->conversions()->create(array_merge($baseData, [
+                            'location_id' => $locationData['location_id'],
+                            'price' => $priceValue,
+                        ]));
+                    }
                 }
             }
 

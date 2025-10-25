@@ -144,7 +144,14 @@
                             </div>
 
                             <!-- Livewire component for Unit Conversion Table -->
+                            @php
+                                $locationOptions = $locations->map(fn($location) => [
+                                    'id' => $location->id,
+                                    'name' => $location->name,
+                                ])->toArray();
+                            @endphp
                             <livewire:product.unit-conversion-table :conversions="old('conversions', [])"
+                                                                    :locations="$locationOptions"
                                                                     :errors="$errors->toArray()"/>
                         </div>
                     </div>

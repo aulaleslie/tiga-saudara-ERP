@@ -99,25 +99,17 @@ class UpdateProductRequest extends FormRequest
                         $fail('Barcode konversi tidak boleh duplikat di antara elemen-elemen konversi.');
                     }
 
-                    // Retrieve the conversion index
-                    $index = explode('.', $attribute)[1] ?? null;
-                    if (is_null($index)) {
-                        $fail('Invalid conversion index.');
-                        return;
-                    }
-
-                    // Retrieve the corresponding product unit conversion based on the index
-                    $conversion = ProductUnitConversion::find($this->input("conversions.$index.id"));
-
-                    // If the conversion exists, check if the barcode has changed
-                    if ($value && $conversion && $conversion->barcode !== $value) {
-                        // Check if the barcode is unique in the database, ignoring the current conversion
-                        if (ProductUnitConversion::where('barcode', $value)->where('id', '!=', $conversion->id)->exists()) {
-                            $fail('Barcode konversi ini sudah ada di database.');
-                        }
+                    if ($value && ProductUnitConversion::where('barcode', $value)
+                        ->where('product_id', '!=', $this->product->id)
+                        ->exists()) {
+                        $fail('Barcode konversi ini sudah ada di database.');
                     }
                 }
             ],
+
+            'conversions.*.locations' => ['nullable', 'array'],
+            'conversions.*.locations.*.location_id' => ['required', 'integer', 'exists:locations,id'],
+            'conversions.*.locations.*.price' => ['nullable', 'numeric', 'min:0'],
 
             'document' => ['nullable', 'array'],
             'document.*' => ['nullable', 'string'],
@@ -149,6 +141,11 @@ class UpdateProductRequest extends FormRequest
             'conversions.*.unit_id.required_with' => 'Konversi ke satuan diperlukan ketika memberikan faktor konversi.',
             'conversions.*.conversion_factor.required_with' => 'Faktor konversi diperlukan saat menyediakan unit.',
             'conversions.*.conversion_factor' => 'Conversion factor harus dipilih jika stock managed',
+            'conversions.*.locations.*.location_id.required' => 'Lokasi untuk harga konversi wajib diisi.',
+            'conversions.*.locations.*.location_id.integer' => 'Lokasi untuk harga konversi tidak valid.',
+            'conversions.*.locations.*.location_id.exists' => 'Lokasi yang dipilih untuk harga konversi tidak ditemukan.',
+            'conversions.*.locations.*.price.numeric' => 'Harga konversi per lokasi harus berupa angka.',
+            'conversions.*.locations.*.price.min' => 'Harga konversi per lokasi tidak boleh kurang dari 0.',
             // Add custom messages for other fields as needed
         ];
     }
