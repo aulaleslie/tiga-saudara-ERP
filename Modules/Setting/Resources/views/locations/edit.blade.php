@@ -53,7 +53,7 @@
                                             id="is_pos"
                                             name="is_pos"
                                             value="1"
-                                            {{ old('is_pos', (bool) $location->is_pos) ? 'checked' : '' }}
+                                            {{ old('is_pos', optional($location->saleAssignment)->is_pos) ? 'checked' : '' }}
                                         >
                                         <label class="form-check-label" for="is_pos">
                                             Gunakan lokasi ini untuk POS

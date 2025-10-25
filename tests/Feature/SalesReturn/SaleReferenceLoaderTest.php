@@ -52,8 +52,9 @@ class SaleReferenceLoaderTest extends TestCase
         $location = Location::create([
             'setting_id' => $setting->id,
             'name' => 'Gudang Pusat',
-            'is_pos' => false,
         ]);
+
+        $location->saleAssignment()->update(['is_pos' => false]);
 
         return compact('currency', 'setting', 'location');
     }
