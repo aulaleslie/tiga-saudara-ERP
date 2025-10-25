@@ -41,23 +41,6 @@
                                         @enderror
                                     </div>
 
-                                    {{-- is_pos --}}
-                                    <div class="form-group form-check mt-2">
-                                        <input
-                                            type="checkbox"
-                                            class="form-check-input @error('is_pos') is-invalid @enderror"
-                                            id="is_pos"
-                                            name="is_pos"
-                                            value="1"
-                                            {{ old('is_pos') ? 'checked' : '' }}
-                                        >
-                                        <label class="form-check-label" for="is_pos">
-                                            Gunakan lokasi ini untuk POS
-                                        </label>
-                                        @error('is_pos')
-                                        <div class="invalid-feedback d-block">{{ $message }}</div>
-                                        @enderror
-                                    </div>
                                 </div>
 
                                 <div class="col-lg-12 d-flex justify-content-end">
