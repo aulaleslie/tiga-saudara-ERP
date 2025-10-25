@@ -51,6 +51,8 @@ class Browser extends Component
     {
         $term = trim($this->q);
 
+        $settingId = $this->setting->id;
+
         $products = Product::query()
             ->select('products.*')
             ->selectSub(function ($q) {
@@ -83,7 +85,12 @@ class Browser extends Component
             ->with([
                 'brand:id,name',
                 'category:id,category_name',
-                'conversions.unit:id,name',
+                'conversions' => function ($q) use ($settingId) {
+                    $q->with([
+                        'unit:id,name',
+                        'prices' => fn ($priceQuery) => $priceQuery->where('setting_id', $settingId),
+                    ]);
+                },
             ])
             ->when($term !== '', function ($q) use ($term) {
                 $like = "%{$term}%";

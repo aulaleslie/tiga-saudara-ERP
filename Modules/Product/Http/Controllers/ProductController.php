@@ -38,6 +38,7 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\ProductUnitConversionPrice;
 use Modules\Setting\Entities\Setting;
 
 class ProductController extends Controller
@@ -182,8 +183,26 @@ class ProductController extends Controller
             // 4) Unit conversions
             if (!empty($conversions)) {
                 foreach ($conversions as $conversion) {
-                    $conversion['base_unit_id'] = $validatedData['base_unit_id'];
-                    $product->conversions()->create($conversion);
+                    if (empty($conversion['unit_id'])) {
+                        continue;
+                    }
+
+                    $price = (float) ($conversion['price'] ?? 0);
+
+                    $conversionPayload = [
+                        'unit_id'           => $conversion['unit_id'] ?? null,
+                        'base_unit_id'      => $validatedData['base_unit_id'],
+                        'conversion_factor' => $conversion['conversion_factor'] ?? 0,
+                        'barcode'           => $conversion['barcode'] ?? null,
+                    ];
+
+                    $createdConversion = $product->conversions()->create($conversionPayload);
+
+                    ProductUnitConversionPrice::seedForSettings(
+                        $createdConversion->id,
+                        $price,
+                        $settingIds
+                    );
                 }
             }
 
@@ -265,8 +284,9 @@ class ProductController extends Controller
         ];
 
         // --- quantity display (unchanged) ---
+        $product->load(['conversions.unit', 'conversions.prices']);
         $baseUnit    = $product->baseUnit;
-        $conversions = $product->conversions()->with('unit')->get();
+        $conversions = $product->conversions;
 
         if ($baseUnit && $conversions->isNotEmpty()) {
             $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
@@ -364,6 +384,15 @@ class ProductController extends Controller
             'sale_tax_id'     => data_get($pp, 'sale_tax_id'),
         ];
 
+        $product->load(['conversions.prices', 'conversions.unit']);
+
+        $conversionFormData = $product->conversions->map(function ($conversion) use ($settingId) {
+            $payload = $conversion->toArray();
+            $payload['price'] = $conversion->priceValueForSetting($settingId);
+
+            return $payload;
+        })->toArray();
+
         // existing media for the dropzone
         $existingMedia = $product->getMedia('images')->map(function ($m) {
             return [
@@ -376,7 +405,7 @@ class ProductController extends Controller
 
         return view('product::products.edit', compact(
             'product', 'units', 'taxes', 'brands', 'formattedCategories',
-            'locations', 'existingMedia', 'price', 'settingId'
+            'locations', 'existingMedia', 'price', 'settingId', 'conversionFormData'
         ));
     }
 
@@ -460,6 +489,10 @@ class ProductController extends Controller
 
             // 2) Upsert prices only for the current setting on `product_prices`
             $settingId = $this->getActiveSettingId();
+            $allSettingIds = Setting::query()->pluck('id');
+            if ($allSettingIds->isEmpty()) {
+                $allSettingIds = collect([$settingId]);
+            }
 
             ProductPrice::updateOrCreate(
                 [
@@ -500,12 +533,49 @@ class ProductController extends Controller
                 }
             }
 
-            // 4) Unit conversions (unchanged)
             if (!empty($conversions)) {
-                $product->conversions()->delete();
+                $existingConversions = $product->conversions()->with('prices')->get()->keyBy('id');
+                $processedIds = [];
+
                 foreach ($conversions as $conversion) {
-                    $conversion['base_unit_id'] = $product->base_unit_id;
-                    $product->conversions()->create($conversion);
+                    $unitId = $conversion['unit_id'] ?? null;
+                    if (!$unitId) {
+                        continue;
+                    }
+
+                    $price = (float) ($conversion['price'] ?? 0);
+                    $payload = [
+                        'unit_id'           => $unitId,
+                        'base_unit_id'      => $product->base_unit_id,
+                        'conversion_factor' => $conversion['conversion_factor'] ?? 0,
+                        'barcode'           => $conversion['barcode'] ?? null,
+                    ];
+
+                    if (!empty($conversion['id']) && $existingConversions->has((int) $conversion['id'])) {
+                        $model = $existingConversions[(int) $conversion['id']];
+                        $model->update($payload);
+
+                        ProductUnitConversionPrice::upsertFor([
+                            'product_unit_conversion_id' => $model->id,
+                            'setting_id'                 => $settingId,
+                            'price'                      => $price,
+                        ]);
+                    } else {
+                        $model = $product->conversions()->create($payload);
+
+                        ProductUnitConversionPrice::seedForSettings(
+                            $model->id,
+                            $price,
+                            $allSettingIds
+                        );
+                    }
+
+                    $processedIds[] = $model->id;
+                }
+
+                $idsToDelete = $existingConversions->keys()->diff($processedIds);
+                if ($idsToDelete->isNotEmpty()) {
+                    $product->conversions()->whereIn('id', $idsToDelete->all())->delete();
                 }
             }
 
