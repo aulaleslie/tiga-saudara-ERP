@@ -162,16 +162,34 @@ class SaleLocationConfigurationController extends Controller
         }
 
         $enablePos = (bool) $validated['is_pos'];
+        $maxPosLocations = (int) config('setting.max_pos_locations', 0);
 
         if ($enablePos) {
-            SettingSaleLocation::query()
-                ->where('setting_id', $currentSettingId)
-                ->where('location_id', '!=', $locationId)
-                ->where('is_pos', true)
-                ->update([
-                    'is_pos'     => false,
-                    'updated_at' => now(),
-                ]);
+            if ($maxPosLocations === 1) {
+                SettingSaleLocation::query()
+                    ->where('setting_id', $currentSettingId)
+                    ->where('location_id', '!=', $locationId)
+                    ->where('is_pos', true)
+                    ->update([
+                        'is_pos'     => false,
+                        'updated_at' => now(),
+                    ]);
+            } elseif ($maxPosLocations > 1) {
+                $currentPosCount = SettingSaleLocation::query()
+                    ->where('setting_id', $currentSettingId)
+                    ->where('is_pos', true)
+                    ->count();
+
+                if (!$assignment->is_pos) {
+                    $currentPosCount++;
+                }
+
+                if ($currentPosCount > $maxPosLocations) {
+                    toast('Jumlah lokasi POS melebihi batas konfigurasi.', 'error');
+
+                    return redirect()->route('sales-location-configurations.index');
+                }
+            }
         }
 
         $assignment->update(['is_pos' => $enablePos]);
