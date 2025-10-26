@@ -154,7 +154,7 @@
     </div>
 @endsection
 
-@push('scripts')
+@push('page_scripts')
     @if($canEdit && $assignedLocations->isNotEmpty())
         <script>
             document.addEventListener('DOMContentLoaded', function () {
