@@ -25,6 +25,7 @@ class PosLocationResolver
             return SettingSaleLocation::query()
                 ->where('setting_id', $settingId)
                 ->where('is_pos', true)
+                ->orderBy('position')
                 ->orderBy('id')
                 ->pluck('location_id')
                 ->map(static fn ($locationId) => (int) $locationId)

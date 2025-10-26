@@ -205,4 +205,68 @@ class SaleLocationConfigurationTest extends TestCase
             'is_pos' => true,
         ])->assertStatus(403);
     }
+
+    public function test_can_reorder_locations(): void
+    {
+        $setting = $this->createSetting('CV Tiga Nusa');
+
+        $this->actingAsSuperAdminForSetting($setting);
+
+        $locations = collect([
+            Location::create(['name' => 'Gudang 1', 'setting_id' => $setting->id]),
+            Location::create(['name' => 'Gudang 2', 'setting_id' => $setting->id]),
+            Location::create(['name' => 'Gudang 3', 'setting_id' => $setting->id]),
+        ]);
+
+        $desiredOrder = [$locations[2]->id, $locations[0]->id, $locations[1]->id];
+
+        $this->put(route('sales-location-configurations.order'), [
+            'order' => $desiredOrder,
+        ])->assertRedirect(route('sales-location-configurations.index'));
+
+        $positions = SettingSaleLocation::query()
+            ->where('setting_id', $setting->id)
+            ->orderBy('position')
+            ->pluck('location_id')
+            ->all();
+
+        $this->assertSame($desiredOrder, $positions);
+    }
+
+    public function test_latest_borrowed_location_is_appended(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $settingB = $this->createSetting('Top IT');
+
+        $this->actingAsSuperAdminForSetting($settingA);
+
+        $firstLocation = Location::create([
+            'name'       => 'TIT 1',
+            'setting_id' => $settingB->id,
+        ]);
+
+        $secondLocation = Location::create([
+            'name'       => 'TIT 2',
+            'setting_id' => $settingB->id,
+        ]);
+
+        $this->post(route('sales-location-configurations.store'), [
+            'location_id' => $firstLocation->id,
+        ])->assertRedirect(route('sales-location-configurations.index'));
+
+        $this->post(route('sales-location-configurations.store'), [
+            'location_id' => $secondLocation->id,
+        ])->assertRedirect(route('sales-location-configurations.index'));
+
+        $positions = SettingSaleLocation::query()
+            ->where('setting_id', $settingA->id)
+            ->orderBy('position')
+            ->pluck('location_id')
+            ->all();
+
+        $this->assertSame([
+            $firstLocation->id,
+            $secondLocation->id,
+        ], $positions);
+    }
 }

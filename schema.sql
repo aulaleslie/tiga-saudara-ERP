@@ -1730,6 +1730,7 @@ CREATE TABLE `setting_sale_locations` (
   `setting_id` bigint unsigned NOT NULL,
   `location_id` bigint unsigned NOT NULL,
   `is_pos` tinyint(1) DEFAULT '0' COMMENT 'Flag to mark if this location is used for POS',
+  `position` int unsigned NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),

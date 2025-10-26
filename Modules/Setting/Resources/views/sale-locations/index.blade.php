@@ -8,26 +8,46 @@
         <div class="row">
             <div class="col-lg-8">
                 <div class="card mb-4">
-                    <div class="card-header d-flex justify-content-between align-items-center">
+                    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <span>Lokasi Penjualan Aktif</span>
-                        <span class="badge bg-primary text-white">{{ $setting->company_name }}</span>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge bg-primary text-white">{{ $setting->company_name }}</span>
+                            @if($canEdit && $assignedLocations->isNotEmpty())
+                                <form id="reorder-form" action="{{ route('sales-location-configurations.order') }}" method="POST" class="d-flex align-items-center gap-2">
+                                    @csrf
+                                    @method('PUT')
+                                    <button type="submit" class="btn btn-sm btn-primary">
+                                        Simpan Urutan
+                                    </button>
+                                </form>
+                            @endif
+                        </div>
                     </div>
                     <div class="card-body p-0">
+                        @error('order')
+                            <div class="alert alert-danger m-3 mb-0">
+                                {{ $message }}
+                            </div>
+                        @enderror
                         <table class="table mb-0 table-striped">
                             <thead>
                                 <tr>
                                     <th>Nama Lokasi</th>
                                     <th>Bisnis Asal</th>
                                     <th>Status</th>
+                                    @if($canEdit)
+                                        <th class="text-center">Prioritas</th>
+                                    @endif
                                     <th class="text-center">POS</th>
                                     @if($canEdit)
                                         <th class="text-end">Aksi</th>
                                     @endif
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody data-assigned-locations>
                                 @forelse($assignedLocations as $location)
-                                    <tr>
+                                    <tr data-location-id="{{ $location->id }}">
+                                        <input type="hidden" name="order[]" value="{{ $location->id }}" form="reorder-form">
                                         <td>{{ $location->name }}</td>
                                         <td>{{ optional($location->setting)->company_name ?? 'Tidak diketahui' }}</td>
                                         <td>
@@ -37,6 +57,18 @@
                                                 <span class="badge bg-warning text-dark">Dipinjam</span>
                                             @endif
                                         </td>
+                                        @if($canEdit)
+                                            <td class="text-center">
+                                                <div class="btn-group" role="group" aria-label="Reorder location">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-move="up" title="Naikkan prioritas">
+                                                        ↑
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-move="down" title="Turunkan prioritas">
+                                                        ↓
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        @endif
                                         <td class="text-center">
                                             @if($location->saleAssignment?->is_pos)
                                                 <span class="badge bg-primary">Aktif</span>
@@ -71,7 +103,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="{{ $canEdit ? 5 : 4 }}" class="text-center py-4">
+                                        <td colspan="{{ $canEdit ? 6 : 4 }}" class="text-center py-4">
                                             Belum ada lokasi penjualan yang dikonfigurasi.
                                         </td>
                                     </tr>
@@ -121,3 +153,60 @@
         </div>
     </div>
 @endsection
+
+@push('scripts')
+    @if($canEdit && $assignedLocations->isNotEmpty())
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                const tableBody = document.querySelector('[data-assigned-locations]');
+                const reorderForm = document.getElementById('reorder-form');
+
+                if (!tableBody || !reorderForm) {
+                    return;
+                }
+
+                const updateInputs = () => {
+                    tableBody.querySelectorAll('tr[data-location-id]').forEach((row) => {
+                        const hiddenInput = row.querySelector('input[name="order[]"]');
+
+                        if (hiddenInput) {
+                            hiddenInput.value = row.dataset.locationId;
+                        }
+                    });
+                };
+
+                tableBody.addEventListener('click', (event) => {
+                    const button = event.target.closest('[data-move]');
+
+                    if (!button) {
+                        return;
+                    }
+
+                    event.preventDefault();
+
+                    const row = button.closest('tr[data-location-id]');
+
+                    if (!row) {
+                        return;
+                    }
+
+                    if (button.dataset.move === 'up' && row.previousElementSibling) {
+                        row.parentElement.insertBefore(row, row.previousElementSibling);
+                    }
+
+                    if (button.dataset.move === 'down' && row.nextElementSibling) {
+                        row.parentElement.insertBefore(row.nextElementSibling, row);
+                    }
+
+                    updateInputs();
+                });
+
+                reorderForm.addEventListener('submit', () => {
+                    updateInputs();
+                });
+
+                updateInputs();
+            });
+        </script>
+    @endif
+@endpush
