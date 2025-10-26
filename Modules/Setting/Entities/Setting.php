@@ -30,7 +30,9 @@ class Setting extends BaseModel
     public function saleLocations(): BelongsToMany
     {
         return $this->belongsToMany(Location::class, 'setting_sale_locations')
-            ->withTimestamps();
+            ->withTimestamps()
+            ->withPivot('position')
+            ->orderByPivot('position');
     }
 
     public function saleLocationAssignments(): HasMany

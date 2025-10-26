@@ -9,6 +9,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use App\Support\PosLocationResolver;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
@@ -26,7 +27,6 @@ class SaleLocationConfigurationController extends Controller
 
         $assignedLocations = $setting->saleLocations
             ->load('saleAssignment')
-            ->sortBy('name')
             ->values();
 
         $availableLocations = Location::query()
@@ -74,17 +74,71 @@ class SaleLocationConfigurationController extends Controller
 
         $previousSettingId = $assignment?->setting_id;
 
+        $nextPosition = (int) SettingSaleLocation::query()
+            ->where('setting_id', $currentSettingId)
+            ->max('position');
+
         $location->saleAssignment()->updateOrCreate(
             ['location_id' => $location->id],
             [
                 'setting_id' => $currentSettingId,
                 'is_pos'     => false,
+                'position'   => ($nextPosition ?: 0) + 1,
             ]
         );
 
         PosLocationResolver::forget($currentSettingId, $previousSettingId, $location->setting_id);
 
         toast('Lokasi berhasil ditambahkan ke konfigurasi penjualan.', 'success');
+
+        return redirect()->route('sales-location-configurations.index');
+    }
+
+    public function order(Request $request): RedirectResponse
+    {
+        abort_if(Gate::denies('saleLocations.edit'), 403);
+
+        $validated = $request->validate([
+            'order'   => ['required', 'array'],
+            'order.*' => ['integer', 'distinct', 'exists:locations,id'],
+        ]);
+
+        $currentSettingId = (int) session('setting_id');
+
+        $orderedIds = array_map('intval', $validated['order']);
+
+        $assignedIds = SettingSaleLocation::query()
+            ->where('setting_id', $currentSettingId)
+            ->orderBy('position')
+            ->pluck('location_id')
+            ->map(static fn ($id) => (int) $id)
+            ->all();
+
+        sort($assignedIds);
+        $orderedIdsSorted = $orderedIds;
+        sort($orderedIdsSorted);
+
+        if ($assignedIds !== $orderedIdsSorted) {
+            return redirect()
+                ->route('sales-location-configurations.index')
+                ->withErrors(['order' => 'Urutan lokasi tidak valid.']);
+        }
+
+        DB::transaction(function () use ($orderedIds, $currentSettingId) {
+            foreach ($orderedIds as $index => $locationId) {
+                SettingSaleLocation::query()
+                    ->where('setting_id', $currentSettingId)
+                    ->where('location_id', $locationId)
+                    ->update([
+                        'position'   => $index + 1,
+                        'updated_at' => now(),
+                    ]);
+            }
+        });
+
+        PosLocationResolver::forget($currentSettingId);
+
+        toast('Urutan lokasi berhasil diperbarui.', 'success');
 
         return redirect()->route('sales-location-configurations.index');
     }
@@ -157,9 +211,14 @@ class SaleLocationConfigurationController extends Controller
             return redirect()->route('sales-location-configurations.index');
         }
 
+        $nextPosition = (int) SettingSaleLocation::query()
+            ->where('setting_id', $ownerId)
+            ->max('position');
+
         $assignment->update([
             'setting_id' => $ownerId,
             'is_pos'     => false,
+            'position'   => ($nextPosition ?: 0) + 1,
         ]);
 
         PosLocationResolver::forget($currentSettingId, $ownerId);

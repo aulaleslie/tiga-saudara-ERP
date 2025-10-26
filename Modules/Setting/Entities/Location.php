@@ -26,9 +26,16 @@ class Location extends BaseModel
         static::updated(function (Location $location) {
             if ($location->wasChanged('setting_id')) {
                 $originalSettingId = $location->getOriginal('setting_id');
+                $nextPosition = (int) SettingSaleLocation::query()
+                    ->where('setting_id', $location->setting_id)
+                    ->max('position');
+
                 $location->saleAssignment()->updateOrCreate(
                     ['location_id' => $location->id],
-                    ['setting_id' => $location->setting_id]
+                    [
+                        'setting_id' => $location->setting_id,
+                        'position'   => ($nextPosition ?: 0) + 1,
+                    ]
                 );
 
                 PosLocationResolver::forget($location->setting_id, $originalSettingId);
