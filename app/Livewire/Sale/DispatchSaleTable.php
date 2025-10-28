@@ -83,10 +83,11 @@ class DispatchSaleTable extends Component
         }
 
         // If tax_id > 0, use tax-specific quantities; else use non-tax quantities.
+        // The tax-specific stock columns already exclude broken units after breakage adjustments.
         if ((int) $taxId > 0) {
-            return $stockRecord->quantity_tax - $stockRecord->broken_quantity_tax;
+            return max(0, $stockRecord->quantity_tax);
         } else {
-            return $stockRecord->quantity_non_tax - $stockRecord->broken_quantity_non_tax;
+            return max(0, $stockRecord->quantity_non_tax);
         }
     }
 
