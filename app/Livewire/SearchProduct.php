@@ -112,7 +112,7 @@ class SearchProduct extends Component
         LEFT JOIN units u ON u.id = p.base_unit_id
         LEFT JOIN (
             SELECT product_id,
-                   SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
+                   SUM(quantity_non_tax + quantity_tax) AS stock_qty
             FROM product_stocks
             WHERE {stock_filter}
             GROUP BY product_id
@@ -210,7 +210,7 @@ class SearchProduct extends Component
         LEFT JOIN units u ON u.id = puc.unit_id
         LEFT JOIN (
             SELECT product_id,
-                   SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
+                   SUM(quantity_non_tax + quantity_tax) AS stock_qty
             FROM product_stocks
             WHERE {stock_filter}
             GROUP BY product_id
@@ -322,7 +322,7 @@ class SearchProduct extends Component
         LEFT JOIN units u ON u.id = p.unit_id
         LEFT JOIN (
             SELECT product_id,
-                   SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
+                   SUM(quantity_non_tax + quantity_tax) AS stock_qty
             FROM product_stocks
             WHERE {stock_filter}
             GROUP BY product_id
@@ -402,7 +402,7 @@ class SearchProduct extends Component
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_base
         LEFT JOIN (
             SELECT product_id,
-                   SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
+                   SUM(quantity_non_tax + quantity_tax) AS stock_qty
             FROM product_stocks
             WHERE {base_stock_filter}
             GROUP BY product_id
@@ -437,7 +437,7 @@ class SearchProduct extends Component
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_conversion_pp
         LEFT JOIN (
             SELECT product_id,
-                   SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
+                   SUM(quantity_non_tax + quantity_tax) AS stock_qty
             FROM product_stocks
             WHERE {conversion_stock_filter}
             GROUP BY product_id
@@ -470,7 +470,7 @@ class SearchProduct extends Component
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_serial
         LEFT JOIN (
             SELECT product_id,
-                   SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty
+                   SUM(quantity_non_tax + quantity_tax) AS stock_qty
             FROM product_stocks
             WHERE {serial_stock_filter}
             GROUP BY product_id

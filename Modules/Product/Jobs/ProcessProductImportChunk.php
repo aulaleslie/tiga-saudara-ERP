@@ -265,6 +265,44 @@ class ProcessProductImportChunk implements ShouldQueue
 
                     // ---- initial stock (selected location only) ----
                     if ($stockQty > 0) {
+                        $qtyNonTax = $toInt($p['stock_non_tax'] ?? $p['quantity_non_tax'] ?? $p['stock_qty_non_tax'] ?? 0);
+                        $qtyTax    = $toInt($p['stock_tax'] ?? $p['quantity_tax'] ?? $p['stock_qty_tax'] ?? 0);
+
+                        $qtyNonTax = max(0, $qtyNonTax);
+                        $qtyTax    = max(0, $qtyTax);
+
+                        $allocated = $qtyNonTax + $qtyTax;
+
+                        if ($allocated === 0) {
+                            $qtyNonTax = $stockQty;
+                        } elseif ($allocated !== $stockQty) {
+                            if ($allocated < $stockQty) {
+                                $qtyNonTax += ($stockQty - $allocated);
+                            } else {
+                                $excess = $allocated - $stockQty;
+                                $reduceTax = min($qtyTax, $excess);
+                                $qtyTax -= $reduceTax;
+                                $excess -= $reduceTax;
+
+                                if ($excess > 0) {
+                                    $qtyNonTax = max(0, $qtyNonTax - $excess);
+                                }
+                            }
+                        }
+
+                        $qtyNonTax = max(0, $qtyNonTax);
+                        $qtyTax    = max(0, $qtyTax);
+
+                        if (($qtyNonTax + $qtyTax) !== $stockQty) {
+                            if ($qtyNonTax + $qtyTax === 0) {
+                                $qtyNonTax = $stockQty;
+                                $qtyTax    = 0;
+                            } else {
+                                $qtyNonTax = min($stockQty, $qtyNonTax);
+                                $qtyTax    = max(0, $stockQty - $qtyNonTax);
+                            }
+                        }
+
                         $txn = Transaction::create([
                             'product_id' => $product->id,
                             'setting_id' => $settingIdForCreations,
@@ -273,9 +311,9 @@ class ProcessProductImportChunk implements ShouldQueue
                             'previous_quantity' => 0,
                             'after_quantity' => $stockQty,
                             'previous_quantity_at_location' => 0,
-                            'after_quantity_at_location' => 0,
-                            'quantity_non_tax' => 0,
-                            'quantity_tax' => 0,
+                            'after_quantity_at_location' => $stockQty,
+                            'quantity_non_tax' => $qtyNonTax,
+                            'quantity_tax' => $qtyTax,
                             'current_quantity' => $stockQty,
                             'broken_quantity' => 0,
                             'broken_quantity_non_tax' => 0,
@@ -289,8 +327,8 @@ class ProcessProductImportChunk implements ShouldQueue
                             'product_id' => $product->id,
                             'location_id' => $location->id,
                             'quantity' => $stockQty,
-                            'quantity_non_tax' => 0,
-                            'quantity_tax' => 0,
+                            'quantity_non_tax' => $qtyNonTax,
+                            'quantity_tax' => $qtyTax,
                             'broken_quantity_non_tax' => 0,
                             'broken_quantity_tax' => 0,
                             'sale_price' => $isSold ? $salePrice : 0,

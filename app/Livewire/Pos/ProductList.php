@@ -59,7 +59,7 @@ class ProductList extends Component
             ->leftJoinSub(function ($sub) {
                 $sub->from('product_stocks')
                     ->selectRaw('product_id,
-                        SUM((quantity_non_tax + quantity_tax) - (broken_quantity_non_tax + broken_quantity_tax)) AS stock_qty')
+                        SUM(quantity_non_tax + quantity_tax) AS stock_qty')
                     ->when(!empty($this->posLocationIds),
                         fn ($q) => $q->whereIn('location_id', $this->posLocationIds),
                         fn ($q) => $q->whereRaw('1=0') // No POS locations → no stock
