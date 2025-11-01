@@ -223,20 +223,6 @@
                                     </tr>
                                 </table>
                             </div>
-                            <div class="mt-3">
-                                <button type="button"
-                                        class="btn btn-outline-success btn-block"
-                                        wire:click="openChangeModal"
-                                        aria-controls="posChangeModal"
-                                        {{ $hasCashPayment ? '' : 'disabled' }}>
-                                    Tampilkan Kembalian
-                                </button>
-                                @if(! $hasCashPayment)
-                                    <small class="form-text text-muted mt-2">
-                                        Pilih metode pembayaran tunai untuk menampilkan informasi kembalian.
-                                    </small>
-                                @endif
-                            </div>
                         </div>
                     </div>
 

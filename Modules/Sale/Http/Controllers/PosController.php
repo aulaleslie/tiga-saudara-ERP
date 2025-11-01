@@ -127,6 +127,20 @@ class PosController extends Controller
             ->filter()
             ->unique();
 
+        $hasCashPayment = collect($processedPayments)
+            ->contains(function ($payment) {
+                /** @var PaymentMethod|null $method */
+                $method = $payment['method'] ?? null;
+
+                return $method?->is_cash && ($payment['amount'] ?? 0) > 0;
+            });
+
+        $changeDue = $hasCashPayment
+            ? max(round($overallPaid - $total_amount, 2), 0.0)
+            : 0.0;
+
+        $hasCashOverpayment = $hasCashPayment && $changeDue > 0;
+
         $primaryPayment = collect($processedPayments)
             ->firstWhere('amount', '>', 0) ?? collect($processedPayments)->first();
 
@@ -220,9 +234,12 @@ class PosController extends Controller
 
         $cart->destroy();
 
+        session()->flash('pos_change_due', $changeDue);
+        session()->flash('pos_cash_overpayment', $hasCashOverpayment);
+
         toast('POS Sale Created!', 'success');
 
-        return redirect()->route('sales.index');
+        return redirect()->route('app.pos.index');
     }
 
     public function storeAsQuotation(Request $request)
