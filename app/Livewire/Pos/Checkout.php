@@ -59,6 +59,7 @@ class Checkout extends Component
     public ?string $lastChangeModalAmount = null;
     public bool $forceShowChangeModal = false;
     public ?float $forcedChangeAmount = null;
+    public bool $changeModalExplicitlyRequested = false;
 
     public function mount($cartInstance, $customers)
     {
@@ -211,6 +212,7 @@ class Checkout extends Component
 
     public function openChangeModal(): void
     {
+        $this->changeModalExplicitlyRequested = true;
         $this->syncChangeModalState();
 
         $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
@@ -1747,6 +1749,10 @@ class Checkout extends Component
     protected function maybeAutoShowChangeModal(): void
     {
         if ($this->changeModalHasPositiveChange) {
+            if (! $this->changeModalExplicitlyRequested && ! $this->forceShowChangeModal) {
+                return;
+            }
+
             if ($this->lastChangeModalAmount !== $this->changeModalAmount) {
                 $this->lastChangeModalAmount = $this->changeModalAmount;
                 $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
@@ -1758,6 +1764,8 @@ class Checkout extends Component
         if ($this->lastChangeModalAmount !== null) {
             $this->lastChangeModalAmount = null;
         }
+
+        $this->changeModalExplicitlyRequested = false;
 
         $this->dispatch('hide-change-modal');
     }
