@@ -7,6 +7,7 @@ use App\Support\ProductBundleResolver;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
@@ -52,8 +53,10 @@ class Checkout extends Component
     public ?int $posLocationId = null;
     public bool $changeModalHasPositiveChange = false;
     public ?string $changeModalAmount = null;
-    protected bool $paidAmountManuallyUpdated = false;
-    protected ?string $lastChangeModalAmount = null;
+    #[Locked]
+    public bool $paidAmountManuallyUpdated = false;
+    #[Locked]
+    public ?string $lastChangeModalAmount = null;
 
     public function mount($cartInstance, $customers)
     {
