@@ -233,7 +233,7 @@
                             class="btn btn-warning">
                         Simpan Sebagai Dokumen Penjualan
                     </button>
-                    <button type="submit" class="btn btn-primary">Kirim</button>
+                    <button type="submit" class="btn btn-primary">Bayar</button>
                 </div>
             </form>
         </div>
