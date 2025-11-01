@@ -1,5 +1,7 @@
-@php($approvalStatus = strtolower($sale_return->approval_status ?? ''))
-@php($status = strtolower($sale_return->status ?? ''))
+@php
+    $approvalStatus = strtolower($sale_return->approval_status ?? '');
+    $status = strtolower($sale_return->status ?? '');
+@endphp
 @php use Illuminate\Support\Facades\Storage; @endphp
 @extends('layouts.app')
 
