@@ -320,8 +320,116 @@ class PosController extends Controller
         $options = $this->normalizeCartOptions($cartItem->options ?? []);
         $productId = (int) ($options['product_id'] ?? 0);
 
-        if ($productId && $posLocationId) {
-            $this->deductProductStock($productId, $posLocationId, (int) $saleDetail->quantity, $options, $sale);
+        $rawAllocations = $options['pos_location_allocations'] ?? [];
+
+        if ($rawAllocations instanceof \Illuminate\Support\Collection) {
+            $rawAllocations = $rawAllocations->toArray();
+        } elseif (is_object($rawAllocations) && method_exists($rawAllocations, 'toArray')) {
+            $rawAllocations = $rawAllocations->toArray();
+        } elseif (is_string($rawAllocations)) {
+            $decoded = json_decode($rawAllocations, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $rawAllocations = $decoded;
+            }
+        }
+
+        if (! is_array($rawAllocations)) {
+            $rawAllocations = (array) $rawAllocations;
+        }
+
+        $byLocation = [];
+
+        foreach ($rawAllocations as $allocation) {
+            if ($allocation instanceof \Illuminate\Support\Collection) {
+                $allocation = $allocation->toArray();
+            } elseif (is_object($allocation) && method_exists($allocation, 'toArray')) {
+                $allocation = $allocation->toArray();
+            } elseif (is_object($allocation)) {
+                $allocation = (array) $allocation;
+            }
+
+            if (! is_array($allocation)) {
+                continue;
+            }
+
+            $locationId = (int) ($allocation['location_id'] ?? 0);
+            if ($locationId <= 0) {
+                continue;
+            }
+
+            $nonTax = max(0, (int) ($allocation['allocated_non_tax'] ?? 0));
+            $tax = max(0, (int) ($allocation['allocated_tax'] ?? 0));
+
+            if ($nonTax === 0 && $tax === 0) {
+                continue;
+            }
+
+            if (! isset($byLocation[$locationId])) {
+                $byLocation[$locationId] = [
+                    'location_id' => $locationId,
+                    'allocated_non_tax' => 0,
+                    'allocated_tax' => 0,
+                ];
+            }
+
+            $byLocation[$locationId]['allocated_non_tax'] += $nonTax;
+            $byLocation[$locationId]['allocated_tax'] += $tax;
+        }
+
+        $normalizedAllocations = array_values($byLocation);
+
+        $requestedQuantity = max(0, (int) $saleDetail->quantity);
+
+        if (empty($normalizedAllocations) && $productId) {
+            $fallbackLocationId = (int) ($options['pos_location_id'] ?? $posLocationId ?? 0);
+            if ($fallbackLocationId > 0 && $requestedQuantity > 0) {
+                $fallbackNonTax = max(0, (int) ($options['allocated_non_tax'] ?? 0));
+                $fallbackTax = max(0, (int) ($options['allocated_tax'] ?? 0));
+
+                $nonTax = min($fallbackNonTax, $requestedQuantity);
+                $tax = max(0, min($fallbackTax, $requestedQuantity - $nonTax));
+
+                $normalizedAllocations[] = [
+                    'location_id' => $fallbackLocationId,
+                    'allocated_non_tax' => $nonTax,
+                    'allocated_tax' => $tax,
+                ];
+            }
+        }
+
+        $totalAllocated = 0;
+        foreach ($normalizedAllocations as $entry) {
+            $totalAllocated += (int) $entry['allocated_non_tax'] + (int) $entry['allocated_tax'];
+        }
+
+        if ($requestedQuantity > 0 && $totalAllocated < $requestedQuantity && ! empty($normalizedAllocations)) {
+            $remaining = $requestedQuantity - $totalAllocated;
+            $normalizedAllocations[0]['allocated_non_tax'] += $remaining;
+
+            Log::warning('POS sale allocations underspecified; padding first location', [
+                'product_id' => $productId,
+                'sale_id' => $sale->id,
+                'sale_detail_id' => $saleDetail->id,
+                'remaining' => $remaining,
+            ]);
+        }
+
+        if ($productId) {
+            foreach ($normalizedAllocations as $allocation) {
+                $locationId = (int) ($allocation['location_id'] ?? 0);
+                if ($locationId <= 0) {
+                    continue;
+                }
+
+                $deductNonTax = max(0, (int) ($allocation['allocated_non_tax'] ?? 0));
+                $deductTax = max(0, (int) ($allocation['allocated_tax'] ?? 0));
+
+                if ($deductNonTax === 0 && $deductTax === 0) {
+                    continue;
+                }
+
+                $this->deductProductStock($productId, $locationId, $deductNonTax, $deductTax, $sale);
+            }
         }
 
         if ($productId) {
@@ -340,10 +448,9 @@ class PosController extends Controller
 
         $this->markSerialNumbersAsSold($saleDetail, $options);
     }
-
-    private function deductProductStock(int $productId, int $locationId, int $quantity, array $options, Sale $sale): void
+    private function deductProductStock(int $productId, int $locationId, int $deductNonTax, int $deductTax, Sale $sale): void
     {
-        if ($quantity <= 0) {
+        if ($deductNonTax <= 0 && $deductTax <= 0) {
             return;
         }
 
@@ -365,42 +472,27 @@ class PosController extends Controller
         $availableNonTax = max(0, (int) $stock->quantity_non_tax);
         $availableTax = max(0, (int) $stock->quantity_tax);
 
-        $allocatedNonTax = min($quantity, max(0, (int) ($options['allocated_non_tax'] ?? 0)));
-        $allocatedTax = min($quantity - $allocatedNonTax, max(0, (int) ($options['allocated_tax'] ?? 0)));
+        $nonTaxToDeduct = min($deductNonTax, $availableNonTax);
+        $taxToDeduct = min($deductTax, $availableTax);
 
-        $remaining = $quantity - ($allocatedNonTax + $allocatedTax);
-
-        if ($remaining > 0 && $allocatedNonTax < $availableNonTax) {
-            $additional = min($remaining, max(0, $availableNonTax - $allocatedNonTax));
-            $allocatedNonTax += $additional;
-            $remaining -= $additional;
-        }
-
-        if ($remaining > 0 && $allocatedTax < $availableTax) {
-            $additionalTax = min($remaining, max(0, $availableTax - $allocatedTax));
-            $allocatedTax += $additionalTax;
-            $remaining -= $additionalTax;
-        }
-
-        if ($remaining > 0) {
-            Log::warning('POS sale deducted more stock than available', [
+        if ($deductNonTax > $availableNonTax || $deductTax > $availableTax) {
+            Log::warning('POS sale deduction exceeded available stock for location', [
                 'product_id' => $productId,
                 'location_id' => $locationId,
                 'sale_id' => $sale->id,
-                'quantity_requested' => $quantity,
-                'non_tax_allocated' => $allocatedNonTax,
-                'tax_allocated' => $allocatedTax,
-                'remaining' => $remaining,
+                'requested_non_tax' => $deductNonTax,
+                'requested_tax' => $deductTax,
+                'available_non_tax' => $availableNonTax,
+                'available_tax' => $availableTax,
             ]);
         }
 
-        $stock->quantity_non_tax = max(0, $availableNonTax - $allocatedNonTax);
-        $stock->quantity_tax = max(0, $availableTax - $allocatedTax);
+        $stock->quantity_non_tax = max(0, $availableNonTax - $nonTaxToDeduct);
+        $stock->quantity_tax = max(0, $availableTax - $taxToDeduct);
         $stock->quantity = max(0, (int) $stock->quantity_non_tax + (int) $stock->quantity_tax);
         $stock->broken_quantity = max(0, (int) $stock->broken_quantity_non_tax + (int) $stock->broken_quantity_tax);
         $stock->save();
     }
-
     private function markSerialNumbersAsSold(SaleDetails $saleDetail, array $options): void
     {
         $serials = $this->resolveSerialNumbers($options);

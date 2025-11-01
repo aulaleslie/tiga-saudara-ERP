@@ -21,8 +21,8 @@ class SerialNumberPicker extends Component
     /** Modal visibility */
     public bool $show = false;
 
-    /** POS location id */
-    private ?int $posLocationId = null;
+    /** POS location ids ordered by priority */
+    private array $posLocationIds = [];
 
     /** Last/ongoing scan text */
     public string $scan = '';
@@ -37,7 +37,7 @@ class SerialNumberPicker extends Component
     public function mount(?int $productId = null, array $preselected = []): void
     {
         $this->productId = $productId;
-        $this->resolvePosLocation();
+        $this->resolvePosLocations();
     }
 
     /** Open from parent: $dispatch('openSerialPicker', productId) */
@@ -79,9 +79,12 @@ class SerialNumberPicker extends Component
         $this->dispatch('focusSerialScanInput');
     }
 
-    private function resolvePosLocation(): void
+    private function resolvePosLocations(): void
     {
-        $this->posLocationId = PosLocationResolver::resolveId();
+        $this->posLocationIds = PosLocationResolver::resolveLocationIds()
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
     }
 
     /** Enter pressed in the input (or scanner sends CR/LF) */
@@ -94,19 +97,27 @@ class SerialNumberPicker extends Component
             $this->dispatch('focusSerialScanInput');
             return;
         }
-        if (!$this->productId || !$this->posLocationId) {
+        $this->resolvePosLocations();
+
+        if (!$this->productId || empty($this->posLocationIds)) {
             $this->dispatch('toast', ['type' => 'danger', 'message' => 'Lokasi POS atau produk tidak valid.']);
             $this->dispatch('focusSerialScanInput');
             return;
         }
 
         $row = DB::table('product_serial_numbers as psn')
-            ->select('psn.id', 'psn.serial_number')
+            ->select('psn.id', 'psn.serial_number', 'psn.location_id', 'psn.tax_id')
             ->where('psn.product_id', $this->productId)
-            ->where('psn.location_id', $this->posLocationId)
+            ->whereIn('psn.location_id', $this->posLocationIds)
             ->where('psn.is_broken', 0)
             ->whereNull('psn.dispatch_detail_id')
             ->where('psn.serial_number', $code)
+            ->when(!empty($this->posLocationIds), function ($query) {
+                $ordered = implode(',', array_map('intval', $this->posLocationIds));
+                if ($ordered !== '') {
+                    $query->orderByRaw('FIELD(psn.location_id, ' . $ordered . ')');
+                }
+            })
             ->first();
 
         if ($row) {
@@ -116,6 +127,8 @@ class SerialNumberPicker extends Component
                 'serial' => [
                     'id' => (int)$row->id,
                     'serial_number' => (string)$row->serial_number,
+                    'tax_id' => $row->tax_id !== null ? (int)$row->tax_id : null,
+                    'location_id' => $row->location_id !== null ? (int)$row->location_id : null,
                 ],
                 'bundle' => $this->bundle,
             ]);
