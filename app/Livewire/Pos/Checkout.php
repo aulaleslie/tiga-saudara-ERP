@@ -57,6 +57,8 @@ class Checkout extends Component
     public bool $paidAmountManuallyUpdated = false;
     #[Locked]
     public ?string $lastChangeModalAmount = null;
+    public bool $forceShowChangeModal = false;
+    public ?float $forcedChangeAmount = null;
 
     public function mount($cartInstance, $customers)
     {
@@ -95,6 +97,8 @@ class Checkout extends Component
         $this->bundleOptions = collect();
 
         $this->posLocationId = PosLocationResolver::resolveId();
+
+        $this->initializeChangeModalFromFlash();
 
         $this->refreshTotals(true);
     }
@@ -1587,6 +1591,18 @@ class Checkout extends Component
     {
         $this->total_amount = $this->calculateTotal();
         $this->syncPaymentsWithTotal($forcePaidAmountSync);
+
+        if ($this->forceShowChangeModal && $this->forcedChangeAmount !== null) {
+            $this->changeModalHasPositiveChange = true;
+            $this->changeModalAmount = $this->formatChangeAmount($this->forcedChangeAmount);
+            $this->lastChangeModalAmount = $this->changeModalAmount;
+            $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
+            $this->forceShowChangeModal = false;
+            $this->forcedChangeAmount = null;
+
+            return;
+        }
+
         $this->syncChangeModalState();
         $this->maybeAutoShowChangeModal();
     }
@@ -1694,6 +1710,29 @@ class Checkout extends Component
         $method = $this->findPaymentMethod($methodId);
 
         return (bool) data_get($method, 'is_cash', false);
+    }
+
+    protected function initializeChangeModalFromFlash(): void
+    {
+        $hasCashOverpayment = session()->pull('pos_cash_overpayment', false);
+        $changeDue = session()->pull('pos_change_due');
+
+        if (! $hasCashOverpayment) {
+            return;
+        }
+
+        if ($changeDue === null) {
+            return;
+        }
+
+        $changeDue = round((float) $changeDue, 2);
+
+        if ($changeDue <= 0) {
+            return;
+        }
+
+        $this->forcedChangeAmount = $changeDue;
+        $this->forceShowChangeModal = true;
     }
 
     protected function syncChangeModalState(): void
