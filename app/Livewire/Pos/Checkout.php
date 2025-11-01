@@ -51,6 +51,7 @@ class Checkout extends Component
     public $paymentMethods = [];
     public array $payments = [];
     public ?int $posLocationId = null;
+    public array $posLocationIds = [];
     public bool $changeModalHasPositiveChange = false;
     public ?string $changeModalAmount = null;
     #[Locked]
@@ -97,7 +98,7 @@ class Checkout extends Component
 
         $this->bundleOptions = collect();
 
-        $this->posLocationId = PosLocationResolver::resolveId();
+        $this->refreshPosLocationContext();
 
         $this->initializeChangeModalFromFlash();
 
@@ -106,8 +107,19 @@ class Checkout extends Component
 
     public function hydrate()
     {
+        $this->refreshPosLocationContext();
         $this->refreshTotals();
         $this->dispatch('pos-mask-money-init');
+    }
+
+    private function refreshPosLocationContext(): void
+    {
+        $this->posLocationIds = PosLocationResolver::resolveLocationIds()
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+
+        $this->posLocationId = $this->posLocationIds[0] ?? null;
     }
 
     public function updatedPaidAmount($value): void
@@ -786,6 +798,7 @@ class Checkout extends Component
             'id'            => (int) $serial['id'],
             'serial_number' => (string) $serial['serial_number'],
             'tax_id'        => isset($serial['tax_id']) ? ($serial['tax_id'] !== null ? (int) $serial['tax_id'] : null) : null,
+            'location_id'   => isset($serial['location_id']) ? ($serial['location_id'] !== null ? (int) $serial['location_id'] : null) : null,
         ];
 
         if ($existing) {
@@ -912,12 +925,21 @@ class Checkout extends Component
         }
 
         if ($productId) {
-            $record = ProductSerialNumber::query()
+            $locationIds = array_map('intval', $this->posLocationIds ?? []);
+            if (empty($locationIds) && $this->posLocationId) {
+                $locationIds = [(int) $this->posLocationId];
+            }
+
+            $query = ProductSerialNumber::query()
                 ->where('id', $serialId)
                 ->where('product_id', $productId)
-                ->when($this->posLocationId, fn($query) => $query->where('location_id', $this->posLocationId))
-                ->whereNull('dispatch_detail_id')
-                ->first();
+                ->whereNull('dispatch_detail_id');
+
+            if (! empty($locationIds)) {
+                $query->whereIn('location_id', $locationIds);
+            }
+
+            $record = $query->first();
 
             if (!$record) {
                 return null;
@@ -927,6 +949,7 @@ class Checkout extends Component
                 'id'            => $record->id,
                 'serial_number' => $record->serial_number,
                 'tax_id'        => $record->tax_id !== null ? (int) $record->tax_id : null,
+                'location_id'   => $record->location_id !== null ? (int) $record->location_id : null,
             ];
         }
 
@@ -934,9 +957,9 @@ class Checkout extends Component
             'id'            => $serialId,
             'serial_number' => $serialNumber,
             'tax_id'        => isset($data['tax_id']) && $data['tax_id'] !== null ? (int) $data['tax_id'] : null,
+            'location_id'   => isset($data['location_id']) && $data['location_id'] !== null ? (int) $data['location_id'] : null,
         ];
     }
-
     private function resetBundleState(): void
     {
         $this->pendingProduct = null;
@@ -1198,106 +1221,157 @@ class Checkout extends Component
         $quantity = max(0, (int) $quantity);
         $productId = (int) ($product['id'] ?? 0);
 
-        $availableNonTax = null;
-        $availableTax = null;
-        $availableTotal = null;
-        $resolvedTaxId = null;
-        $stockTaxId = $product['product_tax'] ?? null;
+        $baseLocationIds = array_map('intval', $this->posLocationIds ?? []);
+        if (empty($baseLocationIds) && $this->posLocationId) {
+            $baseLocationIds = [(int) $this->posLocationId];
+        }
 
-        if ($this->posLocationId && $productId > 0) {
-            $stock = ProductStock::query()
-                ->select(['id', 'quantity_non_tax', 'quantity_tax', 'broken_quantity_non_tax', 'broken_quantity_tax', 'tax_id'])
-                ->where('product_id', $productId)
-                ->where('location_id', $this->posLocationId)
-                ->first();
+        $forcedResolvedTaxId = $forcedAllocation['resolved_tax_id'] ?? null;
+        if ($forcedResolvedTaxId === '' || $forcedResolvedTaxId === 0 || $forcedResolvedTaxId === '0') {
+            $forcedResolvedTaxId = null;
+        }
 
-            if ($stock) {
-                $availableNonTax = max(0, (int) $stock->quantity_non_tax - (int) $stock->broken_quantity_non_tax);
-                $availableTax = max(0, (int) $stock->quantity_tax - (int) $stock->broken_quantity_tax);
-                $availableTotal = $availableNonTax + $availableTax;
-                $stockTaxId = $stock->tax_id !== null ? (int) $stock->tax_id : null;
-            } else {
-                $availableNonTax = 0;
-                $availableTax = 0;
-                $availableTotal = 0;
+        $forcedByLocation = [];
+        if ($forcedAllocation && isset($forcedAllocation['locations']) && is_array($forcedAllocation['locations'])) {
+            foreach ($forcedAllocation['locations'] as $locationAllocation) {
+                $forcedLocationId = (int) ($locationAllocation['location_id'] ?? 0);
+
+                if ($forcedLocationId <= 0) {
+                    continue;
+                }
+
+                $forcedByLocation[$forcedLocationId] = [
+                    'allocated_non_tax' => max(0, (int) ($locationAllocation['allocated_non_tax'] ?? 0)),
+                    'allocated_tax' => max(0, (int) ($locationAllocation['allocated_tax'] ?? 0)),
+                ];
             }
         }
 
-        if ($availableTotal === null) {
-            $availableTotal = (int) ($product['product_quantity'] ?? PHP_INT_MAX);
+        $locationIds = array_values(array_unique(array_filter(array_merge($baseLocationIds, array_keys($forcedByLocation)))));
+
+        $locationStocks = [];
+
+        if ($productId > 0 && ! empty($locationIds)) {
+            $stockRecords = ProductStock::query()
+                ->select([
+                    'location_id',
+                    'quantity_non_tax',
+                    'quantity_tax',
+                    'broken_quantity_non_tax',
+                    'broken_quantity_tax',
+                    'tax_id',
+                ])
+                ->where('product_id', $productId)
+                ->whereIn('location_id', $locationIds)
+                ->get();
+
+            foreach ($stockRecords as $stockRecord) {
+                $locationStocks[(int) $stockRecord->location_id] = [
+                    'available_non_tax' => max(0, (int) $stockRecord->quantity_non_tax - (int) $stockRecord->broken_quantity_non_tax),
+                    'available_tax' => max(0, (int) $stockRecord->quantity_tax - (int) $stockRecord->broken_quantity_tax),
+                    'tax_id' => $stockRecord->tax_id !== null ? (int) $stockRecord->tax_id : null,
+                ];
+            }
         }
 
+        $allocations = [];
         $allocatedNonTax = 0;
         $allocatedTax = 0;
-
-        if ($forcedAllocation) {
-            $allocatedNonTax = max(0, (int) ($forcedAllocation['allocated_non_tax'] ?? 0));
-            $allocatedTax = max(0, (int) ($forcedAllocation['allocated_tax'] ?? 0));
-            $forcedTaxId = $forcedAllocation['resolved_tax_id'] ?? null;
-
-            if ($availableNonTax !== null && $allocatedNonTax > $availableNonTax) {
-                $allocatedNonTax = $availableNonTax;
-            }
-
-            if ($availableTax !== null && $allocatedTax > $availableTax) {
-                $allocatedTax = $availableTax;
-            }
-
-            $allocatedTotal = $allocatedNonTax + $allocatedTax;
-            if ($allocatedTotal < $quantity) {
-                $remaining = $quantity - $allocatedTotal;
-
-                if ($availableNonTax !== null && $allocatedNonTax < $availableNonTax) {
-                    $additional = min($remaining, max(0, $availableNonTax - $allocatedNonTax));
-                    $allocatedNonTax += $additional;
-                    $remaining -= $additional;
-                }
-
-                if ($remaining > 0 && $availableTax !== null && $allocatedTax < $availableTax) {
-                    $additionalTax = min($remaining, max(0, $availableTax - $allocatedTax));
-                    $allocatedTax += $additionalTax;
-                    $remaining -= $additionalTax;
-                }
-
-                if ($remaining > 0) {
-                    $allocatedTax += $remaining;
-                }
-            }
-
-            $resolvedTaxId = $forcedTaxId !== null ? (int) $forcedTaxId : null;
-            if ($resolvedTaxId === null && $allocatedTax > 0) {
-                $resolvedTaxId = $stockTaxId !== null ? (int) $stockTaxId : null;
-            }
-        } else {
-            if ($availableNonTax !== null && $availableTax !== null) {
-                $allocatedNonTax = min($quantity, $availableNonTax);
-                $allocatedTax = min(max(0, $quantity - $allocatedNonTax), $availableTax);
-            } else {
-                $allocatedNonTax = min($quantity, $availableTotal);
-                $allocatedTax = max(0, $quantity - $allocatedNonTax);
-            }
-
-            $resolvedTaxId = $allocatedTax > 0 && $stockTaxId !== null ? (int) $stockTaxId : null;
-        }
-
-        $totalAllocated = $allocatedNonTax + $allocatedTax;
-
+        $totalAvailableNonTax = 0;
+        $totalAvailableTax = 0;
         $sufficient = true;
-        if ($availableTotal !== null) {
-            $sufficient = $quantity <= $availableTotal;
+
+        foreach ($locationIds as $locationId) {
+            $stock = $locationStocks[$locationId] ?? null;
+            $availableNonTax = $stock['available_non_tax'] ?? 0;
+            $availableTax = $stock['available_tax'] ?? 0;
+            $stockTaxId = $stock['tax_id'] ?? null;
+
+            $totalAvailableNonTax += $availableNonTax;
+            $totalAvailableTax += $availableTax;
+
+            $locationAllocatedNonTax = 0;
+            $locationAllocatedTax = 0;
+
+            $forced = $forcedByLocation[$locationId] ?? null;
+            if ($forced) {
+                $forcedNonTax = min($availableNonTax, $forced['allocated_non_tax']);
+                $forcedTax = min($availableTax, $forced['allocated_tax']);
+
+                if ($forcedNonTax < $forced['allocated_non_tax'] || $forcedTax < $forced['allocated_tax']) {
+                    $sufficient = false;
+                }
+
+                $locationAllocatedNonTax += $forcedNonTax;
+                $locationAllocatedTax += $forcedTax;
+
+                $allocatedNonTax += $forcedNonTax;
+                $allocatedTax += $forcedTax;
+            }
+
+            $remainingForLocation = max(0, $quantity - ($allocatedNonTax + $allocatedTax));
+
+            if ($remainingForLocation > 0 && $locationAllocatedNonTax < $availableNonTax) {
+                $take = min($remainingForLocation, $availableNonTax - $locationAllocatedNonTax);
+                $locationAllocatedNonTax += $take;
+                $allocatedNonTax += $take;
+                $remainingForLocation -= $take;
+            }
+
+            if ($remainingForLocation > 0 && $locationAllocatedTax < $availableTax) {
+                $take = min($remainingForLocation, $availableTax - $locationAllocatedTax);
+                $locationAllocatedTax += $take;
+                $allocatedTax += $take;
+                $remainingForLocation -= $take;
+            }
+
+            $allocations[] = [
+                'location_id' => $locationId,
+                'allocated_non_tax' => $locationAllocatedNonTax,
+                'allocated_tax' => $locationAllocatedTax,
+                'available_non_tax' => $availableNonTax,
+                'available_tax' => $availableTax,
+                'remaining_non_tax' => max(0, $availableNonTax - $locationAllocatedNonTax),
+                'remaining_tax' => max(0, $availableTax - $locationAllocatedTax),
+                'resolved_tax_id' => $locationAllocatedTax > 0 && $stockTaxId !== null ? (int) $stockTaxId : null,
+            ];
         }
-        if ($availableNonTax !== null && $allocatedNonTax > $availableNonTax) {
-            $sufficient = false;
+
+        $availableTotal = $totalAvailableNonTax + $totalAvailableTax;
+
+        if (empty($locationIds)) {
+            $availableTotal = (int) ($product['product_quantity'] ?? PHP_INT_MAX);
+            $allocatedNonTax = min($quantity, $availableTotal);
+            $allocatedTax = max(0, $quantity - $allocatedNonTax);
+            $totalAvailableNonTax = null;
+            $totalAvailableTax = null;
+            $allocations = [];
         }
-        if ($availableTax !== null && $allocatedTax > $availableTax) {
-            $sufficient = false;
-        }
-        if ($totalAllocated < $quantity) {
+
+        if ($quantity > $availableTotal) {
             $sufficient = false;
         }
 
-        $remainingNonTax = $availableNonTax !== null ? max(0, $availableNonTax - $allocatedNonTax) : null;
-        $remainingTax = $availableTax !== null ? max(0, $availableTax - $allocatedTax) : null;
+        if (($allocatedNonTax + $allocatedTax) < $quantity) {
+            $sufficient = false;
+        }
+
+        $resolvedTaxId = $forcedResolvedTaxId !== null ? (int) $forcedResolvedTaxId : null;
+        if ($resolvedTaxId === null && $allocatedTax > 0) {
+            $taxCandidates = [];
+            foreach ($allocations as $allocation) {
+                if (($allocation['allocated_tax'] ?? 0) > 0 && isset($allocation['resolved_tax_id'])) {
+                    $taxCandidates[] = $allocation['resolved_tax_id'];
+                }
+            }
+            $taxCandidates = array_values(array_unique(array_filter($taxCandidates, fn ($id) => $id !== null)));
+            if (count($taxCandidates) === 1) {
+                $resolvedTaxId = (int) $taxCandidates[0];
+            }
+        }
+
+        $remainingNonTax = $totalAvailableNonTax !== null ? max(0, $totalAvailableNonTax - $allocatedNonTax) : null;
+        $remainingTax = $totalAvailableTax !== null ? max(0, $totalAvailableTax - $allocatedTax) : null;
 
         return [
             'sufficient' => $sufficient,
@@ -1306,9 +1380,10 @@ class Checkout extends Component
             'resolved_tax_id' => $resolvedTaxId,
             'remaining_non_tax' => $remainingNonTax,
             'remaining_tax' => $remainingTax,
-            'available_non_tax' => $availableNonTax,
-            'available_tax' => $availableTax,
+            'available_non_tax' => $totalAvailableNonTax,
+            'available_tax' => $totalAvailableTax,
             'available_total' => $availableTotal,
+            'locations' => $allocations,
         ];
     }
 
@@ -1339,6 +1414,8 @@ class Checkout extends Component
             $options['stock'] = max(0, (int) $stockContext['available_total']);
         }
         $options['pos_location_id'] = $this->posLocationId;
+        $options['pos_location_ids'] = $this->posLocationIds;
+        $options['pos_location_allocations'] = array_values($stockContext['locations'] ?? []);
 
         return $options;
     }
@@ -1348,6 +1425,7 @@ class Checkout extends Component
         $nonTax = 0;
         $tax = 0;
         $taxIds = [];
+        $locations = [];
 
         foreach ($serials as $serial) {
             if ($serial instanceof Collection) {
@@ -1356,16 +1434,37 @@ class Checkout extends Component
                 $serial = $serial->toArray();
             }
 
-            if (!is_array($serial)) {
+            if (! is_array($serial)) {
                 continue;
             }
 
             $taxId = $serial['tax_id'] ?? null;
+            $locationId = isset($serial['location_id']) ? (int) $serial['location_id'] : null;
+            if ($locationId !== null && $locationId <= 0) {
+                $locationId = null;
+            }
+
             if ($taxId !== null && $taxId !== '') {
                 $tax++;
                 $taxIds[] = (int) $taxId;
+                if ($locationId !== null) {
+                    $locations[$locationId] = $locations[$locationId] ?? [
+                        'location_id' => $locationId,
+                        'allocated_non_tax' => 0,
+                        'allocated_tax' => 0,
+                    ];
+                    $locations[$locationId]['allocated_tax']++;
+                }
             } else {
                 $nonTax++;
+                if ($locationId !== null) {
+                    $locations[$locationId] = $locations[$locationId] ?? [
+                        'location_id' => $locationId,
+                        'allocated_non_tax' => 0,
+                        'allocated_tax' => 0,
+                    ];
+                    $locations[$locationId]['allocated_non_tax']++;
+                }
             }
         }
 
@@ -1380,9 +1479,9 @@ class Checkout extends Component
             'allocated_tax' => $tax,
             'resolved_tax_id' => $resolvedTaxId,
             'tax_ids' => $uniqueTaxIds,
+            'locations' => array_values($locations),
         ];
     }
-
     public function setCustomer($customer)
     {
         $this->customer_id = $customer['id'];
