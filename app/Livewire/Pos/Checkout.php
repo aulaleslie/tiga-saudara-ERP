@@ -271,15 +271,18 @@ class Checkout extends Component
             return;
         }
 
-        if (($product['product_quantity'] ?? 0) <= 0) {
-            session()->flash('message', 'Produk sedang tidak tersedia!');
-            return;
-        }
-
         [$hydratedProduct, $bundles] = $this->resolveProductContext($product);
 
         if (!$hydratedProduct) {
             session()->flash('message', 'Produk tidak dapat dimuat.');
+            return;
+        }
+
+        $convertedQty = max(1, (int) ($hydratedProduct['conversion_factor'] ?? 1));
+        $stockContext = $this->resolveStockForProduct($hydratedProduct, $convertedQty);
+
+        if (!($stockContext['sufficient'] ?? true)) {
+            session()->flash('message', 'Jumlah yang diminta melebihi stok POS yang tersedia.');
             return;
         }
 
