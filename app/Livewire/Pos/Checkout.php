@@ -298,6 +298,26 @@ class Checkout extends Component
             return;
         }
 
+        $requiresSerial = $this->productRequiresSerial($hydratedProduct);
+
+        if ($requiresSerial && empty($pendingSerials)) {
+            $this->serialSelectionContext = [
+                'product' => $hydratedProduct,
+                'bundle'  => null,
+            ];
+
+            $expectedCount = max(1, (int) ($hydratedProduct['conversion_factor'] ?? 1));
+
+            $this->dispatch('openSerialPicker', [
+                'product_id'     => (int) $hydratedProduct['id'],
+                'expected_count' => $expectedCount,
+                'bundle'         => null,
+            ]);
+
+            $this->resetBundleState();
+            return;
+        }
+
         if ($this->promptBundleSelection($hydratedProduct, $bundles, $pendingSerials)) {
             return;
         }

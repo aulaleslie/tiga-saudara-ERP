@@ -48,38 +48,47 @@
             <div class="card position-absolute mt-1" style="z-index: 2; left: 0; right: 0; border: 0;">
                 <div class="card-body shadow">
                     <ul class="list-group list-group-flush">
-                        @foreach($search_results as $result)
-                            <li class="list-group-item list-group-item-action" wire:key="search-{{ $result->source }}-{{ $result->id }}-{{ $result->serial_id ?? '0' }}">
+                        @foreach($search_results as $index => $result)
+                            @php
+                                $source = $result->source ?? 'base';
+                                $isAction = $source === 'action';
+                                $key = $isAction
+                                    ? 'search-action-' . md5(($result->action ?? '') . ($result->query ?? '') . '-' . $index)
+                                    : 'search-' . $source . '-' . ($result->id ?? '0') . '-' . ($result->serial_id ?? '0') . '-' . $index;
+                            @endphp
+                            <li class="list-group-item list-group-item-action" wire:key="{{ $key }}">
                                 <a href="#"
-                                   wire:click.prevent="selectProduct(@js($result))">
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <div>
-                                            <strong>{{ $result->product_name }}</strong>
-                                            <span class="text-muted"> | {{ $result->product_code }}</span>
+                                   wire:click.prevent="selectProduct(@js($result))"
+                                   class="d-flex justify-content-between align-items-center">
+                                    <div class="mr-2">
+                                        @if($isAction)
+                                            <strong class="text-primary">{{ $result->label ?? 'Tunjukkan hasil pencarian' }}</strong>
+                                            <div class="text-muted small">Perbarui daftar produk dengan kata kunci ini.</div>
+                                        @else
+                                            <div class="d-flex align-items-center flex-wrap">
+                                                <strong>{{ $result->product_name }}</strong>
+                                                <span class="text-muted ml-1">| {{ $result->product_code }}</span>
 
-                                            @if(($result->source ?? 'base') === 'conversion')
-                                                {{-- show conversion unit + factor --}}
-                                                <span class="badge badge-light ml-1">
-                        {{ $result->unit_name }}
-                    </span>
-                                                <span class="text-muted">× {{ rtrim(rtrim(number_format($result->conversion_factor, 3, '.', ''), '0'), '.') }}</span>
-                                            @else
-                                                {{-- base or serial -> show unit only --}}
-                                                <span class="badge badge-light ml-1">
-                        {{ $result->unit_name }}
-                    </span>
-                                            @endif
-                                        </div>
+                                                <span class="badge badge-light ml-2">{{ $result->unit_name }}</span>
 
-                                        @if(($result->source ?? null) === 'serial' && !empty($result->serial_number))
-                                            <span class="badge badge-info">SN: {{ $result->serial_number }}</span>
+                                                @if(($result->source ?? 'base') === 'conversion')
+                                                    <span class="text-muted ml-1">× {{ rtrim(rtrim(number_format($result->conversion_factor, 3, '.', ''), '0'), '.') }}</span>
+                                                @endif
+                                            </div>
+                                            <div class="text-muted small mt-1">Stok: {{ $result->product_quantity ?? 0 }}</div>
                                         @endif
                                     </div>
+
+                                    @if(!$isAction && ($result->source ?? null) === 'serial' && !empty($result->serial_number))
+                                        <span class="badge badge-info">SN: {{ $result->serial_number }}</span>
+                                    @elseif($isAction)
+                                        <i class="bi bi-arrow-repeat text-primary"></i>
+                                    @endif
                                 </a>
                             </li>
                         @endforeach
 
-                        @if($search_results->count() >= $how_many)
+                        @if($resultCount >= $how_many)
                             <li class="list-group-item list-group-item-action text-center">
                                 <a wire:click.prevent="loadMore" class="btn btn-primary btn-sm" href="#">
                                     Memuat lebih <i class="bi bi-arrow-down-circle"></i>
