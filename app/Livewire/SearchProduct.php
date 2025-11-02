@@ -119,6 +119,7 @@ class SearchProduct extends Component
         ) st ON st.product_id = p.id
         WHERE LOWER(psn.serial_number) = LOWER(:code)
           AND psn.is_broken = 0
+          AND psn.dispatch_detail_id IS NULL
           AND {serial_filter}
         LIMIT 1
     ";
@@ -477,6 +478,7 @@ class SearchProduct extends Component
         ) st ON st.product_id = p.id
         LEFT JOIN units ub ON ub.id = p.base_unit_id
         WHERE psn.is_broken = 0
+          AND psn.dispatch_detail_id IS NULL
           AND {serial_location_filter}
     ) results
     WHERE (
