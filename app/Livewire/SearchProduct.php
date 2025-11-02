@@ -19,15 +19,25 @@ class SearchProduct extends Component
     public $search_results;
     public int $how_many = 5;
 
+    /** Number of product results (excluding helper actions). */
+    public int $resultCount = 0;
+
     /** All sale location ids configured for the active setting */
     private array $posLocationIds = [];
+
+    /** Cache bundle sell availability checks per product. */
+    private array $bundleSellableCache = [];
 
     public function mount(): void
     {
         // resolve POS location for the current business/setting
-        $this->posLocationIds = PosLocationResolver::resolveLocationIds()->all();
+        $this->posLocationIds = PosLocationResolver::resolveLocationIds()
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
 
         $this->search_results = Collection::empty();
+        $this->resultCount = 0;
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
@@ -42,10 +52,9 @@ class SearchProduct extends Component
         if (mb_strlen($input) < 2) {
             $this->dispatch('posSearchUpdated', '')->to(ProductList::class);
             $this->search_results = Collection::empty();
+            $this->resultCount = 0;
             return;
         }
-
-        $this->dispatch('posSearchUpdated', $input)->to(ProductList::class);
 
         if ($this->tryHandleExactSerial($input)) {
             $this->resetQuery();
@@ -60,7 +69,17 @@ class SearchProduct extends Component
             return;
         }
 
-        $this->search_results = $this->suggestions($input);
+        $results = $this->suggestions($input);
+        $this->resultCount = $results->count();
+
+        $results->push((object) [
+            'source' => 'action',
+            'action' => 'show_results',
+            'label'  => 'Tunjukkan hasil pencarian',
+            'query'  => $input,
+        ]);
+
+        $this->search_results = $results;
     }
 
     public function loadMore(): void
@@ -74,8 +93,23 @@ class SearchProduct extends Component
         $this->query = '';
         $this->how_many = 5;
         $this->search_results = Collection::empty();
+        $this->resultCount = 0;
 
         $this->dispatch('posSearchUpdated', '')->to(ProductList::class);
+        $this->dispatch('pos:focus-search');
+    }
+
+    public function showSearchResults(): void
+    {
+        $term = trim($this->query);
+
+        $this->dispatch('posSearchUpdated', $term)->to(ProductList::class);
+
+        $this->query = '';
+        $this->how_many = 5;
+        $this->search_results = Collection::empty();
+        $this->resultCount = 0;
+
         $this->dispatch('pos:focus-search');
     }
 
@@ -87,9 +121,8 @@ class SearchProduct extends Component
     {
         $settingId = session('setting_id');
 
-        $stockFilter = $this->buildLocationFilter('location_id', 'serial_stock');
-        $serialFilter = $this->buildLocationFilter('psn.location_id', 'serial_loc');
-
+        $stockFilter = $this->buildLocationFilter('location_id', 'serial_stock', true);
+        $serialFilter = $this->buildLocationFilter('psn.location_id', 'serial_loc', true);
         $sql = "
         SELECT
             psn.id          AS serial_id,
@@ -261,6 +294,11 @@ class SearchProduct extends Component
         // normalize stdClass -> array
         $data = is_array($result) ? $result : (array) $result;
 
+        if (($data['source'] ?? null) === 'action' && ($data['action'] ?? null) === 'show_results') {
+            $this->showSearchResults();
+            return;
+        }
+
         // guard: no stock
         if (isset($data['product_quantity']) && (int)$data['product_quantity'] <= 0) {
             $this->dispatch('pos:toast', ['type' => 'warning', 'message' => 'Produk habis stok']);
@@ -370,14 +408,15 @@ class SearchProduct extends Component
     private function suggestions(string $input): Collection
     {
         $term  = '%' . mb_strtolower($input) . '%';
+        $serialTerm = '%' . mb_strtolower($input) . '%';
         $limit = (int) $this->how_many;
 
         $settingId = session('setting_id');
 
-        $baseStockFilter = $this->buildLocationFilter('location_id', 'suggest_base');
-        $conversionStockFilter = $this->buildLocationFilter('location_id', 'suggest_conversion');
-        $serialStockFilter = $this->buildLocationFilter('location_id', 'suggest_serial');
-        $serialLocationFilter = $this->buildLocationFilter('psn.location_id', 'suggest_serial_loc');
+        $baseStockFilter = $this->buildLocationFilter('location_id', 'suggest_base', true);
+        $conversionStockFilter = $this->buildLocationFilter('location_id', 'suggest_conversion', true);
+        $serialStockFilter = $this->buildLocationFilter('location_id', 'suggest_serial', true);
+        $serialLocationFilter = $this->buildLocationFilter('psn.location_id', 'suggest_serial_loc', true);
 
         $sql = "
     SELECT * FROM (
@@ -398,7 +437,14 @@ class SearchProduct extends Component
             u.name AS unit_name,
             'base' AS source,
             NULL AS serial_id,
-            NULL AS serial_number
+            NULL AS serial_number,
+            p.serial_number_required,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1 FROM product_bundles pb
+                    WHERE pb.parent_product_id = p.id
+                ) THEN 1 ELSE 0
+            END AS has_bundle
         FROM products p
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_base
         LEFT JOIN (
@@ -409,6 +455,11 @@ class SearchProduct extends Component
             GROUP BY product_id
         ) st ON st.product_id = p.id
         LEFT JOIN units u ON u.id = p.unit_id
+        WHERE p.serial_number_required = 0
+          AND (
+              LOWER(p.product_name) LIKE :term_base_name
+              OR LOWER(p.product_code) LIKE :term_base_code
+          )
 
         UNION ALL
 
@@ -429,7 +480,14 @@ class SearchProduct extends Component
             u.name AS unit_name,
             'conversion' AS source,
             NULL AS serial_id,
-            NULL AS serial_number
+            NULL AS serial_number,
+            p.serial_number_required,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1 FROM product_bundles pb
+                    WHERE pb.parent_product_id = p.id
+                ) THEN 1 ELSE 0
+            END AS has_bundle
         FROM product_unit_conversions puc
         JOIN products p ON p.id = puc.product_id
         LEFT JOIN product_unit_conversion_prices pucp
@@ -444,7 +502,11 @@ class SearchProduct extends Component
             GROUP BY product_id
         ) st ON st.product_id = p.id
         LEFT JOIN units u ON u.id = puc.unit_id
-        WHERE puc.barcode IS NOT NULL
+        WHERE p.serial_number_required = 0
+          AND (
+              LOWER(p.product_name) LIKE :term_conv_name
+              OR LOWER(p.product_code) LIKE :term_conv_code
+          )
 
         UNION ALL
 
@@ -465,7 +527,14 @@ class SearchProduct extends Component
             ub.name AS unit_name,
             'serial' AS source,
             psn.id AS serial_id,
-            psn.serial_number
+            psn.serial_number,
+            p.serial_number_required,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1 FROM product_bundles pb
+                    WHERE pb.parent_product_id = p.id
+                ) THEN 1 ELSE 0
+            END AS has_bundle
         FROM product_serial_numbers psn
         JOIN products p ON p.id = psn.product_id
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_serial
@@ -480,13 +549,9 @@ class SearchProduct extends Component
         WHERE psn.is_broken = 0
           AND psn.dispatch_detail_id IS NULL
           AND {serial_location_filter}
+          AND LOWER(psn.serial_number) LIKE :term_serial
+          AND p.serial_number_required = 1
     ) results
-    WHERE (
-        LOWER(results.product_name) LIKE :term1
-        OR LOWER(results.product_code) LIKE :term2
-        OR LOWER(results.barcode)     LIKE :term3
-        OR LOWER(results.serial_number) LIKE :term4
-    )
     AND results.product_quantity > 0
     LIMIT {$limit}
     ";
@@ -502,10 +567,11 @@ class SearchProduct extends Component
             $serialStockFilter['bindings'],
             $serialLocationFilter['bindings'],
             [
-                'term1' => $term,
-                'term2' => $term,
-                'term3' => $term,
-                'term4' => $term,
+                'term_base_name' => $term,
+                'term_base_code' => $term,
+                'term_conv_name' => $term,
+                'term_conv_code' => $term,
+                'term_serial'    => $serialTerm,
                 'settingId_base'            => $settingId,
                 'settingId_conversion_pucp' => $settingId,
                 'settingId_conversion_pp'   => $settingId,
@@ -513,17 +579,39 @@ class SearchProduct extends Component
             ]
         );
 
-        return collect(DB::select($sql, $bindings));
+        $results = collect(DB::select($sql, $bindings))
+            ->filter(function ($row) {
+                $productId = (int) ($row->id ?? 0);
+
+                if ($productId <= 0) {
+                    return false;
+                }
+
+                $sellable = $this->isBundleSellable($productId);
+                $row->bundle_sellable = $sellable;
+
+                return $sellable;
+            })
+            ->map(function ($row) {
+                $row->product_quantity = (int) ($row->product_quantity ?? 0);
+                $row->serial_number_required = (bool) ($row->serial_number_required ?? false);
+                $row->has_bundle = (bool) ($row->has_bundle ?? false);
+
+                return $row;
+            })
+            ->values();
+
+        return $results;
     }
 
     /**
      * Build an SQL IN clause & bindings for the configured POS sale locations.
      */
-    private function buildLocationFilter(string $column, string $bindingPrefix): array
+    private function buildLocationFilter(string $column, string $bindingPrefix, bool $requireLocations = false): array
     {
         if (empty($this->posLocationIds)) {
             return [
-                'sql' => '1 = 0',
+                'sql' => $requireLocations ? '0 = 1' : '1 = 1',
                 'bindings' => [],
             ];
         }
@@ -541,5 +629,26 @@ class SearchProduct extends Component
             'sql' => sprintf('%s IN (%s)', $column, implode(', ', $placeholders)),
             'bindings' => $bindings,
         ];
+    }
+
+    private function isBundleSellable(int $productId): bool
+    {
+        if ($productId <= 0) {
+            return false;
+        }
+
+        if (!array_key_exists($productId, $this->bundleSellableCache)) {
+            $bundles = ProductBundleResolver::forProduct($productId);
+
+            if ($bundles->isEmpty()) {
+                $this->bundleSellableCache[$productId] = true;
+            } else {
+                $this->bundleSellableCache[$productId] = $bundles->contains(function ($bundle) {
+                    return $bundle->items && $bundle->items->isNotEmpty();
+                });
+            }
+        }
+
+        return $this->bundleSellableCache[$productId];
     }
 }

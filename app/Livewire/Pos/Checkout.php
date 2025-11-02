@@ -298,6 +298,26 @@ class Checkout extends Component
             return;
         }
 
+        $requiresSerial = $this->productRequiresSerial($hydratedProduct);
+
+        if ($requiresSerial && empty($pendingSerials)) {
+            $this->serialSelectionContext = [
+                'product' => $hydratedProduct,
+                'bundle'  => null,
+            ];
+
+            $expectedCount = max(1, (int) ($hydratedProduct['conversion_factor'] ?? 1));
+
+            $this->dispatch('openSerialPicker', [
+                'product_id'     => (int) $hydratedProduct['id'],
+                'expected_count' => $expectedCount,
+                'bundle'         => null,
+            ]);
+
+            $this->resetBundleState();
+            return;
+        }
+
         if ($this->promptBundleSelection($hydratedProduct, $bundles, $pendingSerials)) {
             return;
         }
@@ -1220,6 +1240,7 @@ class Checkout extends Component
     {
         $quantity = max(0, (int) $quantity);
         $productId = (int) ($product['id'] ?? 0);
+        $requiresSerial = $this->productRequiresSerial($product);
 
         $baseLocationIds = array_map('intval', $this->posLocationIds ?? []);
         if (empty($baseLocationIds) && $this->posLocationId) {
@@ -1290,6 +1311,75 @@ class Checkout extends Component
 
                 if ($taxId !== null && $availableTax > 0) {
                     $locationStocks[$locationId]['tax_candidates'][] = $taxId;
+                }
+            }
+
+            if ($requiresSerial) {
+                $serialRecords = ProductSerialNumber::query()
+                    ->selectRaw('location_id, tax_id, COUNT(*) AS available')
+                    ->where('product_id', $productId)
+                    ->whereIn('location_id', $locationIds)
+                    ->whereNull('dispatch_detail_id')
+                    ->where('is_broken', false)
+                    ->groupBy('location_id', 'tax_id')
+                    ->get();
+
+                $serialAvailability = [];
+
+                foreach ($serialRecords as $serialRecord) {
+                    $locationId = (int) ($serialRecord->location_id ?? 0);
+
+                    if ($locationId <= 0) {
+                        continue;
+                    }
+
+                    $available = max(0, (int) $serialRecord->available);
+                    $taxId = $serialRecord->tax_id;
+
+                    if ($taxId === null || $taxId === '' || $taxId === 0 || $taxId === '0') {
+                        $serialAvailability[$locationId]['non_tax'] = ($serialAvailability[$locationId]['non_tax'] ?? 0) + $available;
+                    } else {
+                        $taxId = (int) $taxId;
+                        $serialAvailability[$locationId]['tax'] = ($serialAvailability[$locationId]['tax'] ?? 0) + $available;
+                        $serialAvailability[$locationId]['tax_candidates'][] = $taxId;
+                    }
+                }
+
+                foreach ($serialAvailability as $locationId => $serialStock) {
+                    if (! isset($locationStocks[$locationId])) {
+                        $locationStocks[$locationId] = [
+                            'available_non_tax' => 0,
+                            'available_tax' => 0,
+                            'tax_id' => null,
+                            'tax_candidates' => [],
+                        ];
+                    }
+
+                    if (isset($serialStock['non_tax'])) {
+                        $serialCount = max(0, (int) $serialStock['non_tax']);
+                        $existing = max(0, (int) ($locationStocks[$locationId]['available_non_tax'] ?? 0));
+
+                        $locationStocks[$locationId]['available_non_tax'] = $existing > 0
+                            ? min($existing, $serialCount)
+                            : $serialCount;
+                    }
+
+                    if (isset($serialStock['tax'])) {
+                        $serialCount = max(0, (int) $serialStock['tax']);
+                        $existing = max(0, (int) ($locationStocks[$locationId]['available_tax'] ?? 0));
+
+                        $locationStocks[$locationId]['available_tax'] = $existing > 0
+                            ? min($existing, $serialCount)
+                            : $serialCount;
+                    }
+
+                    if (isset($serialStock['tax_candidates'])) {
+                        $existingCandidates = $locationStocks[$locationId]['tax_candidates'] ?? [];
+                        $locationStocks[$locationId]['tax_candidates'] = array_merge(
+                            $existingCandidates,
+                            $serialStock['tax_candidates']
+                        );
+                    }
                 }
             }
 
