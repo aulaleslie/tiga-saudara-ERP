@@ -1336,17 +1336,21 @@ class Checkout extends Component
                     }
 
                     if (isset($serialStock['non_tax'])) {
-                        $locationStocks[$locationId]['available_non_tax'] = max(
-                            $locationStocks[$locationId]['available_non_tax'] ?? 0,
-                            $serialStock['non_tax']
-                        );
+                        $serialCount = max(0, (int) $serialStock['non_tax']);
+                        $existing = max(0, (int) ($locationStocks[$locationId]['available_non_tax'] ?? 0));
+
+                        $locationStocks[$locationId]['available_non_tax'] = $existing > 0
+                            ? min($existing, $serialCount)
+                            : $serialCount;
                     }
 
                     if (isset($serialStock['tax'])) {
-                        $locationStocks[$locationId]['available_tax'] = max(
-                            $locationStocks[$locationId]['available_tax'] ?? 0,
-                            $serialStock['tax']
-                        );
+                        $serialCount = max(0, (int) $serialStock['tax']);
+                        $existing = max(0, (int) ($locationStocks[$locationId]['available_tax'] ?? 0));
+
+                        $locationStocks[$locationId]['available_tax'] = $existing > 0
+                            ? min($existing, $serialCount)
+                            : $serialCount;
                     }
 
                     if (isset($serialStock['tax_candidates'])) {

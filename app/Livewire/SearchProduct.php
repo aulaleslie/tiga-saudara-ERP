@@ -87,9 +87,9 @@ class SearchProduct extends Component
     {
         $settingId = session('setting_id');
 
-        $stockFilter = $this->buildLocationFilter('location_id', 'serial_stock');
-        $serialFilter = $this->buildLocationFilter('psn.location_id', 'serial_loc');
-        $serialAvailabilityFilter = $this->buildLocationFilter('psn2.location_id', 'serial_loc_avail');
+        $stockFilter = $this->buildLocationFilter('location_id', 'serial_stock', true);
+        $serialFilter = $this->buildLocationFilter('psn.location_id', 'serial_loc', true);
+        $serialAvailabilityFilter = $this->buildLocationFilter('psn2.location_id', 'serial_loc_avail', true);
 
         $sql = "
         SELECT
@@ -106,10 +106,14 @@ class SearchProduct extends Component
             COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
             COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
             u.name          AS unit_name,
-            GREATEST(
-                COALESCE(st.stock_qty, 0),
-                COALESCE(serial_avail.available_serial_qty, 0)
-            ) AS stock_qty
+            CASE
+                WHEN serial_avail.available_serial_qty IS NOT NULL THEN
+                    CASE
+                        WHEN st.stock_qty IS NULL OR st.stock_qty <= 0 THEN serial_avail.available_serial_qty
+                        ELSE LEAST(st.stock_qty, serial_avail.available_serial_qty)
+                    END
+                ELSE COALESCE(st.stock_qty, 0)
+            END AS stock_qty
         FROM product_serial_numbers psn
         JOIN products p ON p.id = psn.product_id
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
@@ -391,8 +395,9 @@ class SearchProduct extends Component
 
         $baseStockFilter = $this->buildLocationFilter('location_id', 'suggest_base');
         $conversionStockFilter = $this->buildLocationFilter('location_id', 'suggest_conversion');
-        $serialStockFilter = $this->buildLocationFilter('location_id', 'suggest_serial');
-        $serialLocationFilter = $this->buildLocationFilter('psn.location_id', 'suggest_serial_loc');
+        $serialStockFilter = $this->buildLocationFilter('location_id', 'suggest_serial', true);
+        $serialLocationFilter = $this->buildLocationFilter('psn.location_id', 'suggest_serial_loc', true);
+        $serialAvailabilityFilter = $this->buildLocationFilter('psn2.location_id', 'suggest_serial_loc_avail', true);
 
         $sql = "
     SELECT * FROM (
@@ -474,7 +479,14 @@ class SearchProduct extends Component
             COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
             p.barcode,
             p.base_unit_id AS unit_id,
-            COALESCE(st.stock_qty, 0) AS product_quantity,
+            CASE
+                WHEN serial_avail.available_serial_qty IS NOT NULL THEN
+                    CASE
+                        WHEN st.stock_qty IS NULL OR st.stock_qty <= 0 THEN serial_avail.available_serial_qty
+                        ELSE LEAST(st.stock_qty, serial_avail.available_serial_qty)
+                    END
+                ELSE COALESCE(st.stock_qty, 0)
+            END AS product_quantity,
             p.base_unit_id,
             1 AS conversion_factor,
             ub.name AS unit_name,
@@ -491,6 +503,15 @@ class SearchProduct extends Component
             WHERE {serial_stock_filter}
             GROUP BY product_id
         ) st ON st.product_id = p.id
+        LEFT JOIN (
+            SELECT psn2.product_id,
+                   COUNT(*) AS available_serial_qty
+            FROM product_serial_numbers psn2
+            WHERE psn2.is_broken = 0
+              AND psn2.dispatch_detail_id IS NULL
+              AND {serial_availability_filter}
+            GROUP BY psn2.product_id
+        ) serial_avail ON serial_avail.product_id = p.id
         LEFT JOIN units ub ON ub.id = p.base_unit_id
         WHERE psn.is_broken = 0
           AND psn.dispatch_detail_id IS NULL
@@ -510,12 +531,14 @@ class SearchProduct extends Component
         $sql = str_replace('{conversion_stock_filter}', $conversionStockFilter['sql'], $sql);
         $sql = str_replace('{serial_stock_filter}', $serialStockFilter['sql'], $sql);
         $sql = str_replace('{serial_location_filter}', $serialLocationFilter['sql'], $sql);
+        $sql = str_replace('{serial_availability_filter}', $serialAvailabilityFilter['sql'], $sql);
 
         $bindings = array_merge(
             $baseStockFilter['bindings'],
             $conversionStockFilter['bindings'],
             $serialStockFilter['bindings'],
             $serialLocationFilter['bindings'],
+            $serialAvailabilityFilter['bindings'],
             [
                 'term1' => $term,
                 'term2' => $term,
@@ -534,11 +557,11 @@ class SearchProduct extends Component
     /**
      * Build an SQL IN clause & bindings for the configured POS sale locations.
      */
-    private function buildLocationFilter(string $column, string $bindingPrefix): array
+    private function buildLocationFilter(string $column, string $bindingPrefix, bool $requireLocations = false): array
     {
         if (empty($this->posLocationIds)) {
             return [
-                'sql' => '1 = 1',
+                'sql' => $requireLocations ? '0 = 1' : '1 = 1',
                 'bindings' => [],
             ];
         }
