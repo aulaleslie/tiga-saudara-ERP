@@ -1266,11 +1266,37 @@ class Checkout extends Component
                 ->get();
 
             foreach ($stockRecords as $stockRecord) {
-                $locationStocks[(int) $stockRecord->location_id] = [
-                    'available_non_tax' => max(0, (int) $stockRecord->quantity_non_tax - (int) $stockRecord->broken_quantity_non_tax),
-                    'available_tax' => max(0, (int) $stockRecord->quantity_tax - (int) $stockRecord->broken_quantity_tax),
-                    'tax_id' => $stockRecord->tax_id !== null ? (int) $stockRecord->tax_id : null,
-                ];
+                $locationId = (int) $stockRecord->location_id;
+                $availableNonTax = max(0, (int) $stockRecord->quantity_non_tax - (int) $stockRecord->broken_quantity_non_tax);
+                $availableTax = max(0, (int) $stockRecord->quantity_tax - (int) $stockRecord->broken_quantity_tax);
+                $taxId = $stockRecord->tax_id;
+                if ($taxId === null || $taxId === '' || $taxId === 0 || $taxId === '0') {
+                    $taxId = null;
+                } else {
+                    $taxId = (int) $taxId;
+                }
+
+                if (! isset($locationStocks[$locationId])) {
+                    $locationStocks[$locationId] = [
+                        'available_non_tax' => 0,
+                        'available_tax' => 0,
+                        'tax_id' => null,
+                        'tax_candidates' => [],
+                    ];
+                }
+
+                $locationStocks[$locationId]['available_non_tax'] += $availableNonTax;
+                $locationStocks[$locationId]['available_tax'] += $availableTax;
+
+                if ($taxId !== null && $availableTax > 0) {
+                    $locationStocks[$locationId]['tax_candidates'][] = $taxId;
+                }
+            }
+
+            foreach ($locationStocks as $id => $stock) {
+                $candidates = array_values(array_unique(array_filter($stock['tax_candidates'] ?? [], fn ($candidate) => $candidate !== null)));
+                $locationStocks[$id]['tax_id'] = count($candidates) === 1 ? (int) $candidates[0] : null;
+                unset($locationStocks[$id]['tax_candidates']);
             }
         }
 
