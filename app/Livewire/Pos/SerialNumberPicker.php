@@ -131,7 +131,7 @@ class SerialNumberPicker extends Component
                     'location_id' => $row->location_id !== null ? (int)$row->location_id : null,
                 ],
                 'bundle' => $this->bundle,
-            ]);
+            ])->to(Checkout::class);
 
             // UX: show as "recent", clear input, keep modal open for next scan
             array_unshift($this->recent, (string)$row->serial_number);
