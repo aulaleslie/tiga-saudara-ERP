@@ -89,6 +89,7 @@ class SearchProduct extends Component
 
         $stockFilter = $this->buildLocationFilter('location_id', 'serial_stock');
         $serialFilter = $this->buildLocationFilter('psn.location_id', 'serial_loc');
+        $serialAvailabilityFilter = $this->buildLocationFilter('psn2.location_id', 'serial_loc_avail');
 
         $sql = "
         SELECT
@@ -105,7 +106,10 @@ class SearchProduct extends Component
             COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
             COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
             u.name          AS unit_name,
-            COALESCE(st.stock_qty, 0) AS stock_qty
+            GREATEST(
+                COALESCE(st.stock_qty, 0),
+                COALESCE(serial_avail.available_serial_qty, 0)
+            ) AS stock_qty
         FROM product_serial_numbers psn
         JOIN products p ON p.id = psn.product_id
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId
@@ -117,19 +121,31 @@ class SearchProduct extends Component
             WHERE {stock_filter}
             GROUP BY product_id
         ) st ON st.product_id = p.id
+        LEFT JOIN (
+            SELECT psn2.product_id,
+                   COUNT(*) AS available_serial_qty
+            FROM product_serial_numbers psn2
+            WHERE psn2.is_broken = 0
+              AND psn2.dispatch_detail_id IS NULL
+              AND {serial_availability_filter}
+            GROUP BY psn2.product_id
+        ) serial_avail ON serial_avail.product_id = p.id
         WHERE LOWER(psn.serial_number) = LOWER(:code)
           AND psn.is_broken = 0
+          AND psn.dispatch_detail_id IS NULL
           AND {serial_filter}
         LIMIT 1
     ";
 
         $sql = str_replace('{stock_filter}', $stockFilter['sql'], $sql);
         $sql = str_replace('{serial_filter}', $serialFilter['sql'], $sql);
+        $sql = str_replace('{serial_availability_filter}', $serialAvailabilityFilter['sql'], $sql);
 
         $bindings = array_merge(
             ['code' => $code, 'settingId' => $settingId],
             $stockFilter['bindings'],
             $serialFilter['bindings'],
+            $serialAvailabilityFilter['bindings'],
         );
 
         $row = DB::selectOne($sql, $bindings);
@@ -477,6 +493,7 @@ class SearchProduct extends Component
         ) st ON st.product_id = p.id
         LEFT JOIN units ub ON ub.id = p.base_unit_id
         WHERE psn.is_broken = 0
+          AND psn.dispatch_detail_id IS NULL
           AND {serial_location_filter}
     ) results
     WHERE (
@@ -521,7 +538,7 @@ class SearchProduct extends Component
     {
         if (empty($this->posLocationIds)) {
             return [
-                'sql' => '1 = 0',
+                'sql' => '1 = 1',
                 'bindings' => [],
             ];
         }
