@@ -41,6 +41,9 @@ class PurchaseController extends Controller
         return $dataTable->render('purchase::index');
     }
 
+    /**
+     * Display the purchase receiving landing page.
+     */
     public function receivingIndex(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('purchaseReceivings.access'), 403);
