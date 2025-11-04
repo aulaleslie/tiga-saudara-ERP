@@ -49,9 +49,9 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     })->name('purchases.pdf');
 
     //Purchases
-    Route::get('/purchases/receiving', [PurchaseController::class, 'receivingIndex'])
-        ->name('purchases.receiving.index')
-        ->middleware('can:purchaseReceivings.access');
+    Route::middleware('can:purchaseReceivings.access')
+        ->get('/purchases/receiving', [PurchaseController::class, 'receivingIndex'])
+        ->name('purchases.receiving.index');
     Route::get('/purchases/receivings/{purchase_id}', [PurchaseController::class, 'showReceivings'])
         ->name('purchases.receivings');
     Route::post('/purchases/{purchase}/receive', [PurchaseController::class, 'storeReceive'])->name('purchases.storeReceive');
