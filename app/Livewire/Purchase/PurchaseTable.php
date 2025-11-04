@@ -25,7 +25,7 @@ class PurchaseTable extends Component
     {
         // if you pass it in from the parent, use that; otherwise, fall back to the logged-in user’s
         $this->settingId = $settingId ?? session('setting_id');
-        $this->statusFilter = is_array($statusFilter) ? $statusFilter : (is_null($statusFilter) ? null : [$statusFilter]);
+        $this->statusFilter = $statusFilter;
         $this->purchaseId = $purchaseId;
     }
 
@@ -63,7 +63,10 @@ class PurchaseTable extends Component
             ->with(['supplier', 'tags'])
             ->where('setting_id', $this->settingId)
             ->when(! empty($this->statusFilter), function ($q) {
-                $q->whereIn('status', $this->statusFilter);
+                $q->whereIn('status', [
+                    Purchase::STATUS_APPROVED,
+                    Purchase::STATUS_RECEIVED_PARTIALLY,
+                ]);
             })
             ->when(! empty($this->purchaseId), function ($q) {
                 $q->where('id', $this->purchaseId);
