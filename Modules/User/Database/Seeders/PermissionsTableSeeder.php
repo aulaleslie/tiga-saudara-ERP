@@ -132,6 +132,7 @@ class PermissionsTableSeeder extends Seeder
             'purchases.receive',
             'purchases.approval',
             'purchases.view',
+            'purchaseReceivings.access',
             'purchaseReports.access',
 
             // Purchase Payments

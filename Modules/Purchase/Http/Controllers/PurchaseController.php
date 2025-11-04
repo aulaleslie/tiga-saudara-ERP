@@ -41,6 +41,13 @@ class PurchaseController extends Controller
         return $dataTable->render('purchase::index');
     }
 
+    public function receivingIndex(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('purchaseReceivings.access'), 403);
+
+        return view('purchase::receiving.index');
+    }
+
 
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
