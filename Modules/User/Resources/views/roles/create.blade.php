@@ -101,6 +101,7 @@
                                             'purchases.receive'  => 'Penerimaan',
                                             'purchases.approval' => 'Persetujuan',
                                             'purchases.view'     => 'Lihat Detail',
+                                            'purchaseReceivings.access' => 'Akses Penerimaan Barang',
                                         ],
 
                                         'Laporan Pembelian' => [
