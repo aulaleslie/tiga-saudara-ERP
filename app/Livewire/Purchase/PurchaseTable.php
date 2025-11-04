@@ -17,14 +17,16 @@ class PurchaseTable extends Component
     public $sortDirection = 'desc';
     public $settingId;
     public $statusFilter = null;
+    public $purchaseId = null;
 
     protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection'];
 
-    public function mount($settingId = null, $statusFilter = null)
+    public function mount($settingId = null, $statusFilter = null, $purchaseId = null)
     {
         // if you pass it in from the parent, use that; otherwise, fall back to the logged-in user’s
         $this->settingId = $settingId ?? session('setting_id');
         $this->statusFilter = is_array($statusFilter) ? $statusFilter : (is_null($statusFilter) ? null : [$statusFilter]);
+        $this->purchaseId = $purchaseId;
     }
 
     public function updatedSearch()
@@ -62,6 +64,9 @@ class PurchaseTable extends Component
             ->where('setting_id', $this->settingId)
             ->when(! empty($this->statusFilter), function ($q) {
                 $q->whereIn('status', $this->statusFilter);
+            })
+            ->when(! empty($this->purchaseId), function ($q) {
+                $q->where('id', $this->purchaseId);
             })
             ->when($this->search, function ($q) {
                 $q->where(function ($qq) {

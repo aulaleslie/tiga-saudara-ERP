@@ -44,11 +44,18 @@ class PurchaseController extends Controller
     /**
      * Display the purchase receiving landing page.
      */
-    public function receivingIndex(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function receivingIndex(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('purchaseReceivings.access'), 403);
 
-        return view('purchase::receiving.index');
+        $purchase = null;
+
+        if ($request->filled('purchase_id')) {
+            $purchase = Purchase::findOrFail($request->input('purchase_id'));
+            $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        }
+
+        return view('purchase::receiving.filtered-index', compact('purchase'));
     }
 
 
