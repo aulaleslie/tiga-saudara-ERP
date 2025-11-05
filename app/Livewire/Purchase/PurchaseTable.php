@@ -63,10 +63,7 @@ class PurchaseTable extends Component
             ->with(['supplier', 'tags'])
             ->where('setting_id', $this->settingId)
             ->when(! empty($this->statusFilter), function ($q) {
-                $q->whereIn('status', [
-                    Purchase::STATUS_APPROVED,
-                    Purchase::STATUS_RECEIVED_PARTIALLY,
-                ]);
+                $q->whereIn('status', (array) $this->statusFilter);
             })
             ->when(! empty($this->purchaseId), function ($q) {
                 $q->where('id', $this->purchaseId);

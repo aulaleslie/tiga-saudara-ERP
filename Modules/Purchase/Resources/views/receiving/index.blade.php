@@ -1,12 +1,12 @@
 @extends('layouts.app')
 
-@section('title', 'Penerimaan Barang')
+@section('title', __('Penerimaan Barang'))
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
-        <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Pembelian</a></li>
-        <li class="breadcrumb-item active">Penerimaan Barang</li>
+        <li class="breadcrumb-item"><a href="{{ route('home') }}">{{ __('Beranda') }}</a></li>
+        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">{{ __('Pembelian') }}</a></li>
+        <li class="breadcrumb-item active">{{ __('Penerimaan Barang') }}</li>
     </ol>
 @endsection
 
@@ -17,7 +17,7 @@
                 <div class="card">
                     <div class="card-body">
                         <p class="text-muted mb-3">
-                            Menampilkan pembelian yang sudah disetujui atau sebagian diterima untuk diproses penerimaan barang.
+                            {{ __('Menampilkan pembelian yang sudah disetujui atau sebagian diterima untuk diproses penerimaan barang.') }}
                         </p>
 
                         <div class="table-responsive">
