@@ -101,41 +101,35 @@
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-bag" style="line-height: 1;"></i> Pembelian
         </a>
-        @can('purchases.create')
-            <ul class="c-sidebar-nav-dropdown-items">
+        <ul class="c-sidebar-nav-dropdown-items">
+            @can('purchases.create')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('purchases.create') ? 'c-active' : '' }}"
                        href="{{ route('purchases.create') }}">
                         <i class="c-sidebar-nav-icon bi bi-journal-plus" style="line-height: 1;"></i> Buat Pembelian
                     </a>
                 </li>
-            </ul>
-        @endcan
+            @endcan
 
-        @can('purchases.create')
-            <ul class="c-sidebar-nav-dropdown-items">
+            @can('purchases.create')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('purchases.index') ? 'c-active' : '' }}"
                        href="{{ route('purchases.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> Semua Pembelian
                     </a>
                 </li>
-            </ul>
-        @endcan
+            @endcan
 
-        @can('purchaseReceivings.access')
-            <ul class="c-sidebar-nav-dropdown-items">
+            @can('purchaseReceivings.access')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('purchases.receiving.*') ? 'c-active' : '' }}"
                        href="{{ route('purchases.receiving.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-box-seam" style="line-height: 1;"></i> Penerimaan Barang
                     </a>
                 </li>
-            </ul>
-        @endcan
+            @endcan
 
-        @can('purchaseReturns.create')
-            <ul class="c-sidebar-nav-dropdown-items">
+            @can('purchaseReturns.create')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('purchase-returns.create') ? 'c-active' : '' }}"
                        href="{{ route('purchase-returns.create') }}">
@@ -143,19 +137,17 @@
                         Pembelian
                     </a>
                 </li>
-            </ul>
-        @endcan
+            @endcan
 
-        @can('purchaseReturns.access')
-        <ul class="c-sidebar-nav-dropdown-items">
-            <li class="c-sidebar-nav-item">
-                <a class="c-sidebar-nav-link {{ request()->routeIs('purchase-returns.index') ? 'c-active' : '' }}"
-                   href="{{ route('purchase-returns.index') }}">
-                    <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> Daftar Retur Pembelian
-                </a>
-            </li>
+            @can('purchaseReturns.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('purchase-returns.index') ? 'c-active' : '' }}"
+                       href="{{ route('purchase-returns.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> Daftar Retur Pembelian
+                    </a>
+                </li>
+            @endcan
         </ul>
-        @endcan
     </li>
 @endcanany
 
