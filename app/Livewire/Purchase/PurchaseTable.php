@@ -90,7 +90,11 @@ class PurchaseTable extends Component
 
         $purchases = $query->paginate($this->perPage);
 
-        return view('livewire.purchase.purchase-table', compact('purchases'));
+        $view = empty($this->statusFilter)
+            ? 'livewire.purchase.purchase-table'
+            : 'livewire.purchase.purchase-receiving-table';
+
+        return view($view, compact('purchases'));
     }
 
     public function sortIcon($field)
