@@ -149,18 +149,27 @@ class SaleReturnCreateForm extends Component
         try {
             $prepared = $this->validateAndPrepare();
 
-            DB::transaction(function () use ($prepared) {
-                $sale = Sale::find($this->sale_id);
-                $customerId = optional($sale)->customer_id;
-                $customerName = optional($sale)->customer_name ?: optional(optional($sale)->customer)->customer_name;
-                $settingId = optional($sale)->setting_id ?: session('setting_id');
+            // Validate sale exists before transaction
+            $sale = Sale::find($this->sale_id);
+            if (! $sale) {
+                throw new Exception('Penjualan tidak ditemukan.');
+            }
+
+            DB::transaction(function () use ($prepared, $sale) {
+                $customerId = $sale->customer_id;
+                $customerName = $sale->customer_name ?: optional($sale->customer)->customer_name;
+                $settingId = $sale->setting_id ?: session('setting_id');
+
+                if (! $settingId) {
+                    throw new Exception('Setting ID tidak valid.');
+                }
 
                 $locationId = $this->determineLocationId($prepared['rows']);
 
                 $saleReturn = SaleReturn::create([
                     'date' => $this->date,
                     'sale_id' => $this->sale_id,
-                    'sale_reference' => optional($sale)->reference,
+                    'sale_reference' => $sale->reference,
                     'customer_id' => $customerId,
                     'customer_name' => $customerName ?? '-',
                     'setting_id' => $settingId,
@@ -185,8 +194,14 @@ class SaleReturnCreateForm extends Component
                     $serialIds = collect($row['serial_numbers'] ?? [])
                         ->map(fn ($serial) => is_array($serial) ? ($serial['id'] ?? null) : null)
                         ->filter()
+                        ->unique()
                         ->values()
                         ->all();
+
+                    // Validate product exists
+                    if (empty($row['product_id'])) {
+                        throw new Exception('Product ID tidak valid untuk salah satu item.');
+                    }
 
                     SaleReturnDetail::create([
                         'sale_return_id' => $saleReturn->id,
@@ -237,6 +252,12 @@ class SaleReturnCreateForm extends Component
             ->filter(fn ($row) => (int) ($row['quantity'] ?? 0) > 0)
             ->values()
             ->all();
+
+        if (empty($validRows)) {
+            throw ValidationException::withMessages([
+                'rows' => 'Tidak ada produk dengan kuantitas valid untuk diretur.',
+            ]);
+        }
 
         $total = round(collect($validRows)->sum(fn ($row) => (float) ($row['total'] ?? 0)), 2);
 

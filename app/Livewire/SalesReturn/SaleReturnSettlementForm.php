@@ -206,8 +206,14 @@ class SaleReturnSettlementForm extends Component
                     }
                 }
 
-                if ($this->return_type === 'credit' && $this->calculateCreditAmount() <= 0) {
-                    $validator->errors()->add('return_type', 'Nilai retur tidak dapat dijadikan kredit.');
+                if ($this->return_type === 'credit') {
+                    if ($this->calculateCreditAmount() <= 0) {
+                        $validator->errors()->add('return_type', 'Nilai retur tidak dapat dijadikan kredit.');
+                    }
+                    
+                    if (empty($this->saleReturn->customer_id)) {
+                        $validator->errors()->add('return_type', 'Retur ini tidak memiliki pelanggan yang valid untuk kredit.');
+                    }
                 }
 
                 if ($this->return_type === 'cash' && empty($this->cash_proof)) {
@@ -224,14 +230,16 @@ class SaleReturnSettlementForm extends Component
                 default => 'Cash',
             };
 
-            $storedProof = null;
-
-            if ($this->return_type === 'cash' && $this->cash_proof) {
-                $storedProof = $this->cash_proof->store('sale-returns/proofs', 'public');
-            }
-
-            DB::transaction(function () use ($total, $paymentMethod, $storedProof) {
+            DB::transaction(function () use ($total, $paymentMethod) {
                 $saleReturn = SaleReturn::lockForUpdate()->findOrFail($this->saleReturn->id);
+
+                $oldProofPath = $saleReturn->cash_proof_path;
+                $storedProof = null;
+
+                // Upload file inside transaction to ensure rollback on failure
+                if ($this->return_type === 'cash' && $this->cash_proof) {
+                    $storedProof = $this->cash_proof->store('sale-returns/proofs', 'public');
+                }
 
                 $saleReturn->saleReturnGoods()->delete();
                 $saleReturn->saleReturnPayments()->delete();
@@ -267,6 +275,10 @@ class SaleReturnSettlementForm extends Component
                 if ($this->return_type === 'credit') {
                     $creditAmount = $this->calculateCreditAmount();
 
+                    if (empty($saleReturn->customer_id)) {
+                        throw new Exception('Retur ini tidak memiliki pelanggan yang valid untuk kredit.');
+                    }
+
                     CustomerCredit::create([
                         'customer_id' => $saleReturn->customer_id,
                         'sale_return_id' => $saleReturn->id,
@@ -283,13 +295,13 @@ class SaleReturnSettlementForm extends Component
                         'date' => now()->toDateString(),
                         'reference' => 'SRPAY/' . $saleReturn->reference,
                         'payment_method' => 'Cash',
-                        'payment_method_id' => null,
                         'note' => 'Pengembalian tunai',
                     ]);
                 }
 
-                if ($storedProof && $saleReturn->cash_proof_path) {
-                    Storage::disk('public')->delete($saleReturn->cash_proof_path);
+                // Delete old proof file after successful update
+                if ($storedProof && $oldProofPath) {
+                    Storage::disk('public')->delete($oldProofPath);
                 }
 
                 $saleReturn->update([

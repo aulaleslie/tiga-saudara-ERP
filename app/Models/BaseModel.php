@@ -14,6 +14,7 @@ abstract class BaseModel extends Model
     protected array $uppercaseExcept = [
         'password', 'remember_token',
         '*email*', '*phone*', '*mobile*', '*whatsapp*',
+        '*_path', '*_url', '*_file', '*_attachment', // Exclude file paths, URLs, and attachments
     ];
 
     protected function shouldUppercase(string $key): bool
