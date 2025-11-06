@@ -34,7 +34,6 @@
             <th wire:click="sortBy('supplier_id')" style="cursor:pointer">
                 Supplier {!! $this->sortIcon('supplier_id') !!}
             </th>
-            <th>Total</th>
             <th>Status</th>
             <th>Action</th>
         </tr>
@@ -43,18 +42,14 @@
         @forelse ($purchases as $purchase)
             <tr>
                 <td>
-                    <a href="{{ route('purchases.show', $purchase->id) }}"
-                       target="_blank" rel="noopener noreferrer">
-                        {{ $purchase->reference }}
-                    </a>
+                    {{ $purchase->reference }}
                 </td>
                 <td>
                     {{ Carbon::parse($purchase->date)->format('d M Y') }}
                 </td>
                 <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
-                <td>{{ format_currency($purchase->total_amount) }}</td>
                 <td>@include('purchase::partials.status', ['data' => $purchase])</td>
-                <td>@include('purchase::partials.actions', ['data' => $purchase])</td>
+                <td>@include('purchase::partials.actions-receiving', ['data' => $purchase])</td>
             </tr>
         @empty
             <tr>
