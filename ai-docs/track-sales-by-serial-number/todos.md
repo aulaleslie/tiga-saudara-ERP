@@ -118,11 +118,11 @@
 
 ---
 
-## Phase 3: Backend - API Endpoints
+## Phase 3: Backend - API Endpoints ✅ COMPLETED (4/4 tasks)
 
 ### API Route & Controller Tasks
 
-- [ ] **API-1: Create GlobalMenuController for API endpoints**
+- [x] **API-1: Create GlobalMenuController for API endpoints** ✅
   - Description: RESTful endpoints for serial number search
   - File: `Modules/Sale/Http/Controllers/GlobalMenuController.php`
   - Middleware: auth:sanctum, role.setting (or custom multi-tenant middleware)
@@ -130,9 +130,11 @@
     - `search(Request $request)` → POST /api/global-menu/search
     - `searchByReference(string $reference)` → GET /api/global-menu/sales/{reference}
     - `getSerialDetails(int $serialId)` → GET /api/global-menu/serials/{id}
+    - `suggest(Request $request)` → GET /api/global-menu/suggest (autocomplete)
   - Effort: 2 points
+  - Status: Created successfully with full implementation, error handling, logging, and tenant isolation
 
-- [ ] **API-2: Create GlobalMenuRequest form requests**
+- [x] **API-2: Create GlobalMenuRequest form requests** ✅
   - Description: Validation rules for API requests
   - File: `Modules/Sale/Http/Requests/GlobalMenuSearchRequest.php`
   - Fields:
@@ -144,29 +146,36 @@
     - date_from (date, nullable)
     - date_to (date, nullable)
     - location_id (int, nullable)
+    - product_id (int, nullable)
+    - product_category_id (int, nullable)
+    - serial_number_status (string, nullable)
+    - seller_id (int, nullable)
     - page (int, default 1)
     - per_page (int, max 100, default 20)
   - Effort: 1 point
+  - Status: Complete with all validations, custom attributes, and auto-defaults
 
-- [ ] **API-3: Register API routes**
+- [x] **API-3: Register API routes** ✅
   - Description: Add routes for global menu endpoints
   - File: `Modules/Sale/Routes/api.php`
   - Routes:
-    - POST `/api/global-menu/search`
-    - GET `/api/global-menu/sales/{reference}`
-    - GET `/api/global-menu/serials/{id}`
-    - GET `/api/global-menu/suggest` (autocomplete)
+    - POST `/api/global-menu/search` → api.global-menu.search
+    - GET `/api/global-menu/sales/{reference}` → api.global-menu.search-by-reference
+    - GET `/api/global-menu/serials/{id}` → api.global-menu.serial-details
+    - GET `/api/global-menu/suggest` → api.global-menu.suggest (autocomplete)
   - Effort: 1 point
+  - Status: All routes registered and verified with php artisan route:list
 
-- [ ] **API-4: Create API Resources for formatting**
+- [x] **API-4: Create API Resources for formatting** ✅
   - Description: Format API responses consistently
   - Files:
     - `Modules/Sale/Http/Resources/SaleSearchResource.php`
     - `Modules/Sale/Http/Resources/SerialNumberResource.php`
-  - Include: id, reference, customer, tenant, seller, status, date, serial_numbers
+  - Include: id, reference, customer, tenant, seller, status, date, serial_numbers, amounts, location
   - Effort: 2 points
+  - Status: Both resources created with comprehensive field mapping and conditional output
 
-**Subtotal: 6 points**
+**Subtotal: 6 points** ✅ **COMPLETED**
 
 ---
 
@@ -493,14 +502,14 @@
 |-------|----------|--------|--------|
 | 1 | Database & Schema | 4 | ✅ **COMPLETED** |
 | 2 | Backend - Models & Services | 10 | ✅ **COMPLETED** |
-| 3 | Backend - API | 6 | Not Started |
+| 3 | Backend - API | 6 | ✅ **COMPLETED** |
 | 4 | Frontend - UI | 16 | Not Started |
 | 5 | Integration | 4 | Not Started |
 | 6 | Testing | 11 | Not Started |
 | 7 | Documentation | 5.5 | Not Started |
 | 8 | Performance | 5 | Not Started |
 | 9 | QA & Deployment | 5 | Not Started |
-| | **TOTAL** | **66.5** | **14/66.5 (21%)** |
+| | **TOTAL** | **66.5** | **20/66.5 (30%)** |
 
 ---
 
@@ -562,5 +571,6 @@ Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 → Phase 7 
 **Last Updated:** November 8, 2025  
 **Phase 1 Completed:** November 8, 2025 ✅  
 **Phase 2 Completed:** November 8, 2025 ✅  
-**Next Review:** Upon Phase 3 initiation  
-**Progress:** 14/66.5 story points completed (21%)
+**Phase 3 Completed:** November 8, 2025 ✅  
+**Next Review:** Upon Phase 4 initiation  
+**Progress:** 20/66.5 story points completed (30%)
