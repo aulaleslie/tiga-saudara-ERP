@@ -6,7 +6,9 @@ use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
 
 class SaleDetails extends BaseModel
 {
@@ -18,6 +20,7 @@ class SaleDetails extends BaseModel
         'sub_total' => 'decimal:2',
         'product_discount_amount' => 'decimal:2',
         'product_tax_amount' => 'decimal:2',
+        'serial_number_ids' => 'array',
     ];
 
     protected $with = ['product'];
@@ -35,5 +38,15 @@ class SaleDetails extends BaseModel
     public function bundleItems(): Builder|HasMany|SaleDetails
     {
         return $this->hasMany(SaleBundleItem::class, 'sale_detail_id', 'id');
+    }
+
+    /**
+     * Get all serial numbers for this sale detail.
+     * This relationship retrieves ProductSerialNumber records whose IDs are in the serial_number_ids JSON array.
+     */
+    public function serialNumbers(): HasMany
+    {
+        return $this->hasMany(ProductSerialNumber::class, 'id')
+            ->whereIn('id', $this->serial_number_ids ?? []);
     }
 }

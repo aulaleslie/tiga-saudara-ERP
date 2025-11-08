@@ -3,9 +3,13 @@
 namespace Modules\Sale\Entities;
 
 use App\Models\BaseModel;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Modules\People\Entities\Customer;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 
 class Sale extends BaseModel
@@ -87,5 +91,42 @@ class Sale extends BaseModel
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class, 'customer_id', 'id');
+    }
+
+    /**
+     * Get all serial numbers associated with this sale through sale details.
+     */
+    public function serialNumbers(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            ProductSerialNumber::class,
+            SaleDetails::class,
+            'sale_id',
+            'id'
+        )->distinct();
+    }
+
+    /**
+     * Get the seller (user) who created this sale.
+     */
+    public function seller(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by', 'id');
+    }
+
+    /**
+     * Get the setting (tenant) for this sale through the location.
+     */
+    public function tenantSetting(): BelongsTo
+    {
+        return $this->belongsTo(Setting::class, 'setting_id', 'id');
+    }
+
+    /**
+     * Get the location associated with this sale.
+     */
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'location_id', 'id');
     }
 }
