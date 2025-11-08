@@ -10,7 +10,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Permission::create(['name' => 'globalMenu.access', 'guard_name' => 'web']);
+        Permission::create(['name' => 'globalSalesSearch.access', 'guard_name' => 'web']);
     }
 
     /**
@@ -18,6 +18,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Permission::where('name', 'globalMenu.access')->delete();
+        Permission::where('name', 'globalSalesSearch.access')->delete();
     }
 };

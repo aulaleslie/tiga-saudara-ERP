@@ -23,8 +23,6 @@ class SerialNumberSearchService
      */
     public function searchBySerialNumber(string $serial, ?int $settingId = null, int $limit = 50, int $page = 1)
     {
-        $settingId = $settingId ?? session('setting_id');
-
         $query = Sale::query()
             ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location', 'dispatchDetails'])
             ->whereHas('dispatchDetails', function (Builder $query) use ($serial) {
@@ -32,8 +30,10 @@ class SerialNumberSearchService
                 $query->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$serial]);
             });
 
-        // Apply tenant filter
-        $this->applyTenantFilter($query, $settingId);
+        // Apply tenant filter only if settingId is provided
+        if ($settingId !== null) {
+            $this->applyTenantFilter($query, $settingId);
+        }
 
         return $query->paginate($limit, ['*'], 'page', $page);
     }
@@ -47,13 +47,16 @@ class SerialNumberSearchService
      */
     public function searchBySaleReference(string $reference, ?int $settingId = null): ?Sale
     {
-        $settingId = $settingId ?? session('setting_id');
-
-        return Sale::query()
+        $query = Sale::query()
             ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location'])
-            ->where('reference', $reference)
-            ->where('setting_id', $settingId)
-            ->first();
+            ->where('reference', $reference);
+
+        // Apply tenant filter only if settingId is provided
+        if ($settingId !== null) {
+            $query->where('setting_id', $settingId);
+        }
+
+        return $query->first();
     }
 
     /**
@@ -67,8 +70,6 @@ class SerialNumberSearchService
      */
     public function searchByCustomer($customerIdentifier, ?int $settingId = null, int $limit = 50, int $page = 1)
     {
-        $settingId = $settingId ?? session('setting_id');
-
         $query = Sale::query()
             ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location'])
             ->whereHas('customer', function (Builder $query) use ($customerIdentifier) {
@@ -79,8 +80,10 @@ class SerialNumberSearchService
                 }
             });
 
-        // Apply tenant filter
-        $this->applyTenantFilter($query, $settingId);
+        // Apply tenant filter only if settingId is provided
+        if ($settingId !== null) {
+            $this->applyTenantFilter($query, $settingId);
+        }
 
         return $query->paginate($limit, ['*'], 'page', $page);
     }
@@ -94,8 +97,6 @@ class SerialNumberSearchService
      */
     public function buildQuery(array $filters, ?int $settingId = null): Builder
     {
-        $settingId = $settingId ?? session('setting_id');
-
         Log::info('SerialNumberSearchService::buildQuery called', [
             'filters' => $filters,
             'settingId' => $settingId,
@@ -105,8 +106,10 @@ class SerialNumberSearchService
         $query = Sale::query()
             ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location', 'dispatchDetails']);
 
-        // Apply tenant filter
-        $this->applyTenantFilter($query, $settingId);
+        // Apply tenant filter only if settingId is provided (for global search, pass null)
+        if ($settingId !== null) {
+            $this->applyTenantFilter($query, $settingId);
+        }
 
         // Build search conditions with OR logic for search filters
         $searchConditions = [];
@@ -233,18 +236,19 @@ class SerialNumberSearchService
      */
     public function getSerialSuggestions(string $serial, ?int $settingId = null, int $limit = 10): array
     {
-        $settingId = $settingId ?? session('setting_id');
-
-        $suggestions = ProductSerialNumber::query()
+        $query = ProductSerialNumber::query()
             ->where('serial_number', 'like', "{$serial}%")
-            ->whereHas('location', function (Builder $query) use ($settingId) {
-                $query->where('setting_id', $settingId);
-            })
             ->select('serial_number')
-            ->distinct()
-            ->limit($limit)
-            ->pluck('serial_number')
-            ->toArray();
+            ->distinct();
+
+        // Apply location-based tenant filter only if settingId is provided
+        if ($settingId !== null) {
+            $query->whereHas('location', function (Builder $query) use ($settingId) {
+                $query->where('setting_id', $settingId);
+            });
+        }
+
+        $suggestions = $query->limit($limit)->pluck('serial_number')->toArray();
 
         return $suggestions;
     }
@@ -258,16 +262,18 @@ class SerialNumberSearchService
      */
     public function getSalesForSerialNumber(string $serial, ?int $settingId = null): Collection
     {
-        $settingId = $settingId ?? session('setting_id');
-
         // Find sales that have dispatch details containing the serial number
-        return Sale::query()
+        $query = Sale::query()
             ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location', 'dispatchDetails'])
             ->whereHas('dispatchDetails', function (Builder $query) use ($serial) {
                 $query->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$serial]);
-            })
-            ->where('setting_id', $settingId)
-            ->orderByDesc('created_at')
-            ->get();
+            });
+
+        // Apply tenant filter only if settingId is provided
+        if ($settingId !== null) {
+            $this->applyTenantFilter($query, $settingId);
+        }
+
+        return $query->orderByDesc('created_at')->get();
     }
 }

@@ -8,15 +8,15 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Modules\Sale\Entities\Sale;
-use Modules\Sale\Http\Requests\GlobalMenuSearchRequest;
+use Modules\Sale\Http\Requests\GlobalSalesSearchRequest;
 use Modules\Sale\Http\Resources\SaleSearchResource;
 use Modules\Sale\Http\Resources\SerialNumberResource;
 use Modules\Sale\Services\SerialNumberSearchService;
 use Modules\Sale\Services\SalesOrderFormatter;
 use Modules\Product\Entities\ProductSerialNumber;
-use App\Models\GlobalMenuSearch;
+use App\Models\GlobalSalesSearch;
 
-class GlobalMenuController extends Controller
+class GlobalSalesSearchController extends Controller
 {
     protected SerialNumberSearchService $searchService;
     protected SalesOrderFormatter $formatter;
@@ -32,23 +32,14 @@ class GlobalMenuController extends Controller
     /**
      * Search for sales orders by various criteria
      *
-     * @param GlobalMenuSearchRequest $request
+     * @param GlobalSalesSearchRequest $request
      * @return JsonResponse
      */
-    public function search(GlobalMenuSearchRequest $request): JsonResponse
+    public function search(GlobalSalesSearchRequest $request): JsonResponse
     {
         abort_if(Gate::denies('sales.search.global'), 403);
 
         try {
-            $settingId = session('setting_id');
-            
-            if (!$settingId) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tenant context not set. Please select a business unit.'
-                ], 400);
-            }
-
             $startTime = microtime(true);
 
             // Prepare filters from request
@@ -56,17 +47,16 @@ class GlobalMenuController extends Controller
             $perPage = $filters['per_page'] ?? 20;
             $page = $filters['page'] ?? 1;
 
-            // Execute search
-            $results = $this->searchService->buildQuery($filters)
-                ->where('sales.setting_id', $settingId)
+            // Execute search without tenant scoping for global search
+            $results = $this->searchService->buildQuery($filters, null)
                 ->paginate($perPage, ['*'], 'page', $page);
 
             $responseTime = round((microtime(true) - $startTime) * 1000, 2);
 
             // Log search for audit trail
-            GlobalMenuSearch::create([
+            GlobalSalesSearch::create([
                 'user_id' => auth()->id(),
-                'setting_id' => $settingId,
+                'setting_id' => session('setting_id'), // Keep for audit trail but don't scope search
                 'search_query' => json_encode([
                     'serial_number' => $filters['serial_number'] ?? null,
                     'sale_reference' => $filters['sale_reference'] ?? null,
@@ -118,18 +108,8 @@ class GlobalMenuController extends Controller
         abort_if(Gate::denies('sales.search.global'), 403);
 
         try {
-            $settingId = session('setting_id');
-
-            if (!$settingId) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tenant context not set.'
-                ], 400);
-            }
-
             $sale = Sale::query()
                 ->where('reference', $reference)
-                ->where('setting_id', $settingId)
                 ->with(['customer', 'details.product', 'details.serialNumbers', 'user'])
                 ->first();
 
@@ -169,15 +149,6 @@ class GlobalMenuController extends Controller
         abort_if(Gate::denies('sales.search.global'), 403);
 
         try {
-            $settingId = session('setting_id');
-
-            if (!$settingId) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tenant context not set.'
-                ], 400);
-            }
-
             $serial = ProductSerialNumber::query()
                 ->where('id', $serialId)
                 ->with(['product', 'location'])
@@ -190,16 +161,12 @@ class GlobalMenuController extends Controller
                 ], 404);
             }
 
-            // Verify tenant access via location
-            if ($serial->location->setting_id !== $settingId) {
-                abort(403, 'Unauthorized access to this serial number.');
-            }
+            // For global search, allow access to all serials regardless of location setting_id
 
-            // Get associated sales orders
+            // Get associated sales orders from all tenants
             $sales = Sale::query()
                 ->join('sale_details', 'sales.id', '=', 'sale_details.sale_id')
                 ->where('sale_details.serial_number_ids', 'LIKE', "%\"$serialId\"%")
-                ->where('sales.setting_id', $settingId)
                 ->select('sales.*')
                 ->distinct()
                 ->with(['customer', 'user'])
@@ -239,9 +206,8 @@ class GlobalMenuController extends Controller
         try {
             $query = $request->input('q', '');
             $type = $request->input('type', 'serial'); // serial, reference, customer
-            $settingId = session('setting_id');
 
-            if (!$settingId || empty($query)) {
+            if (empty($query)) {
                 return response()->json([
                     'success' => true,
                     'suggestions' => []
@@ -251,6 +217,7 @@ class GlobalMenuController extends Controller
             $suggestions = [];
 
             if ($type === 'serial' || $type === 'all') {
+                // Search serial numbers globally across all locations
                 $serials = ProductSerialNumber::query()
                     ->where('serial_number', 'LIKE', "%$query%")
                     ->limit(10)
@@ -264,9 +231,9 @@ class GlobalMenuController extends Controller
             }
 
             if ($type === 'reference' || $type === 'all') {
+                // Search sale references globally across all tenants
                 $references = Sale::query()
                     ->where('reference', 'LIKE', "%$query%")
-                    ->where('setting_id', $settingId)
                     ->limit(10)
                     ->pluck('reference')
                     ->toArray();
@@ -278,6 +245,7 @@ class GlobalMenuController extends Controller
             }
 
             if ($type === 'customer' || $type === 'all') {
+                // Customer search can remain global as customers might be shared or unique per tenant
                 $customers = \Modules\People\Entities\Customer::query()
                     ->where('name', 'LIKE', "%$query%")
                     ->limit(10)
@@ -314,9 +282,9 @@ class GlobalMenuController extends Controller
      */
     public function index()
     {
-        abort_if(Gate::denies('globalMenu.access'), 403);
+        abort_if(Gate::denies('globalSalesSearch.access'), 403);
 
-        return view('sale::global-menu.index');
+        return view('sale::global-sales-search.index');
     }
 
     /**
@@ -327,17 +295,9 @@ class GlobalMenuController extends Controller
      */
     public function ajaxSearch(Request $request)
     {
-        abort_if(Gate::denies('globalMenu.access'), 403);
+        abort_if(Gate::denies('globalSalesSearch.access'), 403);
 
         try {
-            $settingId = session('setting_id');
-
-            if (!$settingId) {
-                return response()->json([
-                    'error' => 'Tenant context not set. Please select a business unit.'
-                ], 400);
-            }
-
             // Get filters from request
             $filters = $request->only([
                 'serial_number', 'sale_reference', 'customer_id', 'customer_name',
@@ -353,10 +313,8 @@ class GlobalMenuController extends Controller
             $perPage = $request->get('per_page', 20);
             $page = $request->get('page', 1);
 
-            // Execute search
-            $query = $this->searchService->buildQuery($filters);
-            $query->where('sales.setting_id', $settingId);
-
+            // Execute search without tenant scoping for global search
+            $query = $this->searchService->buildQuery($filters, null);
             $results = $query->paginate($perPage, ['*'], 'page', $page);
 
             return response()->json([

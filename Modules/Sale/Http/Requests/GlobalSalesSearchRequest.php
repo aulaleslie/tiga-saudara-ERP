@@ -5,7 +5,7 @@ namespace Modules\Sale\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
 
-class GlobalMenuSearchRequest extends FormRequest
+class GlobalSalesSearchRequest extends FormRequest
 {
     /**
      * Get the validation rules that apply to the request.

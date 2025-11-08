@@ -6,7 +6,7 @@
 <script>
 $(document).ready(function() {
     // Initialize DataTable with custom settings
-    $('#global-menu-search-table').DataTable({
+    $('#global-sales-search-table').DataTable({
         responsive: true,
         autoWidth: false,
         scrollX: true,
@@ -26,7 +26,7 @@ $(document).ready(function() {
 
     // Dengarkan event Livewire
     Livewire.on('refreshDataTable', () => {
-        $('#global-menu-search-table').DataTable().ajax.reload();
+        $('#global-sales-search-table').DataTable().ajax.reload();
     });
 
     // Tangani modal nomor seri

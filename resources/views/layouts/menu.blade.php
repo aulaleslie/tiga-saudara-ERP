@@ -94,12 +94,12 @@
             </ul>
         @endcan
 
-        @can('globalMenu.access')
+        @can('globalSalesSearch.access')
             <ul class="c-sidebar-nav-dropdown-items">
                 <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('global-menu.*') ? 'c-active' : '' }}"
-                       href="{{ route('global-menu.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-search" style="line-height: 1;"></i> Lacak Penjualan by Serial
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('global-sales-search.*') ? 'c-active' : '' }}"
+                       href="{{ route('global-sales-search.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-search" style="line-height: 1;"></i> Pencarian Penjualan Global
                     </a>
                 </li>
             </ul>

@@ -3,10 +3,10 @@
  * Manages filter state, URL synchronization, and dynamic updates
  */
 
-class GlobalMenuFilterHandler {
+class GlobalSalesFilterHandler {
     constructor(options = {}) {
         this.formSelector = options.formSelector || '#filter-form';
-        this.storageKey = options.storageKey || 'global_menu_filters';
+        this.storageKey = options.storageKey || 'global_sales_filters';
         this.updateDelay = options.updateDelay || 500;
         this.urlSync = options.urlSync !== false;
 
@@ -332,9 +332,9 @@ class GlobalMenuFilterHandler {
 // Initialize filter handler when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
     if (document.querySelector('#filter-form')) {
-        window.globalMenuFilterHandler = new GlobalMenuFilterHandler({
+        window.globalSalesFilterHandler = new GlobalSalesFilterHandler({
             formSelector: '#filter-form',
-            storageKey: 'global_menu_filters',
+            storageKey: 'global_sales_filters',
             updateDelay: 500,
             urlSync: true
         });
@@ -343,5 +343,5 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Export for module usage
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = GlobalMenuFilterHandler;
+    module.exports = GlobalSalesFilterHandler;
 }

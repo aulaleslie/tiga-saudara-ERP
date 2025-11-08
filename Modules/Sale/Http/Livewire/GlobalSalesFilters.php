@@ -12,7 +12,7 @@ use Modules\Product\Entities\Category;
 use Modules\Setting\Entities\Location;
 use App\Models\User;
 
-class GlobalMenuFilters extends Component
+class GlobalSalesFilters extends Component
 {
     public array $filters = [];
     public bool $isOpen = false;
@@ -61,7 +61,7 @@ class GlobalMenuFilters extends Component
 
     public function render(): Factory|View|Application
     {
-        return view('sale::livewire.global-menu-filters');
+        return view('sale::livewire.global-sales-filters');
     }
 
     protected function loadFilterOptions(): void

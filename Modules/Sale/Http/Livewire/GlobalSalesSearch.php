@@ -12,7 +12,7 @@ use Modules\Sale\Services\SerialNumberSearchService;
 use Modules\Sale\Services\SalesOrderFormatter;
 use Illuminate\Support\Facades\Log;
 
-class GlobalMenuSearch extends Component
+class GlobalSalesSearch extends Component
 {
     use WithPagination;
 
@@ -20,8 +20,6 @@ class GlobalMenuSearch extends Component
     public string $searchType = 'all'; // all, serial, reference, customer
     public array $searchResultsData = [];
     public array $paginationInfo = [];
-    public array $filters = [];
-    public bool $showFilters = false;
     public int $perPage = 20;
     public string $sortBy = 'created_at';
     public string $sortDirection = 'desc';
@@ -40,38 +38,22 @@ class GlobalMenuSearch extends Component
 
     public function mount(): void
     {
-        $this->settingId = session('setting_id');
+        $this->settingId = session('setting_id'); // Keep for audit trail but don't use for filtering
         $this->searchResultsData = [];
 
-        Log::info('GlobalMenuSearch::mount called', [
+        Log::info('GlobalSalesSearch::mount called', [
             'settingId' => $this->settingId
         ]);
-
-        // Initialize default filters
-        $this->filters = [
-            'serial_number' => '',
-            'sale_reference' => '',
-            'customer_id' => '',
-            'customer_name' => '',
-            'status' => '',
-            'date_from' => '',
-            'date_to' => '',
-            'location_id' => '',
-            'product_id' => '',
-            'product_category_id' => '',
-            'serial_number_status' => '',
-            'seller_id' => '',
-        ];
     }
 
     public function render(): Factory|View|Application
     {
-        return view('sale::livewire.global-menu-search');
+        return view('sale::livewire.global-sales-search');
     }
 
     public function updatedQuery(): void
     {
-        // Ensure settingId is set (session might not be available during Livewire updates)
+        // Ensure settingId is set for audit trail (session might not be available during Livewire updates)
         $this->settingId = session('setting_id');
 
         Log::info('GlobalMenuSearch::updatedQuery called', [
@@ -80,18 +62,13 @@ class GlobalMenuSearch extends Component
             'settingId' => $this->settingId
         ]);
 
-        if (!$this->settingId) {
-            $this->searchResultsData = [];
-            return;
-        }
-
         $this->resetPage();
         $this->performSearch();
     }
 
     public function updatedSearchType(): void
     {
-        // Ensure settingId is set
+        // Ensure settingId is set for audit trail
         $this->settingId = session('setting_id');
 
         $this->resetPage();
@@ -101,7 +78,7 @@ class GlobalMenuSearch extends Component
     public function performSearch(): void
     {
         // Debug log to check if method is called
-        Log::info('GlobalMenuSearch::performSearch START', [
+        Log::info('GlobalSalesSearch::performSearch START', [
             'query' => $this->query,
             'query_length' => strlen($this->query ?? ''),
             'query_hex' => $this->query ? bin2hex($this->query) : null,
@@ -110,15 +87,14 @@ class GlobalMenuSearch extends Component
             'timestamp' => now()->toISOString()
         ]);
 
-        if (empty($this->query) && empty(array_filter($this->filters))) {
-            Log::info('GlobalMenuSearch::performSearch EARLY RETURN - empty query and filters');
+        if (empty($this->query)) {
+            Log::info('GlobalMenuSearch::performSearch EARLY RETURN - empty query');
             $this->searchResultsData = [];
             return;
         }
 
         Log::info('GlobalMenuSearch::performSearch CONTINUING - query not empty', [
-            'query' => $this->query,
-            'filters' => $this->filters
+            'query' => $this->query
         ]);
 
         try {
@@ -128,17 +104,13 @@ class GlobalMenuSearch extends Component
             Log::info('GlobalMenuSearch::performSearch called', [
                 'query' => $this->query,
                 'searchType' => $this->searchType,
-                'filters' => $this->filters,
                 'searchFilters' => $searchFilters,
                 'settingId' => $this->settingId
             ]);
 
-            $query = $this->searchService->buildQuery($searchFilters, $this->settingId);
+            $query = $this->searchService->buildQuery($searchFilters, null); // Pass null for global search
 
-            // Apply tenant filter
-            $query->where('sales.setting_id', $this->settingId);
-
-            // Apply sorting
+            // Apply sorting (no tenant filtering for global search)
             $query->orderBy($this->sortBy, $this->sortDirection);
 
             // Paginate results
@@ -172,8 +144,7 @@ class GlobalMenuSearch extends Component
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'query' => $this->query,
-                'searchType' => $this->searchType,
-                'filters' => $this->filters
+                'searchType' => $this->searchType
             ]);
 
             $this->searchResultsData = [];
@@ -183,11 +154,9 @@ class GlobalMenuSearch extends Component
 
     protected function buildSearchFilters(): array
     {
-        $filters = array_filter($this->filters); // Remove empty filters
+        $filters = [];
 
         Log::info('GlobalMenuSearch::buildSearchFilters', [
-            'original_filters' => $this->filters,
-            'filtered_filters' => $filters,
             'query' => $this->query,
             'searchType' => $this->searchType
         ]);
@@ -225,28 +194,13 @@ class GlobalMenuSearch extends Component
     {
         $this->query = '';
         $this->searchType = 'all';
-        $this->filters = array_fill_keys(array_keys($this->filters), '');
         $this->searchResultsData = [];
         $this->resetPage();
     }
 
-    public function toggleFilters(): void
-    {
-        $this->showFilters = !$this->showFilters;
-    }
-
-    public function applyFilters(): void
-    {
-        // Ensure settingId is set
-        $this->settingId = session('setting_id');
-
-        $this->resetPage();
-        $this->performSearch();
-    }
-
     public function sortBy($column): void
     {
-        // Ensure settingId is set
+        // Ensure settingId is set for audit trail
         $this->settingId = session('setting_id');
 
         if ($this->sortBy === $column) {
@@ -279,13 +233,13 @@ class GlobalMenuSearch extends Component
 
     public function getSuggestions(): Collection
     {
-        if (empty($this->query) || !$this->settingId) {
+        if (empty($this->query)) {
             return Collection::empty();
         }
 
         try {
             // Get autocomplete suggestions from API
-            $response = \Illuminate\Support\Facades\Http::get(route('api.global-menu.suggest'), [
+            $response = \Illuminate\Support\Facades\Http::get(route('api.global-sales-search.suggest'), [
                 'q' => $this->query,
                 'type' => $this->searchType,
             ]);

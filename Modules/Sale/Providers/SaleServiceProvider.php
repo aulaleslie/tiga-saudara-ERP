@@ -81,8 +81,8 @@ class SaleServiceProvider extends ServiceProvider
      */
     public function registerLivewireComponents()
     {
-        \Livewire\Livewire::component('sale::global-menu-search', \Modules\Sale\Http\Livewire\GlobalMenuSearch::class);
-        \Livewire\Livewire::component('sale::global-menu-filters', \Modules\Sale\Http\Livewire\GlobalMenuFilters::class);
+        \Livewire\Livewire::component('sale::global-sales-search', \Modules\Sale\Http\Livewire\GlobalSalesSearch::class);
+        \Livewire\Livewire::component('sale::global-sales-filters', \Modules\Sale\Http\Livewire\GlobalSalesFilters::class);
     }
 
     /**

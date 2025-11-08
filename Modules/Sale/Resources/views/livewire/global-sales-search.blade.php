@@ -2,7 +2,7 @@
     <div class="card-header">
         <h5 class="card-title mb-0">
             <i class="bi bi-search me-2"></i>
-            Pencarian Menu Global
+            Pencarian Penjualan Global
         </h5>
     </div>
 
@@ -36,108 +36,13 @@
                 </div>
             </div>
 
-            <div class="col-md-2">
+            <div class="col-md-4">
                 <select wire:model.live="searchType" class="form-control">
                     <option value="all">Semua Tipe</option>
                     <option value="serial">Nomor Seri</option>
                     <option value="reference">Referensi Penjualan</option>
                     <option value="customer">Pelanggan</option>
                 </select>
-            </div>
-
-            <div class="col-md-2">
-                <button
-                    wire:click="toggleFilters"
-                    class="btn btn-outline-primary w-100"
-                    type="button"
-                >
-                    <i class="bi bi-funnel"></i>
-                    Filter
-                    <span class="badge badge-pill badge-secondary ml-1" wire:loading.remove>
-                        {{ count(array_filter($filters)) }}
-                    </span>
-                </button>
-            </div>
-        </div>
-
-        <!-- Advanced Filters (Collapsible) -->
-        <div class="collapse {{ $showFilters ? 'show' : '' }}" id="advancedFilters">
-            <div class="card card-body mb-3">
-                <div class="row">
-                    <div class="col-md-3">
-                        <label class="form-label">Status</label>
-                        <select wire:model.live="filters.status" class="form-control">
-                            <option value="">Semua Status</option>
-                            <option value="DRAFTED">Draft</option>
-                            <option value="APPROVED">Disetujui</option>
-                            <option value="DISPATCHED">Dikirim</option>
-                            <option value="RETURNED">Dikembalikan</option>
-                        </select>
-                    </div>
-
-                    <div class="col-md-3">
-                        <label class="form-label">Tanggal Dari</label>
-                        <input
-                            wire:model.live="filters.date_from"
-                            type="date"
-                            class="form-control"
-                        >
-                    </div>
-
-                    <div class="col-md-3">
-                        <label class="form-label">Tanggal Sampai</label>
-                        <input
-                            wire:model.live="filters.date_to"
-                            type="date"
-                            class="form-control"
-                        >
-                    </div>
-
-                    <div class="col-md-3">
-                        <label class="form-label">Penjual</label>
-                        <select wire:model.live="filters.seller_id" class="form-control">
-                            <option value="">Semua Penjual</option>
-                            <!-- TODO: Populate with sellers -->
-                        </select>
-                    </div>
-                </div>
-
-                <div class="row mt-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Produk</label>
-                        <select wire:model.live="filters.product_id" class="form-control">
-                            <option value="">Semua Produk</option>
-                            <!-- TODO: Populate with products -->
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label">Lokasi</label>
-                        <select wire:model.live="filters.location_id" class="form-control">
-                            <option value="">Semua Lokasi</option>
-                            <!-- TODO: Populate with locations -->
-                        </select>
-                    </div>
-                </div>
-
-                <div class="row mt-3">
-                    <div class="col-12 text-right">
-                        <button
-                            wire:click="applyFilters"
-                            class="btn btn-primary"
-                            type="button"
-                        >
-                            Terapkan Filter
-                        </button>
-                        <button
-                            wire:click="clearSearch"
-                            class="btn btn-secondary ml-2"
-                            type="button"
-                        >
-                            Bersihkan Semua
-                        </button>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -277,11 +182,11 @@
                 </div>
             @endif
 
-        @elseif(!empty($query) || !empty(array_filter($filters)))
+        @elseif(!empty($query))
             <div class="text-center py-5">
                 <i class="bi bi-search text-muted" style="font-size: 3rem;"></i>
                 <h5 class="mt-3 text-muted">Tidak ada hasil ditemukan</h5>
-                <p class="text-muted">Coba sesuaikan kriteria pencarian atau filter</p>
+                <p class="text-muted">Coba sesuaikan kriteria pencarian</p>
             </div>
         @else
             <div class="text-center py-5">

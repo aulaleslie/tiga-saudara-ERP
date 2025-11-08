@@ -15,7 +15,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('global_menu_searches', function (Blueprint $table) {
+        Schema::create('global_sales_searches', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('setting_id')->constrained('settings')->cascadeOnDelete();
@@ -40,6 +40,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('global_menu_searches');
+        Schema::dropIfExists('global_sales_searches');
     }
 };

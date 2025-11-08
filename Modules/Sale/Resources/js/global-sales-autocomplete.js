@@ -3,14 +3,14 @@
  * Provides autocomplete suggestions for serial numbers, sale references, and customers
  */
 
-class GlobalMenuAutocomplete {
+class GlobalSalesAutocomplete {
     constructor(options = {}) {
         this.inputSelector = options.inputSelector || 'input[name="query"]';
         this.suggestionsContainer = options.suggestionsContainer || null;
         this.minChars = options.minChars || 2;
         this.debounceTime = options.debounceTime || 300;
         this.maxSuggestions = options.maxSuggestions || 10;
-        this.apiEndpoint = options.apiEndpoint || '/api/global-menu/suggest';
+        this.apiEndpoint = options.apiEndpoint || '/api/global-sales-search/suggest';
         this.searchType = options.searchType || 'all';
 
         this.currentInput = null;
@@ -279,7 +279,7 @@ class GlobalMenuAutocomplete {
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize autocomplete for global menu search
     if (document.querySelector('input[name="query"]')) {
-        window.globalMenuAutocomplete = new GlobalMenuAutocomplete({
+        window.globalSalesAutocomplete = new GlobalSalesAutocomplete({
             inputSelector: 'input[name="query"]',
             minChars: 2,
             debounceTime: 300,
@@ -290,5 +290,5 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Export for module usage
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = GlobalMenuAutocomplete;
+    module.exports = GlobalSalesAutocomplete;
 }

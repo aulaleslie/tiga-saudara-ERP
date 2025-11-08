@@ -11,7 +11,7 @@
                 <a href="{{ route('home') }}">Dashboard</a>
             </li>
             <li class="breadcrumb-item">
-                <a href="{{ route('global-menu.index') }}">Menu Global</a>
+                <a href="{{ route('global-sales-search.index') }}">Pencarian Penjualan Global</a>
             </li>
             <li class="breadcrumb-item active" aria-current="page">
                 {{ $sale->reference }}

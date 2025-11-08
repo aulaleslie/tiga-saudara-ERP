@@ -6,9 +6,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Setting\Entities\Setting;
 
-class GlobalMenuSearch extends BaseModel
+class GlobalSalesSearch extends BaseModel
 {
     use HasFactory;
+
+    /**
+     * The table associated with the model.
+     *
+     * @var string
+     */
+    protected $table = 'global_sales_searches';
 
     /**
      * The attributes that are mass assignable.

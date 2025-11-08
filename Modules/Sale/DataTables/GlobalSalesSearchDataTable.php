@@ -7,7 +7,7 @@ use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
 use Yajra\DataTables\Services\DataTable;
 
-class GlobalMenuSearchDataTable extends DataTable
+class GlobalSalesSearchDataTable extends DataTable
 {
     protected $searchResults;
 
@@ -45,7 +45,7 @@ class GlobalMenuSearchDataTable extends DataTable
                 return $data->created_at->format('M d, Y');
             })
             ->addColumn('action', function ($data) {
-                return view('sale::partials.global-menu-actions', compact('data'));
+                return view('sale::partials.global-sales-search-actions', compact('data'));
             })
             ->rawColumns(['reference_hyperlink', 'serial_numbers_count', 'status_badge', 'action']);
     }
@@ -68,7 +68,7 @@ class GlobalMenuSearchDataTable extends DataTable
     public function html()
     {
         return $this->builder()
-            ->setTableId('global-menu-search-table')
+            ->setTableId('global-sales-search-table')
             ->columns($this->getColumns())
             ->minifiedAjax()
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
@@ -148,7 +148,7 @@ class GlobalMenuSearchDataTable extends DataTable
 
     protected function filename(): string
     {
-        return 'Global_Menu_Search_' . date('YmdHis');
+        return 'Global_Sales_Search_' . date('YmdHis');
     }
 
     /**

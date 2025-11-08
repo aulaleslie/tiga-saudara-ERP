@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Menu Global - Pencarian Penjualan')
+@section('title', 'Pencarian Penjualan Global')
 
 @section('content')
 <div class="container-fluid">
@@ -11,7 +11,7 @@
                 <div>
                     <h1 class="h3 mb-0">
                         <i class="bi bi-search me-2"></i>
-                        Menu Global
+                        Pencarian Penjualan Global
                     </h1>
                     <p class="text-muted mb-0">Cari dan kelola pesanan penjualan berdasarkan nomor seri</p>
                 </div>
@@ -27,7 +27,7 @@
     <!-- Search Section -->
     <div class="row">
         <div class="col-12">
-            @livewire('sale::global-menu-search')
+            @livewire('sale::global-sales-search')
         </div>
     </div>
 </div>
@@ -79,7 +79,7 @@ function showSerialNumbersModal(saleId) {
     $('#serialNumbersModal').modal('show');
 
     // Load serial numbers via AJAX
-    fetch(`{{ url('api/global-menu/sales') }}/${saleId}/serials`)
+    fetch(`{{ url('api/global-sales-search/sales') }}/${saleId}/serials`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {

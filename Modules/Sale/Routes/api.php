@@ -1,7 +1,7 @@
 <?php
 
 use Illuminate\Http\Request;
-use Modules\Sale\Http\Controllers\GlobalMenuController;
+use Modules\Sale\Http\Controllers\GlobalSalesSearchController;
 
 /*
 |--------------------------------------------------------------------------
@@ -19,20 +19,20 @@ Route::middleware('auth:api')->get('/sale', function (Request $request) {
 });
 
 // Global Menu (Serial Number Search) Routes
-Route::middleware('auth:sanctum')->prefix('global-menu')->group(function () {
+Route::middleware('auth:sanctum')->prefix('global-sales-search')->group(function () {
     // Search for sales by various criteria (POST for complex queries)
-    Route::post('/search', [GlobalMenuController::class, 'search'])
-        ->name('api.global-menu.search');
+    Route::post('/search', [GlobalSalesSearchController::class, 'search'])
+        ->name('api.global-sales-search.search');
 
     // Search for sales by reference number
-    Route::get('/sales/{reference}', [GlobalMenuController::class, 'searchByReference'])
-        ->name('api.global-menu.search-by-reference');
+    Route::get('/sales/{reference}', [GlobalSalesSearchController::class, 'searchByReference'])
+        ->name('api.global-sales-search.search-by-reference');
 
     // Get serial number details with associated sales
-    Route::get('/serials/{id}', [GlobalMenuController::class, 'getSerialDetails'])
-        ->name('api.global-menu.serial-details');
+    Route::get('/serials/{id}', [GlobalSalesSearchController::class, 'getSerialDetails'])
+        ->name('api.global-sales-search.serial-details');
 
     // Autocomplete suggestions
-    Route::get('/suggest', [GlobalMenuController::class, 'suggest'])
-        ->name('api.global-menu.suggest');
+    Route::get('/suggest', [GlobalSalesSearchController::class, 'suggest'])
+        ->name('api.global-sales-search.suggest');
 });
