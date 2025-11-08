@@ -306,4 +306,78 @@ class GlobalMenuController extends Controller
             ]);
         }
     }
+
+    /**
+     * Display the Global Menu search interface
+     *
+     * @return \Illuminate\View\View
+     */
+    public function index()
+    {
+        abort_if(Gate::denies('globalMenu.access'), 403);
+
+        return view('sale::global-menu.index');
+    }
+
+    /**
+     * Handle web search requests (for AJAX/DataTables)
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function ajaxSearch(Request $request)
+    {
+        abort_if(Gate::denies('globalMenu.access'), 403);
+
+        try {
+            $settingId = session('setting_id');
+
+            if (!$settingId) {
+                return response()->json([
+                    'error' => 'Tenant context not set. Please select a business unit.'
+                ], 400);
+            }
+
+            // Get filters from request
+            $filters = $request->only([
+                'serial_number', 'sale_reference', 'customer_id', 'customer_name',
+                'status', 'date_from', 'date_to', 'location_id', 'product_id',
+                'product_category_id', 'serial_number_status', 'seller_id'
+            ]);
+
+            // Remove empty filters
+            $filters = array_filter($filters, function($value) {
+                return $value !== '' && $value !== null;
+            });
+
+            $perPage = $request->get('per_page', 20);
+            $page = $request->get('page', 1);
+
+            // Execute search
+            $query = $this->searchService->buildQuery($filters);
+            $query->where('sales.setting_id', $settingId);
+
+            $results = $query->paginate($perPage, ['*'], 'page', $page);
+
+            return response()->json([
+                'data' => $results->items(),
+                'recordsTotal' => $results->total(),
+                'recordsFiltered' => $results->total(),
+                'current_page' => $results->currentPage(),
+                'last_page' => $results->lastPage(),
+                'per_page' => $results->perPage(),
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Global Menu Web Search Error', [
+                'user_id' => auth()->id(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'error' => 'Search failed. Please try again.'
+            ], 500);
+        }
+    }
 }

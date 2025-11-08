@@ -27,6 +27,7 @@ class SaleServiceProvider extends ServiceProvider
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();
+        $this->registerLivewireComponents();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
     }
 
@@ -71,6 +72,17 @@ class SaleServiceProvider extends ServiceProvider
         ], ['views', $this->moduleNameLower . '-module-views']);
 
         $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->moduleNameLower);
+    }
+
+    /**
+     * Register Livewire components.
+     *
+     * @return void
+     */
+    public function registerLivewireComponents()
+    {
+        \Livewire\Livewire::component('sale::global-menu-search', \Modules\Sale\Http\Livewire\GlobalMenuSearch::class);
+        \Livewire\Livewire::component('sale::global-menu-filters', \Modules\Sale\Http\Livewire\GlobalMenuFilters::class);
     }
 
     /**

@@ -62,4 +62,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/sale-payments/{sale_id}/edit/{salePayment}', 'SalePaymentsController@edit')->name('sale-payments.edit');
     Route::patch('/sale-payments/update/{salePayment}', 'SalePaymentsController@update')->name('sale-payments.update');
     Route::delete('/sale-payments/destroy/{salePayment}', 'SalePaymentsController@destroy')->name('sale-payments.destroy');
+
+    // Global Menu - Track Sales by Serial Number
+    Route::get('/global-menu', 'GlobalMenuController@index')->name('global-menu.index')->middleware('auth');
+    Route::get('/global-menu/search', 'GlobalMenuController@ajaxSearch')->name('global-menu.search')->middleware('auth');
 });

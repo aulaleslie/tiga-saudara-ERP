@@ -8,6 +8,7 @@ use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Product\Entities\ProductSerialNumber;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Log;
 
 class SerialNumberSearchService
 {
@@ -25,10 +26,10 @@ class SerialNumberSearchService
         $settingId = $settingId ?? session('setting_id');
 
         $query = Sale::query()
-            ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location'])
-            ->whereHas('saleDetails', function (Builder $query) use ($serial) {
-                // Search for serial numbers in the JSON array
-                $query->where('serial_number_ids', 'like', "%{$serial}%");
+            ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location', 'dispatchDetails'])
+            ->whereHas('dispatchDetails', function (Builder $query) use ($serial) {
+                // Search for serial numbers in the JSON array in dispatch_details
+                $query->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$serial]);
             });
 
         // Apply tenant filter
@@ -74,7 +75,7 @@ class SerialNumberSearchService
                 if (is_numeric($customerIdentifier)) {
                     $query->where('id', $customerIdentifier);
                 } else {
-                    $query->where('name', 'like', "%{$customerIdentifier}%");
+                    $query->where('customer_name', 'like', "%{$customerIdentifier}%");
                 }
             });
 
@@ -89,61 +90,95 @@ class SerialNumberSearchService
      *
      * @param array $filters
      * @param int|null $settingId
-     * @param int $limit
-     * @param int $page
-     * @return mixed
+     * @return Builder
      */
-    public function buildQuery(array $filters, ?int $settingId = null, int $limit = 50, int $page = 1)
+    public function buildQuery(array $filters, ?int $settingId = null): Builder
     {
         $settingId = $settingId ?? session('setting_id');
 
+        Log::info('SerialNumberSearchService::buildQuery called', [
+            'filters' => $filters,
+            'settingId' => $settingId,
+            'session_setting_id' => session('setting_id')
+        ]);
+
         $query = Sale::query()
-            ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location']);
+            ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location', 'dispatchDetails']);
 
         // Apply tenant filter
         $this->applyTenantFilter($query, $settingId);
 
+        // Build search conditions with OR logic for search filters
+        $searchConditions = [];
+
         // Serial number filter
         if (!empty($filters['serial_number'])) {
-            $query->whereHas('saleDetails', function (Builder $q) use ($filters) {
-                $q->where('serial_number_ids', 'like', "%{$filters['serial_number']}%");
-            });
+            Log::info('Adding serial number search condition', ['serial_number' => $filters['serial_number']]);
+            $searchConditions[] = function (Builder $q) use ($filters) {
+                $q->whereHas('dispatchDetails', function (Builder $subQ) use ($filters) {
+                    $subQ->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$filters['serial_number']]);
+                });
+            };
         }
 
         // Sale reference filter
         if (!empty($filters['sale_reference'])) {
-            $query->where('reference', 'like', "%{$filters['sale_reference']}%");
+            Log::info('Adding sale reference search condition', ['sale_reference' => $filters['sale_reference']]);
+            $searchConditions[] = function (Builder $q) use ($filters) {
+                $q->where('reference', 'like', "%{$filters['sale_reference']}%");
+            };
         }
 
         // Customer filter
         if (!empty($filters['customer_id'])) {
-            $query->where('customer_id', $filters['customer_id']);
+            Log::info('Adding customer ID search condition', ['customer_id' => $filters['customer_id']]);
+            $searchConditions[] = function (Builder $q) use ($filters) {
+                $q->where('customer_id', $filters['customer_id']);
+            };
         } elseif (!empty($filters['customer_name'])) {
-            $query->whereHas('customer', function (Builder $q) use ($filters) {
-                $q->where('name', 'like', "%{$filters['customer_name']}%");
+            Log::info('Adding customer name search condition', ['customer_name' => $filters['customer_name']]);
+            $searchConditions[] = function (Builder $q) use ($filters) {
+                $q->whereHas('customer', function (Builder $subQ) use ($filters) {
+                    $subQ->where('customer_name', 'like', "%{$filters['customer_name']}%");
+                });
+            };
+        }
+
+        // Apply search conditions with OR logic if any exist
+        if (!empty($searchConditions)) {
+            $query->where(function (Builder $q) use ($searchConditions) {
+                foreach ($searchConditions as $condition) {
+                    $q->orWhere($condition);
+                }
             });
         }
 
+        // Apply non-search filters with AND logic
         // Status filter
         if (!empty($filters['status'])) {
+            Log::info('Applying status filter', ['status' => $filters['status']]);
             $query->where('status', $filters['status']);
         }
 
         // Date range filters
         if (!empty($filters['date_from'])) {
+            Log::info('Applying date_from filter', ['date_from' => $filters['date_from']]);
             $query->whereDate('created_at', '>=', $filters['date_from']);
         }
         if (!empty($filters['date_to'])) {
+            Log::info('Applying date_to filter', ['date_to' => $filters['date_to']]);
             $query->whereDate('created_at', '<=', $filters['date_to']);
         }
 
         // Location filter
         if (!empty($filters['location_id'])) {
+            Log::info('Applying location filter', ['location_id' => $filters['location_id']]);
             $query->where('location_id', $filters['location_id']);
         }
 
         // Product filter
         if (!empty($filters['product_id'])) {
+            Log::info('Applying product filter', ['product_id' => $filters['product_id']]);
             $query->whereHas('saleDetails', function (Builder $q) use ($filters) {
                 $q->where('product_id', $filters['product_id']);
             });
@@ -152,7 +187,24 @@ class SerialNumberSearchService
         // Order by most recent first
         $query->orderByDesc('created_at');
 
-        return $query->paginate($limit, ['*'], 'page', $page);
+        Log::info('Query built successfully', ['query_sql' => $query->toSql(), 'query_bindings' => $query->getBindings()]);
+
+        // Log the actual results before returning
+        $rawResults = $query->get();
+        Log::info('SerialNumberSearchService::buildQuery raw results', [
+            'raw_results_count' => $rawResults->count(),
+            'raw_results' => $rawResults->map(function ($sale) {
+                return [
+                    'id' => $sale->id,
+                    'reference' => $sale->reference,
+                    'customer_name' => $sale->customer?->customer_name,
+                    'status' => $sale->status,
+                    'created_at' => $sale->created_at
+                ];
+            })->toArray()
+        ]);
+
+        return $query;
     }
 
     /**
@@ -208,26 +260,11 @@ class SerialNumberSearchService
     {
         $settingId = $settingId ?? session('setting_id');
 
-        // First, find the product serial number record
-        $productSerialNumbers = ProductSerialNumber::query()
-            ->where('serial_number', $serial)
-            ->whereHas('location', function (Builder $query) use ($settingId) {
-                $query->where('setting_id', $settingId);
-            })
-            ->pluck('id');
-
-        if ($productSerialNumbers->isEmpty()) {
-            return collect();
-        }
-
-        // Then find all sales that have these serial numbers
+        // Find sales that have dispatch details containing the serial number
         return Sale::query()
-            ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location'])
-            ->whereHas('saleDetails', function (Builder $query) use ($productSerialNumbers) {
-                // This is a bit complex because we're searching in a JSON array
-                foreach ($productSerialNumbers as $id) {
-                    $query->orWhere('serial_number_ids', 'like', "%{$id}%");
-                }
+            ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location', 'dispatchDetails'])
+            ->whereHas('dispatchDetails', function (Builder $query) use ($serial) {
+                $query->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$serial]);
             })
             ->where('setting_id', $settingId)
             ->orderByDesc('created_at')

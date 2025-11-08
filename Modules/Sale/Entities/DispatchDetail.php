@@ -11,7 +11,7 @@ class DispatchDetail extends BaseModel
 {
     protected $fillable = [
         'dispatch_id',
-        'sale_id',
+        'sale_details_id',
         'product_id',
         'dispatched_quantity',
         'location_id',
@@ -22,6 +22,11 @@ class DispatchDetail extends BaseModel
     public function dispatch(): BelongsTo
     {
         return $this->belongsTo(Dispatch::class);
+    }
+
+    public function saleDetails(): BelongsTo
+    {
+        return $this->belongsTo(SaleDetails::class, 'sale_details_id', 'id');
     }
 
     public function location(): BelongsTo

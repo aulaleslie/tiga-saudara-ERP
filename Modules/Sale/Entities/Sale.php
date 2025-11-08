@@ -49,6 +49,11 @@ class Sale extends BaseModel
         return $this->hasMany(Dispatch::class);
     }
 
+    public function dispatchDetails(): HasMany
+    {
+        return $this->hasMany(DispatchDetail::class, 'sale_id', 'id');
+    }
+
     public static function boot(): void
     {
         parent::boot();

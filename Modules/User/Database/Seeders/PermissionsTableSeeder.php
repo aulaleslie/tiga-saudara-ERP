@@ -224,6 +224,9 @@ class PermissionsTableSeeder extends Seeder
             'sales.show',
             'sales.approval',
 
+            // Global Menu - Track Sales by Serial Number
+            'globalMenu.access',
+
             // Notifications / Misc
             'show_notifications',
         ];

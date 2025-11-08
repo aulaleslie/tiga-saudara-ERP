@@ -40,6 +40,11 @@ class SaleDetails extends BaseModel
         return $this->hasMany(SaleBundleItem::class, 'sale_detail_id', 'id');
     }
 
+    public function dispatchDetails(): HasMany
+    {
+        return $this->hasMany(DispatchDetail::class, 'sale_details_id', 'id');
+    }
+
     /**
      * Get all serial numbers for this sale detail.
      * This relationship retrieves ProductSerialNumber records whose IDs are in the serial_number_ids JSON array.
