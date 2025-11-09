@@ -43,13 +43,18 @@ return new class extends Migration
             // No additional indexes needed for this table
         });
 
-        // JSON serial numbers for sales (MySQL 8.0+)
+        // JSON serial numbers for sales (MySQL 8.0.13+)
         if (DB::getDriverName() === 'mysql') {
-            DB::statement('
-                ALTER TABLE dispatch_details
-                ADD INDEX idx_dispatch_details_serial_numbers
-                ((CAST(serial_numbers AS CHAR(255))))
-            ');
+            try {
+                DB::statement('
+                    ALTER TABLE dispatch_details
+                    ADD INDEX idx_dispatch_details_serial_numbers
+                    ((CAST(serial_numbers AS CHAR(255))))
+                ');
+            } catch (\Exception $e) {
+                // Fallback: Older MySQL versions don't support functional indexes
+                // Skip creating this index as it's optional for performance optimization
+            }
         }
     }
 
@@ -63,10 +68,14 @@ return new class extends Migration
     {
         // Remove JSON index for sales serial numbers
         if (DB::getDriverName() === 'mysql') {
-            DB::statement('
-                ALTER TABLE dispatch_details
-                DROP INDEX idx_dispatch_details_serial_numbers
-            ');
+            try {
+                DB::statement('
+                    ALTER TABLE dispatch_details
+                    DROP INDEX idx_dispatch_details_serial_numbers
+                ');
+            } catch (\Exception $e) {
+                // Index may not exist in older MySQL versions
+            }
         }
 
         // Remove product serial numbers indexes
