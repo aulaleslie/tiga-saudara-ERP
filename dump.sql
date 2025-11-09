@@ -37,7 +37,7 @@ CREATE TABLE `adjusted_products` (
   PRIMARY KEY (`id`),
   KEY `adjusted_products_adjustment_id_foreign` (`adjustment_id`),
   CONSTRAINT `adjusted_products_adjustment_id_foreign` FOREIGN KEY (`adjustment_id`) REFERENCES `adjustments` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -46,7 +46,6 @@ CREATE TABLE `adjusted_products` (
 
 LOCK TABLES `adjusted_products` WRITE;
 /*!40000 ALTER TABLE `adjusted_products` DISABLE KEYS */;
-INSERT INTO `adjusted_products` VALUES (1,1,4,1,0,1,'[{\"id\":\"1\",\"taxable\":\"0\"}]',0,'SUB','2025-11-02 18:08:27','2025-11-02 18:08:27');
 /*!40000 ALTER TABLE `adjusted_products` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -70,7 +69,7 @@ CREATE TABLE `adjustments` (
   PRIMARY KEY (`id`),
   KEY `adjustments_location_id_foreign` (`location_id`),
   CONSTRAINT `adjustments_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -79,7 +78,6 @@ CREATE TABLE `adjustments` (
 
 LOCK TABLES `adjustments` WRITE;
 /*!40000 ALTER TABLE `adjustments` DISABLE KEYS */;
-INSERT INTO `adjustments` VALUES (1,'2025-11-02','ADJ-2025-11-00001',NULL,'2025-11-02 18:08:27','2025-11-02 18:12:55','normal','APPROVED',1);
 /*!40000 ALTER TABLE `adjustments` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -108,7 +106,7 @@ CREATE TABLE `audits` (
   PRIMARY KEY (`id`),
   KEY `audits_auditable_type_auditable_id_index` (`auditable_type`,`auditable_id`),
   KEY `audits_user_id_user_type_index` (`user_id`,`user_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -117,6 +115,7 @@ CREATE TABLE `audits` (
 
 LOCK TABLES `audits` WRITE;
 /*!40000 ALTER TABLE `audits` DISABLE KEYS */;
+INSERT INTO `audits` VALUES (1,'App\\Models\\User',1,'created','Modules\\Product\\Entities\\Category',2,'[]','{\"category_code\":\"CA_02\",\"category_name\":\"ELECTRONICS\",\"parent_id\":null,\"created_by\":1,\"setting_id\":2,\"id\":2}','http://localhost:8000/product-categories','127.0.0.1','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',NULL,'2025-11-09 00:27:53','2025-11-09 00:27:53');
 /*!40000 ALTER TABLE `audits` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -150,7 +149,7 @@ CREATE TABLE `brands` (
 
 LOCK TABLES `brands` WRITE;
 /*!40000 ALTER TABLE `brands` DISABLE KEYS */;
-INSERT INTO `brands` VALUES (1,1,'MERK',NULL,1,NULL,'2025-10-26 11:18:40','2025-10-26 11:18:40');
+INSERT INTO `brands` VALUES (1,2,'SAMSUNG',NULL,1,NULL,'2025-11-09 00:28:04','2025-11-09 00:28:04');
 /*!40000 ALTER TABLE `brands` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -168,9 +167,9 @@ CREATE TABLE `cashier_cash_movements` (
   `cash_total` decimal(15,2) NOT NULL DEFAULT '0.00',
   `expected_total` decimal(15,2) DEFAULT NULL,
   `variance` decimal(15,2) DEFAULT NULL,
-  `denominations` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
-  `documents` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
-  `metadata` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
+  `denominations` json DEFAULT NULL,
+  `documents` json DEFAULT NULL,
+  `metadata` json DEFAULT NULL,
   `notes` text COLLATE utf8mb4_unicode_ci,
   `recorded_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -179,10 +178,7 @@ CREATE TABLE `cashier_cash_movements` (
   KEY `cashier_cash_movements_user_id_foreign` (`user_id`),
   KEY `cashier_cash_movements_movement_type_index` (`movement_type`),
   KEY `cashier_cash_movements_recorded_at_index` (`recorded_at`),
-  CONSTRAINT `cashier_cash_movements_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `cashier_cash_movements_chk_1` CHECK (json_valid(`denominations`)),
-  CONSTRAINT `cashier_cash_movements_chk_2` CHECK (json_valid(`documents`)),
-  CONSTRAINT `cashier_cash_movements_chk_3` CHECK (json_valid(`metadata`))
+  CONSTRAINT `cashier_cash_movements_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -219,7 +215,7 @@ CREATE TABLE `categories` (
   CONSTRAINT `categories_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `categories_parent_id_foreign` FOREIGN KEY (`parent_id`) REFERENCES `categories` (`id`) ON DELETE CASCADE,
   CONSTRAINT `categories_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -228,7 +224,7 @@ CREATE TABLE `categories` (
 
 LOCK TABLES `categories` WRITE;
 /*!40000 ALTER TABLE `categories` DISABLE KEYS */;
-INSERT INTO `categories` VALUES (1,'CA_01','STATIONERY',NULL,1,1,'2025-10-26 11:06:17','2025-10-26 11:06:17');
+INSERT INTO `categories` VALUES (1,'CA_01','STATIONERY',NULL,1,1,'2025-11-08 23:43:19','2025-11-08 23:43:19'),(2,'CA_02','ELECTRONICS',NULL,1,2,'2025-11-09 00:27:53','2025-11-09 00:27:53');
 /*!40000 ALTER TABLE `categories` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -268,7 +264,7 @@ CREATE TABLE `chart_of_accounts` (
 
 LOCK TABLES `chart_of_accounts` WRITE;
 /*!40000 ALTER TABLE `chart_of_accounts` DISABLE KEYS */;
-INSERT INTO `chart_of_accounts` VALUES (1,1,'CASH','1110','Kas & Bank',NULL,NULL,NULL,'2025-10-26 11:13:18','2025-10-26 11:13:18');
+INSERT INTO `chart_of_accounts` VALUES (1,2,'CASH','1.11.11','Kas & Bank',NULL,NULL,NULL,'2025-11-09 00:25:09','2025-11-09 00:25:09');
 /*!40000 ALTER TABLE `chart_of_accounts` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -299,7 +295,7 @@ CREATE TABLE `currencies` (
 
 LOCK TABLES `currencies` WRITE;
 /*!40000 ALTER TABLE `currencies` DISABLE KEYS */;
-INSERT INTO `currencies` VALUES (1,'RUPIAH','IDR','RP',',','.',NULL,'2025-10-26 11:06:16','2025-10-26 11:06:16');
+INSERT INTO `currencies` VALUES (1,'RUPIAH','IDR','RP',',','.',NULL,'2025-11-08 23:43:19','2025-11-08 23:43:19');
 /*!40000 ALTER TABLE `currencies` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -324,7 +320,7 @@ CREATE TABLE `customer_credits` (
   KEY `customer_credits_customer_id_status_index` (`customer_id`,`status`),
   CONSTRAINT `customer_credits_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE CASCADE,
   CONSTRAINT `customer_credits_sale_return_id_foreign` FOREIGN KEY (`sale_return_id`) REFERENCES `sale_returns` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -333,7 +329,6 @@ CREATE TABLE `customer_credits` (
 
 LOCK TABLES `customer_credits` WRITE;
 /*!40000 ALTER TABLE `customer_credits` DISABLE KEYS */;
-INSERT INTO `customer_credits` VALUES (1,1,1,6500.00,6500.00,'OPEN','2025-11-01 13:58:16','2025-11-01 13:58:16');
 /*!40000 ALTER TABLE `customer_credits` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -384,7 +379,7 @@ CREATE TABLE `customers` (
 
 LOCK TABLES `customers` WRITE;
 /*!40000 ALTER TABLE `customers` DISABLE KEYS */;
-INSERT INTO `customers` VALUES (1,'USAHA','a@mail.com','081234596789','','','','2025-10-26 11:21:01','2025-10-26 11:21:01',NULL,'PELANGGAN NORMAL','NPWP','ALAMAT PENAGIHAN','ALAMAT PENGIRIMAN',NULL,'KTP','NO ID',NULL,NULL,NULL,NULL,1,'',NULL,858232),(2,'USAHA','a@mail.com','081234596789','','','','2025-10-26 11:21:29','2025-10-26 11:21:29',NULL,'PELANGGAN GROSIR','NPWP','ALAMAT PENAGIHAN','ALAMAT PENGIRIMAN',NULL,'KTP','NO ID',NULL,NULL,NULL,NULL,1,'','WHOLESALER',NULL),(3,'USAHA','a@mail.com','081234596789','','','','2025-10-26 11:22:05','2025-10-26 11:22:05',NULL,'PELANGGAN RESELLER','NPWP','ALAMAT PENAGIHAN','ALAMAT PENGIRIMAN',NULL,'KTP','NO ID',NULL,NULL,NULL,NULL,1,'','RESELLER',NULL);
+INSERT INTO `customers` VALUES (1,'','','081249003893','','','','2025-11-09 00:26:04','2025-11-09 00:26:04',NULL,'WALK IN',NULL,'JALAN SWATANTRA V','JALAN SWATANTRA V',NULL,NULL,NULL,NULL,NULL,NULL,NULL,2,'',NULL,858232),(2,'','','081249003893','','','','2025-11-09 00:26:28','2025-11-09 00:26:28',NULL,'GROSIR',NULL,'JALAN SWATANTRA V','JALAN SWATANTRA V',NULL,NULL,NULL,NULL,NULL,NULL,NULL,2,'','WHOLESALER',858231),(3,'','','081249003893','','','','2025-11-09 00:26:50','2025-11-09 00:26:50',NULL,'RESELLER',NULL,'JALAN SWATANTRA V','JALAN SWATANTRA V',NULL,NULL,NULL,NULL,NULL,NULL,NULL,2,'','RESELLER',858234);
 /*!40000 ALTER TABLE `customers` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -403,7 +398,7 @@ CREATE TABLE `dispatch_details` (
   `product_id` bigint unsigned NOT NULL,
   `location_id` bigint unsigned DEFAULT NULL,
   `dispatched_quantity` int NOT NULL,
-  `serial_numbers` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
+  `serial_numbers` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -412,13 +407,13 @@ CREATE TABLE `dispatch_details` (
   KEY `dispatch_details_product_id_foreign` (`product_id`),
   KEY `dispatch_details_location_id_foreign` (`location_id`),
   KEY `dispatch_details_tax_id_foreign` (`tax_id`),
+  KEY `idx_dispatch_details_serial_numbers` ((cast(`serial_numbers` as char(255) charset utf8mb4))),
   CONSTRAINT `dispatch_details_dispatch_id_foreign` FOREIGN KEY (`dispatch_id`) REFERENCES `dispatches` (`id`) ON DELETE CASCADE,
   CONSTRAINT `dispatch_details_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `dispatch_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `dispatch_details_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `dispatch_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `dispatch_details_chk_1` CHECK (json_valid(`serial_numbers`))
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  CONSTRAINT `dispatch_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -427,7 +422,6 @@ CREATE TABLE `dispatch_details` (
 
 LOCK TABLES `dispatch_details` WRITE;
 /*!40000 ALTER TABLE `dispatch_details` DISABLE KEYS */;
-INSERT INTO `dispatch_details` VALUES (1,NULL,1,4,2,1,10,'[]','2025-10-28 19:25:32','2025-10-28 19:25:32'),(2,NULL,2,5,3,1,5,'[]','2025-10-30 18:55:04','2025-10-30 18:55:04'),(3,NULL,3,3,1,1,5,'[]','2025-11-02 16:34:59','2025-11-02 16:34:59'),(4,NULL,4,6,4,1,1,'[\"20251102001\"]','2025-11-08 21:02:20','2025-11-08 21:02:20');
 /*!40000 ALTER TABLE `dispatch_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -447,7 +441,7 @@ CREATE TABLE `dispatches` (
   PRIMARY KEY (`id`),
   KEY `dispatches_sale_id_foreign` (`sale_id`),
   CONSTRAINT `dispatches_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -456,7 +450,6 @@ CREATE TABLE `dispatches` (
 
 LOCK TABLES `dispatches` WRITE;
 /*!40000 ALTER TABLE `dispatches` DISABLE KEYS */;
-INSERT INTO `dispatches` VALUES (1,4,'2025-10-28 00:00:00','2025-10-28 19:25:32','2025-10-28 19:25:32'),(2,5,'2025-10-30 00:00:00','2025-10-30 18:55:04','2025-10-30 18:55:04'),(3,3,'2025-11-02 00:00:00','2025-11-02 16:34:59','2025-11-02 16:34:59'),(4,6,'2025-11-08 00:00:00','2025-11-08 21:02:20','2025-11-08 21:02:20');
 /*!40000 ALTER TABLE `dispatches` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -541,7 +534,7 @@ CREATE TABLE `expenses` (
   PRIMARY KEY (`id`),
   KEY `expenses_category_id_foreign` (`category_id`),
   KEY `expenses_setting_id_foreign` (`setting_id`),
-  CONSTRAINT `expenses_category_id_foreign` FOREIGN KEY (`category_id`) REFERENCES `expense_categories` (`id`),
+  CONSTRAINT `expenses_category_id_foreign` FOREIGN KEY (`category_id`) REFERENCES `expense_categories` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `expenses_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -585,13 +578,57 @@ LOCK TABLES `failed_jobs` WRITE;
 UNLOCK TABLES;
 
 --
--- Table structure for table `global_menu_searches`
+-- Table structure for table `global_purchase_and_sales_searches`
 --
 
-DROP TABLE IF EXISTS `global_menu_searches`;
+DROP TABLE IF EXISTS `global_purchase_and_sales_searches`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `global_menu_searches` (
+CREATE TABLE `global_purchase_and_sales_searches` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `setting_id` bigint unsigned NOT NULL,
+  `search_query` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `search_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `transaction_types` json DEFAULT NULL,
+  `filters_applied` json DEFAULT NULL,
+  `results_count` int NOT NULL DEFAULT '0',
+  `response_time_ms` int NOT NULL DEFAULT '0',
+  `tenant_context` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `global_purchase_and_sales_searches_user_id_index` (`user_id`),
+  KEY `global_purchase_and_sales_searches_setting_id_index` (`setting_id`),
+  KEY `global_purchase_and_sales_searches_search_type_index` (`search_type`),
+  KEY `global_purchase_and_sales_searches_created_at_index` (`created_at`),
+  KEY `global_purchase_and_sales_searches_user_id_created_at_index` (`user_id`,`created_at`),
+  KEY `global_purchase_and_sales_searches_setting_id_created_at_index` (`setting_id`,`created_at`),
+  KEY `global_purchase_and_sales_searches_search_type_created_at_index` (`search_type`,`created_at`),
+  CONSTRAINT `global_purchase_and_sales_searches_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `global_purchase_and_sales_searches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `global_purchase_and_sales_searches`
+--
+
+LOCK TABLES `global_purchase_and_sales_searches` WRITE;
+/*!40000 ALTER TABLE `global_purchase_and_sales_searches` DISABLE KEYS */;
+/*!40000 ALTER TABLE `global_purchase_and_sales_searches` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `global_sales_searches`
+--
+
+DROP TABLE IF EXISTS `global_sales_searches`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `global_sales_searches` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `user_id` bigint unsigned NOT NULL,
   `setting_id` bigint unsigned NOT NULL,
@@ -603,23 +640,23 @@ CREATE TABLE `global_menu_searches` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `global_menu_searches_user_id_index` (`user_id`),
-  KEY `global_menu_searches_setting_id_index` (`setting_id`),
-  KEY `global_menu_searches_created_at_index` (`created_at`),
-  KEY `global_menu_searches_user_id_created_at_index` (`user_id`,`created_at`),
-  KEY `global_menu_searches_setting_id_created_at_index` (`setting_id`,`created_at`),
-  CONSTRAINT `global_menu_searches_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `global_menu_searches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+  KEY `global_sales_searches_user_id_index` (`user_id`),
+  KEY `global_sales_searches_setting_id_index` (`setting_id`),
+  KEY `global_sales_searches_created_at_index` (`created_at`),
+  KEY `global_sales_searches_user_id_created_at_index` (`user_id`,`created_at`),
+  KEY `global_sales_searches_setting_id_created_at_index` (`setting_id`,`created_at`),
+  CONSTRAINT `global_sales_searches_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `global_sales_searches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Dumping data for table `global_menu_searches`
+-- Dumping data for table `global_sales_searches`
 --
 
-LOCK TABLES `global_menu_searches` WRITE;
-/*!40000 ALTER TABLE `global_menu_searches` DISABLE KEYS */;
-/*!40000 ALTER TABLE `global_menu_searches` ENABLE KEYS */;
+LOCK TABLES `global_sales_searches` WRITE;
+/*!40000 ALTER TABLE `global_sales_searches` DISABLE KEYS */;
+/*!40000 ALTER TABLE `global_sales_searches` ENABLE KEYS */;
 UNLOCK TABLES;
 
 --
@@ -725,7 +762,7 @@ CREATE TABLE `locations` (
   PRIMARY KEY (`id`),
   KEY `locations_setting_id_foreign` (`setting_id`),
   CONSTRAINT `locations_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -734,7 +771,7 @@ CREATE TABLE `locations` (
 
 LOCK TABLES `locations` WRITE;
 /*!40000 ALTER TABLE `locations` DISABLE KEYS */;
-INSERT INTO `locations` VALUES (1,1,'SBY','2025-10-26 11:11:47','2025-10-26 11:11:47'),(2,1,'JKT','2025-10-26 11:11:57','2025-10-26 11:11:57');
+INSERT INTO `locations` VALUES (1,1,'GUDANG A','2025-11-09 00:24:12','2025-11-09 00:24:12'),(2,1,'GUDANG B','2025-11-09 00:24:17','2025-11-09 00:24:17'),(3,2,'GUDANG A','2025-11-09 00:24:29','2025-11-09 00:24:29'),(4,2,'GUDANG B','2025-11-09 00:24:35','2025-11-09 00:24:35');
 /*!40000 ALTER TABLE `locations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -757,20 +794,16 @@ CREATE TABLE `media` (
   `disk` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `conversions_disk` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `size` bigint unsigned NOT NULL,
-  `manipulations` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  `custom_properties` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  `generated_conversions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  `responsive_images` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  `manipulations` json NOT NULL,
+  `custom_properties` json NOT NULL,
+  `generated_conversions` json NOT NULL,
+  `responsive_images` json NOT NULL,
   `order_column` int unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `media_uuid_unique` (`uuid`),
-  KEY `media_model_type_model_id_index` (`model_type`,`model_id`),
-  CONSTRAINT `media_chk_1` CHECK (json_valid(`manipulations`)),
-  CONSTRAINT `media_chk_2` CHECK (json_valid(`custom_properties`)),
-  CONSTRAINT `media_chk_3` CHECK (json_valid(`generated_conversions`)),
-  CONSTRAINT `media_chk_4` CHECK (json_valid(`responsive_images`))
+  KEY `media_model_type_model_id_index` (`model_type`,`model_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -795,7 +828,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=152 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=154 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -804,7 +837,7 @@ CREATE TABLE `migrations` (
 
 LOCK TABLES `migrations` WRITE;
 /*!40000 ALTER TABLE `migrations` DISABLE KEYS */;
-INSERT INTO `migrations` VALUES (1,'0000_00_00_000000_create_websockets_statistics_entries_table',1),(2,'2014_10_12_000000_create_users_table',1),(3,'2014_10_12_100000_create_password_resets_table',1),(4,'2019_08_19_000000_create_failed_jobs_table',1),(5,'2019_12_14_000001_create_personal_access_tokens_table',1),(6,'2021_07_14_145038_create_categories_table',1),(7,'2021_07_14_145047_create_products_table',1),(8,'2021_07_15_211319_create_media_table',1),(9,'2021_07_16_010005_create_uploads_table',1),(10,'2021_07_16_220524_create_permission_tables',1),(11,'2021_07_22_003941_create_adjustments_table',1),(12,'2021_07_22_004043_create_adjusted_products_table',1),(13,'2021_07_28_192608_create_expense_categories_table',1),(14,'2021_07_28_192616_create_expenses_table',1),(15,'2021_07_29_165419_create_customers_table',1),(16,'2021_07_29_165440_create_suppliers_table',1),(17,'2021_07_31_015923_create_currencies_table',1),(18,'2021_07_31_140531_create_settings_table',1),(19,'2021_07_31_201003_create_sales_table',1),(20,'2021_07_31_212446_create_sale_details_table',1),(21,'2021_08_07_192203_create_sale_payments_table',1),(22,'2021_08_08_021108_create_purchases_table',1),(23,'2021_08_08_021131_create_purchase_payments_table',1),(24,'2021_08_08_021713_create_purchase_details_table',1),(25,'2021_08_08_175345_create_sale_returns_table',1),(26,'2021_08_08_175358_create_sale_return_details_table',1),(27,'2021_08_08_175406_create_sale_return_payments_table',1),(28,'2021_08_08_222603_create_purchase_returns_table',1),(29,'2021_08_08_222612_create_purchase_return_details_table',1),(30,'2021_08_08_222646_create_purchase_return_payments_table',1),(31,'2021_08_16_015031_create_quotations_table',1),(32,'2021_08_16_155013_create_quotation_details_table',1),(33,'2023_07_01_184221_create_units_table',1),(34,'2024_08_04_005934_create_user_setting_table',1),(35,'2024_08_05_021746_add_role_id_to_user_setting_table',1),(36,'2024_08_11_212922_add_brand_table',1),(37,'2024_08_12_034946_add_columns_to_categories_table',1),(38,'2024_08_12_213842_add_product_unit_conversions',1),(39,'2024_08_12_221237_add_unit_conversion_columns_to_products_table',1),(40,'2024_08_12_224144_add_setting_id_to_unit_table',1),(41,'2024_08_14_213433_add_locations_table',1),(42,'2024_08_15_220615_update_products_table_add_brand_stock_managed_and_nullable_category',1),(43,'2024_08_17_130443_add_barcode_and_profit_percentage',1),(44,'2024_08_17_130538_add_barcode',1),(45,'2024_08_17_143435_modify_product_foreign_relations',1),(46,'2024_08_20_104656_add_transactions_table',1),(47,'2024_08_23_233053_add_init_to_transaction_type_enum',1),(48,'2024_08_27_163344_add_type_and_status_to_adjustments_table',1),(49,'2024_08_27_184310_add_location_id_to_adjustments_table',1),(50,'2024_08_28_075105_add_broken_quantity_to_products_table',1),(51,'2024_09_03_172838_add_sale_and_purchase_price_and_tax_to_products_table',1),(52,'2024_09_05_222624_add_suppliers_info',1),(53,'2024_09_08_151743_add_stock_transfer_table',1),(54,'2024_09_08_151758_add_stock_transfer_product_table',1),(55,'2024_09_09_215715_add_setting_info_product_table',1),(56,'2024_09_09_224310_add_info_to_customer_table',1),(57,'2024_09_11_223749_add_additional_info_to_customer_table',1),(58,'2024_09_13_230003_add_taxes_table',1),(59,'2024_09_26_115105_add_serial_number_required',1),(60,'2024_09_26_115759_add_serial_number_table',1),(61,'2024_09_27_132637_add_product_stock_table',1),(62,'2024_10_03_225620_add_product_stock_info',1),(63,'2024_10_04_041346_add_product_tax_info',1),(64,'2024_10_29_120721_move_product_price_info',1),(65,'2024_10_29_174735_update_monetary_fields_to_decimal',1),(66,'2024_10_29_190105_add_setting_id_to_purchases_table',1),(67,'2024_10_29_190200_add_due_date_and_tax_id_to_purchases_table',1),(68,'2024_11_10_172538_create_audits_table',1),(69,'2024_11_27_075302_create_chart_of_accounts_table',1),(70,'2024_11_27_154759_add_payment_terms_table',1),(71,'2024_11_28_182827_add_payment_term_to_purchase_table',1),(72,'2024_11_28_184238_drop_supplier_name_from_purchases_table',1),(73,'2024_11_28_190002_add_tax_id_to_purchase_details_table',1),(74,'2024_11_28_190035_add_is_tax_included_to_purchases_table',1),(75,'2024_12_24_130535_create_received_notes_table',1),(76,'2024_12_24_131049_create_received_note_details_table',1),(77,'2025_01_07_185557_update_sales_table',1),(78,'2025_01_07_185711_update_sales_detail_table',1),(79,'2025_01_15_213903_add_payment_term_on_supplier',1),(80,'2025_01_15_213914_add_payment_term_on_customer',1),(81,'2025_01_22_190525_create_payment_methods_table',1),(82,'2025_01_22_201548_add_setting_id_on_coa',1),(83,'2025_01_24_195335_add_attachment_to_purchase_payment_table',1),(84,'2025_02_04_190016_add_receive_detail_id_to_product_serial_numbers',1),(85,'2025_02_16_181943_add_is_broken_to_product_serial_numbers',1),(86,'2025_02_16_185317_add_serial_numbers_to_adjusted_products',1),(87,'2025_02_17_155756_add_is_taxable_to_adjusted_products',1),(88,'2025_02_18_155755_add_po_id_to_purchase_return_details',1),(89,'2025_02_24_135737_add_tier_prices_to_product_table',1),(90,'2025_02_24_155406_add_tier_to_customers_table',1),(91,'2025_02_28_192255_add_product_bundles_table',1),(92,'2025_03_02_130536_add_product_bundle_items_table',1),(93,'2025_03_16_165122_create_journal_tables',1),(94,'2025_03_16_165139_create_journal_item_tables',1),(95,'2025_03_23_075342_update_sales_table_add_due_date_and_is_tax_included',1),(96,'2025_03_23_075357_create_sale_bundle_items_table',1),(97,'2025_03_25_133915_create_dispatch_table',1),(98,'2025_03_25_133919_create_dispatch_detail_table',1),(99,'2025_03_30_154014_add_dispatch_detail_id_to_product_serial_number_table',1),(100,'2025_04_03_151257_add_location_id_and_serial_numbers_dispatch_detail_table',1),(101,'2025_04_03_152358_remove_location_id_from_dispatch_table',1),(102,'2025_04_04_152113_add_payment_method_relation_to_sale_payment_table',1),(103,'2025_04_04_155829_update_amount_to_decimal_sale_payments_table',1),(104,'2025_04_04_160848_update_amount_to_decimal_from_sales_table',1),(105,'2025_04_07_183514_add_tax_id_to_dispatch_detail',1),(106,'2025_04_10_000000_downscale_sale_amounts',1),(107,'2025_04_11_163906_modify_transaction_table',1),(108,'2025_04_24_184159_add_price_to_product_conversion_table',1),(109,'2025_05_04_144041_add_price_to_product_bundles_table',1),(110,'2025_06_02_021018_add_setting_id_to_expense_tables',1),(111,'2025_06_14_175954_add_tax_columns_to_adjusted_products_table',1),(112,'2025_07_01_153916_create_expense_details_table',1),(113,'2025_07_02_173959_create_tag_tables',1),(114,'2025_07_21_151017_add_serial_number_ids_to_purchase_return_details_table',1),(115,'2025_07_28_181615_add_sale_prefix_column',1),(116,'2025_08_03_181507_add_serial_numbers_and_quantity_details',1),(117,'2025_08_06_174311_add_supplier_reference_no_to_purchase_table',1),(118,'2025_08_06_174543_add_sale_and_purchase_document_prefix_to_settings_table',1),(119,'2025_08_09_140912_add_is_pos_to_location_table',1),(120,'2025_08_19_183038_add_approval_and_return_type_to_purchase_returns',1),(121,'2025_08_19_183155_add_payment_method_id_to_purchase_return_payments',1),(122,'2025_08_19_183414_add_supplier_credits_for_purchase_returns',1),(123,'2025_08_19_183632_create_purchase_return_goods_table',1),(124,'2025_08_19_183857_standardize_money_columns_in_purchase_returns',1),(125,'2025_08_31_174825_create_product_price',1),(126,'2025_09_02_174017_create_import_batches',1),(127,'2025_09_02_174043_create_import_rows',1),(128,'2025_09_05_120000_add_return_flow_to_transfers_table',1),(129,'2025_09_05_120000_backfill_product_price_flags',1),(130,'2025_09_07_000001_add_location_and_setting_to_purchase_returns_table',1),(131,'2025_09_07_000002_add_settlement_tracking_to_purchase_returns_table',1),(132,'2025_09_10_120000_create_product_unit_conversion_prices_table',1),(133,'2025_09_23_070646_create_jobs_table',1),(134,'2025_09_23_100001_backfill_pending_purchase_returns',1),(135,'2025_09_23_120500_add_document_number_to_transfers_table',1),(136,'2025_09_30_120000_adjust_transfer_document_number_unique',1),(137,'2025_10_05_000001_create_cashier_cash_movements_table',1),(138,'2025_10_05_000001_remove_setting_id_from_shared_master_tables',1),(139,'2025_10_05_000001_update_price_columns_on_sale_bundle_items_table',1),(140,'2025_10_05_120000_enhance_sale_returns_with_settlement_structures',1),(141,'2025_10_10_000000_add_pos_flags_to_payment_methods_table',1),(142,'2025_11_05_000001_add_receiving_columns_to_sale_returns_table',1),(143,'2025_11_15_120000_create_setting_sale_locations_table',1),(144,'2025_12_01_000001_move_is_pos_to_setting_sale_locations',1),(146,'2025_11_08_120000_create_sales_order_serial_tracking_table',2),(147,'2025_11_08_120001_add_serial_search_indexes',2),(148,'2025_11_08_120002_add_serial_number_ids_to_sale_details',2),(149,'2025_11_08_120003_create_global_menu_searches_table',2),(150,'2026_01_01_000001_add_position_to_setting_sale_locations',2),(151,'2025_11_08_181647_create_global_menu_permission',3);
+INSERT INTO `migrations` VALUES (1,'0000_00_00_000000_create_websockets_statistics_entries_table',1),(2,'2014_10_12_000000_create_users_table',1),(3,'2014_10_12_100000_create_password_resets_table',1),(4,'2019_08_19_000000_create_failed_jobs_table',1),(5,'2019_12_14_000001_create_personal_access_tokens_table',1),(6,'2021_07_14_145038_create_categories_table',1),(7,'2021_07_14_145047_create_products_table',1),(8,'2021_07_15_211319_create_media_table',1),(9,'2021_07_16_010005_create_uploads_table',1),(10,'2021_07_16_220524_create_permission_tables',1),(11,'2021_07_22_003941_create_adjustments_table',1),(12,'2021_07_22_004043_create_adjusted_products_table',1),(13,'2021_07_28_192608_create_expense_categories_table',1),(14,'2021_07_28_192616_create_expenses_table',1),(15,'2021_07_29_165419_create_customers_table',1),(16,'2021_07_29_165440_create_suppliers_table',1),(17,'2021_07_31_015923_create_currencies_table',1),(18,'2021_07_31_140531_create_settings_table',1),(19,'2021_07_31_201003_create_sales_table',1),(20,'2021_07_31_212446_create_sale_details_table',1),(21,'2021_08_07_192203_create_sale_payments_table',1),(22,'2021_08_08_021108_create_purchases_table',1),(23,'2021_08_08_021131_create_purchase_payments_table',1),(24,'2021_08_08_021713_create_purchase_details_table',1),(25,'2021_08_08_175345_create_sale_returns_table',1),(26,'2021_08_08_175358_create_sale_return_details_table',1),(27,'2021_08_08_175406_create_sale_return_payments_table',1),(28,'2021_08_08_222603_create_purchase_returns_table',1),(29,'2021_08_08_222612_create_purchase_return_details_table',1),(30,'2021_08_08_222646_create_purchase_return_payments_table',1),(31,'2021_08_16_015031_create_quotations_table',1),(32,'2021_08_16_155013_create_quotation_details_table',1),(33,'2023_07_01_184221_create_units_table',1),(34,'2024_08_04_005934_create_user_setting_table',1),(35,'2024_08_05_021746_add_role_id_to_user_setting_table',1),(36,'2024_08_11_212922_add_brand_table',1),(37,'2024_08_12_034946_add_columns_to_categories_table',1),(38,'2024_08_12_213842_add_product_unit_conversions',1),(39,'2024_08_12_221237_add_unit_conversion_columns_to_products_table',1),(40,'2024_08_12_224144_add_setting_id_to_unit_table',1),(41,'2024_08_14_213433_add_locations_table',1),(42,'2024_08_15_220615_update_products_table_add_brand_stock_managed_and_nullable_category',1),(43,'2024_08_17_130443_add_barcode_and_profit_percentage',1),(44,'2024_08_17_130538_add_barcode',1),(45,'2024_08_17_143435_modify_product_foreign_relations',1),(46,'2024_08_20_104656_add_transactions_table',1),(47,'2024_08_23_233053_add_init_to_transaction_type_enum',1),(48,'2024_08_27_163344_add_type_and_status_to_adjustments_table',1),(49,'2024_08_27_184310_add_location_id_to_adjustments_table',1),(50,'2024_08_28_075105_add_broken_quantity_to_products_table',1),(51,'2024_09_03_172838_add_sale_and_purchase_price_and_tax_to_products_table',1),(52,'2024_09_05_222624_add_suppliers_info',1),(53,'2024_09_08_151743_add_stock_transfer_table',1),(54,'2024_09_08_151758_add_stock_transfer_product_table',1),(55,'2024_09_09_215715_add_setting_info_product_table',1),(56,'2024_09_09_224310_add_info_to_customer_table',1),(57,'2024_09_11_223749_add_additional_info_to_customer_table',1),(58,'2024_09_13_230003_add_taxes_table',1),(59,'2024_09_26_115105_add_serial_number_required',1),(60,'2024_09_26_115759_add_serial_number_table',1),(61,'2024_09_27_132637_add_product_stock_table',1),(62,'2024_10_03_225620_add_product_stock_info',1),(63,'2024_10_04_041346_add_product_tax_info',1),(64,'2024_10_29_120721_move_product_price_info',1),(65,'2024_10_29_174735_update_monetary_fields_to_decimal',1),(66,'2024_10_29_190105_add_setting_id_to_purchases_table',1),(67,'2024_10_29_190200_add_due_date_and_tax_id_to_purchases_table',1),(68,'2024_11_10_172538_create_audits_table',1),(69,'2024_11_27_075302_create_chart_of_accounts_table',1),(70,'2024_11_27_154759_add_payment_terms_table',1),(71,'2024_11_28_182827_add_payment_term_to_purchase_table',1),(72,'2024_11_28_184238_drop_supplier_name_from_purchases_table',1),(73,'2024_11_28_190002_add_tax_id_to_purchase_details_table',1),(74,'2024_11_28_190035_add_is_tax_included_to_purchases_table',1),(75,'2024_12_24_130535_create_received_notes_table',1),(76,'2024_12_24_131049_create_received_note_details_table',1),(77,'2025_01_07_185557_update_sales_table',1),(78,'2025_01_07_185711_update_sales_detail_table',1),(79,'2025_01_15_213903_add_payment_term_on_supplier',1),(80,'2025_01_15_213914_add_payment_term_on_customer',1),(81,'2025_01_22_190525_create_payment_methods_table',1),(82,'2025_01_22_201548_add_setting_id_on_coa',1),(83,'2025_01_24_195335_add_attachment_to_purchase_payment_table',1),(84,'2025_02_04_190016_add_receive_detail_id_to_product_serial_numbers',1),(85,'2025_02_16_181943_add_is_broken_to_product_serial_numbers',1),(86,'2025_02_16_185317_add_serial_numbers_to_adjusted_products',1),(87,'2025_02_17_155756_add_is_taxable_to_adjusted_products',1),(88,'2025_02_18_155755_add_po_id_to_purchase_return_details',1),(89,'2025_02_24_135737_add_tier_prices_to_product_table',1),(90,'2025_02_24_155406_add_tier_to_customers_table',1),(91,'2025_02_28_192255_add_product_bundles_table',1),(92,'2025_03_02_130536_add_product_bundle_items_table',1),(93,'2025_03_16_165122_create_journal_tables',1),(94,'2025_03_16_165139_create_journal_item_tables',1),(95,'2025_03_23_075342_update_sales_table_add_due_date_and_is_tax_included',1),(96,'2025_03_23_075357_create_sale_bundle_items_table',1),(97,'2025_03_25_133915_create_dispatch_table',1),(98,'2025_03_25_133919_create_dispatch_detail_table',1),(99,'2025_03_30_154014_add_dispatch_detail_id_to_product_serial_number_table',1),(100,'2025_04_03_151257_add_location_id_and_serial_numbers_dispatch_detail_table',1),(101,'2025_04_03_152358_remove_location_id_from_dispatch_table',1),(102,'2025_04_04_152113_add_payment_method_relation_to_sale_payment_table',1),(103,'2025_04_04_155829_update_amount_to_decimal_sale_payments_table',1),(104,'2025_04_04_160848_update_amount_to_decimal_from_sales_table',1),(105,'2025_04_07_183514_add_tax_id_to_dispatch_detail',1),(106,'2025_04_10_000000_downscale_sale_amounts',1),(107,'2025_04_11_163906_modify_transaction_table',1),(108,'2025_04_24_184159_add_price_to_product_conversion_table',1),(109,'2025_05_04_144041_add_price_to_product_bundles_table',1),(110,'2025_06_02_021018_add_setting_id_to_expense_tables',1),(111,'2025_06_14_175954_add_tax_columns_to_adjusted_products_table',1),(112,'2025_07_01_153916_create_expense_details_table',1),(113,'2025_07_02_173959_create_tag_tables',1),(114,'2025_07_21_151017_add_serial_number_ids_to_purchase_return_details_table',1),(115,'2025_07_28_181615_add_sale_prefix_column',1),(116,'2025_08_03_181507_add_serial_numbers_and_quantity_details',1),(117,'2025_08_06_174311_add_supplier_reference_no_to_purchase_table',1),(118,'2025_08_06_174543_add_sale_and_purchase_document_prefix_to_settings_table',1),(119,'2025_08_09_140912_add_is_pos_to_location_table',1),(120,'2025_08_19_183038_add_approval_and_return_type_to_purchase_returns',1),(121,'2025_08_19_183155_add_payment_method_id_to_purchase_return_payments',1),(122,'2025_08_19_183414_add_supplier_credits_for_purchase_returns',1),(123,'2025_08_19_183632_create_purchase_return_goods_table',1),(124,'2025_08_19_183857_standardize_money_columns_in_purchase_returns',1),(125,'2025_08_31_174825_create_product_price',1),(126,'2025_09_02_174017_create_import_batches',1),(127,'2025_09_02_174043_create_import_rows',1),(128,'2025_09_05_120000_add_return_flow_to_transfers_table',1),(129,'2025_09_05_120000_backfill_product_price_flags',1),(130,'2025_09_07_000001_add_location_and_setting_to_purchase_returns_table',1),(131,'2025_09_07_000002_add_settlement_tracking_to_purchase_returns_table',1),(132,'2025_09_10_120000_create_product_unit_conversion_prices_table',1),(133,'2025_09_23_070646_create_jobs_table',1),(134,'2025_09_23_100001_backfill_pending_purchase_returns',1),(135,'2025_09_23_120500_add_document_number_to_transfers_table',1),(136,'2025_09_30_120000_adjust_transfer_document_number_unique',1),(137,'2025_10_05_000001_create_cashier_cash_movements_table',1),(138,'2025_10_05_000001_remove_setting_id_from_shared_master_tables',1),(139,'2025_10_05_000001_update_price_columns_on_sale_bundle_items_table',1),(140,'2025_10_05_120000_enhance_sale_returns_with_settlement_structures',1),(141,'2025_10_10_000000_add_pos_flags_to_payment_methods_table',1),(142,'2025_11_05_000001_add_receiving_columns_to_sale_returns_table',1),(143,'2025_11_08_120000_create_sales_order_serial_tracking_table',1),(144,'2025_11_08_120001_add_serial_search_indexes',1),(145,'2025_11_08_120002_add_serial_number_ids_to_sale_details',1),(146,'2025_11_08_120003_create_global_sales_searches_table',1),(147,'2025_11_08_181647_create_global_sales_search_permission',1),(148,'2025_11_15_120000_create_setting_sale_locations_table',1),(149,'2025_12_01_000001_move_is_pos_to_setting_sale_locations',1),(150,'2026_01_01_000001_add_position_to_setting_sale_locations',1),(151,'2025_11_09_001508_create_global_purchase_and_sales_searches_table',2),(152,'2025_11_09_001528_add_search_indexes_for_global_search',3),(153,'2025_11_09_002049_create_global_purchase_and_sales_search_permission',4);
 /*!40000 ALTER TABLE `migrations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -912,7 +945,7 @@ CREATE TABLE `payment_methods` (
 
 LOCK TABLES `payment_methods` WRITE;
 /*!40000 ALTER TABLE `payment_methods` DISABLE KEYS */;
-INSERT INTO `payment_methods` VALUES (1,'CASH',1,1,1,'2025-10-26 11:13:46','2025-10-26 11:13:46');
+INSERT INTO `payment_methods` VALUES (1,'CASH',1,1,1,'2025-11-09 00:25:28','2025-11-09 00:25:28');
 /*!40000 ALTER TABLE `payment_methods` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -958,7 +991,7 @@ CREATE TABLE `permissions` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `permissions_name_guard_name_unique` (`name`,`guard_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=159 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=160 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -967,7 +1000,7 @@ CREATE TABLE `permissions` (
 
 LOCK TABLES `permissions` WRITE;
 /*!40000 ALTER TABLE `permissions` DISABLE KEYS */;
-INSERT INTO `permissions` VALUES (1,'adjustments.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(2,'adjustments.approval','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(3,'adjustments.breakage.approval','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(4,'adjustments.breakage.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(5,'adjustments.breakage.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(6,'adjustments.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(7,'adjustments.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(8,'adjustments.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(9,'adjustments.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(10,'adjustments.reject','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(11,'barcodes.print','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(12,'brands.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(13,'brands.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(14,'brands.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(15,'brands.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(16,'brands.view','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(17,'businesses.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(18,'businesses.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(19,'businesses.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(20,'businesses.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(21,'businesses.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(22,'categories.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(23,'categories.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(24,'categories.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(25,'categories.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(26,'chartOfAccounts.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(27,'chartOfAccounts.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(28,'chartOfAccounts.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(29,'chartOfAccounts.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(30,'chartOfAccounts.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(31,'currencies.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(32,'currencies.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(33,'currencies.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(34,'currencies.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(35,'customers.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(36,'customers.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(37,'customers.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(38,'customers.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(39,'customers.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(40,'expenseCategories.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(41,'expenseCategories.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(42,'expenseCategories.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(43,'expenseCategories.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(44,'expenses.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(45,'expenses.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(46,'expenses.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(47,'expenses.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(48,'journals.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(49,'journals.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(50,'journals.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(51,'journals.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(52,'journals.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(53,'locations.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(54,'locations.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(55,'locations.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(56,'saleLocations.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(57,'saleLocations.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(58,'paymentMethods.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(59,'paymentMethods.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(60,'paymentMethods.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(61,'paymentMethods.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(62,'paymentTerms.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(63,'paymentTerms.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(64,'paymentTerms.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(65,'paymentTerms.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(66,'pos.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(67,'pos.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(68,'products.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(69,'products.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(70,'products.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(71,'products.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(72,'products.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(73,'products.bundle.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(74,'products.bundle.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(75,'products.bundle.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(76,'products.bundle.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(77,'profiles.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(78,'purchases.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(79,'purchases.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(80,'purchases.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(81,'purchases.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(82,'purchases.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(83,'purchases.receive','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(84,'purchases.approval','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(85,'purchases.view','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(86,'purchaseReports.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(87,'purchasePayments.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(88,'purchasePayments.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(89,'purchasePayments.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(90,'purchasePayments.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(91,'purchaseReturns.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(92,'purchaseReturns.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(93,'purchaseReturns.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(94,'purchaseReturns.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(95,'purchaseReturns.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(96,'purchaseReturnPayments.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(97,'purchaseReturnPayments.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(98,'purchaseReturnPayments.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(99,'purchaseReturnPayments.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(100,'purchaseReturnPayments.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(101,'reports.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(102,'settings.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(103,'settings.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(104,'stockTransfers.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(105,'stockTransfers.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(106,'stockTransfers.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(107,'stockTransfers.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(108,'stockTransfers.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(109,'stockTransfers.dispatch','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(110,'stockTransfers.receive','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(111,'stockTransfers.approval','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(112,'suppliers.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(113,'suppliers.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(114,'suppliers.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(115,'suppliers.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(116,'suppliers.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(117,'taxes.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(118,'taxes.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(119,'taxes.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(120,'taxes.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(121,'units.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(122,'units.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(123,'units.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(124,'units.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(125,'users.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(126,'users.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(127,'users.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(128,'users.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(129,'roles.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(130,'roles.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(131,'roles.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(132,'roles.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(133,'salePayments.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(134,'salePayments.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(135,'salePayments.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(136,'salePayments.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(137,'saleReturnPayments.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(138,'saleReturnPayments.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(139,'saleReturnPayments.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(140,'saleReturnPayments.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(141,'salePayments.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(142,'saleReturns.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(143,'saleReturns.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(144,'saleReturns.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(145,'saleReturns.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(146,'saleReturns.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(147,'saleReturns.approve','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(148,'saleReturns.receive','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(149,'sales.access','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(150,'sales.create','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(151,'sales.edit','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(152,'sales.delete','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(153,'sales.dispatch','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(154,'sales.show','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(155,'sales.approval','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(156,'show_notifications','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(157,'globalMenu.access','web','2025-11-08 18:17:02','2025-11-08 18:17:02'),(158,'purchaseReceivings.access','web','2025-11-08 18:18:39','2025-11-08 18:18:39');
+INSERT INTO `permissions` VALUES (1,'globalSalesSearch.access','web','2025-11-08 23:43:17','2025-11-08 23:43:17'),(2,'adjustments.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(3,'adjustments.approval','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(4,'adjustments.breakage.approval','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(5,'adjustments.breakage.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(6,'adjustments.breakage.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(7,'adjustments.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(8,'adjustments.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(9,'adjustments.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(10,'adjustments.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(11,'adjustments.reject','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(12,'barcodes.print','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(13,'brands.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(14,'brands.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(15,'brands.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(16,'brands.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(17,'brands.view','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(18,'businesses.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(19,'businesses.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(20,'businesses.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(21,'businesses.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(22,'businesses.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(23,'categories.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(24,'categories.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(25,'categories.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(26,'categories.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(27,'chartOfAccounts.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(28,'chartOfAccounts.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(29,'chartOfAccounts.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(30,'chartOfAccounts.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(31,'chartOfAccounts.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(32,'currencies.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(33,'currencies.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(34,'currencies.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(35,'currencies.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(36,'customers.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(37,'customers.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(38,'customers.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(39,'customers.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(40,'customers.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(41,'expenseCategories.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(42,'expenseCategories.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(43,'expenseCategories.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(44,'expenseCategories.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(45,'expenses.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(46,'expenses.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(47,'expenses.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(48,'expenses.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(49,'journals.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(50,'journals.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(51,'journals.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(52,'journals.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(53,'journals.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(54,'locations.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(55,'locations.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(56,'locations.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(57,'saleLocations.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(58,'saleLocations.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(59,'paymentMethods.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(60,'paymentMethods.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(61,'paymentMethods.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(62,'paymentMethods.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(63,'paymentTerms.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(64,'paymentTerms.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(65,'paymentTerms.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(66,'paymentTerms.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(67,'pos.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(68,'pos.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(69,'products.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(70,'products.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(71,'products.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(72,'products.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(73,'products.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(74,'products.bundle.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(75,'products.bundle.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(76,'products.bundle.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(77,'products.bundle.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(78,'profiles.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(79,'purchases.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(80,'purchases.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(81,'purchases.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(82,'purchases.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(83,'purchases.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(84,'purchases.receive','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(85,'purchases.approval','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(86,'purchases.view','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(87,'purchaseReceivings.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(88,'purchaseReports.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(89,'purchasePayments.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(90,'purchasePayments.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(91,'purchasePayments.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(92,'purchasePayments.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(93,'purchaseReturns.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(94,'purchaseReturns.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(95,'purchaseReturns.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(96,'purchaseReturns.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(97,'purchaseReturns.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(98,'purchaseReturnPayments.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(99,'purchaseReturnPayments.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(100,'purchaseReturnPayments.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(101,'purchaseReturnPayments.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(102,'purchaseReturnPayments.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(103,'reports.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(104,'settings.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(105,'settings.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(106,'stockTransfers.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(107,'stockTransfers.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(108,'stockTransfers.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(109,'stockTransfers.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(110,'stockTransfers.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(111,'stockTransfers.dispatch','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(112,'stockTransfers.receive','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(113,'stockTransfers.approval','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(114,'suppliers.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(115,'suppliers.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(116,'suppliers.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(117,'suppliers.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(118,'suppliers.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(119,'taxes.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(120,'taxes.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(121,'taxes.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(122,'taxes.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(123,'units.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(124,'units.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(125,'units.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(126,'units.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(127,'users.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(128,'users.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(129,'users.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(130,'users.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(131,'roles.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(132,'roles.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(133,'roles.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(134,'roles.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(135,'salePayments.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(136,'salePayments.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(137,'salePayments.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(138,'salePayments.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(139,'saleReturnPayments.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(140,'saleReturnPayments.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(141,'saleReturnPayments.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(142,'saleReturnPayments.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(143,'salePayments.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(144,'saleReturns.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(145,'saleReturns.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(146,'saleReturns.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(147,'saleReturns.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(148,'saleReturns.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(149,'saleReturns.approve','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(150,'saleReturns.receive','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(151,'sales.access','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(152,'sales.create','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(153,'sales.edit','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(154,'sales.delete','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(155,'sales.dispatch','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(156,'sales.show','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(157,'sales.approval','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(158,'show_notifications','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(159,'globalPurchaseAndSalesSearch.access','web','2025-11-09 00:21:08','2025-11-09 00:21:08');
 /*!40000 ALTER TABLE `permissions` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1124,7 +1157,7 @@ CREATE TABLE `product_import_rows` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `batch_id` bigint unsigned NOT NULL,
   `row_number` int unsigned NOT NULL,
-  `raw_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  `raw_json` json NOT NULL,
   `status` enum('skipped','error','imported') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `error_message` text COLLATE utf8mb4_unicode_ci,
   `product_id` bigint unsigned DEFAULT NULL,
@@ -1136,8 +1169,7 @@ CREATE TABLE `product_import_rows` (
   KEY `product_import_rows_batch_id_row_number_index` (`batch_id`,`row_number`),
   KEY `product_import_rows_status_index` (`status`),
   KEY `product_import_rows_product_id_index` (`product_id`),
-  CONSTRAINT `product_import_rows_batch_id_foreign` FOREIGN KEY (`batch_id`) REFERENCES `product_import_batches` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `product_import_rows_chk_1` CHECK (json_valid(`raw_json`))
+  CONSTRAINT `product_import_rows_batch_id_foreign` FOREIGN KEY (`batch_id`) REFERENCES `product_import_batches` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1180,7 +1212,7 @@ CREATE TABLE `product_prices` (
   CONSTRAINT `product_prices_purchase_tax_id_foreign` FOREIGN KEY (`purchase_tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `product_prices_sale_tax_id_foreign` FOREIGN KEY (`sale_tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `product_prices_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1189,7 +1221,7 @@ CREATE TABLE `product_prices` (
 
 LOCK TABLES `product_prices` WRITE;
 /*!40000 ALTER TABLE `product_prices` DISABLE KEYS */;
-INSERT INTO `product_prices` VALUES (1,1,1,5000.00,4000.00,4500.00,3000.00,3000.00,NULL,NULL,'2025-10-26 11:19:41','2025-10-26 11:19:41'),(2,1,2,5000.00,4000.00,4500.00,3000.00,3000.00,NULL,NULL,'2025-10-26 11:19:41','2025-10-26 11:19:41'),(3,2,1,5000.00,4900.00,4800.00,4500.00,4500.00,NULL,NULL,'2025-10-28 19:24:28','2025-10-28 19:24:28'),(4,2,2,5000.00,4900.00,4800.00,4500.00,4500.00,NULL,NULL,'2025-10-28 19:24:28','2025-10-28 19:24:28'),(5,3,1,6500.00,6400.00,6300.00,6000.00,6000.00,NULL,NULL,'2025-10-28 19:29:40','2025-10-28 19:29:40'),(6,3,2,6500.00,6400.00,6300.00,6000.00,6000.00,NULL,NULL,'2025-10-28 19:29:40','2025-10-28 19:29:40'),(7,4,1,6500000.00,6500000.00,6500000.00,5000000.00,5000000.00,NULL,NULL,'2025-11-01 16:16:15','2025-11-01 16:16:15'),(8,4,2,6500000.00,6500000.00,6500000.00,5000000.00,5000000.00,NULL,NULL,'2025-11-01 16:16:15','2025-11-01 16:16:15');
+INSERT INTO `product_prices` VALUES (1,1,1,7500000.00,7250000.00,6000000.00,5000000.00,5000000.00,NULL,NULL,'2025-11-09 00:28:54','2025-11-09 00:28:54'),(2,1,2,7500000.00,7250000.00,6000000.00,5000000.00,5000000.00,NULL,NULL,'2025-11-09 00:28:54','2025-11-09 00:28:54');
 /*!40000 ALTER TABLE `product_prices` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1214,7 +1246,6 @@ CREATE TABLE `product_serial_numbers` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `product_serial_numbers_serial_number_unique` (`serial_number`),
   KEY `product_serial_numbers_product_id_foreign` (`product_id`),
-  KEY `product_serial_numbers_location_id_foreign` (`location_id`),
   KEY `product_serial_numbers_tax_id_foreign` (`tax_id`),
   KEY `product_serial_numbers_received_note_detail_id_foreign` (`received_note_detail_id`),
   KEY `product_serial_numbers_dispatch_detail_id_foreign` (`dispatch_detail_id`),
@@ -1225,7 +1256,7 @@ CREATE TABLE `product_serial_numbers` (
   CONSTRAINT `product_serial_numbers_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_serial_numbers_received_note_detail_id_foreign` FOREIGN KEY (`received_note_detail_id`) REFERENCES `received_note_details` (`id`) ON DELETE SET NULL,
   CONSTRAINT `product_serial_numbers_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1234,7 +1265,7 @@ CREATE TABLE `product_serial_numbers` (
 
 LOCK TABLES `product_serial_numbers` WRITE;
 /*!40000 ALTER TABLE `product_serial_numbers` DISABLE KEYS */;
-INSERT INTO `product_serial_numbers` VALUES (1,4,4,0,2,1,'20251102001',NULL,'2025-11-02 16:16:18','2025-11-08 21:02:20'),(11,4,NULL,0,4,1,'202511080001',NULL,'2025-11-08 21:01:14','2025-11-08 21:01:14'),(12,4,NULL,0,4,1,'202511080002',NULL,'2025-11-08 21:01:14','2025-11-08 21:01:14'),(13,4,NULL,0,4,1,'202511080003',NULL,'2025-11-08 21:01:14','2025-11-08 21:01:14'),(14,4,NULL,0,4,1,'202511080004',NULL,'2025-11-08 21:01:14','2025-11-08 21:01:14'),(15,4,NULL,0,4,1,'202511080005',NULL,'2025-11-08 21:01:14','2025-11-08 21:01:14'),(16,4,NULL,0,4,1,'202511080006',NULL,'2025-11-08 21:01:14','2025-11-08 21:01:14'),(17,4,NULL,0,4,1,'202511080007',NULL,'2025-11-08 21:01:14','2025-11-08 21:01:14'),(18,4,NULL,0,4,1,'202511080008',NULL,'2025-11-08 21:01:14','2025-11-08 21:01:14'),(19,4,NULL,0,4,1,'202511080009',NULL,'2025-11-08 21:01:14','2025-11-08 21:01:14'),(20,4,NULL,0,4,1,'202511080010',NULL,'2025-11-08 21:01:14','2025-11-08 21:01:14');
+INSERT INTO `product_serial_numbers` VALUES (1,1,NULL,0,1,3,'202511090001',NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25'),(2,1,NULL,0,1,3,'202511090002',NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25'),(3,1,NULL,0,1,3,'202511090003',NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25'),(4,1,NULL,0,1,3,'202511090004',NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25'),(5,1,NULL,0,1,3,'202511090005',NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25'),(6,1,NULL,0,1,3,'202511090006',NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25'),(7,1,NULL,0,1,3,'202511090007',NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25'),(8,1,NULL,0,1,3,'202511090008',NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25'),(9,1,NULL,0,1,3,'202511090009',NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25'),(10,1,NULL,0,1,3,'202511090010',NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25');
 /*!40000 ALTER TABLE `product_serial_numbers` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1265,7 +1296,7 @@ CREATE TABLE `product_stocks` (
   CONSTRAINT `product_stocks_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_stocks_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_stocks_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1274,7 +1305,7 @@ CREATE TABLE `product_stocks` (
 
 LOCK TABLES `product_stocks` WRITE;
 /*!40000 ALTER TABLE `product_stocks` DISABLE KEYS */;
-INSERT INTO `product_stocks` VALUES (1,1,1,36,6,10,10,10,20,NULL,'2025-10-26 11:20:07','2025-11-02 16:34:59'),(2,2,1,40,40,0,0,0,0,NULL,'2025-10-28 19:24:39','2025-11-02 18:26:14'),(3,3,1,35,5,10,10,10,20,NULL,'2025-10-28 19:29:52','2025-10-30 18:55:04'),(4,4,1,10,10,0,0,0,0,NULL,'2025-11-02 16:16:18','2025-11-08 21:02:20');
+INSERT INTO `product_stocks` VALUES (1,1,3,10,10,0,0,0,0,NULL,'2025-11-09 00:30:25','2025-11-09 00:30:25');
 /*!40000 ALTER TABLE `product_stocks` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1404,7 +1435,7 @@ CREATE TABLE `products` (
   CONSTRAINT `products_sale_tax_id_foreign` FOREIGN KEY (`sale_tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `products_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
   CONSTRAINT `products_unit_id_foreign` FOREIGN KEY (`unit_id`) REFERENCES `units` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1413,7 +1444,7 @@ CREATE TABLE `products` (
 
 LOCK TABLES `products` WRITE;
 /*!40000 ALTER TABLE `products` DISABLE KEYS */;
-INSERT INTO `products` VALUES (1,1,1,1,'PULPEN','001',NULL,36,0,20,0,0,NULL,0.00,NULL,1,NULL,0,1,0,NULL,1,0.00,4000.00,4500.00,NULL,3000.00,73.17,0,0,1,NULL,'2025-10-26 11:19:41','2025-11-02 16:34:59',NULL,NULL),(2,1,1,NULL,'PULPEN A','PULP-A',NULL,40,0,0,0,0,NULL,0.00,NULL,1,NULL,0,1,0,NULL,1,0.00,4900.00,4800.00,NULL,4500.00,1125.00,0,0,1,NULL,'2025-10-28 19:24:28','2025-11-02 18:26:14',NULL,NULL),(3,1,1,1,'PULPEN B','PULP-B',NULL,35,0,20,0,0,NULL,0.00,NULL,1,NULL,0,1,0,NULL,1,0.00,6400.00,6300.00,NULL,0.00,0.00,0,0,1,NULL,'2025-10-28 19:29:40','2025-10-30 18:55:04',NULL,NULL),(4,1,NULL,NULL,'SAMSUNG GALAXY Z FOLD 6','SMG-0060',NULL,10,1,0,0,0,NULL,0.00,NULL,1,NULL,0,1,0,NULL,1,0.00,6500000.00,6500000.00,NULL,5000000.00,5000000.00,0,0,1,NULL,'2025-11-01 16:16:15','2025-11-08 21:02:20',NULL,NULL);
+INSERT INTO `products` VALUES (1,2,2,1,'SAMSUNG GALAXY Z FOLD 6','SMG-0060',NULL,10,1,0,0,0,NULL,0.00,NULL,1,NULL,0,1,0,NULL,1,0.00,7250000.00,6000000.00,NULL,5000000.00,5000000.00,0,0,1,NULL,'2025-11-09 00:28:54','2025-11-09 00:30:25',NULL,NULL);
 /*!40000 ALTER TABLE `products` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1447,7 +1478,7 @@ CREATE TABLE `purchase_details` (
   CONSTRAINT `purchase_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_details_purchase_id_foreign` FOREIGN KEY (`purchase_id`) REFERENCES `purchases` (`id`) ON DELETE CASCADE,
   CONSTRAINT `purchase_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1456,7 +1487,7 @@ CREATE TABLE `purchase_details` (
 
 LOCK TABLES `purchase_details` WRITE;
 /*!40000 ALTER TABLE `purchase_details` DISABLE KEYS */;
-INSERT INTO `purchase_details` VALUES (2,1,1,'PULPEN','001',1,3000.00,3000.00,3000.00,0.00,'FIXED',0.00,NULL,'2025-11-01 15:52:34','2025-11-01 15:52:34'),(3,2,4,'SAMSUNG GALAXY Z FOLD 6','SMG-0060',10,5000000.00,5000000.00,50000000.00,0.00,'FIXED',0.00,NULL,'2025-11-01 16:16:40','2025-11-01 16:16:40'),(4,3,2,'PULPEN A','PULP-A',10,4500.00,4500.00,45000.00,0.00,'FIXED',0.00,NULL,'2025-11-02 18:25:56','2025-11-02 18:25:56'),(5,4,1,'PULPEN','001',1,3000.00,3000.00,3000.00,0.00,'FIXED',0.00,NULL,'2025-11-05 18:55:09','2025-11-05 18:55:09'),(6,4,2,'PULPEN A','PULP-A',1,4500.00,4500.00,4500.00,0.00,'FIXED',0.00,NULL,'2025-11-05 18:55:09','2025-11-05 18:55:09'),(7,4,3,'PULPEN B','PULP-B',1,6000.00,6000.00,6000.00,0.00,'FIXED',0.00,NULL,'2025-11-05 18:55:09','2025-11-05 18:55:09'),(8,5,4,'SAMSUNG GALAXY Z FOLD 6','SMG-0060',10,5000000.00,5000000.00,50000000.00,0.00,'FIXED',0.00,NULL,'2025-11-08 20:58:07','2025-11-08 20:58:07');
+INSERT INTO `purchase_details` VALUES (1,1,1,'SAMSUNG GALAXY Z FOLD 6','SMG-0060',10,5000000.00,5000000.00,50000000.00,0.00,'FIXED',0.00,NULL,'2025-11-09 00:29:27','2025-11-09 00:29:27');
 /*!40000 ALTER TABLE `purchase_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1547,7 +1578,7 @@ CREATE TABLE `purchase_return_details` (
   `product_discount_amount` decimal(15,2) NOT NULL,
   `product_discount_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'fixed',
   `product_tax_amount` decimal(15,2) NOT NULL,
-  `serial_number_ids` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
+  `serial_number_ids` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -1556,9 +1587,8 @@ CREATE TABLE `purchase_return_details` (
   KEY `purchase_return_details_po_id_foreign` (`po_id`),
   CONSTRAINT `purchase_return_details_po_id_foreign` FOREIGN KEY (`po_id`) REFERENCES `purchases` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_return_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `purchase_return_details_purchase_return_id_foreign` FOREIGN KEY (`purchase_return_id`) REFERENCES `purchase_returns` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `purchase_return_details_chk_1` CHECK (json_valid(`serial_number_ids`))
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  CONSTRAINT `purchase_return_details_purchase_return_id_foreign` FOREIGN KEY (`purchase_return_id`) REFERENCES `purchase_returns` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1567,7 +1597,6 @@ CREATE TABLE `purchase_return_details` (
 
 LOCK TABLES `purchase_return_details` WRITE;
 /*!40000 ALTER TABLE `purchase_return_details` DISABLE KEYS */;
-INSERT INTO `purchase_return_details` VALUES (1,1,NULL,1,'PULPEN','001',1,3000.00,3000.00,3000.00,0.00,'fixed',0.00,'[]','2025-11-02 18:26:49','2025-11-02 18:26:49'),(2,2,NULL,1,'PULPEN','001',1,3000.00,3000.00,3000.00,0.00,'fixed',0.00,'[]','2025-11-02 18:30:27','2025-11-02 18:30:27');
 /*!40000 ALTER TABLE `purchase_return_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1697,7 +1726,7 @@ CREATE TABLE `purchase_returns` (
   CONSTRAINT `purchase_returns_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_returns_settled_by_foreign` FOREIGN KEY (`settled_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_returns_supplier_id_foreign` FOREIGN KEY (`supplier_id`) REFERENCES `suppliers` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1706,7 +1735,6 @@ CREATE TABLE `purchase_returns` (
 
 LOCK TABLES `purchase_returns` WRITE;
 /*!40000 ALTER TABLE `purchase_returns` DISABLE KEYS */;
-INSERT INTO `purchase_returns` VALUES (1,'2025-11-02','PRRN-2025-11-00001',1,1,1,'PT SIDU TJAHAJA ASIA',0,0.00,0,0.00,0.00,3000.00,3000.00,0.00,'APPROVED','DEPOSIT',1,'2025-11-02 18:27:00','2025-11-02 18:28:08',1,NULL,NULL,NULL,'COMPLETED','PAID','SUPPLIER CREDIT',NULL,NULL,'2025-11-02 18:26:49','2025-11-02 18:28:08'),(2,'2025-11-02','PRRN-2025-11-00002',1,1,1,'PT SIDU TJAHAJA ASIA',0,0.00,0,0.00,0.00,3000.00,0.00,3000.00,'APPROVED',NULL,1,'2025-11-02 18:30:57',NULL,NULL,NULL,NULL,NULL,'AWAITING SETTLEMENT','UNPAID','PENDING',NULL,NULL,'2025-11-02 18:30:27','2025-11-02 18:30:57');
 /*!40000 ALTER TABLE `purchase_returns` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1743,15 +1771,20 @@ CREATE TABLE `purchases` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `purchases_supplier_id_foreign` (`supplier_id`),
-  KEY `purchases_setting_id_foreign` (`setting_id`),
   KEY `purchases_tax_id_foreign` (`tax_id`),
   KEY `purchases_payment_term_id_foreign` (`payment_term_id`),
+  KEY `purchases_reference_index` (`reference`),
+  KEY `purchases_supplier_id_index` (`supplier_id`),
+  KEY `purchases_created_at_index` (`created_at`),
+  KEY `purchases_setting_id_index` (`setting_id`),
+  KEY `purchases_setting_id_reference_index` (`setting_id`,`reference`),
+  KEY `purchases_setting_id_supplier_id_index` (`setting_id`,`supplier_id`),
+  KEY `purchases_setting_id_created_at_index` (`setting_id`,`created_at`),
   CONSTRAINT `purchases_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchases_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchases_supplier_id_foreign` FOREIGN KEY (`supplier_id`) REFERENCES `suppliers` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchases_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1760,7 +1793,7 @@ CREATE TABLE `purchases` (
 
 LOCK TABLES `purchases` WRITE;
 /*!40000 ALTER TABLE `purchases` DISABLE KEYS */;
-INSERT INTO `purchases` VALUES (1,'2025-11-01','2025-12-16','TS-PR-2025-11-00001',1,NULL,NULL,0,0.00,0.00,0.00,0.00,0.00,3000.00,0.00,3000.00,'RECEIVED','UNPAID','',NULL,1726493,1,'2025-11-01 15:52:12','2025-11-01 15:56:24'),(2,'2025-11-01','2025-12-16','TS-PR-2025-11-00002',1,NULL,NULL,0,0.00,0.00,0.00,0.00,0.00,50000000.00,0.00,50000000.00,'RECEIVED','UNPAID','',NULL,1726493,1,'2025-11-01 16:16:40','2025-11-02 16:16:18'),(3,'2025-11-02','2025-12-17','TS-PR-2025-11-00003',1,NULL,NULL,0,0.00,0.00,0.00,0.00,0.00,45000.00,0.00,45000.00,'RECEIVED','UNPAID','',NULL,1726493,1,'2025-11-02 18:25:56','2025-11-02 18:26:14'),(4,'2025-11-05','2025-12-20','TS-PR-2025-11-00004',1,NULL,NULL,0,0.00,0.00,0.00,0.00,0.00,13500.00,0.00,13500.00,'APPROVED','UNPAID','',NULL,1726493,1,'2025-11-05 18:55:09','2025-11-05 18:55:20'),(5,'2025-11-08','2025-12-23','TS-PR-2025-11-00005',1,NULL,NULL,0,0.00,0.00,0.00,0.00,0.00,50000000.00,0.00,50000000.00,'RECEIVED','UNPAID','',NULL,1726493,1,'2025-11-08 20:58:07','2025-11-08 21:01:14');
+INSERT INTO `purchases` VALUES (1,'2025-11-09','2025-12-24','TI-PO-2025-11-00001',1,NULL,NULL,0,0.00,0.00,0.00,0.00,0.00,50000000.00,0.00,50000000.00,'RECEIVED','UNPAID','',NULL,1726493,2,'2025-11-09 00:29:27','2025-11-09 00:30:25');
 /*!40000 ALTER TABLE `purchases` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1860,7 +1893,7 @@ CREATE TABLE `received_note_details` (
   KEY `received_note_details_po_detail_id_foreign` (`po_detail_id`),
   CONSTRAINT `received_note_details_po_detail_id_foreign` FOREIGN KEY (`po_detail_id`) REFERENCES `purchase_details` (`id`) ON DELETE CASCADE,
   CONSTRAINT `received_note_details_received_note_id_foreign` FOREIGN KEY (`received_note_id`) REFERENCES `received_notes` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1869,7 +1902,7 @@ CREATE TABLE `received_note_details` (
 
 LOCK TABLES `received_note_details` WRITE;
 /*!40000 ALTER TABLE `received_note_details` DISABLE KEYS */;
-INSERT INTO `received_note_details` VALUES (1,1,2,1,'2025-11-01 15:56:24','2025-11-01 15:56:24'),(2,2,3,10,'2025-11-02 16:16:18','2025-11-02 16:16:18'),(3,3,4,10,'2025-11-02 18:26:14','2025-11-02 18:26:14'),(4,4,8,10,'2025-11-08 21:01:14','2025-11-08 21:01:14');
+INSERT INTO `received_note_details` VALUES (1,1,1,10,'2025-11-09 00:30:25','2025-11-09 00:30:25');
 /*!40000 ALTER TABLE `received_note_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1891,7 +1924,7 @@ CREATE TABLE `received_notes` (
   PRIMARY KEY (`id`),
   KEY `received_notes_po_id_foreign` (`po_id`),
   CONSTRAINT `received_notes_po_id_foreign` FOREIGN KEY (`po_id`) REFERENCES `purchases` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1900,7 +1933,7 @@ CREATE TABLE `received_notes` (
 
 LOCK TABLES `received_notes` WRITE;
 /*!40000 ALTER TABLE `received_notes` DISABLE KEYS */;
-INSERT INTO `received_notes` VALUES (1,1,'',NULL,'2025-11-01','2025-11-01 15:56:24','2025-11-01 15:56:24'),(2,2,'',NULL,'2025-11-02','2025-11-02 16:16:18','2025-11-02 16:16:18'),(3,3,'',NULL,'2025-11-02','2025-11-02 18:26:14','2025-11-02 18:26:14'),(4,5,'',NULL,'2025-11-08','2025-11-08 21:01:14','2025-11-08 21:01:14');
+INSERT INTO `received_notes` VALUES (1,1,'',NULL,'2025-11-09','2025-11-09 00:30:25','2025-11-09 00:30:25');
 /*!40000 ALTER TABLE `received_notes` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1955,7 +1988,7 @@ CREATE TABLE `roles` (
 
 LOCK TABLES `roles` WRITE;
 /*!40000 ALTER TABLE `roles` DISABLE KEYS */;
-INSERT INTO `roles` VALUES (1,'Admin','web','2025-10-26 11:06:15','2025-10-26 11:06:15'),(2,'Super Admin','web','2025-10-26 11:06:16','2025-10-26 11:06:16');
+INSERT INTO `roles` VALUES (1,'Admin','web','2025-11-08 23:43:18','2025-11-08 23:43:18'),(2,'Super Admin','web','2025-11-08 23:43:19','2025-11-08 23:43:19');
 /*!40000 ALTER TABLE `roles` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2023,15 +2056,13 @@ CREATE TABLE `sale_details` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `sale_details_sale_id_foreign` (`sale_id`),
-  KEY `sale_details_product_id_foreign` (`product_id`),
   KEY `sale_details_tax_id_foreign` (`tax_id`),
   KEY `sale_details_sale_id_index` (`sale_id`),
   KEY `sale_details_product_id_index` (`product_id`),
   CONSTRAINT `sale_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_details_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE,
   CONSTRAINT `sale_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2040,7 +2071,7 @@ CREATE TABLE `sale_details` (
 
 LOCK TABLES `sale_details` WRITE;
 /*!40000 ALTER TABLE `sale_details` DISABLE KEYS */;
-INSERT INTO `sale_details` VALUES (1,1,1,NULL,'PULPEN','001',2,5000.00,5000.00,10000.00,0.00,'FIXED',0.00,NULL,'2025-10-26 11:24:24','2025-10-26 11:24:24'),(2,2,1,NULL,'PULPEN','001',1,5000.00,5000.00,5000.00,0.00,'FIXED',0.00,NULL,'2025-10-28 19:21:53','2025-10-28 19:21:53'),(3,3,1,NULL,'PULPEN','001',5,5000.00,5000.00,25000.00,0.00,'FIXED',0.00,NULL,'2025-10-28 19:22:29','2025-10-28 19:22:29'),(4,4,2,NULL,'PULPEN A','PULP-A',10,5000.00,5000.00,50000.00,0.00,'FIXED',0.00,NULL,'2025-10-28 19:25:09','2025-10-28 19:25:09'),(5,5,3,NULL,'PULPEN B','PULP-B',5,6500.00,6500.00,32500.00,0.00,'FIXED',0.00,NULL,'2025-10-28 19:30:16','2025-10-28 19:30:16'),(6,6,4,NULL,'SAMSUNG GALAXY Z FOLD 6','SMG-0060',1,6500000.00,6500000.00,6500000.00,0.00,'FIXED',0.00,NULL,'2025-11-08 21:01:45','2025-11-08 21:01:45');
+INSERT INTO `sale_details` VALUES (1,1,1,NULL,'SAMSUNG GALAXY Z FOLD 6','SMG-0060',1,7500000.00,7500000.00,7500000.00,0.00,'FIXED',0.00,NULL,'2025-11-09 00:59:44','2025-11-09 00:59:44');
 /*!40000 ALTER TABLE `sale_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2098,7 +2129,7 @@ CREATE TABLE `sale_payments` (
   KEY `sale_payments_payment_method_id_foreign` (`payment_method_id`),
   CONSTRAINT `sale_payments_payment_method_id_foreign` FOREIGN KEY (`payment_method_id`) REFERENCES `payment_methods` (`id`) ON DELETE CASCADE,
   CONSTRAINT `sale_payments_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2107,7 +2138,6 @@ CREATE TABLE `sale_payments` (
 
 LOCK TABLES `sale_payments` WRITE;
 /*!40000 ALTER TABLE `sale_payments` DISABLE KEYS */;
-INSERT INTO `sale_payments` VALUES (1,1,5,32500.00,'2025-10-30','INV/TS-SL-2025-10-00005','',NULL,'2025-10-30 18:24:05','2025-10-30 18:24:05'),(2,1,3,25000.00,'2025-11-02','INV/TS-SL-2025-10-00003','',NULL,'2025-11-02 16:36:36','2025-11-02 16:36:36');
 /*!40000 ALTER TABLE `sale_payments` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2135,7 +2165,7 @@ CREATE TABLE `sale_return_details` (
   `product_discount_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'fixed',
   `product_tax_amount` decimal(15,2) NOT NULL,
   `tax_id` bigint unsigned DEFAULT NULL,
-  `serial_number_ids` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
+  `serial_number_ids` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -2150,9 +2180,8 @@ CREATE TABLE `sale_return_details` (
   CONSTRAINT `sale_return_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_return_details_sale_detail_id_foreign` FOREIGN KEY (`sale_detail_id`) REFERENCES `sale_details` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_return_details_sale_return_id_foreign` FOREIGN KEY (`sale_return_id`) REFERENCES `sale_returns` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `sale_return_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `sale_return_details_chk_1` CHECK (json_valid(`serial_number_ids`))
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  CONSTRAINT `sale_return_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2161,7 +2190,6 @@ CREATE TABLE `sale_return_details` (
 
 LOCK TABLES `sale_return_details` WRITE;
 /*!40000 ALTER TABLE `sale_return_details` DISABLE KEYS */;
-INSERT INTO `sale_return_details` VALUES (1,1,5,2,1,3,'PULPEN B','PULP-B',1,6500.00,6500.00,6500.00,0.00,'fixed',0.00,NULL,'[]','2025-11-01 13:57:19','2025-11-01 13:57:19'),(2,2,3,3,1,1,'PULPEN','001',1,5000.00,5000.00,5000.00,0.00,'fixed',0.00,NULL,'[]','2025-11-02 16:37:08','2025-11-02 16:37:08'),(3,3,5,2,1,3,'PULPEN B','PULP-B',1,6500.00,6500.00,6500.00,0.00,'fixed',0.00,NULL,'[]','2025-11-02 18:42:21','2025-11-02 18:42:21'),(4,4,5,2,1,3,'PULPEN B','PULP-B',1,6500.00,6500.00,6500.00,0.00,'fixed',0.00,NULL,'[]','2025-11-06 18:15:06','2025-11-06 18:15:06');
 /*!40000 ALTER TABLE `sale_return_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2222,7 +2250,7 @@ CREATE TABLE `sale_return_payments` (
   PRIMARY KEY (`id`),
   KEY `sale_return_payments_sale_return_id_foreign` (`sale_return_id`),
   CONSTRAINT `sale_return_payments_sale_return_id_foreign` FOREIGN KEY (`sale_return_id`) REFERENCES `sale_returns` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2231,7 +2259,6 @@ CREATE TABLE `sale_return_payments` (
 
 LOCK TABLES `sale_return_payments` WRITE;
 /*!40000 ALTER TABLE `sale_return_payments` DISABLE KEYS */;
-INSERT INTO `sale_return_payments` VALUES (1,2,500000,'2025-11-06','SRPAY/SLRN-2025-11-00002','CASH','PENGEMBALIAN TUNAI','2025-11-06 18:29:27','2025-11-06 18:29:27'),(2,3,650000,'2025-11-06','SRPAY/SLRN-2025-11-00003','CASH','PENGEMBALIAN TUNAI','2025-11-06 18:46:18','2025-11-06 18:46:18');
 /*!40000 ALTER TABLE `sale_return_payments` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2297,7 +2324,7 @@ CREATE TABLE `sale_returns` (
   CONSTRAINT `sale_returns_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_returns_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_returns_settled_by_foreign` FOREIGN KEY (`settled_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2306,7 +2333,6 @@ CREATE TABLE `sale_returns` (
 
 LOCK TABLES `sale_returns` WRITE;
 /*!40000 ALTER TABLE `sale_returns` DISABLE KEYS */;
-INSERT INTO `sale_returns` VALUES (1,'2025-11-01','SLRN-2025-11-00001',5,'TS-SL-2025-10-00005',1,1,1,'USAHA',0,0.00,0,0.00,0.00,6500.00,6500.00,0.00,'APPROVED','CREDIT',1,'2025-11-01 13:57:26',NULL,NULL,NULL,'2025-11-01 13:58:16',1,NULL,NULL,'COMPLETED','PAID','CUSTOMER CREDIT',NULL,NULL,'2025-11-01 13:57:19','2025-11-01 13:58:16'),(2,'2025-11-02','SLRN-2025-11-00002',3,'TS-SL-2025-10-00003',1,1,1,'USAHA',0,0.00,0,0.00,0.00,5000.00,5000.00,0.00,'APPROVED','CASH',1,'2025-11-02 16:37:25',NULL,NULL,NULL,'2025-11-06 18:29:27',1,NULL,NULL,'COMPLETED','PAID','CASH','SALE-RETURNS/PROOFS/EBQVRYARO2X9SLBI4ZDRBIYN31XEQBXD0LT86BIF.JPG',NULL,'2025-11-02 16:37:08','2025-11-06 18:29:27'),(3,'2025-11-02','SLRN-2025-11-00003',5,'TS-SL-2025-10-00005',1,1,1,'USAHA',0,0.00,0,0.00,0.00,6500.00,6500.00,0.00,'APPROVED','CASH',1,'2025-11-02 18:43:38',NULL,NULL,NULL,'2025-11-06 18:46:18',1,NULL,NULL,'COMPLETED','PAID','CASH','sale-returns/proofs/wheStGqHLMiTm05QJVfbVbyf5l9qClm9Z4w0yUxp.jpg',NULL,'2025-11-02 18:42:21','2025-11-06 18:46:18'),(4,'2025-11-06','SLRN-2025-11-00004',5,'TS-SL-2025-10-00005',1,1,1,'USAHA',0,0.00,0,0.00,0.00,6500.00,0.00,6500.00,'PENDING',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'PENDING APPROVAL','UNPAID','PENDING',NULL,NULL,'2025-11-06 18:15:06','2025-11-06 18:15:06');
 /*!40000 ALTER TABLE `sale_returns` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2343,18 +2369,22 @@ CREATE TABLE `sales` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `sales_customer_id_foreign` (`customer_id`),
   KEY `sales_payment_term_id_foreign` (`payment_term_id`),
   KEY `sales_tax_id_foreign` (`tax_id`),
-  KEY `sales_setting_id_foreign` (`setting_id`),
   KEY `sales_reference_status_created_at_index` (`reference`,`status`,`created_at`),
   KEY `sales_status_index` (`status`),
   KEY `sales_created_at_index` (`created_at`),
+  KEY `sales_reference_index` (`reference`),
+  KEY `sales_customer_id_index` (`customer_id`),
+  KEY `sales_setting_id_index` (`setting_id`),
+  KEY `sales_setting_id_reference_index` (`setting_id`,`reference`),
+  KEY `sales_setting_id_customer_id_index` (`setting_id`,`customer_id`),
+  KEY `sales_setting_id_created_at_index` (`setting_id`,`created_at`),
   CONSTRAINT `sales_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2363,7 +2393,7 @@ CREATE TABLE `sales` (
 
 LOCK TABLES `sales` WRITE;
 /*!40000 ALTER TABLE `sales` DISABLE KEYS */;
-INSERT INTO `sales` VALUES (1,'2025-10-26','2025-10-26',0,'TS-SL-2025-10-00001',1,858232,NULL,1,'USAHA',0,0.00,0,0.00,0.00,10000.00,0.00,10000.00,'APPROVED','UNPAID','',NULL,'2025-10-26 11:24:24','2025-10-26 11:24:49'),(2,'2025-10-28','2025-10-28',0,'TS-SL-2025-10-00002',1,858232,NULL,1,'USAHA',0,0.00,0,0.00,0.00,5000.00,0.00,5000.00,'DRAFTED','UNPAID','',NULL,'2025-10-28 19:21:53','2025-10-28 19:21:53'),(3,'2025-10-28','2025-10-28',0,'TS-SL-2025-10-00003',1,858232,NULL,1,'USAHA',0,0.00,0,0.00,0.00,25000.00,25000.00,0.00,'DISPATCHED','PAID','',NULL,'2025-10-28 19:22:29','2025-11-02 16:36:36'),(4,'2025-10-28','2025-10-28',0,'TS-SL-2025-10-00004',1,858232,NULL,1,'USAHA',0,0.00,0,0.00,0.00,50000.00,0.00,50000.00,'DISPATCHED','UNPAID','',NULL,'2025-10-28 19:25:09','2025-10-28 19:25:32'),(5,'2025-10-28','2025-10-28',0,'TS-SL-2025-10-00005',1,858232,NULL,1,'USAHA',0,0.00,0,0.00,0.00,32500.00,32500.00,0.00,'DISPATCHED','PAID','',NULL,'2025-10-28 19:30:16','2025-10-30 18:55:04'),(6,'2025-11-08','2025-11-08',0,'TS-SL-2025-11-00001',1,858232,NULL,1,'USAHA',0,0.00,0,0.00,0.00,6500000.00,0.00,6500000.00,'DISPATCHED','UNPAID','',NULL,'2025-11-08 21:01:45','2025-11-08 21:02:20');
+INSERT INTO `sales` VALUES (1,'2025-11-09','2025-11-09',0,'TI-SL-2025-11-00001',1,858232,NULL,2,'',0,0.00,0,0.00,0.00,7500000.00,0.00,7500000.00,'APPROVED','UNPAID','',NULL,'2025-11-09 00:59:44','2025-11-09 00:59:59');
 /*!40000 ALTER TABLE `sales` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2422,7 +2452,7 @@ CREATE TABLE `setting_sale_locations` (
   KEY `setting_sale_locations_setting_id_index` (`setting_id`),
   CONSTRAINT `setting_sale_locations_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `setting_sale_locations_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2431,7 +2461,7 @@ CREATE TABLE `setting_sale_locations` (
 
 LOCK TABLES `setting_sale_locations` WRITE;
 /*!40000 ALTER TABLE `setting_sale_locations` DISABLE KEYS */;
-INSERT INTO `setting_sale_locations` VALUES (1,1,1,1,1,'2025-10-26 11:11:48','2025-10-29 18:07:41'),(2,1,2,1,2,'2025-10-26 11:11:57','2025-10-29 18:07:41');
+INSERT INTO `setting_sale_locations` VALUES (1,1,1,0,1,'2025-11-09 00:24:12','2025-11-09 00:24:12'),(2,1,2,0,2,'2025-11-09 00:24:17','2025-11-09 00:24:17'),(3,2,3,0,1,'2025-11-09 00:24:29','2025-11-09 00:24:29'),(4,2,4,0,2,'2025-11-09 00:24:35','2025-11-09 00:24:35');
 /*!40000 ALTER TABLE `setting_sale_locations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2468,7 +2498,7 @@ CREATE TABLE `settings` (
 
 LOCK TABLES `settings` WRITE;
 /*!40000 ALTER TABLE `settings` DISABLE KEYS */;
-INSERT INTO `settings` VALUES (1,'CV TIGA COMPUTER','contactus@tiga-computer.com','012345678901',NULL,1,'PREFIX','notification@tiga-computer.com','CV TIGA COMPUTER © 2021','BIMA, NTB','2025-10-26 11:06:16','2025-10-26 11:06:16','TS','PR','SL'),(2,'TIGA CAKRA','qwerty@mail.com','12313213',NULL,1,'PREFIX','qwerty@mail.com','TIGA CAKRA © 2025','ALAMAT','2025-10-26 11:10:54','2025-10-26 11:10:54','DC','DP','DS');
+INSERT INTO `settings` VALUES (1,'CV TIGA COMPUTER','contactus@tiga-computer.com','012345678901',NULL,1,'PREFIX','notification@tiga-computer.com','CV TIGA COMPUTER © 2021','BIMA, NTB','2025-11-08 23:43:19','2025-11-08 23:43:19','TS','PR','SL'),(2,'TOP IT','topit@mail.com','081249003893',NULL,1,'PREFIX','topit@mail.com','TOP IT © 2025','JALAN SWATANTRA V','2025-11-09 00:23:46','2025-11-09 00:23:46','TI','PO','SL');
 /*!40000 ALTER TABLE `settings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2493,7 +2523,7 @@ CREATE TABLE `supplier_credits` (
   KEY `supplier_credits_supplier_id_status_index` (`supplier_id`,`status`),
   CONSTRAINT `supplier_credits_purchase_return_id_foreign` FOREIGN KEY (`purchase_return_id`) REFERENCES `purchase_returns` (`id`) ON DELETE CASCADE,
   CONSTRAINT `supplier_credits_supplier_id_foreign` FOREIGN KEY (`supplier_id`) REFERENCES `suppliers` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2502,7 +2532,6 @@ CREATE TABLE `supplier_credits` (
 
 LOCK TABLES `supplier_credits` WRITE;
 /*!40000 ALTER TABLE `supplier_credits` DISABLE KEYS */;
-INSERT INTO `supplier_credits` VALUES (1,1,1,3000.00,3000.00,'OPEN','2025-11-02 18:28:08','2025-11-02 18:28:08');
 /*!40000 ALTER TABLE `supplier_credits` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2550,7 +2579,7 @@ CREATE TABLE `suppliers` (
 
 LOCK TABLES `suppliers` WRITE;
 /*!40000 ALTER TABLE `suppliers` DISABLE KEYS */;
-INSERT INTO `suppliers` VALUES (1,'PT SIDU TJAHAJA ASIA','','','','','','2025-11-01 15:51:39','2025-11-01 15:51:39','SALES SIDU','','',NULL,'','','','','','','',1,1726493);
+INSERT INTO `suppliers` VALUES (1,'PT SAMSUNG','','','','','','2025-11-09 00:27:29','2025-11-09 00:27:29','SALES SAMSUNG','','',NULL,'','','','','','','',2,1726493);
 /*!40000 ALTER TABLE `suppliers` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2577,7 +2606,6 @@ CREATE TABLE `taggables` (
 
 LOCK TABLES `taggables` WRITE;
 /*!40000 ALTER TABLE `taggables` DISABLE KEYS */;
-INSERT INTO `taggables` VALUES (1,'Modules\\Purchase\\Entities\\Purchase',1),(2,'Modules\\Purchase\\Entities\\Purchase',1);
 /*!40000 ALTER TABLE `taggables` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2590,16 +2618,14 @@ DROP TABLE IF EXISTS `tags`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `tags` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `name` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  `slug` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  `name` json NOT NULL,
+  `slug` json NOT NULL,
   `type` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `order_column` int DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  CONSTRAINT `tags_chk_1` CHECK (json_valid(`name`)),
-  CONSTRAINT `tags_chk_2` CHECK (json_valid(`slug`))
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2608,7 +2634,6 @@ CREATE TABLE `tags` (
 
 LOCK TABLES `tags` WRITE;
 /*!40000 ALTER TABLE `tags` DISABLE KEYS */;
-INSERT INTO `tags` VALUES (1,'{\"en\":\"beli pulpen\"}','{\"en\":\"beli-pulpen\"}',NULL,1,'2025-11-01 15:52:01','2025-11-01 15:52:01'),(2,'{\"en\":\"non ppn\"}','{\"en\":\"non-ppn\"}',NULL,2,'2025-11-01 15:52:27','2025-11-01 15:52:27');
 /*!40000 ALTER TABLE `tags` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2635,7 +2660,7 @@ CREATE TABLE `taxes` (
 
 LOCK TABLES `taxes` WRITE;
 /*!40000 ALTER TABLE `taxes` DISABLE KEYS */;
-INSERT INTO `taxes` VALUES (1,'PPH 11',11.00,'2025-10-26 11:11:16','2025-10-26 11:11:16');
+INSERT INTO `taxes` VALUES (1,'PPN 11%',11.00,'2025-11-09 00:24:02','2025-11-09 00:24:02');
 /*!40000 ALTER TABLE `taxes` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2676,7 +2701,7 @@ CREATE TABLE `transactions` (
   CONSTRAINT `transactions_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `transactions_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
   CONSTRAINT `transactions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2685,7 +2710,7 @@ CREATE TABLE `transactions` (
 
 LOCK TABLES `transactions` WRITE;
 /*!40000 ALTER TABLE `transactions` DISABLE KEYS */;
-INSERT INTO `transactions` VALUES (1,1,1,40,40,20,1,1,'INITIAL STOCK SETUP','2025-10-26 11:20:07','2025-10-26 11:20:07','INIT',0,40,0,40,10,10,10,10),(2,2,1,40,40,0,1,1,'INITIAL STOCK SETUP','2025-10-28 19:24:39','2025-10-28 19:24:39','INIT',0,40,0,40,40,0,0,0),(3,2,1,-10,30,0,1,1,'DISPATCHED FOR SALE ORDER #TS-SL-2025-10-00004','2025-10-28 19:25:32','2025-10-28 19:25:32','DISPATCH',40,30,40,30,10,0,0,0),(4,3,1,40,40,20,1,1,'INITIAL STOCK SETUP','2025-10-28 19:29:52','2025-10-28 19:29:52','INIT',0,40,0,40,10,10,10,10),(5,3,1,-5,35,0,1,1,'DISPATCHED FOR SALE ORDER #TS-SL-2025-10-00005','2025-10-30 18:55:04','2025-10-30 18:55:04','DISPATCH',40,35,40,35,5,0,0,0),(6,1,1,1,41,0,1,1,'RECEIVED FROM PURCHASE ORDER #TS-PR-2025-11-00001','2025-11-01 15:56:24','2025-11-01 15:56:24','BUY',40,41,40,41,1,0,0,0),(7,4,1,10,10,0,1,1,'RECEIVED FROM PURCHASE ORDER #TS-PR-2025-11-00002','2025-11-02 16:16:18','2025-11-02 16:16:18','BUY',0,10,0,10,10,0,0,0),(8,1,1,-5,36,0,1,1,'DISPATCHED FOR SALE ORDER #TS-SL-2025-10-00003','2025-11-02 16:34:59','2025-11-02 16:34:59','DISPATCH',41,36,41,36,5,0,0,0),(9,4,1,1,1,0,1,1,'NORMAL ADJUSTMENT APPROVED','2025-11-02 18:12:55','2025-11-02 18:12:55','ADJ',10,1,10,1,1,0,0,0),(10,2,1,10,40,0,1,1,'RECEIVED FROM PURCHASE ORDER #TS-PR-2025-11-00003','2025-11-02 18:26:14','2025-11-02 18:26:14','BUY',30,40,30,40,10,0,0,0),(11,4,1,10,11,0,1,1,'RECEIVED FROM PURCHASE ORDER #TS-PR-2025-11-00005','2025-11-08 21:01:14','2025-11-08 21:01:14','BUY',1,11,1,11,10,0,0,0),(12,4,1,-1,10,0,1,1,'DISPATCHED FOR SALE ORDER #TS-SL-2025-11-00001','2025-11-08 21:02:20','2025-11-08 21:02:20','DISPATCH',11,10,11,10,1,0,0,0);
+INSERT INTO `transactions` VALUES (1,1,2,10,10,0,3,1,'RECEIVED FROM PURCHASE ORDER #TI-PO-2025-11-00001','2025-11-09 00:30:25','2025-11-09 00:30:25','BUY',0,10,0,10,10,0,0,0);
 /*!40000 ALTER TABLE `transactions` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2701,7 +2726,7 @@ CREATE TABLE `transfer_products` (
   `transfer_id` bigint unsigned NOT NULL,
   `product_id` bigint unsigned NOT NULL,
   `quantity` int NOT NULL,
-  `serial_numbers` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
+  `serial_numbers` json DEFAULT NULL,
   `quantity_tax` int unsigned NOT NULL DEFAULT '0',
   `quantity_non_tax` int unsigned NOT NULL DEFAULT '0',
   `quantity_broken_tax` int unsigned NOT NULL DEFAULT '0',
@@ -2715,16 +2740,14 @@ CREATE TABLE `transfer_products` (
   `dispatched_quantity_non_tax` int unsigned NOT NULL DEFAULT '0',
   `dispatched_quantity_broken_tax` int unsigned NOT NULL DEFAULT '0',
   `dispatched_quantity_broken_non_tax` int unsigned NOT NULL DEFAULT '0',
-  `dispatched_serial_numbers` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
+  `dispatched_serial_numbers` json DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `transfer_products_transfer_id_foreign` (`transfer_id`),
   KEY `transfer_products_product_id_foreign` (`product_id`),
   KEY `transfer_products_dispatched_by_index` (`dispatched_by`),
   CONSTRAINT `transfer_products_dispatched_by_foreign` FOREIGN KEY (`dispatched_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `transfer_products_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`),
-  CONSTRAINT `transfer_products_transfer_id_foreign` FOREIGN KEY (`transfer_id`) REFERENCES `transfers` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `transfer_products_chk_1` CHECK (json_valid(`serial_numbers`)),
-  CONSTRAINT `transfer_products_chk_2` CHECK (json_valid(`dispatched_serial_numbers`))
+  CONSTRAINT `transfer_products_transfer_id_foreign` FOREIGN KEY (`transfer_id`) REFERENCES `transfers` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -2813,7 +2836,7 @@ CREATE TABLE `units` (
 
 LOCK TABLES `units` WRITE;
 /*!40000 ALTER TABLE `units` DISABLE KEYS */;
-INSERT INTO `units` VALUES (1,NULL,'PIECE','PC(S)','*',1,'2025-10-26 11:06:17','2025-10-26 11:06:17');
+INSERT INTO `units` VALUES (1,NULL,'PIECE','PC(S)','*',1,'2025-11-08 23:43:19','2025-11-08 23:43:19');
 /*!40000 ALTER TABLE `units` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2904,7 +2927,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'ADMINISTRATOR','super.admin@tiga-computer.com',NULL,'$2y$10$Mw9SuN5mrW6b/pN9qcdL/e/kf314pbO0noI0pltpPw7ncjkjbwSsm',1,NULL,'2025-10-26 11:06:16','2025-10-26 11:06:16');
+INSERT INTO `users` VALUES (1,'ADMINISTRATOR','super.admin@tiga-computer.com',NULL,'$2y$10$1mDYG3CAyvCLOKe3nT8KhukpyxtziHSL6w3VKYAyWYCqP/wgDfEW6',1,NULL,'2025-11-08 23:43:19','2025-11-08 23:43:19');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2953,4 +2976,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-11-08 15:07:15
+-- Dump completed on 2025-11-08 19:02:02

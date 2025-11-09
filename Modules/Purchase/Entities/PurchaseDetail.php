@@ -4,6 +4,7 @@ namespace Modules\Purchase\Entities;
 
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Product\Entities\Product;
 use Modules\Setting\Entities\Tax;
 
@@ -60,5 +61,14 @@ class PurchaseDetail extends BaseModel
     public function tax(): BelongsTo
     {
         return $this->belongsTo(Tax::class, 'tax_id', 'id');
+    }
+
+    /**
+     * Relationship with ReceivedNoteDetail
+     * A PurchaseDetail can have multiple ReceivedNoteDetails.
+     */
+    public function receivedNoteDetails(): HasMany
+    {
+        return $this->hasMany(ReceivedNoteDetail::class, 'po_detail_id');
     }
 }

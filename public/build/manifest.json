@@ -1,6 +1,6 @@
 {
   "resources/css/tw.css": {
-    "file": "assets/tw-c5c471bc.css",
+    "file": "assets/tw-dbe7c18c.css",
     "isEntry": true,
     "src": "resources/css/tw.css"
   },
@@ -15,7 +15,7 @@
     "src": "resources/js/chart-config.js"
   },
   "resources/sass/app.scss": {
-    "file": "assets/app-57878d54.css",
+    "file": "assets/app-9b9117ee.css",
     "isEntry": true,
     "src": "resources/sass/app.scss"
   }

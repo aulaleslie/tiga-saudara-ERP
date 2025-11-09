@@ -37,6 +37,23 @@
     border-radius: 2px;
     margin-bottom: 1px;
     transition: margin 0.3s ease; // Smooth transition
+    white-space: normal; // Allow text to wrap
+    word-wrap: break-word; // Break long words if necessary
+    line-height: 1.4; // Better line height for wrapped text
+    min-height: 2.8rem; // Ensure consistent height for wrapped text
+    display: flex;
+    align-items: flex-start; // Align items to top for better text wrapping
+}
+
+.c-sidebar .c-sidebar-nav-link .c-sidebar-nav-icon {
+    flex-shrink: 0; // Prevent icon from shrinking
+    margin-right: 0.5rem; // Space between icon and text
+    margin-top: 0.1rem; // Slight top margin for better alignment
+}
+
+.c-sidebar .c-sidebar-nav-link span {
+    flex: 1; // Allow text to take remaining space
+    word-break: break-word; // Break long words
 }
 
 .c-sidebar .c-sidebar-nav-link:hover {

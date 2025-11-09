@@ -35,14 +35,9 @@ class SaleDetails extends BaseModel
         return $this->belongsTo(Sale::class, 'sale_id', 'id');
     }
 
-    public function bundleItems(): Builder|HasMany|SaleDetails
+    public function bundleItems(): HasMany
     {
         return $this->hasMany(SaleBundleItem::class, 'sale_detail_id', 'id');
-    }
-
-    public function dispatchDetails(): HasMany
-    {
-        return $this->hasMany(DispatchDetail::class, 'sale_details_id', 'id');
     }
 
     /**

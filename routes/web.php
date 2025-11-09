@@ -1,7 +1,6 @@
 <?php
 
-use App\Http\Controllers\PricePointController;
-use App\Http\Controllers\WsMonitorController;
+use App\Http\Controllers\GlobalPurchaseAndSalesSearchController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Modules\Setting\Entities\Setting;
@@ -39,6 +38,16 @@ Route::middleware(['auth']) // tighten as you like (e.g. 'can:view-ws-monitor')
     Route::get('/ws-monitor/data', [WsMonitorController::class, 'data'])->name('ws.monitor.data');
     Route::get('/ws-monitor/presence/{name}', [WsMonitorController::class, 'presence'])->name('ws.monitor.presence');
     Route::get('/ws-test', fn () => view('ws-test'));
+
+    // Global Purchase and Sales Search Routes
+    Route::get('/global-search', [GlobalPurchaseAndSalesSearchController::class, 'index'])
+        ->name('global-purchase-and-sales-search.index');
+    Route::post('/global-search/search', [GlobalPurchaseAndSalesSearchController::class, 'search'])
+        ->name('global-purchase-and-sales-search.search');
+    Route::get('/global-search/suggestions', [GlobalPurchaseAndSalesSearchController::class, 'suggestions'])
+        ->name('global-purchase-and-sales-search.suggestions');
+    Route::get('/global-search/statistics', [GlobalPurchaseAndSalesSearchController::class, 'statistics'])
+        ->name('global-purchase-and-sales-search.statistics');
 });
 
 Route::get('/price-points/{setting}', [PricePointController::class, 'index'])

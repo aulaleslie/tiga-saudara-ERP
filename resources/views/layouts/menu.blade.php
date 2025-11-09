@@ -10,6 +10,14 @@
     </a>
 </li>
 
+@can('globalPurchaseAndSalesSearch.access')
+    <li class="c-sidebar-nav-item {{ request()->routeIs('global-purchase-and-sales-search.*') ? 'c-active' : '' }}">
+        <a class="c-sidebar-nav-link" href="{{ route('global-purchase-and-sales-search.index') }}">
+            <i class="c-sidebar-nav-icon bi bi-search" style="line-height: 1;"></i> Pencarian Penjualan dan Pembelian Global
+        </a>
+    </li>
+@endcan
+
 <li class="c-sidebar-nav-divider"></li>
 
 @can('reports.access')
