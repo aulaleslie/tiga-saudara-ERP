@@ -27,5 +27,12 @@ class SettingDatabaseSeeder extends Seeder
             'purchase_prefix_document' => 'PR',
             'sale_prefix_document' => 'SL'
         ]);
+
+        // Call additional seeders
+        $this->call([
+            TaxSeeder::class,
+            ChartOfAccountSeeder::class,
+            PaymentMethodSeeder::class,
+        ]);
     }
 }

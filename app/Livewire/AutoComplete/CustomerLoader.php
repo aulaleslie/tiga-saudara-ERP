@@ -38,7 +38,7 @@ class CustomerLoader extends Component
 
     public function resetQueryAfterDelay(): void
     {
-        sleep(1); // Small delay before closing
+        usleep(150 * 1000); // 150ms delay - reduced from 1s for faster response
         $this->isFocused = false;
     }
 

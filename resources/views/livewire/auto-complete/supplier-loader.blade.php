@@ -13,7 +13,7 @@
     </div>
 
     <!-- Loading Spinner -->
-    <div wire:loading class="card position-absolute mt-1 border-0" style="z-index: 1; left: 0; right: 0;">
+    <div wire:loading class="card position-absolute mt-1 border-0" style="z-index: 10; left: 0; right: 0;">
         <div class="card-body shadow">
             <div class="d-flex justify-content-center">
                 <div class="spinner-border text-primary" role="status">
@@ -25,13 +25,13 @@
 
     <!-- Search Results -->
     @if($isFocused)
-        <div class="card position-absolute mt-1 border-0" style="z-index: 1; left: 0; right: 0;">
+        <div class="card position-absolute mt-1 border-0" style="z-index: 10; left: 0; right: 0;" wire:mousedown="$set('isFocused', true)">
             <div class="card-body shadow">
                 @if(count($search_results) > 0)
                     <ul class="list-group list-group-flush">
                         @foreach($search_results as $result)
                             <li class="list-group-item list-group-item-action">
-                                <a wire:click.prevent="selectSupplier({{ $result->id }})" href="#">
+                                <a wire:click.prevent="selectSupplier({{ $result->id }})" wire:mousedown="$set('isFocused', true)" href="#">
                                     @if($result->contact_name)
                                         {{ $result->contact_name }} —
                                     @endif
@@ -41,7 +41,7 @@
                         @endforeach
                         @if($query_count >= $how_many)
                             <li class="list-group-item list-group-item-action text-center">
-                                <a wire:click.prevent="loadMore" class="btn btn-primary btn-sm" href="#">
+                                <a wire:click.prevent="loadMore" wire:mousedown="$set('isFocused', true)" class="btn btn-primary btn-sm" href="#">
                                     Memuat lebih <i class="bi bi-arrow-down-circle"></i>
                                 </a>
                             </li>
