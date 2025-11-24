@@ -14,6 +14,11 @@ class Setting extends BaseModel
 {
     protected $guarded = [];
 
+    protected $casts = [
+        'pos_idle_threshold_minutes' => 'integer',
+        'pos_default_cash_threshold' => 'decimal:2',
+    ];
+
     protected $with = ['currency'];
 
     public function currency(): BelongsTo

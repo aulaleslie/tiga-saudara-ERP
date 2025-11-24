@@ -19,6 +19,9 @@ use Modules\Sale\Http\Controllers\SaleController;
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     Route::get('/app/pos/session', [PosController::class, 'session'])->name('app.pos.session');
+    Route::get('/app/pos/sessions/monitor', [PosController::class, 'monitor'])
+        ->name('app.pos.monitor')
+        ->middleware('can:reports.access');
 
     Route::middleware('pos.session')->group(function () {
         //POS

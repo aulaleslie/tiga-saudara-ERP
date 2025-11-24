@@ -11,6 +11,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Setting;
 
 class LocationController extends Controller
 {
@@ -36,7 +37,11 @@ class LocationController extends Controller
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('locations.create'), 403);
-        return view('setting::locations.create');
+        $defaultCashThreshold = optional(Setting::find(session('setting_id')))->pos_default_cash_threshold;
+
+        return view('setting::locations.create', [
+            'defaultCashThreshold' => $defaultCashThreshold,
+        ]);
     }
 
     /**
@@ -48,13 +53,19 @@ class LocationController extends Controller
 
         $request->validate([
             'name' => 'required|string|max:255',
+            'pos_cash_threshold' => 'nullable|numeric|min:0',
         ]);
 
         $settingId = session('setting_id');
 
+        $cashThreshold = $request->filled('pos_cash_threshold')
+            ? round((float) $request->pos_cash_threshold, 2)
+            : null;
+
         $location = Location::create([
             'name'       => $request->name,
             'setting_id' => $settingId,
+            'pos_cash_threshold' => $cashThreshold,
         ]);
 
         toast('Lokasi Berhasil ditambahkan!', 'success');
@@ -68,8 +79,11 @@ class LocationController extends Controller
     public function edit(Location $location): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('locations.edit'), 403);
+        $location->loadMissing('setting');
+
         return view('setting::locations.edit', [
-            'location' => $location
+            'location' => $location,
+            'defaultCashThreshold' => optional($location->setting)->pos_default_cash_threshold,
         ]);
     }
 
@@ -82,10 +96,16 @@ class LocationController extends Controller
 
         $request->validate([
             'name' => 'required|string|max:255',
+            'pos_cash_threshold' => 'nullable|numeric|min:0',
         ]);
+
+        $cashThreshold = $request->filled('pos_cash_threshold')
+            ? round((float) $request->pos_cash_threshold, 2)
+            : null;
 
         $location->update([
             'name' => $request->name,
+            'pos_cash_threshold' => $cashThreshold,
         ]);
 
         toast('Lokasi diperbaharui!', 'info');

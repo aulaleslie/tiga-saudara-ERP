@@ -12,6 +12,10 @@ class Location extends BaseModel
 {
     protected $guarded = [];
 
+    protected $casts = [
+        'pos_cash_threshold' => 'decimal:2',
+    ];
+
     protected static function booted(): void
     {
         static::created(function (Location $location) {

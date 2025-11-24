@@ -32,6 +32,7 @@
                                     <th class="align-middle">No.</th>
                                     <th class="align-middle">Nama</th>
                                     <th class="align-middle">Bisnis</th>
+                                    <th class="align-middle">Ambang Kas</th>
                                     <th class="align-middle">POS</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
@@ -42,6 +43,12 @@
                                         <td class="align-middle">{{ $key + 1 }}</td>
                                         <td class="align-middle">{{ $location->name }}</td>
                                         <td class="align-middle">{{ $location->setting->company_name }}</td>
+                                        <td class="align-middle">
+                                            @php
+                                                $threshold = $location->pos_cash_threshold ?? $location->setting?->pos_default_cash_threshold ?? 0;
+                                            @endphp
+                                            {{ $threshold > 0 ? format_currency($threshold) : '—' }}
+                                        </td>
                                         <td class="align-middle">
                                             @if($location->saleAssignment?->is_pos)
                                                 <span class="badge badge-success">Ya</span>

@@ -77,6 +77,26 @@
                             </div>
 
                             <div class="form-row">
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="pos_idle_threshold_minutes">Peringatan Waktu Idle (menit)</label>
+                                        <input type="number" min="0" class="form-control" name="pos_idle_threshold_minutes"
+                                               value="{{ old('pos_idle_threshold_minutes', $settings->pos_idle_threshold_minutes ?? 0) }}">
+                                        <small class="text-muted">Atur ke 0 untuk menonaktifkan peringatan idle kasir.</small>
+                                    </div>
+                                </div>
+
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="pos_default_cash_threshold">Ambang Kas Default POS</label>
+                                        <input type="number" step="0.01" min="0" class="form-control" name="pos_default_cash_threshold"
+                                               value="{{ old('pos_default_cash_threshold', $settings->pos_default_cash_threshold ?? 0) }}">
+                                        <small class="text-muted">Dipakai saat lokasi belum memiliki ambang kas khusus.</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
                                 <div class="col-lg-12">
                                     <div class="form-group">
                                         <label for="company_address">Alamat Perusahaan <span class="text-danger">*</span></label>
