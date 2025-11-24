@@ -43,6 +43,25 @@
 
                                 </div>
 
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="pos_cash_threshold">Ambang Kas POS (opsional)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            id="pos_cash_threshold"
+                                            name="pos_cash_threshold"
+                                            value="{{ old('pos_cash_threshold', $defaultCashThreshold) }}"
+                                            class="form-control @error('pos_cash_threshold') is-invalid @enderror"
+                                        >
+                                        <small class="text-muted">Gunakan untuk memicu peringatan kas berlebih di lokasi ini.</small>
+                                        @error('pos_cash_threshold')
+                                        <div class="invalid-feedback d-block">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+
                                 <div class="col-lg-12 d-flex justify-content-end">
                                     <div class="form-group">
                                         <a href="{{ route('locations.index') }}" class="btn btn-secondary mr-2">Kembali</a>

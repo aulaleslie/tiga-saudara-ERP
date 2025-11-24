@@ -41,6 +41,13 @@ class PosController extends Controller
         return view('sale::pos.session');
     }
 
+    public function monitor()
+    {
+        abort_if(Gate::denies('reports.access'), 403);
+
+        return view('sale::pos.supervisor');
+    }
+
     public function index() {
         abort_if(Gate::denies('pos.access'), 403);
         Cart::instance('sale')->destroy();

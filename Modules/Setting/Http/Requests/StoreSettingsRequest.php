@@ -22,7 +22,9 @@ class StoreSettingsRequest extends FormRequest
             'purchase_prefix_document' => 'required|string|max:255',
             'sale_prefix_document' => 'required|string|max:255',
             'company_address' => 'required|string|max:500',
-            'footer_text' => 'nullable|string|max:255'
+            'footer_text' => 'nullable|string|max:255',
+            'pos_idle_threshold_minutes' => 'nullable|integer|min:0|max:1440',
+            'pos_default_cash_threshold' => 'nullable|numeric|min:0',
         ];
     }
 

@@ -40,6 +40,8 @@ class SettingController extends Controller
             'document_prefix'          => $request->document_prefix,
             'purchase_prefix_document' => $request->purchase_prefix_document,
             'sale_prefix_document'     => $request->sale_prefix_document,
+            'pos_idle_threshold_minutes' => $request->pos_idle_threshold_minutes,
+            'pos_default_cash_threshold' => $request->pos_default_cash_threshold,
         ];
 
         // Uppercase text-type columns
@@ -63,6 +65,11 @@ class SettingController extends Controller
             $data['company_phone'] = trim((string) $data['company_phone']);
         }
 
+        $data['pos_idle_threshold_minutes'] = max(0, (int) ($data['pos_idle_threshold_minutes'] ?? 0));
+        $data['pos_default_cash_threshold'] = $data['pos_default_cash_threshold'] !== null
+            ? round((float) $data['pos_default_cash_threshold'], 2)
+            : 0.0;
+
         // Persist
         $setting->update($data);
         $setting = $setting->fresh();
@@ -78,6 +85,8 @@ class SettingController extends Controller
                 'document_prefix',
                 'purchase_prefix_document',
                 'sale_prefix_document',
+                'pos_idle_threshold_minutes',
+                'pos_default_cash_threshold',
             ];
 
             $current = session('user_settings');

@@ -25,7 +25,9 @@ class SettingDatabaseSeeder extends Seeder
             'company_address' => 'Bima, NTB',
             'document_prefix' => 'TS',
             'purchase_prefix_document' => 'PR',
-            'sale_prefix_document' => 'SL'
+            'sale_prefix_document' => 'SL',
+            'pos_idle_threshold_minutes' => 30,
+            'pos_default_cash_threshold' => 0,
         ]);
 
         // Call additional seeders
