@@ -3,6 +3,7 @@
 namespace App\Livewire\Pos;
 
 use App\Models\CashierCashMovement;
+use App\Support\PosSessionManager;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 use Throwable;
@@ -186,6 +187,9 @@ abstract class CashMovementComponent extends Component
     {
         $userId = Auth::id();
 
+        $posSession = app(PosSessionManager::class)->ensureActive();
+        $posSessionId = $posSession->id ?? null;
+
         abort_if(!$userId, 403, 'Pengguna tidak terautentikasi.');
 
         $cashTotal = $this->sanitizeFloat($overrides['cash_total'] ?? $this->countedTotal, allowNegative: true, default: 0.0) ?? 0.0;
@@ -197,6 +201,14 @@ abstract class CashMovementComponent extends Component
         $denominations = $overrides['denominations'] ?? $this->prepareDenominations();
         $documents = $overrides['documents'] ?? $this->prepareDocuments();
         $metadata = $overrides['metadata'] ?? null;
+
+        if ($posSessionId) {
+            if (! is_array($metadata)) {
+                $metadata = $metadata ? (array) $metadata : [];
+            }
+
+            $metadata['pos_session_id'] = $posSessionId;
+        }
 
         if (is_array($metadata)) {
             $metadata = array_filter($metadata, static fn ($value) => $value !== null && $value !== '');

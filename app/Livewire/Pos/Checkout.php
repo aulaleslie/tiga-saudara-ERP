@@ -2,7 +2,9 @@
 
 namespace App\Livewire\Pos;
 
+use App\Models\PosSession;
 use App\Support\PosLocationResolver;
+use App\Support\PosSessionManager;
 use App\Support\ProductBundleResolver;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Support\Collection;
@@ -64,6 +66,8 @@ class Checkout extends Component
 
     public function mount($cartInstance, $customers)
     {
+        $this->guardActivePosSession();
+
         $this->cart_instance = $cartInstance;
         $this->customers = $customers;
         $this->global_discount = 0;
@@ -107,9 +111,20 @@ class Checkout extends Component
 
     public function hydrate()
     {
+        $this->guardActivePosSession();
+
         $this->refreshPosLocationContext();
         $this->refreshTotals();
         $this->dispatch('pos-mask-money-init');
+    }
+
+    private function guardActivePosSession(): void
+    {
+        $session = app(PosSessionManager::class)->current();
+
+        if (! $session || $session->status === PosSession::STATUS_PAUSED) {
+            $this->redirectRoute('app.pos.session');
+        }
     }
 
     private function refreshPosLocationContext(): void

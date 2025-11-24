@@ -19,6 +19,9 @@
             <div class="col-12">
                 @include('utils.alerts')
             </div>
+            <div class="col-12 mb-3">
+                <livewire:pos.session-manager />
+            </div>
             <div class="col-12">
                 @include('sale::pos.partials.cash-navigation')
             </div>

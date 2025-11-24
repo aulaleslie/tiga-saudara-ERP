@@ -1,6 +1,6 @@
 @extends('layouts.pos')
 
-@section('title', 'Penyetoran Kas')
+@section('title', 'Sesi POS')
 
 @section('content')
     <div class="container-fluid">
@@ -8,14 +8,8 @@
             <div class="col-12">
                 @include('utils.alerts')
             </div>
-            <div class="col-12 mb-3">
-                <livewire:pos.session-manager />
-            </div>
-            <div class="col-12">
-                @include('sale::pos.partials.cash-navigation')
-            </div>
             <div class="col-xl-6 col-lg-8 mx-auto">
-                <livewire:pos.cash-settlement />
+                <livewire:pos.session-manager />
             </div>
         </div>
     </div>

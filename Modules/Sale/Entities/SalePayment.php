@@ -3,6 +3,7 @@
 namespace Modules\Sale\Entities;
 
 use App\Models\BaseModel;
+use App\Models\PosSession;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
@@ -47,6 +48,11 @@ class SalePayment extends BaseModel implements HasMedia
     public function paymentMethod(): BelongsTo
     {
         return $this->belongsTo(PaymentMethod::class, 'payment_method_id', 'id');
+    }
+
+    public function posSession(): BelongsTo
+    {
+        return $this->belongsTo(PosSession::class, 'pos_session_id');
     }
 
     public function creditApplications(): HasMany
