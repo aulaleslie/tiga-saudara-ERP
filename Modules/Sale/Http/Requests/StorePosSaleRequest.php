@@ -26,7 +26,8 @@ class StorePosSaleRequest extends FormRequest
             'payments' => 'required|array|min:1',
             'payments.*.method_id' => 'required|integer',
             'payments.*.amount' => 'required|numeric|min:0',
-            'note' => 'nullable|string|max:1000'
+            'note' => 'nullable|string|max:1000',
+            'pos_location_assignment_id' => 'nullable|integer',
         ];
     }
 

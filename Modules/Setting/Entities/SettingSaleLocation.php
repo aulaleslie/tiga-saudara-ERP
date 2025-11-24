@@ -5,6 +5,8 @@ namespace Modules\Setting\Entities;
 use App\Models\BaseModel;
 use App\Support\PosLocationResolver;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SettingSaleLocation extends BaseModel
 {
@@ -99,5 +101,15 @@ class SettingSaleLocation extends BaseModel
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class);
+    }
+
+    public function scopeForSetting($query, ?int $settingId)
+    {
+        return $query->when($settingId, fn ($q) => $q->where('setting_id', $settingId));
+    }
+
+    public function scopeForLocation($query, ?int $locationId)
+    {
+        return $query->when($locationId, fn ($q) => $q->where('location_id', $locationId));
     }
 }

@@ -13,6 +13,18 @@ class PosLocationResolver
      */
     public static function resolveLocationIds(?int $settingId = null): Collection
     {
+        $assignmentId = session('pos_location_assignment_id');
+
+        if ($assignmentId) {
+            $assignment = SettingSaleLocation::query()
+                ->select(['id', 'setting_id', 'location_id'])
+                ->find($assignmentId);
+
+            if ($assignment) {
+                $settingId = $assignment->setting_id;
+            }
+        }
+
         $settingId ??= session('setting_id');
 
         if (!$settingId) {
@@ -39,6 +51,44 @@ class PosLocationResolver
     public static function resolveId(?int $settingId = null): ?int
     {
         return static::resolveLocationIds($settingId)->first();
+    }
+
+    /**
+     * Resolve all tenant assignments for a given POS location.
+     */
+    public static function resolveTenantsForLocation(int $locationId): Collection
+    {
+        return SettingSaleLocation::query()
+            ->with('setting:id,company_name')
+            ->forLocation($locationId)
+            ->orderBy('position')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * Persist the selected tenant-location assignment into the session.
+     */
+    public static function setActiveAssignment(?int $assignmentId): void
+    {
+        if (!$assignmentId) {
+            session()->forget('pos_location_assignment_id');
+
+            return;
+        }
+
+        $assignment = SettingSaleLocation::query()
+            ->select(['id', 'setting_id'])
+            ->find($assignmentId);
+
+        if (! $assignment) {
+            return;
+        }
+
+        session([
+            'pos_location_assignment_id' => $assignment->id,
+            'setting_id' => $assignment->setting_id,
+        ]);
     }
 
     public static function forget(?int ...$settingIds): void

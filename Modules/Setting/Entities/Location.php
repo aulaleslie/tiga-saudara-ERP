@@ -5,6 +5,8 @@ namespace Modules\Setting\Entities;
 use App\Models\BaseModel;
 use App\Support\PosLocationResolver;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Setting\Entities\SettingSaleLocation;
 
@@ -54,6 +56,18 @@ class Location extends BaseModel
     public function setting(): BelongsTo
     {
         return $this->belongsTo(Setting::class);
+    }
+
+    public function tenants(): BelongsToMany
+    {
+        return $this->belongsToMany(Setting::class, 'setting_sale_locations')
+            ->withPivot(['is_pos', 'position'])
+            ->withTimestamps();
+    }
+
+    public function saleAssignments(): HasMany
+    {
+        return $this->hasMany(SettingSaleLocation::class);
     }
 
     public function saleAssignment(): HasOne
