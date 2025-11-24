@@ -4,6 +4,7 @@ namespace Modules\Sale\Http\Controllers;
 
 use App\Events\PrintJobEvent;
 use App\Support\PosLocationResolver;
+use App\Support\PosSessionManager;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Http\Request;
@@ -32,6 +33,13 @@ class PosController extends Controller
     private static ?bool $saleDetailsHasSerialNumbersColumn = null;
 
     private static ?bool $saleBundleItemsHasTaxIdColumn = null;
+
+    public function session()
+    {
+        abort_if(Gate::denies('pos.access'), 403);
+
+        return view('sale::pos.session');
+    }
 
     public function index() {
         abort_if(Gate::denies('pos.access'), 403);
@@ -162,6 +170,7 @@ class PosController extends Controller
         }
 
         $posLocationId = PosLocationResolver::resolveId();
+        $posSession = $request->attributes->get('pos_session') ?? app(PosSessionManager::class)->ensureActive();
 
         DB::beginTransaction();
 
@@ -192,7 +201,9 @@ class PosController extends Controller
                 $saleData['payment_method_id'] = $primaryMethodId;
             }
 
-            $sale = Sale::create($saleData);
+            $sale = Sale::create(array_merge($saleData, [
+                'pos_session_id' => $posSession->id ?? null,
+            ]));
 
             $this->persistSaleDetailsFromCart($sale, $cart->content(), true, $posLocationId);
 
@@ -210,6 +221,7 @@ class PosController extends Controller
                         'reference' => 'INV/' . $sale->reference,
                         'amount' => $payment['amount'],
                         'sale_id' => $sale->id,
+                        'pos_session_id' => $posSession->id ?? null,
                         'payment_method_id' => $method->id,
                         'payment_method' => $method->name,
                     ]);
@@ -275,6 +287,7 @@ class PosController extends Controller
                 'is_tax_included' => false,
                 'tax_amount' => round((float) $cart->tax(), 2),
                 'discount_amount' => round((float) $cart->discount(), 2),
+                'pos_session_id' => $posSession->id ?? null,
             ]);
 
             $this->persistSaleDetailsFromCart($sale, $cart->content(), false, $posLocationId);

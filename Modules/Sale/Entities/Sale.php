@@ -3,6 +3,7 @@
 namespace Modules\Sale\Entities;
 
 use App\Models\BaseModel;
+use App\Models\PosSession;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -133,5 +134,10 @@ class Sale extends BaseModel
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class, 'location_id', 'id');
+    }
+
+    public function posSession(): BelongsTo
+    {
+        return $this->belongsTo(PosSession::class, 'pos_session_id');
     }
 }
