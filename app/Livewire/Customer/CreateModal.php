@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Customer;
 
+use App\Constants\CustomerTier;
 use Livewire\Component;
 use Modules\People\Entities\Customer;
 
@@ -9,6 +10,7 @@ class CreateModal extends Component
 {
     public $showModal = false;
     public $contact_name;
+    public $tier = null;
 
     protected $listeners = ['openCustomerModal' => 'open'];
 
@@ -16,6 +18,7 @@ class CreateModal extends Component
     {
         return [
             'contact_name' => 'required|string|max:255',
+            'tier' => 'nullable|in:WHOLESALER,RESELLER',
         ];
     }
 
@@ -50,10 +53,13 @@ class CreateModal extends Component
             'bank_branch'    => '',
             'account_number' => '',
             'account_holder' => '',
-            'tier'           => null,
+            'tier'           => $this->tier,
         ]);
 
-        $this->dispatch('customerSelected', $customer);
+        // Reload the customer to ensure all relationships and attributes are loaded
+        $customer->refresh();
+
+        $this->dispatch('customerSelected', $customer->toArray());
         $this->dispatch('toast', 'Pelanggan Ditambahkan!');
         $this->showModal = false;
     }

@@ -17,6 +17,8 @@ class CustomerLoader extends Component
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
 
+    protected $listeners = ['customerSelected' => 'handleCustomerSelected'];
+
     public function mount($customerId = null)
     {
         if ($customerId) {
@@ -68,6 +70,20 @@ class CustomerLoader extends Component
             $this->dispatch('customerSelected', $customer);
             $this->isFocused = false;
             $this->query_count = 0;
+        }
+    }
+
+    public function handleCustomerSelected($customerData): void
+    {
+        // Handle customer selection from external sources (like CreateModal)
+        if (is_array($customerData) && isset($customerData['id'])) {
+            $customer = Customer::find($customerData['id']);
+            if ($customer) {
+                $this->search_results = [$customer];
+                $this->query = $customer->contact_name;
+                $this->query_count = 1;
+                $this->isFocused = false;
+            }
         }
     }
 

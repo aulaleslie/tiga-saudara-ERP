@@ -138,6 +138,17 @@ class GlobalPurchaseAndSalesSearch extends Component
     }
 
     /**
+     * Clear search results (used internally)
+     */
+    public function clearResults(): void
+    {
+        $this->searchResults = [];
+        $this->totalResults = 0;
+        $this->responseTime = null;
+        $this->showResults = false;
+    }
+
+    /**
      * Export results (placeholder)
      */
     public function exportResults(): void

@@ -17,6 +17,16 @@
                                 <input type="text" class="form-control" wire:model.defer="contact_name">
                                 @error('contact_name') <small class="text-danger">{{ $message }}</small> @enderror
                             </div>
+
+                            <div class="form-group">
+                                <label>Tier Pelanggan</label>
+                                <select class="form-control" wire:model.defer="tier">
+                                    @foreach(\App\Constants\CustomerTier::options() as $value => $label)
+                                        <option value="{{ $value }}">{{ $label }}</option>
+                                    @endforeach
+                                </select>
+                                @error('tier') <small class="text-danger">{{ $message }}</small> @enderror
+                            </div>
                         </div>
 
                         <div class="modal-footer">

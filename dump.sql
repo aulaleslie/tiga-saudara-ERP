@@ -377,7 +377,7 @@ CREATE TABLE `customers` (
   KEY `customers_payment_term_id_foreign` (`payment_term_id`),
   CONSTRAINT `customers_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
   CONSTRAINT `customers_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -386,7 +386,7 @@ CREATE TABLE `customers` (
 
 LOCK TABLES `customers` WRITE;
 /*!40000 ALTER TABLE `customers` DISABLE KEYS */;
-INSERT INTO `customers` VALUES (1,'','','081221862551','','','','2025-11-22 18:16:48','2025-11-22 18:16:48',NULL,'WALK IN',NULL,'KP PONDOK BENDA','KP PONDOK BENDA',NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,'',NULL,858232),(2,'','','081249003893','','','','2025-11-22 18:17:06','2025-11-22 18:17:06',NULL,'GROSIR',NULL,'JALAN DIPONEGORO NO. 46','JALAN DIPONEGORO NO. 46',NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,'','WHOLESALER',858231),(3,'','','081249003893','','','','2025-11-22 18:17:23','2025-11-22 18:17:23',NULL,'RESELLER',NULL,'JALAN SWATANTRA V','JALAN SWATANTRA V',NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,'','RESELLER',858234);
+INSERT INTO `customers` VALUES (1,'','','081221862551','','','','2025-11-22 18:16:48','2025-11-22 18:16:48',NULL,'WALK IN',NULL,'KP PONDOK BENDA','KP PONDOK BENDA',NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,'',NULL,858232),(2,'','','081249003893','','','','2025-11-22 18:17:06','2025-11-22 18:17:06',NULL,'GROSIR',NULL,'JALAN DIPONEGORO NO. 46','JALAN DIPONEGORO NO. 46',NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,'','WHOLESALER',858231),(3,'','','081249003893','','','','2025-11-22 18:17:23','2025-11-22 18:17:23',NULL,'RESELLER',NULL,'JALAN SWATANTRA V','JALAN SWATANTRA V',NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,'','RESELLER',858234),(4,'','','','','','','2025-11-24 18:20:14','2025-11-24 18:20:14',NULL,'TUAN TAKUR','','','',NULL,'','','','','','',1,'','WHOLESALER',NULL),(5,'','','','','','','2025-11-24 18:28:00','2025-11-24 18:28:00',NULL,'TIB','','','',NULL,'','','','','','',1,'','WHOLESALER',NULL),(6,'','','','','','','2025-11-24 18:31:29','2025-11-24 18:31:29',NULL,'SANDY','','','',NULL,'','','','','','',1,'','WHOLESALER',NULL);
 /*!40000 ALTER TABLE `customers` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -769,7 +769,7 @@ CREATE TABLE `locations` (
   PRIMARY KEY (`id`),
   KEY `locations_setting_id_foreign` (`setting_id`),
   CONSTRAINT `locations_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -778,6 +778,7 @@ CREATE TABLE `locations` (
 
 LOCK TABLES `locations` WRITE;
 /*!40000 ALTER TABLE `locations` DISABLE KEYS */;
+INSERT INTO `locations` VALUES (1,1,'DISPLAY','2025-11-22 18:45:28','2025-11-22 18:46:09');
 /*!40000 ALTER TABLE `locations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1301,7 +1302,7 @@ CREATE TABLE `product_stocks` (
   CONSTRAINT `product_stocks_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_stocks_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_stocks_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1310,6 +1311,7 @@ CREATE TABLE `product_stocks` (
 
 LOCK TABLES `product_stocks` WRITE;
 /*!40000 ALTER TABLE `product_stocks` DISABLE KEYS */;
+INSERT INTO `product_stocks` VALUES (1,1,1,100,100,0,0,0,0,NULL,'2025-11-22 18:47:02','2025-11-22 18:47:02');
 /*!40000 ALTER TABLE `product_stocks` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1450,7 +1452,7 @@ CREATE TABLE `products` (
 
 LOCK TABLES `products` WRITE;
 /*!40000 ALTER TABLE `products` DISABLE KEYS */;
-INSERT INTO `products` VALUES (1,1,1,1,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',NULL,0,0,0,0,0,NULL,0.00,NULL,2,NULL,0,1,0,NULL,1,0.00,54000.00,53000.00,NULL,0.00,0.00,0,0,1,NULL,'2025-11-22 18:19:00','2025-11-22 18:19:00',NULL,NULL);
+INSERT INTO `products` VALUES (1,1,1,1,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',NULL,100,0,0,0,0,NULL,0.00,NULL,2,NULL,0,1,0,NULL,1,0.00,54000.00,53000.00,NULL,50000.00,50000.00,0,0,1,NULL,'2025-11-22 18:19:00','2025-11-22 18:47:02',NULL,NULL);
 /*!40000 ALTER TABLE `products` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1484,7 +1486,7 @@ CREATE TABLE `purchase_details` (
   CONSTRAINT `purchase_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_details_purchase_id_foreign` FOREIGN KEY (`purchase_id`) REFERENCES `purchases` (`id`) ON DELETE CASCADE,
   CONSTRAINT `purchase_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1493,6 +1495,7 @@ CREATE TABLE `purchase_details` (
 
 LOCK TABLES `purchase_details` WRITE;
 /*!40000 ALTER TABLE `purchase_details` DISABLE KEYS */;
+INSERT INTO `purchase_details` VALUES (1,1,1,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',100,50000.00,50000.00,5000000.00,0.00,'FIXED',0.00,NULL,'2025-11-22 18:44:03','2025-11-22 18:44:03');
 /*!40000 ALTER TABLE `purchase_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1784,7 +1787,7 @@ CREATE TABLE `purchases` (
   CONSTRAINT `purchases_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchases_supplier_id_foreign` FOREIGN KEY (`supplier_id`) REFERENCES `suppliers` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchases_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1793,6 +1796,7 @@ CREATE TABLE `purchases` (
 
 LOCK TABLES `purchases` WRITE;
 /*!40000 ALTER TABLE `purchases` DISABLE KEYS */;
+INSERT INTO `purchases` VALUES (1,'2025-11-22','2026-01-21','TS-PR-2025-11-00001',1,NULL,NULL,0,0.00,0.00,0.00,0.00,0.00,5000000.00,0.00,5000000.00,'RECEIVED','UNPAID','',NULL,858234,1,'2025-11-22 18:44:03','2025-11-22 18:47:02');
 /*!40000 ALTER TABLE `purchases` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1892,7 +1896,7 @@ CREATE TABLE `received_note_details` (
   KEY `received_note_details_po_detail_id_foreign` (`po_detail_id`),
   CONSTRAINT `received_note_details_po_detail_id_foreign` FOREIGN KEY (`po_detail_id`) REFERENCES `purchase_details` (`id`) ON DELETE CASCADE,
   CONSTRAINT `received_note_details_received_note_id_foreign` FOREIGN KEY (`received_note_id`) REFERENCES `received_notes` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1901,6 +1905,7 @@ CREATE TABLE `received_note_details` (
 
 LOCK TABLES `received_note_details` WRITE;
 /*!40000 ALTER TABLE `received_note_details` DISABLE KEYS */;
+INSERT INTO `received_note_details` VALUES (1,1,1,100,'2025-11-22 18:47:02','2025-11-22 18:47:02');
 /*!40000 ALTER TABLE `received_note_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1922,7 +1927,7 @@ CREATE TABLE `received_notes` (
   PRIMARY KEY (`id`),
   KEY `received_notes_po_id_foreign` (`po_id`),
   CONSTRAINT `received_notes_po_id_foreign` FOREIGN KEY (`po_id`) REFERENCES `purchases` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1931,6 +1936,7 @@ CREATE TABLE `received_notes` (
 
 LOCK TABLES `received_notes` WRITE;
 /*!40000 ALTER TABLE `received_notes` DISABLE KEYS */;
+INSERT INTO `received_notes` VALUES (1,1,'',NULL,'2025-11-22','2025-11-22 18:47:02','2025-11-22 18:47:02');
 /*!40000 ALTER TABLE `received_notes` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2446,7 +2452,7 @@ CREATE TABLE `setting_sale_locations` (
   KEY `setting_sale_locations_setting_id_index` (`setting_id`),
   CONSTRAINT `setting_sale_locations_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `setting_sale_locations_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2455,6 +2461,7 @@ CREATE TABLE `setting_sale_locations` (
 
 LOCK TABLES `setting_sale_locations` WRITE;
 /*!40000 ALTER TABLE `setting_sale_locations` DISABLE KEYS */;
+INSERT INTO `setting_sale_locations` VALUES (1,1,1,1,1,'2025-11-22 18:45:28','2025-11-24 18:32:23');
 /*!40000 ALTER TABLE `setting_sale_locations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2694,7 +2701,7 @@ CREATE TABLE `transactions` (
   CONSTRAINT `transactions_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `transactions_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
   CONSTRAINT `transactions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2703,6 +2710,7 @@ CREATE TABLE `transactions` (
 
 LOCK TABLES `transactions` WRITE;
 /*!40000 ALTER TABLE `transactions` DISABLE KEYS */;
+INSERT INTO `transactions` VALUES (1,1,1,100,100,0,1,1,'RECEIVED FROM PURCHASE ORDER #TS-PR-2025-11-00001','2025-11-22 18:47:02','2025-11-22 18:47:02','BUY',0,100,0,100,100,0,0,0);
 /*!40000 ALTER TABLE `transactions` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2960,4 +2968,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-11-22 12:37:04
+-- Dump completed on 2025-11-24 12:33:18
