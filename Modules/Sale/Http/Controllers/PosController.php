@@ -71,6 +71,7 @@ class PosController extends Controller
         $customer = Customer::findOrFail($request->customer_id);
 
         $validated = $request->validated();
+        PosLocationResolver::setActiveAssignment((int) data_get($validated, 'pos_location_assignment_id'));
         $paymentsInput = collect(data_get($validated, 'payments', []));
         $total_amount = round((float) data_get($validated, 'total_amount', 0), 2);
         $shippingAmount = round((float) data_get($validated, 'shipping_amount', 0), 2);
