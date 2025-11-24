@@ -64,49 +64,131 @@
                 <br>{{ settings()->company_address }}
             </p>
         </div>
+        @php
+            $receipt = $receipt ?? null;
+            $activeSale = $sale ?? null;
+            $reference = $receipt?->receipt_number ?? $activeSale?->reference;
+            $customerName = $receipt?->customer_name ?? $activeSale?->customer_name;
+            $displayDate = $receipt?->created_at ?? ($activeSale?->date);
+        @endphp
+
         <p>
-            Date: {{ \Carbon\Carbon::parse($sale->date)->format('d M, Y') }}<br>
-            Reference: {{ $sale->reference }}<br>
-            Name: {{ $sale->customer_name }}
+            Date: {{ \Carbon\Carbon::parse($displayDate)->format('d M, Y') }}<br>
+            Reference: {{ $reference }}<br>
+            Name: {{ $customerName }}
         </p>
-        <table class="table-data">
-            <tbody>
-            @foreach($sale->saleDetails as $saleDetail)
-                <tr>
-                    <td colspan="2">
-                        {{ $saleDetail->product->product_name }}
-                        ({{ $saleDetail->quantity }} x {{ format_currency($saleDetail->price) }})
-                    </td>
-                    <td style="text-align:right;vertical-align:bottom">{{ format_currency($saleDetail->sub_total) }}</td>
-                </tr>
+
+        @if($receipt)
+            @foreach($receipt->sales as $tenantSale)
+                <table class="table-data" style="margin-bottom: 10px;">
+                    <tbody>
+                    <tr>
+                        <th colspan="3" style="text-align:left;">{{ $tenantSale->tenantSetting->company_name ?? 'Tenant #' . $tenantSale->setting_id }}</th>
+                    </tr>
+                    @foreach($tenantSale->saleDetails as $saleDetail)
+                        <tr>
+                            <td colspan="2">
+                                {{ $saleDetail->product->product_name ?? $saleDetail->product_name }}
+                                ({{ $saleDetail->quantity }} x {{ format_currency($saleDetail->price) }})
+                            </td>
+                            <td style="text-align:right;vertical-align:bottom">{{ format_currency($saleDetail->sub_total) }}</td>
+                        </tr>
+                    @endforeach
+
+                    @if($tenantSale->tax_amount)
+                        <tr>
+                            <th colspan="2" style="text-align:left">Tax</th>
+                            <th style="text-align:right">{{ format_currency($tenantSale->tax_amount) }}</th>
+                        </tr>
+                    @endif
+                    @if($tenantSale->discount_amount)
+                        <tr>
+                            <th colspan="2" style="text-align:left">Discount</th>
+                            <th style="text-align:right">{{ format_currency($tenantSale->discount_amount) }}</th>
+                        </tr>
+                    @endif
+                    @if($tenantSale->shipping_amount)
+                        <tr>
+                            <th colspan="2" style="text-align:left">Shipping</th>
+                            <th style="text-align:right">{{ format_currency($tenantSale->shipping_amount) }}</th>
+                        </tr>
+                    @endif
+                    <tr>
+                        <th colspan="2" style="text-align:left">Subtotal</th>
+                        <th style="text-align:right">{{ format_currency($tenantSale->total_amount) }}</th>
+                    </tr>
+                    </tbody>
+                </table>
             @endforeach
 
-            @if($sale->tax_percentage)
+            <table>
+                <tbody>
                 <tr>
-                    <th colspan="2" style="text-align:left">Tax ({{ $sale->tax_percentage }}%)</th>
-                    <th style="text-align:right">{{ format_currency($sale->tax_amount) }}</th>
+                    <th colspan="2" style="text-align:left">Grand Total</th>
+                    <th style="text-align:right">{{ format_currency($receipt->total_amount) }}</th>
                 </tr>
-            @endif
-            @if($sale->discount_percentage)
+                <tr style="background-color:#ddd;">
+                    <td class="centered" style="padding: 5px;">
+                        Paid By: {{ $receipt->payment_method }}
+                    </td>
+                    <td class="centered" style="padding: 5px;">
+                        Amount: {{ format_currency($receipt->paid_amount) }}
+                    </td>
+                </tr>
+                @if($receipt->change_due > 0)
+                    <tr>
+                        <th colspan="2" style="text-align:left">Change</th>
+                        <th style="text-align:right">{{ format_currency($receipt->change_due) }}</th>
+                    </tr>
+                @endif
+                <tr style="border-bottom: 0;">
+                    <td class="centered" colspan="3">
+                        <div style="margin-top: 10px;">
+                            {!! \Milon\Barcode\Facades\DNS1DFacade::getBarcodeSVG($reference, 'C128', 1, 25, 'black', false) !!}
+                        </div>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        @elseif(isset($sale))
+            <table class="table-data">
+                <tbody>
+                @foreach($sale->saleDetails as $saleDetail)
+                    <tr>
+                        <td colspan="2">
+                            {{ $saleDetail->product->product_name }}
+                            ({{ $saleDetail->quantity }} x {{ format_currency($saleDetail->price) }})
+                        </td>
+                        <td style="text-align:right;vertical-align:bottom">{{ format_currency($saleDetail->sub_total) }}</td>
+                    </tr>
+                @endforeach
+
+                @if($sale->tax_percentage)
+                    <tr>
+                        <th colspan="2" style="text-align:left">Tax ({{ $sale->tax_percentage }}%)</th>
+                        <th style="text-align:right">{{ format_currency($sale->tax_amount) }}</th>
+                    </tr>
+                @endif
+                @if($sale->discount_percentage)
+                    <tr>
+                        <th colspan="2" style="text-align:left">Discount ({{ $sale->discount_percentage }}%)</th>
+                        <th style="text-align:right">{{ format_currency($sale->discount_amount) }}</th>
+                    </tr>
+                @endif
+                @if($sale->shipping_amount)
+                    <tr>
+                        <th colspan="2" style="text-align:left">Shipping</th>
+                        <th style="text-align:right">{{ format_currency($sale->shipping_amount) }}</th>
+                    </tr>
+                @endif
                 <tr>
-                    <th colspan="2" style="text-align:left">Discount ({{ $sale->discount_percentage }}%)</th>
-                    <th style="text-align:right">{{ format_currency($sale->discount_amount) }}</th>
+                    <th colspan="2" style="text-align:left">Grand Total</th>
+                    <th style="text-align:right">{{ format_currency($sale->total_amount) }}</th>
                 </tr>
-            @endif
-            @if($sale->shipping_amount)
-                <tr>
-                    <th colspan="2" style="text-align:left">Shipping</th>
-                    <th style="text-align:right">{{ format_currency($sale->shipping_amount) }}</th>
-                </tr>
-            @endif
-            <tr>
-                <th colspan="2" style="text-align:left">Grand Total</th>
-                <th style="text-align:right">{{ format_currency($sale->total_amount) }}</th>
-            </tr>
-            </tbody>
-        </table>
-        <table>
-            <tbody>
+                </tbody>
+            </table>
+            <table>
+                <tbody>
                 <tr style="background-color:#ddd;">
                     <td class="centered" style="padding: 5px;">
                         Paid By: {{ $sale->payment_method }}
@@ -122,8 +204,9 @@
                         </div>
                     </td>
                 </tr>
-            </tbody>
-        </table>
+                </tbody>
+            </table>
+        @endif
     </div>
 </div>
 

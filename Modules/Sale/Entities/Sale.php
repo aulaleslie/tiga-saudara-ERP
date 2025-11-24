@@ -12,6 +12,7 @@ use Modules\People\Entities\Customer;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use App\Models\PosReceipt;
 
 class Sale extends BaseModel
 {
@@ -139,5 +140,10 @@ class Sale extends BaseModel
     public function posSession(): BelongsTo
     {
         return $this->belongsTo(PosSession::class, 'pos_session_id');
+    }
+
+    public function posReceipt(): BelongsTo
+    {
+        return $this->belongsTo(PosReceipt::class, 'pos_receipt_id');
     }
 }

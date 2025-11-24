@@ -43,17 +43,20 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('sales.invoicePdf');
 
     Route::get('/sales/pos/pdf/{id}', function ($id) {
-        $sale = Sale::findOrFail($id);
+        $sale = Sale::with(['saleDetails.product', 'posReceipt.sales.saleDetails.product', 'posReceipt.sales.tenantSetting'])
+            ->findOrFail($id);
 
-        $pdf = \PDF::loadView('sale::print-pos', [
-            'sale' => $sale,
-        ])->setPaper('a7')
+        $receipt = $sale->posReceipt;
+        $viewData = $receipt ? ['receipt' => $receipt] : ['sale' => $sale];
+        $fileReference = $receipt?->receipt_number ?? $sale->reference;
+
+        $pdf = \PDF::loadView('sale::print-pos', $viewData)->setPaper('a7')
             ->setOption('margin-top', 8)
             ->setOption('margin-bottom', 8)
             ->setOption('margin-left', 5)
             ->setOption('margin-right', 5);
 
-        return $pdf->stream('sale-'. $sale->reference .'.pdf');
+        return $pdf->stream('sale-' . $fileReference . '.pdf');
     })->name('sales.pos.pdf');
 
     //Sales

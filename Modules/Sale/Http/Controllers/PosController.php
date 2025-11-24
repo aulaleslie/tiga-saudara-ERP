@@ -5,6 +5,7 @@ namespace Modules\Sale\Http\Controllers;
 use App\Events\PrintJobEvent;
 use App\Support\PosLocationResolver;
 use App\Support\PosSessionManager;
+use App\Models\PosReceipt;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Http\Request;
@@ -73,8 +74,10 @@ class PosController extends Controller
         $validated = $request->validated();
         PosLocationResolver::setActiveAssignment((int) data_get($validated, 'pos_location_assignment_id'));
         $paymentsInput = collect(data_get($validated, 'payments', []));
-        $total_amount = round((float) data_get($validated, 'total_amount', 0), 2);
         $shippingAmount = round((float) data_get($validated, 'shipping_amount', 0), 2);
+        $tenantPartitions = $this->partitionCartByTenant($cart->content(), $shippingAmount);
+        $tenantGroups = $tenantPartitions['groups'];
+        $total_amount = $tenantPartitions['totals']['grand'];
 
         $paymentMethodIds = $paymentsInput
             ->pluck('method_id')
@@ -136,7 +139,8 @@ class PosController extends Controller
         }
 
         $overallPaid = round($overallPaid, 2);
-        $due_amount = max(round($total_amount - $overallPaid, 2), 0);
+        $allocatablePaid = min($overallPaid, $total_amount);
+        $due_amount = max(round($total_amount - $allocatablePaid, 2), 0);
 
         $uniqueMethodIds = collect($processedPayments)
             ->pluck('method.id')
@@ -182,61 +186,158 @@ class PosController extends Controller
 
         DB::beginTransaction();
 
-        /** @var Sale|null $sale */
-        $sale = null;
-
         try {
-            $saleData = [
-                'date' => now()->format('Y-m-d'),
-                'reference' => 'PSL',
+            $posReceipt = PosReceipt::create([
                 'customer_id' => $customer->id,
                 'customer_name' => $customer->customer_name,
-                'tax_percentage' => $request->tax_percentage,
-                'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => $shippingAmount,
-                'paid_amount' => $overallPaid,
                 'total_amount' => $total_amount,
+                'paid_amount' => $overallPaid,
                 'due_amount' => $due_amount,
-                'status' => 'Completed',
+                'change_due' => $changeDue,
                 'payment_status' => $payment_status,
                 'payment_method' => $displayMethodName,
-                'note' => $request->note,
-                'tax_amount' => round((float) $cart->tax(), 2),
-                'discount_amount' => round((float) $cart->discount(), 2),
-            ];
+                'payment_breakdown' => collect($processedPayments)->map(function ($payment) {
+                    /** @var PaymentMethod|null $method */
+                    $method = $payment['method'] ?? null;
 
-            if ($this->salesHasPaymentMethodIdColumn()) {
-                $saleData['payment_method_id'] = $primaryMethodId;
+                    return [
+                        'method_id' => $method?->id,
+                        'method_name' => $method?->name,
+                        'amount' => $payment['amount'] ?? 0,
+                    ];
+                })->values()->all(),
+                'note' => $request->note,
+                'pos_session_id' => $posSession->id ?? null,
+            ]);
+
+            $sales = [];
+
+            foreach ($tenantGroups as $tenantGroup) {
+                $saleData = [
+                    'date' => now()->format('Y-m-d'),
+                    'reference' => 'PSL',
+                    'customer_id' => $customer->id,
+                    'customer_name' => $customer->customer_name,
+                    'tax_percentage' => $request->tax_percentage,
+                    'discount_percentage' => $request->discount_percentage,
+                    'shipping_amount' => $tenantGroup['shipping'],
+                    'paid_amount' => 0,
+                    'total_amount' => $tenantGroup['total'],
+                    'due_amount' => $tenantGroup['total'],
+                    'status' => 'Completed',
+                    'payment_status' => 'Unpaid',
+                    'payment_method' => $displayMethodName,
+                    'note' => $request->note,
+                    'tax_amount' => round((float) $tenantGroup['tax_total'], 2),
+                    'discount_amount' => round((float) $tenantGroup['discount_total'], 2),
+                    'setting_id' => $tenantGroup['tenant_id'],
+                    'pos_receipt_id' => $posReceipt->id,
+                ];
+
+                if ($this->salesHasPaymentMethodIdColumn()) {
+                    $saleData['payment_method_id'] = $primaryMethodId;
+                }
+
+                $sale = Sale::create(array_merge($saleData, [
+                    'pos_session_id' => $posSession->id ?? null,
+                ]));
+
+                $this->persistSaleDetailsFromCart($sale, $tenantGroup['items'], true, $posLocationId);
+
+                $calculatedItemTotal = round((float) $sale->saleDetails()->sum('sub_total'), 2);
+                $calculatedTax = round((float) $sale->saleDetails()->sum('product_tax_amount'), 2);
+                $calculatedDiscount = round((float) $sale->saleDetails()->sum('product_discount_amount'), 2);
+                $saleTotal = round($calculatedItemTotal + $tenantGroup['shipping'], 2);
+
+                $sale->update([
+                    'total_amount' => $saleTotal,
+                    'tax_amount' => $calculatedTax,
+                    'discount_amount' => $calculatedDiscount,
+                    'due_amount' => $saleTotal,
+                ]);
+
+                $sales[] = $sale;
             }
 
-            $sale = Sale::create(array_merge($saleData, [
-                'pos_session_id' => $posSession->id ?? null,
-            ]));
+            $remainingPerSale = [];
+            $allocatedPerSale = [];
 
-            $this->persistSaleDetailsFromCart($sale, $cart->content(), true, $posLocationId);
+            foreach ($sales as $sale) {
+                $remainingPerSale[$sale->id] = round((float) $sale->total_amount, 2);
+                $allocatedPerSale[$sale->id] = 0.0;
+            }
 
-            if ($overallPaid > 0) {
-                foreach ($processedPayments as $payment) {
-                    if ($payment['amount'] <= 0) {
+            $allocatableTotal = min($overallPaid, array_sum($remainingPerSale));
+            $distributedTotal = 0.0;
+
+            foreach ($processedPayments as $payment) {
+                /** @var PaymentMethod $method */
+                $method = $payment['method'];
+
+                $available = min($payment['amount'], max(0, $allocatableTotal - $distributedTotal));
+                $pending = $available;
+
+                foreach ($sales as $sale) {
+                    $needed = $remainingPerSale[$sale->id] ?? 0;
+
+                    if ($needed <= 0 || $pending <= 0) {
                         continue;
                     }
 
-                    /** @var PaymentMethod $method */
-                    $method = $payment['method'];
+                    $allocation = min($pending, $needed);
 
                     SalePayment::create([
                         'date' => now()->format('Y-m-d'),
                         'reference' => 'INV/' . $sale->reference,
-                        'amount' => $payment['amount'],
+                        'amount' => $allocation,
                         'sale_id' => $sale->id,
                         'pos_session_id' => $posSession->id ?? null,
                         'payment_method_id' => $method->id,
                         'payment_method' => $method->name,
+                        'pos_receipt_id' => $posReceipt->id,
                     ]);
+
+                    $remainingPerSale[$sale->id] = round($remainingPerSale[$sale->id] - $allocation, 2);
+                    $allocatedPerSale[$sale->id] = round($allocatedPerSale[$sale->id] + $allocation, 2);
+                    $pending = round($pending - $allocation, 2);
+                    $distributedTotal = round($distributedTotal + $allocation, 2);
                 }
             }
 
+            foreach ($sales as $sale) {
+                $paid = min($allocatedPerSale[$sale->id] ?? 0.0, (float) $sale->total_amount);
+                $due = max(round((float) $sale->total_amount - $paid, 2), 0);
+
+                if ($due >= $sale->total_amount) {
+                    $status = 'Unpaid';
+                } elseif ($due > 0) {
+                    $status = 'Partial';
+                } else {
+                    $status = 'Paid';
+                }
+
+                $sale->update([
+                    'paid_amount' => $paid,
+                    'due_amount' => $due,
+                    'payment_status' => $status,
+                    'payment_method' => $displayMethodName,
+                ]);
+            }
+
+            $posReceipt->update([
+                'total_amount' => $total_amount,
+                'paid_amount' => $overallPaid,
+                'due_amount' => $due_amount,
+                'change_due' => $changeDue,
+                'payment_status' => $payment_status,
+                'payment_method' => $displayMethodName,
+            ]);
+
             DB::commit();
+
+            $posReceipt->loadMissing(['sales.saleDetails.product', 'sales.tenantSetting']);
+
+            $this->triggerReceiptPrint($posReceipt);
         } catch (Exception $e) {
             DB::rollBack();
 
@@ -246,10 +347,6 @@ class PosController extends Controller
             ]);
 
             return back()->withErrors(['error' => 'Failed to create POS sale.'])->withInput();
-        }
-
-        if ($sale) {
-            $this->triggerReceiptPrint($sale);
         }
 
         $cart->destroy();
@@ -315,6 +412,115 @@ class PosController extends Controller
         toast('Dokumen penjualan disimpan sebagai draft!', 'success');
 
         return redirect()->route('app.pos.index');
+    }
+
+    private function partitionCartByTenant($cartItems, float $shippingAmount): array
+    {
+        $items = collect($cartItems);
+
+        $productIds = $items
+            ->map(function ($item) {
+                $options = $this->normalizeCartOptions($item->options ?? []);
+
+                return (int) ($options['product_id'] ?? 0);
+            })
+            ->filter()
+            ->unique();
+
+        $productSettings = $productIds->isNotEmpty()
+            ? Product::query()->whereIn('id', $productIds)->pluck('setting_id', 'id')->toArray()
+            : [];
+
+        $groups = [];
+        $overallItemTotal = 0.0;
+        $overallTax = 0.0;
+        $overallDiscount = 0.0;
+
+        foreach ($items as $item) {
+            $options = $this->normalizeCartOptions($item->options ?? []);
+            $tenantId = $this->resolveTenantIdForCartItem($options, $productSettings);
+
+            $lineSubTotal = round((float) ($options['sub_total'] ?? ($item->price * $item->qty)), 2);
+            $lineTax = round((float) ($options['product_tax_amount'] ?? ($options['tax_amount'] ?? 0)), 2);
+            $lineDiscount = round((float) ($options['product_discount'] ?? ($options['product_discount_amount'] ?? 0)), 2);
+
+            $overallItemTotal = round($overallItemTotal + $lineSubTotal, 2);
+            $overallTax = round($overallTax + $lineTax, 2);
+            $overallDiscount = round($overallDiscount + $lineDiscount, 2);
+
+            if (! isset($groups[$tenantId])) {
+                $groups[$tenantId] = [
+                    'tenant_id' => $tenantId,
+                    'items' => [],
+                    'item_total' => 0.0,
+                    'tax_total' => 0.0,
+                    'discount_total' => 0.0,
+                    'shipping' => 0.0,
+                    'total' => 0.0,
+                ];
+            }
+
+            $groups[$tenantId]['items'][] = $item;
+            $groups[$tenantId]['item_total'] = round($groups[$tenantId]['item_total'] + $lineSubTotal, 2);
+            $groups[$tenantId]['tax_total'] = round($groups[$tenantId]['tax_total'] + $lineTax, 2);
+            $groups[$tenantId]['discount_total'] = round($groups[$tenantId]['discount_total'] + $lineDiscount, 2);
+        }
+
+        $groups = array_values($groups);
+        $groupCount = count($groups);
+        $remainingShipping = $shippingAmount;
+
+        foreach ($groups as $index => &$group) {
+            $share = 0.0;
+
+            if ($groupCount > 0) {
+                if ($overallItemTotal > 0) {
+                    $share = round($shippingAmount * ($group['item_total'] / $overallItemTotal), 2);
+                } else {
+                    $share = round($shippingAmount / $groupCount, 2);
+                }
+
+                if ($index === $groupCount - 1) {
+                    $share = round($remainingShipping, 2);
+                } else {
+                    $remainingShipping = round($remainingShipping - $share, 2);
+                }
+            }
+
+            $group['shipping'] = $share;
+            $group['total'] = round($group['item_total'] + $share, 2);
+        }
+
+        unset($group);
+
+        $grandTotal = array_sum(array_map(fn ($group) => $group['total'], $groups));
+
+        return [
+            'groups' => $groups,
+            'totals' => [
+                'items' => round($overallItemTotal, 2),
+                'tax' => round($overallTax, 2),
+                'discount' => round($overallDiscount, 2),
+                'shipping' => $shippingAmount,
+                'grand' => round($grandTotal, 2),
+            ],
+        ];
+    }
+
+    private function resolveTenantIdForCartItem(array $options, array $productSettings): int
+    {
+        $tenantId = (int) ($options['setting_id'] ?? 0);
+        $productId = (int) ($options['product_id'] ?? 0);
+
+        if ($tenantId <= 0 && $productId > 0) {
+            $tenantId = (int) ($productSettings[$productId] ?? 0);
+        }
+
+        if ($tenantId <= 0) {
+            $tenantId = (int) session('setting_id');
+        }
+
+        return $tenantId;
     }
 
     private function persistSaleDetailsFromCart(Sale $sale, $cartItems, bool $adjustInventory, ?int $posLocationId = null): void
@@ -652,22 +858,22 @@ class PosController extends Controller
         }
     }
 
-    private function triggerReceiptPrint(Sale $sale): void
+    private function triggerReceiptPrint(?PosReceipt $receipt): void
     {
         $userId = auth()->id();
 
-        if (! $userId) {
+        if (! $userId || ! $receipt) {
             return;
         }
 
         try {
-            $sale->loadMissing(['saleDetails.product']);
+            $receipt->loadMissing(['sales.saleDetails.product', 'sales.tenantSetting']);
             $htmlContent = view('sale::print-pos', [
-                'sale' => $sale,
+                'receipt' => $receipt,
             ])->render();
         } catch (Throwable $throwable) {
             Log::error('Failed to render POS sale receipt for printing', [
-                'sale_id' => $sale->id,
+                'receipt_id' => $receipt->id,
                 'error' => $throwable->getMessage(),
             ]);
 
