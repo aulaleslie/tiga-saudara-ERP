@@ -114,6 +114,7 @@ class Checkout extends Component
         $this->guardActivePosSession();
 
         $this->refreshPosLocationContext();
+        $this->resetChangeComputedCache();
         $this->refreshTotals();
         $this->dispatch('pos-mask-money-init');
     }
@@ -251,6 +252,8 @@ class Checkout extends Component
 
     public function render()
     {
+        $this->resetChangeComputedCache();
+
         $cart_items = Cart::instance($this->cart_instance)->content();
 
         return view('livewire.pos.checkout', [
@@ -1894,31 +1897,90 @@ class Checkout extends Component
         $currency = $settings ? $settings->currency : null;
 
         $symbol = $currency->symbol ?? '';
-        $decimalSeparator = $currency->decimal_separator ?? '.';
-        $thousandSeparator = $currency->thousand_separator ?? ',';
+        $configuredDecimal = $currency->decimal_separator ?? '';
 
         if ($symbol !== '') {
             $raw = str_replace($symbol, '', $raw);
         }
 
-        $raw = str_replace("\xc2\xa0", '', $raw); // remove non-breaking spaces
-        $raw = str_replace(' ', '', $raw);
+        $raw = str_replace("\xc2\xa0", '', $raw);
+        $raw = preg_replace('/\s+/', '', $raw ?? '');
 
-        if ($thousandSeparator !== '') {
-            $raw = str_replace($thousandSeparator, '', $raw);
-        }
-
-        if ($decimalSeparator !== '.') {
-            $raw = str_replace($decimalSeparator, '.', $raw);
-        }
-
-        $normalized = preg_replace('/[^0-9.\-]/', '', $raw);
-
-        if ($normalized === '' || $normalized === '-' || !is_numeric($normalized)) {
+        if ($raw === '') {
             return 0.0;
         }
 
-        return (float) $normalized;
+        $working = preg_replace('/[^0-9.,-]/', '', $raw);
+
+        $commaMatches = substr_count($working, ',');
+        $dotMatches = substr_count($working, '.');
+        $lastComma = strrpos($working, ',');
+        $lastDot = strrpos($working, '.');
+
+        $decimalChar = null;
+        $workingLength = strlen($working);
+
+        $digitsAfterComma = $lastComma === false ? 0 : max(0, $workingLength - ($lastComma + 1));
+        $digitsAfterDot = $lastDot === false ? 0 : max(0, $workingLength - ($lastDot + 1));
+
+        if ($commaMatches > 0 && $dotMatches > 0) {
+            // Both separators exist: pick the rightmost as decimal
+            $decimalChar = ($lastComma !== false && $lastDot !== false && $lastComma > $lastDot) ? ',' : '.';
+        } elseif ($commaMatches === 1 && $dotMatches === 0) {
+            // Single comma present: treat as decimal only if configured or fractional length is plausible
+            if ($configuredDecimal === ',' || $digitsAfterComma <= 2) {
+                $decimalChar = ',';
+            }
+        } elseif ($dotMatches === 1 && $commaMatches === 0) {
+            // Single dot present
+            if ($configuredDecimal === '.' || $digitsAfterDot <= 2) {
+                $decimalChar = '.';
+            }
+        } elseif ($decimalChar === null && $configuredDecimal !== '' && substr_count($working, $configuredDecimal) === 1) {
+            // Fallback to configured decimal when it appears once
+            $decimalChar = $configuredDecimal;
+        }
+
+        $integerPart = $working;
+        $fractionalPart = '';
+
+        if ($decimalChar !== null && strrpos($integerPart, $decimalChar) !== false) {
+            $decimalIndex = strrpos($integerPart, $decimalChar);
+            $fractionalPart = substr($integerPart, $decimalIndex + 1);
+            $integerPart = substr($integerPart, 0, $decimalIndex);
+        }
+
+        $thousandCandidates = array_diff([',', '.'], [$decimalChar]);
+
+        foreach ($thousandCandidates as $candidate) {
+            if ($candidate === '') {
+                continue;
+            }
+            $integerPart = str_replace($candidate, '', $integerPart);
+            $fractionalPart = str_replace($candidate, '', $fractionalPart);
+        }
+
+        $integerPart = preg_replace('/[^0-9-]/', '', $integerPart);
+        $fractionalPart = preg_replace('/[^0-9]/', '', $fractionalPart);
+
+        if ($integerPart === '' && $fractionalPart === '') {
+            return 0.0;
+        }
+
+        $negative = str_starts_with($integerPart, '-');
+        $integerPart = ltrim($integerPart, '-');
+
+        $numericString = $integerPart !== '' ? $integerPart : '0';
+
+        if ($fractionalPart !== '') {
+            $numericString .= '.' . $fractionalPart;
+        }
+
+        if ($negative && $numericString !== '0') {
+            $numericString = '-' . $numericString;
+        }
+
+        return is_numeric($numericString) ? (float) $numericString : 0.0;
     }
 
     protected function makePaymentRow(?int $methodId, float $amount = 0.0): array
@@ -1974,6 +2036,8 @@ class Checkout extends Component
 
     protected function syncChangeModalState(): void
     {
+        $this->resetChangeComputedCache();
+
         $change = $this->changeDue;
         $this->changeModalHasPositiveChange = $this->hasCashPayment && $change > 0;
         $this->changeModalAmount = $this->changeModalHasPositiveChange
@@ -2003,6 +2067,23 @@ class Checkout extends Component
         $this->changeModalExplicitlyRequested = false;
 
         $this->dispatch('hide-change-modal');
+    }
+
+    /**
+     * Clear cached computed properties so recalculations use the latest payment/total values.
+     */
+    protected function resetChangeComputedCache(): void
+    {
+        if (function_exists('store')) {
+            \store($this)->set('computedProperties', []);
+        }
+
+        unset(
+            $this->changeDue,
+            $this->rawChangeDue,
+            $this->overPaidWithNonCash,
+            $this->hasCashPayment,
+        );
     }
 
     protected function formatChangeAmount(float $change): string

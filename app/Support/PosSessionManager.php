@@ -41,7 +41,7 @@ class PosSessionManager
         return $session;
     }
 
-    public function start(float $cashFloat, ?string $deviceName, ?int $locationId = null): PosSession
+    public function start(float $cashFloat, ?int $locationId = null): PosSession
     {
         $userId = Auth::id();
 
@@ -57,7 +57,7 @@ class PosSessionManager
             ]);
         }
 
-        $device = $deviceName ? mb_substr($deviceName, 0, 120) : (request()->userAgent() ?? 'Unknown');
+        $device = request()->userAgent() ?? 'Unknown';
 
         return PosSession::create([
             'user_id' => $userId,

@@ -16,14 +16,12 @@ class SessionManager extends Component
     public ?float $cashFloat = null;
     public ?float $expectedCash = null;
     public ?float $actualCash = null;
-    public string $deviceName = '';
     public string $pausePassword = '';
     public string $resumePassword = '';
     public string $closePassword = '';
 
     public function mount(PosSessionManager $manager): void
     {
-        $this->deviceName = request()->userAgent() ?? '';
         $this->refreshSession($manager);
     }
 
@@ -46,12 +44,11 @@ class SessionManager extends Component
     {
         $this->validate([
             'cashFloat' => ['required', 'numeric', 'min:0'],
-            'deviceName' => ['nullable', 'string', 'max:120'],
         ]);
 
         try {
             $locationId = PosLocationResolver::resolveId();
-            $manager->start($this->cashFloat ?? 0.0, $this->deviceName, $locationId);
+            $manager->start($this->cashFloat ?? 0.0, $locationId);
             session()->flash('success', 'Sesi POS dimulai.');
             $this->reset(['cashFloat']);
         } catch (Throwable $throwable) {
@@ -60,6 +57,9 @@ class SessionManager extends Component
         }
 
         $this->refreshSession($manager);
+
+        // Redirect to POS page after successful session creation
+        $this->redirect(route('app.pos.index'), navigate: true);
     }
 
     public function pauseSession(PosSessionManager $manager): void

@@ -2,9 +2,6 @@
     <div class="card-header d-flex align-items-center justify-content-between">
         <div>
             <h5 class="mb-0">Status Sesi POS</h5>
-            @if($session)
-                <small class="text-muted">Perangkat: {{ $session->device_name ?? 'Tidak diketahui' }}</small>
-            @endif
         </div>
         <div>
             @if($session)
@@ -21,13 +18,8 @@
             <form wire:submit.prevent="startSession" class="mb-0">
                 <div class="form-group">
                     <label class="font-weight-bold">Modal Kas Awal</label>
-                    <input type="number" step="0.01" min="0" wire:model.lazy="cashFloat" class="form-control" placeholder="Masukkan modal kas">
+                    <input type="text" wire:ignore.self id="cashFloatInput" class="form-control" placeholder="Masukkan modal kas">
                     @error('cashFloat') <span class="text-danger small">{{ $message }}</span> @enderror
-                </div>
-                <div class="form-group">
-                    <label class="font-weight-bold">Nama Perangkat (opsional)</label>
-                    <input type="text" wire:model.lazy="deviceName" class="form-control" placeholder="Kasir, terminal, dll">
-                    @error('deviceName') <span class="text-danger small">{{ $message }}</span> @enderror
                 </div>
                 <button type="submit" class="btn btn-primary">Mulai Sesi POS</button>
             </form>
@@ -75,7 +67,12 @@
                                 <input type="password" wire:model.defer="resumePassword" class="form-control" autocomplete="current-password">
                                 @error('resumePassword') <span class="text-danger small">{{ $message }}</span> @enderror
                             </div>
-                            <button class="btn btn-success" type="submit">Lanjutkan</button>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-success" type="submit">Lanjutkan</button>
+                                <a href="{{ route('app.pos.index') }}" class="btn btn-outline-primary">
+                                    <i class="bi bi-cart mr-1"></i> Ke POS
+                                </a>
+                            </div>
                         </form>
                     @endif
 
@@ -105,3 +102,55 @@
         @endif
     </div>
 </div>
+
+@push('page_scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initializeCashFloatInput();
+        });
+
+        function initializeCashFloatInput() {
+            const input = document.getElementById('cashFloatInput');
+            if (!input) return;
+
+            // Initialize with formatted currency on load
+            setTimeout(() => {
+                const initialValue = input.value || '';
+                if (!initialValue || initialValue === '') {
+                    input.value = 'Rp 0,00';
+                }
+            }, 100);
+
+            // On focus: show plain number and select all
+            input.addEventListener('focus', function() {
+                const plain = parseFloat(parseCurrency(this.value)) || 0;
+                this.value = plain.toString();
+                this.select();
+            });
+
+            // On blur: format as currency and update Livewire
+            input.addEventListener('blur', function() {
+                const plain = parseFloat(parseCurrency(this.value)) || 0;
+                this.value = formatCurrency(plain);
+
+                // Update Livewire component
+                const wireId = this.closest('[wire\\:id]')?.getAttribute('wire:id');
+                if (wireId && typeof Livewire !== 'undefined') {
+                    Livewire.find(wireId).set('cashFloat', plain);
+                }
+            });
+        }
+
+        function formatCurrency(value) {
+            return 'Rp ' + new Intl.NumberFormat('id-ID', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }).format(value);
+        }
+
+        function parseCurrency(value) {
+            if (typeof value !== 'string') return '0';
+            return value.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.');
+        }
+    </script>
+@endpush

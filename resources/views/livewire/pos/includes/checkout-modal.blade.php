@@ -138,20 +138,30 @@
                                                             </select>
                                                         </td>
                                                         <td data-label="Jumlah" class="text-end text-md-right">
-                                                            <label class="sr-only" for="payment-amount-{{ $payment['uuid'] ?? $index }}">Jumlah</label>
+                                                            <label class="sr-only" for="payment-amount-display-{{ $payment['uuid'] ?? $index }}">Jumlah</label>
+                                                            <div class="pos-currency-input" wire:ignore>
+                                                                <input
+                                                                    id="payment-amount-display-{{ $payment['uuid'] ?? $index }}"
+                                                                    type="text"
+                                                                    inputmode="decimal"
+                                                                    autocomplete="off"
+                                                                    class="form-control text-end"
+                                                                    data-pos-currency-target="payment-amount-{{ $payment['uuid'] ?? $index }}"
+                                                                    placeholder="0"
+                                                                    required>
+                                                            </div>
                                                             <input
                                                                 id="payment-amount-{{ $payment['uuid'] ?? $index }}"
-                                                                type="number"
-                                                                min="0"
-                                                                step="0.01"
-                                                                class="form-control text-end"
+                                                                type="hidden"
                                                                 name="payments[{{ $index }}][amount]"
-                                                                wire:model.live="payments.{{ $index }}.amount"
-                                                                required>
+                                                                value="{{ $payment['amount'] ?? 0 }}"
+                                                                wire:model.live="payments.{{ $index }}.amount">
                                                         </td>
                                                         <td data-label="Aksi" class="text-center text-md-right">
                                                             <button type="button" class="btn btn-sm btn-outline-danger"
                                                                     wire:click="removePaymentRow({{ $index }})"
+                                                                    aria-label="Hapus metode pembayaran"
+                                                                    title="{{ count($payments) <= 1 ? 'Tidak dapat menghapus metode pembayaran terakhir' : 'Hapus metode pembayaran' }}"
                                                                     @if(count($payments) <= 1) disabled @endif>
                                                                 <i class="bi bi-trash"></i>
                                                             </button>
@@ -197,7 +207,7 @@
                                     <tr>
                                         <th>Jumlah Diterima</th>
                                         <td>
-                                            {{ format_currency($paidAmount ?? 0) }}
+                                            {{ format_currency($paid_amount ?? 0) }}
                                         </td>
                                     </tr>
                                     @php

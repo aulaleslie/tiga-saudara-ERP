@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\GlobalPurchaseAndSalesSearchController;
+use App\Http\Controllers\WsMonitorController;
+use App\Http\Controllers\PricePointController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Modules\Setting\Entities\Setting;

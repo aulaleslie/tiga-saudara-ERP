@@ -20,10 +20,17 @@
                 @include('utils.alerts')
             </div>
             <div class="col-12 mb-3">
-                <livewire:pos.session-manager />
-            </div>
-            <div class="col-12">
-                @include('sale::pos.partials.cash-navigation')
+                <div class="card shadow-sm">
+                    <div class="card-body d-flex align-items-center justify-content-between">
+                        <div>
+                            <h6 class="mb-0">Kelola Sesi POS</h6>
+                            <small class="text-muted">Jeda, lanjutkan, atau tutup sesi kasir Anda</small>
+                        </div>
+                        <a href="{{ route('app.pos.session') }}" class="btn btn-outline-primary">
+                            <i class="bi bi-gear mr-1"></i> Status Sesi POS
+                        </a>
+                    </div>
+                </div>
             </div>
             <div class="col-lg-7">
                 <livewire:search-product/>
@@ -80,30 +87,33 @@
                     return null;
                 }
 
-                const configuredDecimal = currencySettings.decimal_separator || null;
-                const configuredMatches = configuredDecimal
-                    ? (working.match(new RegExp(escapeRegExp(configuredDecimal), 'g')) || [])
-                    : [];
+                const configuredDecimal = currencySettings.decimal_separator || '';
+                const commaMatches = (working.match(/,/g) || []).length;
+                const dotMatches = (working.match(/\./g) || []).length;
+                const lastComma = working.lastIndexOf(',');
+                const lastDot = working.lastIndexOf('.');
+                const workingLength = working.length;
+
+                const digitsAfterComma = lastComma === -1 ? 0 : Math.max(0, workingLength - (lastComma + 1));
+                const digitsAfterDot = lastDot === -1 ? 0 : Math.max(0, workingLength - (lastDot + 1));
 
                 let decimalChar = null;
 
-                if (configuredDecimal && configuredMatches.length === 1) {
-                    decimalChar = configuredDecimal;
-                } else {
-                    const commaMatches = (working.match(/,/g) || []).length;
-                    const dotMatches = (working.match(/\./g) || []).length;
-                    const lastComma = working.lastIndexOf(',');
-                    const lastDot = working.lastIndexOf('.');
-
-                    if (commaMatches === 1 && (lastComma > lastDot || dotMatches !== 1)) {
+                if (commaMatches > 0 && dotMatches > 0) {
+                    decimalChar = (lastComma > lastDot) ? ',' : '.';
+                } else if (commaMatches === 1 && dotMatches === 0) {
+                    if (configuredDecimal === ',' || digitsAfterComma <= 2) {
                         decimalChar = ',';
-                    } else if (dotMatches === 1) {
+                    }
+                } else if (dotMatches === 1 && commaMatches === 0) {
+                    if (configuredDecimal === '.' || digitsAfterDot <= 2) {
                         decimalChar = '.';
                     }
-                }
-
-                if (!decimalChar && configuredDecimal && configuredMatches.length === 0) {
-                    decimalChar = configuredDecimal;
+                } else if (decimalChar === null && configuredDecimal) {
+                    const configuredCount = (working.match(new RegExp(escapeRegExp(configuredDecimal), 'g')) || []).length;
+                    if (configuredCount === 1) {
+                        decimalChar = configuredDecimal;
+                    }
                 }
 
                 let integerPart = working;
@@ -174,9 +184,9 @@
                     return;
                 }
 
-                const numeric = parseFloat(hiddenValue);
+                const numeric = parseCurrencyInput(hiddenValue);
 
-                if (Number.isNaN(numeric)) {
+                if (numeric === null) {
                     display.value = '';
                     return;
                 }
@@ -220,19 +230,18 @@
                 display.addEventListener('focus', () => {
                     display.dataset.posCurrencyEditing = 'true';
 
-                    if (hidden.value !== undefined && hidden.value !== null && hidden.value !== '') {
-                        const numeric = parseFloat(hidden.value);
-                        if (!Number.isNaN(numeric)) {
-                            const asString = numeric.toFixed(decimalDigits);
-                            const localized = currencySettings.decimal_separator && currencySettings.decimal_separator !== '.'
-                                ? asString.replace('.', currencySettings.decimal_separator)
-                                : asString;
-                            display.value = localized;
-                        } else {
-                            display.value = hidden.value;
-                        }
-                    } else {
-                        display.value = '';
+                    let numeric = parseCurrencyInput(hidden.value);
+
+                    if (numeric === null) {
+                        numeric = parseCurrencyInput(display.value);
+                    }
+
+                    if (numeric !== null) {
+                        const asString = numeric.toFixed(decimalDigits);
+                        const localized = currencySettings.decimal_separator && currencySettings.decimal_separator !== '.'
+                            ? asString.replace('.', currencySettings.decimal_separator)
+                            : asString;
+                        display.value = localized;
                     }
 
                     try {
@@ -240,22 +249,48 @@
                     } catch (e) {}
                 });
 
-                display.addEventListener('blur', () => {
-                    display.dataset.posCurrencyEditing = 'false';
-                    refreshDisplayFromHidden(display, hidden);
-                });
-
-                display.addEventListener('input', () => {
+                const updateHiddenField = () => {
+                    // Parse and update hidden field when user finishes editing
                     const numeric = parseCurrencyInput(display.value);
 
                     if (numeric === null) {
                         hidden.value = '';
-                        hidden.dispatchEvent(new Event('input', { bubbles: true }));
-                        return;
+                    } else {
+                        hidden.value = numeric.toFixed(decimalDigits);
                     }
-
-                    hidden.value = numeric.toFixed(decimalDigits);
+                    
+                    // Dispatch event to notify Livewire of the change
                     hidden.dispatchEvent(new Event('input', { bubbles: true }));
+                    hidden.dispatchEvent(new Event('change', { bubbles: true }));
+                    
+                    // Force Livewire to sync if using wire:model
+                    if (typeof Livewire !== 'undefined') {
+                        const component = Livewire.find(
+                            display.closest('[wire\\:id]')?.getAttribute('wire:id')
+                        );
+                        if (component) {
+                            // Trigger Livewire update by simulating a change
+                            setTimeout(() => {
+                                hidden.dispatchEvent(new Event('input', { bubbles: true }));
+                            }, 10);
+                        }
+                    }
+                };
+
+                display.addEventListener('blur', () => {
+                    display.dataset.posCurrencyEditing = 'false';
+                    updateHiddenField();
+                    
+                    // Refresh display with formatted value
+                    refreshDisplayFromHidden(display, hidden);
+                });
+
+                display.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        updateHiddenField();
+                        display.blur();
+                    }
                 });
             };
 

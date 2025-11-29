@@ -46,37 +46,17 @@
 
 ### PDF Configuration for Windows
 
-> **Important Note:** "Tiga Saudara ERP" uses the Laravel Snappy package for PDFs. If you are using Linux, no further configuration is needed. For Windows or other operating systems, follow these steps:
+> **Important Note:** "Tiga Saudara ERP" now uses the vendor-provided wkhtmltopdf binaries by default—no `.env` override is required.
 
-1. **Download and Install `wkhtmltopdf`**:
-    - Download `wkhtmltopdf` for Windows from [wkhtmltopdf.org](https://wkhtmltopdf.org/downloads.html).
-    - Install the Windows version of `wkhtmltopdf` (typically installed in `C:\Program Files\wkhtmltopdf`).
-
-2. **Find the Short Path for `wkhtmltopdf` on Windows**:
-    - Open Command Prompt and run the following command to find the short path of the `Program Files` directory:
-      ```bash
-      dir /X "C:\Program Files"
-      ```
-    - The short name for `Program Files` is usually something like `C:\PROGRA~1`.
-    - Next, get the short path for the `wkhtmltopdf\bin` folder:
-      ```bash
-      dir /X "C:\Program Files\wkhtmltopdf\bin"
-      ```
-    - The full short path will look something like: `C:\PROGRA~1\wkhtmltopdf\bin\WKHTML~2.EXE`.
-
-3. **Update `.env` or `config/snappy.php`**:
-    - Open the `.env` file and update the `WKHTML_PDF_BINARY` with the short path:
-      ```bash
-      WKHTML_PDF_BINARY="C:\\PROGRA~1\\wkhtmltopdf\\bin\\WKHTML~2.EXE"
-      ```
-
-4. **Clear Config Cache**:
-   After updating the configuration, clear the Laravel configuration cache to ensure the changes take effect:
-   ```bash
-   php artisan config:clear
-   
-5. **Test PDF Generation**:
-   After completing the above steps, you should be able to generate PDFs without any issues.
+- **Linux:** bundled via `h4cc/wkhtmltopdf-amd64` and used from `vendor/bin/wkhtmltopdf-amd64`.
+- **Windows:** install the Windows binary package with Composer so the vendor path is available:
+  ```bash
+  composer require wemersonjanuario/wkhtmltopdf-windows:^0.12
+  ```
+- **Config cache:** if you change packages, clear config to pick up the new binary location:
+  ```bash
+  php artisan config:clear
+  ```
 
 # License
 **[Creative Commons Attribution 4.0	cc-by-4.0](https://creativecommons.org/licenses/by/4.0/)**
