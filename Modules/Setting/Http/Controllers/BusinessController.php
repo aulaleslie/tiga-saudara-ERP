@@ -16,10 +16,14 @@ class BusinessController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(BusinessDataTable $dataTable)
+    public function index(Request $request, BusinessDataTable $dataTable)
     {
 
         abort_if(Gate::denies('businesses.access'), 403);
+
+        if ($request->ajax()) {
+            return $dataTable->ajax();
+        }
 
         return $dataTable->render('setting::businesses.index');
     }
