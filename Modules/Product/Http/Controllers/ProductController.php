@@ -361,6 +361,8 @@ class ProductController extends Controller
     {
         abort_if(Gate::denies('products.edit'), 403);
 
+        $idempotencyToken = (string) Str::uuid();
+
         $units      = Unit::all();
         $brands     = Brand::all();
         $categories = Category::with('parent')->get();
@@ -412,7 +414,7 @@ class ProductController extends Controller
 
         return view('product::products.edit', compact(
             'product', 'units', 'taxes', 'brands', 'formattedCategories',
-            'locations', 'existingMedia', 'price', 'settingId', 'conversionFormData'
+            'locations', 'existingMedia', 'price', 'settingId', 'conversionFormData', 'idempotencyToken'
         ));
     }
 
