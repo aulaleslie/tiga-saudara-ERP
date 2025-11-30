@@ -25,6 +25,7 @@
                 @include('utils.alerts')
                 <form action="{{ route('roles.store') }}" method="POST">
                     @csrf
+                    <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
                     <div class="form-group mb-3 d-flex gap-2">
                         <button type="submit" class="btn btn-primary">Buat Peran <i class="bi bi-check"></i></button>
                         <a href="{{ route('roles.index') }}" class="btn btn-secondary">Kembali</a>

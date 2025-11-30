@@ -14,6 +14,7 @@
     <div class="container-fluid">
         <form action="{{ route('customers.store') }}" method="POST">
             @csrf
+            <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
             <div class="row">
                 <div class="col-lg-12">
                     <div class="form-group">

@@ -2,6 +2,7 @@
 
 namespace Modules\User\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
@@ -18,17 +19,23 @@ use Spatie\Permission\Models\Role;
 
 class UsersController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
     public function index(UsersDataTable $dataTable) {
         abort_if(Gate::denies('users.access'), 403);
 
         return $dataTable->render('user::users.index');
     }
 
-    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function create(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('users.create'), 403);
 
-        return view('user::users.create');
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('user::users.create', compact('idempotencyToken'));
     }
 
     public function store(Request $request): RedirectResponse

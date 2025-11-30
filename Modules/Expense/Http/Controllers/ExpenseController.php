@@ -2,6 +2,7 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Modules\Expense\DataTables\ExpensesDataTable;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
@@ -13,6 +14,11 @@ use PhpOffice\PhpSpreadsheet\Calculation\MathTrig\Exp;
 class ExpenseController extends Controller
 {
 
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
+
     public function index(ExpensesDataTable $dataTable) {
         abort_if(Gate::denies('expenses.access'), 403);
 
@@ -20,10 +26,12 @@ class ExpenseController extends Controller
     }
 
 
-    public function create() {
+    public function create(Request $request) {
         abort_if(Gate::denies('expenses.create'), 403);
 
-        return view('expense::expenses.create');
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('expense::expenses.create', compact('idempotencyToken'));
     }
 
 

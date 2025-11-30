@@ -2,7 +2,6 @@
 
 namespace Modules\Product\Http\Controllers;
 
-use App\Services\IdempotencyService;
 use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
@@ -234,12 +233,6 @@ class ProductController extends Controller
     public function store(StoreProductInfoRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('products.create'), 403);
-        $token = $request->header('X-Idempotency-Token') ?? $request->input('idempotency_token');
-        if (! IdempotencyService::claim($token, 'products.store', optional($request->user())->id)) {
-            return redirect()->back()->withInput()->withErrors([
-                'idempotency' => 'Permintaan produk sudah diproses. Silakan tunggu sebelum mencoba lagi.',
-            ]);
-        }
         $validatedData = $request->validated();
 
         // Use the handleProductCreation method to create the product and get the product object

@@ -19,6 +19,7 @@
                         @include('utils.alerts')
                         <form action="{{ route('adjustments.storeBreakage') }}" method="POST">
                             @csrf
+                            <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
 
                             <div class="form-row">
                                 <div class="col-lg-6">

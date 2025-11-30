@@ -49,6 +49,7 @@
                 </div>
                 <form action="{{ route('expense-categories.store') }}" method="POST">
                     @csrf
+                    <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
                     <div class="modal-body">
                         <div class="form-group">
                             <label for="category_name">Nama Kategori <span class="text-danger">*</span></label>

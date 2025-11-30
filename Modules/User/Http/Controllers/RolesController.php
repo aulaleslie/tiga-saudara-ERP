@@ -2,6 +2,7 @@
 
 namespace Modules\User\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Modules\User\DataTables\RolesDataTable;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
@@ -11,6 +12,10 @@ use Spatie\Permission\Models\Role;
 
 class RolesController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
     public function index(RolesDataTable $dataTable) {
         abort_if(Gate::denies('roles.access'), 403);
 
@@ -18,10 +23,12 @@ class RolesController extends Controller
     }
 
 
-    public function create() {
+    public function create(Request $request) {
         abort_if(Gate::denies('roles.create'), 403);
 
-        return view('user::roles.create');
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('user::roles.create', compact('idempotencyToken'));
     }
 
 
