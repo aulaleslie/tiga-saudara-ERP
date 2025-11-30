@@ -190,6 +190,29 @@ class PosCheckoutTest extends TestCase
             ->assertSet('overPaidWithNonCash', false);
     }
 
+    public function test_checkout_component_detects_cash_overpayment_with_masked_values(): void
+    {
+        $cashMethod = PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $this->chartOfAccount->id,
+            'is_cash' => true,
+            'is_available_in_pos' => true,
+        ]);
+
+        $component = Livewire::test(Checkout::class, [
+            'cartInstance' => 'sale',
+            'customers' => Customer::all(),
+        ]);
+
+        $component
+            ->set('payments.0.method_id', (string) $cashMethod->id)
+            ->set('total_amount', '55000')
+            ->set('payments.0.amount', '100.000')
+            ->assertSet('hasCashPayment', true)
+            ->assertSet('overPaidWithNonCash', false)
+            ->assertSet('changeDue', 45000.0);
+    }
+
     public function test_change_modal_displays_formatted_rupiah_when_change_positive(): void
     {
         $cashMethod = PaymentMethod::create([

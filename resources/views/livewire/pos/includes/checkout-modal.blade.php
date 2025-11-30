@@ -129,7 +129,7 @@
                                                                 id="payment-method-{{ $payment['uuid'] ?? $index }}"
                                                                 class="form-control"
                                                                 name="payments[{{ $index }}][method_id]"
-                                                                wire:model="payments.{{ $index }}.method_id"
+                                                                wire:model.live="payments.{{ $index }}.method_id"
                                                                 required>
                                                                 <option value="">-- Pilih Metode --</option>
                                                                 @foreach($paymentMethods as $method)

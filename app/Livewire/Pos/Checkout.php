@@ -230,11 +230,17 @@ class Checkout extends Component
     {
         return collect($this->payments)
             ->contains(function ($payment) {
-                if (! $this->paymentMethodIsCash((int) data_get($payment, 'method_id'))) {
+                $methodId = data_get($payment, 'method_id');
+
+                if ($methodId === null || $methodId === '') {
                     return false;
                 }
 
-                return (float) data_get($payment, 'amount', 0) > 0;
+                if (! $this->paymentMethodIsCash((int) $methodId)) {
+                    return false;
+                }
+
+                return $this->sanitizeCurrencyValue(data_get($payment, 'amount', 0)) > 0;
             });
     }
 
