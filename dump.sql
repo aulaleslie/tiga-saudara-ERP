@@ -683,7 +683,7 @@ CREATE TABLE `jobs` (
   `created_at` int unsigned NOT NULL,
   PRIMARY KEY (`id`),
   KEY `jobs_queue_index` (`queue`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -692,6 +692,7 @@ CREATE TABLE `jobs` (
 
 LOCK TABLES `jobs` WRITE;
 /*!40000 ALTER TABLE `jobs` DISABLE KEYS */;
+INSERT INTO `jobs` VALUES (1,'default','{\"uuid\":\"d0fd0d78-1c74-4a56-9f96-a36e561ee02f\",\"displayName\":\"App\\\\Events\\\\PrintJobEvent\",\"job\":\"Illuminate\\\\Queue\\\\CallQueuedHandler@call\",\"maxTries\":null,\"maxExceptions\":null,\"failOnTimeout\":false,\"backoff\":null,\"timeout\":null,\"retryUntil\":null,\"data\":{\"commandName\":\"Illuminate\\\\Broadcasting\\\\BroadcastEvent\",\"command\":\"O:38:\\\"Illuminate\\\\Broadcasting\\\\BroadcastEvent\\\":14:{s:5:\\\"event\\\";O:24:\\\"App\\\\Events\\\\PrintJobEvent\\\":3:{s:11:\\\"htmlContent\\\";s:7861:\\\"<!DOCTYPE html>\\r\\n<html>\\r\\n<head>\\r\\n    <meta charset=\\\"utf-8\\\">\\r\\n    <meta http-equiv=\\\"X-UA-Compatible\\\" content=\\\"IE=edge\\\">\\r\\n    <title><\\/title>\\r\\n    <meta name=\\\"description\\\" content=\\\"\\\">\\r\\n    <meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1\\\">\\r\\n    <style>\\r\\n        * {\\r\\n            font-size: 12px;\\r\\n            line-height: 18px;\\r\\n            font-family: \'Ubuntu\', sans-serif;\\r\\n        }\\r\\n        h2 {\\r\\n            font-size: 16px;\\r\\n        }\\r\\n        td,\\r\\n        th,\\r\\n        tr,\\r\\n        table {\\r\\n            border-collapse: collapse;\\r\\n        }\\r\\n        tr {border-bottom: 1px dashed #ddd;}\\r\\n        td,th {padding: 7px 0;width: 50%;}\\r\\n\\r\\n        table {width: 100%;}\\r\\n        tfoot tr th:first-child {text-align: left;}\\r\\n\\r\\n        .centered {\\r\\n            text-align: center;\\r\\n            align-content: center;\\r\\n        }\\r\\n        small{font-size:11px;}\\r\\n\\r\\n        @media print {\\r\\n            * {\\r\\n                font-size:12px;\\r\\n                line-height: 20px;\\r\\n            }\\r\\n            td,th {padding: 5px 0;}\\r\\n            .hidden-print {\\r\\n                display: none !important;\\r\\n            }\\r\\n            tbody::after {\\r\\n                content: \'\';\\r\\n                display: block;\\r\\n                page-break-after: always;\\r\\n                page-break-inside: auto;\\r\\n                page-break-before: avoid;\\r\\n            }\\r\\n        }\\r\\n    <\\/style>\\r\\n<\\/head>\\r\\n<body>\\r\\n\\r\\n<div style=\\\"max-width:400px;margin:0 auto\\\">\\r\\n    <div id=\\\"receipt-data\\\">\\r\\n        <div class=\\\"centered\\\">\\r\\n            <h2 style=\\\"margin-bottom: 5px\\\">CV TIGA COMPUTER<\\/h2>\\r\\n\\r\\n            <p style=\\\"font-size: 11px;line-height: 15px;margin-top: 0\\\">\\r\\n                contactus@tiga-computer.com, 012345678901\\r\\n                <br>BIMA, NTB\\r\\n            <\\/p>\\r\\n        <\\/div>\\r\\n        \\r\\n        <p>\\r\\n            Date: 30 Nov, 2025<br>\\r\\n            Reference: PR-2025-11-00001<br>\\r\\n            Name: \\r\\n        <\\/p>\\r\\n\\r\\n                                    <table class=\\\"table-data\\\" style=\\\"margin-bottom: 10px;\\\">\\r\\n                    <tbody>\\r\\n                    <tr>\\r\\n                        <th colspan=\\\"3\\\" style=\\\"text-align:left;\\\">CV TIGA COMPUTER<\\/th>\\r\\n                    <\\/tr>\\r\\n                                            <tr>\\r\\n                            <td colspan=\\\"2\\\">\\r\\n                                KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET\\r\\n                                (1 x 55,000.00RP)\\r\\n                            <\\/td>\\r\\n                            <td style=\\\"text-align:right;vertical-align:bottom\\\">55,000.00RP<\\/td>\\r\\n                        <\\/tr>\\r\\n                    \\r\\n                                            <tr>\\r\\n                            <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Tax<\\/th>\\r\\n                            <th style=\\\"text-align:right\\\">0.00RP<\\/th>\\r\\n                        <\\/tr>\\r\\n                                                                <tr>\\r\\n                            <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Discount<\\/th>\\r\\n                            <th style=\\\"text-align:right\\\">0.00RP<\\/th>\\r\\n                        <\\/tr>\\r\\n                                                                <tr>\\r\\n                            <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Shipping<\\/th>\\r\\n                            <th style=\\\"text-align:right\\\">0.00RP<\\/th>\\r\\n                        <\\/tr>\\r\\n                                        <tr>\\r\\n                        <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Subtotal<\\/th>\\r\\n                        <th style=\\\"text-align:right\\\">55,000.00RP<\\/th>\\r\\n                    <\\/tr>\\r\\n                    <\\/tbody>\\r\\n                <\\/table>\\r\\n            \\r\\n            <table>\\r\\n                <tbody>\\r\\n                <tr>\\r\\n                    <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Grand Total<\\/th>\\r\\n                    <th style=\\\"text-align:right\\\">55,000.00RP<\\/th>\\r\\n                <\\/tr>\\r\\n                <tr style=\\\"background-color:#ddd;\\\">\\r\\n                    <td class=\\\"centered\\\" style=\\\"padding: 5px;\\\">\\r\\n                        Paid By: CASH\\r\\n                    <\\/td>\\r\\n                    <td class=\\\"centered\\\" style=\\\"padding: 5px;\\\">\\r\\n                        Amount: 100,000.00RP\\r\\n                    <\\/td>\\r\\n                <\\/tr>\\r\\n                                    <tr>\\r\\n                        <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Change<\\/th>\\r\\n                        <th style=\\\"text-align:right\\\">45,000.00RP<\\/th>\\r\\n                    <\\/tr>\\r\\n                                <tr style=\\\"border-bottom: 0;\\\">\\r\\n                    <td class=\\\"centered\\\" colspan=\\\"3\\\">\\r\\n                        <div style=\\\"margin-top: 10px;\\\">\\r\\n                            <?xml version=\\\"1.0\\\" standalone=\\\"no\\\"?>\\n<!DOCTYPE svg PUBLIC \\\"-\\/\\/W3C\\/\\/DTD SVG 1.1\\/\\/EN\\\" \\\"http:\\/\\/www.w3.org\\/Graphics\\/SVG\\/1.1\\/DTD\\/svg11.dtd\\\">\\n<svg width=\\\"211\\\" height=\\\"25\\\" version=\\\"1.1\\\" xmlns=\\\"http:\\/\\/www.w3.org\\/2000\\/svg\\\">\\n\\t<g id=\\\"bars\\\" fill=\\\"black\\\" stroke=\\\"none\\\">\\n\\t\\t<rect x=\\\"0\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"3\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"6\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"11\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"15\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"19\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"22\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"27\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"29\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"33\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"36\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"39\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"44\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"46\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"50\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"55\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"59\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"62\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"66\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"71\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"73\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"77\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"79\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"84\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"88\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"91\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"94\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"99\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"102\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"107\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"110\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"113\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"118\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"121\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"124\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"127\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"132\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"134\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"138\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"143\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"146\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"150\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"154\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"157\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"161\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"165\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"167\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"172\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"176\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"179\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"184\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"187\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"190\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"195\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"198\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"203\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"207\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"209\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"211\\\" y=\\\"0\\\" width=\\\"0\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"211\\\" y=\\\"0\\\" width=\\\"0\\\" height=\\\"25\\\" \\/>\\n\\t<\\/g>\\n<\\/svg>\\n\\r\\n                        <\\/div>\\r\\n                    <\\/td>\\r\\n                <\\/tr>\\r\\n                <\\/tbody>\\r\\n            <\\/table>\\r\\n            <\\/div>\\r\\n<\\/div>\\r\\n\\r\\n<\\/body>\\r\\n<\\/html>\\r\\n\\\";s:6:\\\"userId\\\";i:1;s:4:\\\"type\\\";s:8:\\\"pos-sale\\\";}s:5:\\\"tries\\\";N;s:7:\\\"timeout\\\";N;s:7:\\\"backoff\\\";N;s:13:\\\"maxExceptions\\\";N;s:10:\\\"connection\\\";N;s:5:\\\"queue\\\";N;s:15:\\\"chainConnection\\\";N;s:10:\\\"chainQueue\\\";N;s:19:\\\"chainCatchCallbacks\\\";N;s:5:\\\"delay\\\";N;s:11:\\\"afterCommit\\\";N;s:10:\\\"middleware\\\";a:0:{}s:7:\\\"chained\\\";a:0:{}}\"}}',0,NULL,1764517764,1764517764);
 /*!40000 ALTER TABLE `jobs` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1075,7 +1076,7 @@ CREATE TABLE `pos_receipts` (
   KEY `pos_receipts_pos_session_id_foreign` (`pos_session_id`),
   CONSTRAINT `pos_receipts_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL,
   CONSTRAINT `pos_receipts_pos_session_id_foreign` FOREIGN KEY (`pos_session_id`) REFERENCES `pos_sessions` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1084,6 +1085,7 @@ CREATE TABLE `pos_receipts` (
 
 LOCK TABLES `pos_receipts` WRITE;
 /*!40000 ALTER TABLE `pos_receipts` DISABLE KEYS */;
+INSERT INTO `pos_receipts` VALUES (1,'PR-2025-11-00001',1,'',55000.00,100000.00,0.00,45000.00,'PAID','CASH','[{\"amount\": 100000, \"method_id\": 1, \"method_name\": \"CASH\"}]',NULL,2,'2025-11-30 21:49:24','2025-11-30 21:49:24');
 /*!40000 ALTER TABLE `pos_receipts` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1397,7 +1399,7 @@ CREATE TABLE `product_stocks` (
 
 LOCK TABLES `product_stocks` WRITE;
 /*!40000 ALTER TABLE `product_stocks` DISABLE KEYS */;
-INSERT INTO `product_stocks` VALUES (1,1,1,200,200,0,0,0,0,NULL,'2025-11-22 18:47:02','2025-11-30 21:14:11');
+INSERT INTO `product_stocks` VALUES (1,1,1,199,199,0,0,0,0,NULL,'2025-11-22 18:47:02','2025-11-30 21:49:24');
 /*!40000 ALTER TABLE `product_stocks` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1538,7 +1540,7 @@ CREATE TABLE `products` (
 
 LOCK TABLES `products` WRITE;
 /*!40000 ALTER TABLE `products` DISABLE KEYS */;
-INSERT INTO `products` VALUES (1,1,1,1,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',NULL,200,0,0,0,0,NULL,0.00,NULL,2,NULL,0,1,0,NULL,1,0.00,54000.00,53000.00,NULL,50000.00,50000.00,0,0,1,NULL,'2025-11-22 18:19:00','2025-11-30 21:14:11',NULL,NULL);
+INSERT INTO `products` VALUES (1,1,1,1,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',NULL,199,0,0,0,0,NULL,0.00,NULL,2,NULL,0,1,0,NULL,1,0.00,54000.00,53000.00,NULL,50000.00,50000.00,0,0,1,NULL,'2025-11-22 18:19:00','2025-11-30 21:49:24',NULL,NULL);
 /*!40000 ALTER TABLE `products` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2153,7 +2155,7 @@ CREATE TABLE `sale_details` (
   CONSTRAINT `sale_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_details_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE,
   CONSTRAINT `sale_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2162,7 +2164,7 @@ CREATE TABLE `sale_details` (
 
 LOCK TABLES `sale_details` WRITE;
 /*!40000 ALTER TABLE `sale_details` DISABLE KEYS */;
-INSERT INTO `sale_details` VALUES (1,1,1,NULL,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',1,55000.00,55000.00,55000.00,0.00,'FIXED',0.00,NULL,'2025-11-24 22:32:23','2025-11-24 22:32:23');
+INSERT INTO `sale_details` VALUES (1,1,1,NULL,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',1,55000.00,55000.00,55000.00,0.00,'FIXED',0.00,NULL,'2025-11-24 22:32:23','2025-11-24 22:32:23'),(2,2,1,NULL,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',1,55000.00,55000.00,55000.00,0.00,'FIXED',0.00,NULL,'2025-11-30 21:49:24','2025-11-30 21:49:24');
 /*!40000 ALTER TABLE `sale_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2226,7 +2228,7 @@ CREATE TABLE `sale_payments` (
   CONSTRAINT `sale_payments_pos_receipt_id_foreign` FOREIGN KEY (`pos_receipt_id`) REFERENCES `pos_receipts` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_payments_pos_session_id_foreign` FOREIGN KEY (`pos_session_id`) REFERENCES `pos_sessions` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_payments_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2235,6 +2237,7 @@ CREATE TABLE `sale_payments` (
 
 LOCK TABLES `sale_payments` WRITE;
 /*!40000 ALTER TABLE `sale_payments` DISABLE KEYS */;
+INSERT INTO `sale_payments` VALUES (1,1,2,2,1,55000.00,'2025-11-30','INV/TS-SL-2025-11-00002','CASH',NULL,'2025-11-30 21:49:24','2025-11-30 21:49:24');
 /*!40000 ALTER TABLE `sale_payments` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2486,7 +2489,7 @@ CREATE TABLE `sales` (
   CONSTRAINT `sales_pos_session_id_foreign` FOREIGN KEY (`pos_session_id`) REFERENCES `pos_sessions` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2495,7 +2498,7 @@ CREATE TABLE `sales` (
 
 LOCK TABLES `sales` WRITE;
 /*!40000 ALTER TABLE `sales` DISABLE KEYS */;
-INSERT INTO `sales` VALUES (1,'2025-11-24','2025-12-01',0,'TS-SL-2025-11-00001',1,NULL,NULL,1,NULL,NULL,'',0,0.00,0,0.00,0.00,55000.00,0.00,55000.00,'DRAFTED','UNPAID','','','2025-11-24 22:32:23','2025-11-24 22:32:23');
+INSERT INTO `sales` VALUES (1,'2025-11-24','2025-12-01',0,'TS-SL-2025-11-00001',1,NULL,NULL,1,NULL,NULL,'',0,0.00,0,0.00,0.00,55000.00,0.00,55000.00,'DRAFTED','UNPAID','','','2025-11-24 22:32:23','2025-11-24 22:32:23'),(2,'2025-11-30',NULL,0,'TS-SL-2025-11-00002',1,NULL,NULL,1,2,1,'',0,0.00,0,0.00,0.00,55000.00,55000.00,0.00,'COMPLETED','PAID','CASH',NULL,'2025-11-30 21:49:24','2025-11-30 21:49:24');
 /*!40000 ALTER TABLE `sales` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -3072,4 +3075,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-11-30 15:32:35
+-- Dump completed on 2025-11-30 15:50:58
