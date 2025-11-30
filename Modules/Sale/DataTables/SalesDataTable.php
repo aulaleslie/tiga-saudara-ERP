@@ -31,6 +31,12 @@ class SalesDataTable extends DataTable
                 }
                 return $reference;
             })
+            ->addColumn('pos_receipt_number', function ($data) {
+                return $data->posReceipt?->receipt_number;
+            })
+            ->addColumn('pos_session_id', function ($data) {
+                return $data->pos_session_id;
+            })
             ->addColumn('total_amount', function ($data) {
                 return format_currency($data->total_amount);
             })
@@ -56,9 +62,29 @@ class SalesDataTable extends DataTable
     {
         // Load customer relationship.
         $settingId = session('setting_id');
-        return $model->newQuery()->with('customer')
+
+        $query = $model->newQuery()
+            ->with(['customer', 'posReceipt', 'posSession'])
             ->where('setting_id', $settingId)
             ->orderBy('id', 'desc');
+
+        $query->when(request('status'), function ($builder, $status) {
+            $builder->where('status', $status);
+        });
+
+        $query->when(request('payment_status'), function ($builder, $paymentStatus) {
+            $builder->where('payment_status', $paymentStatus);
+        });
+
+        $query->when(request('reference_prefix'), function ($builder, $prefix) {
+            $builder->where('reference', 'like', $prefix . '%');
+        });
+
+        $query->when(request('pos_session_id'), function ($builder, $sessionId) {
+            $builder->where('pos_session_id', $sessionId);
+        });
+
+        return $query;
     }
 
     public function html()
@@ -92,6 +118,13 @@ class SalesDataTable extends DataTable
             Column::computed('reference_hyperlink')
                 ->title('Referensi')
                 ->className('text-center align-middle'),
+            Column::make('pos_receipt_id')
+                ->visible(false),
+            Column::computed('pos_receipt_number')
+                ->title('Nomor Struk POS')
+                ->className('text-center align-middle'),
+            Column::make('pos_session_id')
+                ->visible(false),
             // Use the customer relation to display customer name.
             Column::make('customer.contact_name')
                 ->title('Customer')
