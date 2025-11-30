@@ -14,6 +14,13 @@
             </div>
 
             <div class="col-lg-6 mb-3">
+                <label>Nomor Pembelian Pemasok</label>
+                <input type="text" class="form-control" wire:model="supplier_purchase_number">
+                @error('supplier_purchase_number')
+                <div class="text-danger">{{ $message }}</div> @enderror
+            </div>
+
+            <div class="col-lg-6 mb-3">
                 <label>Tanggal</label>
                 <input type="date" class="form-control" wire:model="date">
                 @error('date')

@@ -22,6 +22,7 @@ class CreateForm extends Component
     public $reference;
     public $supplier_id;
     public $supplier_name; // To sync with SupplierLoader
+    public $supplier_purchase_number;
     public $date;
     public $due_date;
     public $payment_term;
@@ -50,6 +51,7 @@ class CreateForm extends Component
         $this->date = now()->format('Y-m-d');
         $this->due_date = now()->format('Y-m-d');
         $this->paymentTerms = PaymentTerm::all();
+        $this->supplier_purchase_number = '';
     }
 
     public function updatedSupplierId($value): void
@@ -124,6 +126,7 @@ class CreateForm extends Component
     {
         $this->validate([
             'supplier_id' => 'required|exists:suppliers,id',
+            'supplier_purchase_number' => 'nullable|string|max:255',
             'date' => 'required|date',
             'due_date' => 'required|date|after_or_equal:date',
             'payment_term' => 'required|exists:payment_terms,id',
@@ -183,6 +186,7 @@ class CreateForm extends Component
                 'date' => $this->date,
                 'due_date' => $this->due_date,
                 'supplier_id' => $this->supplier_id,
+                'supplier_purchase_number' => $this->supplier_purchase_number,
                 'discount_percentage' => $discount_percentage,
                 'discount_amount' => $discount_amount,
                 'shipping_amount' => $shipping,

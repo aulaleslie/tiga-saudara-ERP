@@ -20,6 +20,7 @@ class Purchase extends BaseModel
         'due_date',
         'reference',
         'supplier_id',
+        'supplier_purchase_number',
         'tax_id',
         'tax_percentage',
         'tax_amount',
