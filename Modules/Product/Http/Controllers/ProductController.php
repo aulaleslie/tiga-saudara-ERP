@@ -45,9 +45,13 @@ use Modules\Setting\Entities\Setting;
 class ProductController extends Controller
 {
 
-    public function index(ProductDataTable $dataTable)
+    public function index(Request $request, ProductDataTable $dataTable)
     {
         abort_if(Gate::denies('products.access'), 403);
+
+        if ($request->ajax()) {
+            return $dataTable->ajax();
+        }
 
         return $dataTable->render('product::products.index');
     }

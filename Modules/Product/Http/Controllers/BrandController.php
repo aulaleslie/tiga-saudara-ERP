@@ -17,9 +17,14 @@ class BrandController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(BrandDataTable $dataTable)
+    public function index(Request $request, BrandDataTable $dataTable)
     {
         abort_if(Gate::denies('brands.access'), 403);
+        
+        if ($request->ajax()) {
+            return $dataTable->ajax();
+        }
+        
         return $dataTable->render('product::brands.index');
     }
 

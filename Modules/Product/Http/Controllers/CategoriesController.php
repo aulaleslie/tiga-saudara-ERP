@@ -15,8 +15,12 @@ use Modules\Product\DataTables\ProductCategoriesDataTable;
 class CategoriesController extends Controller
 {
 
-    public function index(ProductCategoriesDataTable $dataTable) {
+    public function index(Request $request, ProductCategoriesDataTable $dataTable) {
         abort_if(Gate::denies('categories.access'), 403);
+
+        if ($request->ajax()) {
+            return $dataTable->ajax();
+        }
 
         return $dataTable->render('product::categories.index');
     }
