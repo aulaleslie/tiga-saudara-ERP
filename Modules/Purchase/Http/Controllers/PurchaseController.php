@@ -252,7 +252,6 @@ class PurchaseController extends Controller
                 'date' => $request->filled('date') && $request->date !== $purchase->date ? $request->date : null,
                 'due_date' => $request->filled('due_date') && $request->due_date !== $purchase->due_date ? $request->due_date : null,
                 'supplier_id' => $request->filled('supplier_id') && $request->supplier_id !== $purchase->supplier_id ? $request->supplier_id : null,
-                'supplier_purchase_number' => $request->filled('supplier_purchase_number') && $request->supplier_purchase_number !== $purchase->supplier_purchase_number ? $request->supplier_purchase_number : null,
                 'tax_percentage' => $request->filled('tax_percentage') && $request->tax_percentage !== $purchase->tax_percentage ? $request->tax_percentage : null,
                 'discount_percentage' => $request->filled('discount_percentage') && $request->discount_percentage !== $purchase->discount_percentage ? $request->discount_percentage : null,
                 'shipping_amount' => $request->filled('shipping_amount') && $request->shipping_amount != $purchase->shipping_amount ? $request->shipping_amount : null,
@@ -265,6 +264,10 @@ class PurchaseController extends Controller
             ], function ($value) {
                 return $value !== null;
             });
+
+            if ($request->has('supplier_purchase_number') && $request->supplier_purchase_number !== $purchase->supplier_purchase_number) {
+                $updateData['supplier_purchase_number'] = $request->supplier_purchase_number;
+            }
 
             if (!empty($updateData)) {
                 // Update the purchase record
