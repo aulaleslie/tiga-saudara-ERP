@@ -277,6 +277,11 @@
                     }
                 };
 
+                const handleLiveUpdate = () => {
+                    display.dataset.posCurrencyEditing = 'true';
+                    updateHiddenField();
+                };
+
                 display.addEventListener('blur', () => {
                     display.dataset.posCurrencyEditing = 'false';
                     updateHiddenField();
@@ -292,6 +297,9 @@
                         display.blur();
                     }
                 });
+
+                display.addEventListener('input', handleLiveUpdate);
+                display.addEventListener('keyup', handleLiveUpdate);
             };
 
             window.initPosCurrencyFormatter = function () {
