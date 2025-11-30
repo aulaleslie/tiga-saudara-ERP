@@ -159,6 +159,8 @@ class EditForm extends Component
 
                 $total_amount = $total_sub_total - $global_discount_amount + $shipping;
 
+                $supplierPurchaseNumber = $this->supplier_purchase_number ?: null;
+
                 $updateData = array_filter([
                     'date' => $this->date !== $purchase->date ? $this->date : null,
                     'due_date' => $this->due_date !== $purchase->due_date ? $this->due_date : null,
@@ -170,7 +172,7 @@ class EditForm extends Component
                     'due_amount' => $total_amount,
                     'is_tax_included' => $this->is_tax_included,
                     'supplier_id' => $this->supplier_id !== $purchase->supplier_id ? $this->supplier_id : null,
-                    'supplier_purchase_number' => $this->supplier_purchase_number !== $purchase->supplier_purchase_number ? $this->supplier_purchase_number : null,
+                    'supplier_purchase_number' => $supplierPurchaseNumber !== $purchase->supplier_purchase_number ? $supplierPurchaseNumber : null,
                     'note' => $this->note !== $purchase->note ? $this->note : null,
                     'payment_term_id' => $this->payment_term !== $purchase->payment_term_id ? $this->payment_term : null,
                 ], fn($value) => !is_null($value));

@@ -51,7 +51,7 @@ class CreateForm extends Component
         $this->date = now()->format('Y-m-d');
         $this->due_date = now()->format('Y-m-d');
         $this->paymentTerms = PaymentTerm::all();
-        $this->supplier_purchase_number = '';
+        $this->supplier_purchase_number = null;
     }
 
     public function updatedSupplierId($value): void
@@ -186,7 +186,7 @@ class CreateForm extends Component
                 'date' => $this->date,
                 'due_date' => $this->due_date,
                 'supplier_id' => $this->supplier_id,
-                'supplier_purchase_number' => $this->supplier_purchase_number,
+                'supplier_purchase_number' => $this->supplier_purchase_number ?: null,
                 'discount_percentage' => $discount_percentage,
                 'discount_amount' => $discount_amount,
                 'shipping_amount' => $shipping,

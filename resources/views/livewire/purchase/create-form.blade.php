@@ -17,8 +17,8 @@
             </div>
 
             <div class="col-lg-6 mb-3">
-                <label for="supplier_purchase_number">Nomor Pembelian Pemasok</label>
-                <input type="text" class="form-control" id="supplier_purchase_number" wire:model="supplier_purchase_number">
+                <label for="supplier_purchase_number">Nomor Pembelian Supplier</label>
+                <input type="text" class="form-control" id="supplier_purchase_number" wire:model="supplier_purchase_number" placeholder="Opsional">
                 @error('supplier_purchase_number')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
