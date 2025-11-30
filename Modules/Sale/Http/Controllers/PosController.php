@@ -21,8 +21,11 @@ use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleBundleItem;
+use Modules\Sale\Entities\Dispatch;
+use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
+use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Sale\Http\Requests\StorePosSaleRequest;
 use Modules\Setting\Entities\PaymentMethod;
 use Throwable;
@@ -34,6 +37,8 @@ class PosController extends Controller
     private static ?bool $saleDetailsHasSerialNumbersColumn = null;
 
     private static ?bool $saleBundleItemsHasTaxIdColumn = null;
+
+    private array $posLocationSettingMap = [];
 
     public function session()
     {
@@ -242,7 +247,7 @@ class PosController extends Controller
                     'pos_session_id' => $posSession->id ?? null,
                 ]));
 
-                $this->persistSaleDetailsFromCart($sale, $tenantGroup['items'], true, $posLocationId);
+                $dispatchPlans = $this->persistSaleDetailsFromCart($sale, $tenantGroup['items'], true, $posLocationId);
 
                 $calculatedItemTotal = round((float) $sale->saleDetails()->sum('sub_total'), 2);
                 $calculatedTax = round((float) $sale->saleDetails()->sum('product_tax_amount'), 2);
@@ -255,6 +260,10 @@ class PosController extends Controller
                     'discount_amount' => $calculatedDiscount,
                     'due_amount' => $saleTotal,
                 ]);
+
+                if (! empty($dispatchPlans)) {
+                    $this->createDispatchesForSale($sale, $dispatchPlans);
+                }
 
                 $sales[] = $sale;
             }
@@ -416,7 +425,7 @@ class PosController extends Controller
 
     private function partitionCartByTenant($cartItems, float $shippingAmount): array
     {
-        $items = collect($cartItems);
+        $items = collect($this->expandCartItemsBySetting($cartItems));
 
         $productIds = $items
             ->map(function ($item) {
@@ -507,6 +516,182 @@ class PosController extends Controller
         ];
     }
 
+    private function expandCartItemsBySetting($cartItems): array
+    {
+        $items = [];
+        $locationSettingMap = $this->loadPosLocationSettingMap();
+
+        foreach ($cartItems as $item) {
+            $options = $this->normalizeCartOptions($item->options ?? []);
+            $allocations = $this->normalizeAllocations($options['pos_location_allocations'] ?? []);
+            $serials = $this->resolveSerialNumbers($options) ?? [];
+            $serialsByLocation = [];
+
+            foreach ($serials as $serial) {
+                $locationId = isset($serial['location_id']) ? (int) $serial['location_id'] : null;
+                if ($locationId) {
+                    $serialsByLocation[$locationId][] = $serial;
+                }
+            }
+
+            if (empty($allocations)) {
+                $items[] = $item;
+                continue;
+            }
+
+            $qty = (int) $item->qty;
+            $totalAllocQty = 0;
+            $bySetting = [];
+
+            foreach ($allocations as $allocation) {
+                $locationId = (int) ($allocation['location_id'] ?? 0);
+                $settingId = $locationId > 0 ? ($locationSettingMap[$locationId] ?? null) : null;
+
+                if (! $settingId) {
+                    $settingId = $this->resolveTenantIdForCartItem($options, []);
+                }
+
+                $allocationQty = max(0, (int) ($allocation['allocated_non_tax'] ?? 0) + (int) ($allocation['allocated_tax'] ?? 0));
+
+                if ($allocationQty <= 0) {
+                    continue;
+                }
+
+                $totalAllocQty += $allocationQty;
+
+                if (! isset($bySetting[$settingId])) {
+                    $bySetting[$settingId] = [
+                        'setting_id' => $settingId,
+                        'allocations' => [],
+                        'quantity' => 0,
+                    ];
+                }
+
+                $bySetting[$settingId]['allocations'][] = $allocation + ['setting_id' => $settingId];
+                $bySetting[$settingId]['quantity'] += $allocationQty;
+            }
+
+            if ($totalAllocQty <= 0 || empty($bySetting)) {
+                $items[] = $item;
+                continue;
+            }
+
+            foreach ($bySetting as $settingId => $group) {
+                $portionQty = $group['quantity'];
+
+                if ($portionQty <= 0) {
+                    continue;
+                }
+
+                $ratio = $qty > 0 ? ($portionQty / $qty) : 1.0;
+
+                $newOptions = $options;
+                $newOptions['setting_id'] = $settingId;
+                $newOptions['allocated_non_tax'] = $this->sumAllocationField($group['allocations'], 'allocated_non_tax');
+                $newOptions['allocated_tax'] = $this->sumAllocationField($group['allocations'], 'allocated_tax');
+                $newOptions['pos_location_allocations'] = array_values($group['allocations']);
+
+                if (! empty($serialsByLocation)) {
+                    $filteredSerials = [];
+                    foreach ($group['allocations'] as $allocation) {
+                        $locationId = (int) ($allocation['location_id'] ?? 0);
+                        if ($locationId && isset($serialsByLocation[$locationId])) {
+                            $filteredSerials = array_merge($filteredSerials, $serialsByLocation[$locationId]);
+                        }
+                    }
+
+                    if (! empty($filteredSerials)) {
+                        $newOptions['serial_numbers'] = $filteredSerials;
+                    }
+                }
+
+                $items[] = $this->cloneCartItemWithQuantity($item, $portionQty, $ratio, $newOptions);
+            }
+        }
+
+        return $items;
+    }
+
+    private function loadPosLocationSettingMap(): array
+    {
+        if (! empty($this->posLocationSettingMap)) {
+            return $this->posLocationSettingMap;
+        }
+
+        $map = SettingSaleLocation::query()
+            ->select(['location_id', 'setting_id'])
+            ->where('is_pos', true)
+            ->get()
+            ->mapWithKeys(fn ($row) => [(int) $row->location_id => (int) $row->setting_id])
+            ->toArray();
+
+        $this->posLocationSettingMap = $map;
+
+        return $this->posLocationSettingMap;
+    }
+
+    private function normalizeAllocations($allocations): array
+    {
+        if ($allocations instanceof \Illuminate\Support\Collection) {
+            $allocations = $allocations->toArray();
+        } elseif (is_object($allocations) && method_exists($allocations, 'toArray')) {
+            $allocations = $allocations->toArray();
+        }
+
+        if (! is_array($allocations)) {
+            $allocations = (array) $allocations;
+        }
+
+        $result = [];
+
+        foreach ($allocations as $allocation) {
+            if ($allocation instanceof \Illuminate\Support\Collection) {
+                $allocation = $allocation->toArray();
+            } elseif (is_object($allocation) && method_exists($allocation, 'toArray')) {
+                $allocation = $allocation->toArray();
+            } elseif (is_object($allocation)) {
+                $allocation = (array) $allocation;
+            }
+
+            if (! is_array($allocation)) {
+                continue;
+            }
+
+            $result[] = $allocation;
+        }
+
+        return $result;
+    }
+
+    private function sumAllocationField(array $allocations, string $field): int
+    {
+        $total = 0;
+
+        foreach ($allocations as $allocation) {
+            $total += max(0, (int) ($allocation[$field] ?? 0));
+        }
+
+        return $total;
+    }
+
+    private function cloneCartItemWithQuantity($item, int $quantity, float $ratio, array $options)
+    {
+        $subTotal = $options['sub_total'] ?? ($item->price * $item->qty);
+        $discount = $options['product_discount'] ?? ($options['product_discount_amount'] ?? 0);
+        $taxAmount = $options['tax_amount'] ?? ($options['product_tax_amount'] ?? 0);
+
+        $options['sub_total'] = round($subTotal * $ratio, 2);
+        $options['product_discount'] = round($discount * $ratio, 2);
+        $options['product_tax_amount'] = round($taxAmount * $ratio, 2);
+
+        return (object) [
+            'name' => $item->name,
+            'price' => $item->price,
+            'qty' => $quantity,
+            'options' => $options,
+        ];
+    }
+
     private function resolveTenantIdForCartItem(array $options, array $productSettings): int
     {
         $tenantId = (int) ($options['setting_id'] ?? 0);
@@ -523,8 +708,10 @@ class PosController extends Controller
         return $tenantId;
     }
 
-    private function persistSaleDetailsFromCart(Sale $sale, $cartItems, bool $adjustInventory, ?int $posLocationId = null): void
+    private function persistSaleDetailsFromCart(Sale $sale, $cartItems, bool $adjustInventory, ?int $posLocationId = null): array
     {
+        $dispatchPlans = [];
+
         foreach ($cartItems as $cartItem) {
             $detailData = $this->mapCartItemToSaleDetailData($sale, $cartItem);
             $saleDetail = SaleDetails::create($detailData);
@@ -537,12 +724,30 @@ class PosController extends Controller
                     continue;
                 }
 
-                $this->applyInventoryAdjustments($sale, $saleDetail, $cartItem, $posLocationId);
+                $allocations = $this->applyInventoryAdjustments($sale, $saleDetail, $cartItem, $posLocationId);
+
+                foreach ($allocations as $allocation) {
+                    $quantity = max(0, (int) ($allocation['allocated_non_tax'] ?? 0) + (int) ($allocation['allocated_tax'] ?? 0));
+                    if ($quantity <= 0) {
+                        continue;
+                    }
+
+                    $dispatchPlans[] = [
+                        'sale_detail_id' => $saleDetail->id,
+                        'product_id' => $productId,
+                        'quantity' => $quantity,
+                        'location_id' => (int) ($allocation['location_id'] ?? 0),
+                        'tax_id' => $quantity > 0 && ($allocation['allocated_tax'] ?? 0) > 0 ? ($saleDetail->tax_id ?: null) : null,
+                        'serial_numbers' => $saleDetail->serial_numbers ?? null,
+                    ];
+                }
             }
         }
+
+        return $dispatchPlans;
     }
 
-    private function applyInventoryAdjustments(Sale $sale, SaleDetails $saleDetail, $cartItem, ?int $posLocationId): void
+    private function applyInventoryAdjustments(Sale $sale, SaleDetails $saleDetail, $cartItem, ?int $posLocationId): array
     {
         $options = $this->normalizeCartOptions($cartItem->options ?? []);
         $productId = (int) ($options['product_id'] ?? 0);
@@ -674,6 +879,36 @@ class PosController extends Controller
         }
 
         $this->markSerialNumbersAsSold($saleDetail, $options);
+
+        return $normalizedAllocations;
+    }
+
+    private function createDispatchesForSale(Sale $sale, array $dispatchPlans): void
+    {
+        if (empty($dispatchPlans)) {
+            return;
+        }
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->format('Y-m-d'),
+        ]);
+
+        foreach ($dispatchPlans as $plan) {
+            if (($plan['quantity'] ?? 0) <= 0) {
+                continue;
+            }
+
+            DispatchDetail::create([
+                'dispatch_id' => $dispatch->id,
+                'sale_id' => $sale->id,
+                'product_id' => $plan['product_id'] ?? null,
+                'dispatched_quantity' => $plan['quantity'] ?? 0,
+                'location_id' => $plan['location_id'] ?? null,
+                'serial_numbers' => $plan['serial_numbers'] ?? null,
+                'tax_id' => $plan['tax_id'] ?? null,
+            ]);
+        }
     }
     private function deductProductStock(int $productId, int $locationId, int $deductNonTax, int $deductTax, Sale $sale): void
     {
