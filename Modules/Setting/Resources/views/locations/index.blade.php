@@ -32,7 +32,6 @@
                                     <th class="align-middle">No.</th>
                                     <th class="align-middle">Nama</th>
                                     <th class="align-middle">Bisnis</th>
-                                    <th class="align-middle">Ambang Kas</th>
                                     <th class="align-middle">POS</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
@@ -43,12 +42,6 @@
                                         <td class="align-middle">{{ $key + 1 }}</td>
                                         <td class="align-middle">{{ $location->name }}</td>
                                         <td class="align-middle">{{ $location->setting->company_name }}</td>
-                                        <td class="align-middle">
-                                            @php
-                                                $threshold = $location->pos_cash_threshold ?? $location->setting?->pos_default_cash_threshold ?? 0;
-                                            @endphp
-                                            {{ $threshold > 0 ? format_currency($threshold) : '—' }}
-                                        </td>
                                         <td class="align-middle">
                                             @if($location->saleAssignment?->is_pos)
                                                 <span class="badge badge-success">Ya</span>
@@ -101,7 +94,7 @@
                     extend: 'print',
                     text: '<i class="bi bi-printer-fill"></i> Print',
                     title: "Locations",
-                    exportOptions: { columns: [0, 1, 2] }, // No., Nama, POS
+                    exportOptions: { columns: [0, 1, 2] }, // No., Nama, Bisnis
                     customize: function (win) {
                         $(win.document.body).find('h1').css('font-size', '15pt').css('text-align', 'center');
                         $(win.document.body).css('margin', '35px 25px');

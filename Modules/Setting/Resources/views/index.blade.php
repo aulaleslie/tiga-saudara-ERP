@@ -88,10 +88,13 @@
 
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="pos_default_cash_threshold">Ambang Kas Default POS</label>
+                                        <label for="pos_default_cash_threshold">
+                                            Ambang Kas Default POS
+                                            <span class="badge badge-warning align-middle ml-1">Deprecated</span>
+                                        </label>
                                         <input type="number" step="0.01" min="0" class="form-control" name="pos_default_cash_threshold"
                                                value="{{ old('pos_default_cash_threshold', $settings->pos_default_cash_threshold ?? 0) }}">
-                                        <small class="text-muted">Dipakai saat lokasi belum memiliki ambang kas khusus.</small>
+                                        <small class="text-muted">Fitur ini akan dihentikan; gunakan hanya bila masih perlu kompatibilitas ambang kas.</small>
                                     </div>
                                 </div>
                             </div>
