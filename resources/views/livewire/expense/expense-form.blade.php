@@ -2,9 +2,20 @@
     <form wire:submit.prevent="save" enctype="multipart/form-data">
         <input type="hidden" wire:model="idempotencyToken">
         <div class="d-flex justify-content-end mb-3">
-            <button class="btn btn-primary">
-                {{ $expenseId ? 'Ubah Biaya' : 'Simpan Biaya' }}
-                <i class="bi bi-check"></i>
+            <button
+                type="submit"
+                class="btn btn-primary"
+                wire:loading.attr="disabled"
+                wire:target="save"
+            >
+                <span wire:loading.remove wire:target="save">
+                    {{ $expenseId ? 'Ubah Biaya' : 'Simpan Biaya' }}
+                    <i class="bi bi-check"></i>
+                </span>
+                <span wire:loading wire:target="save">
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    Memproses...
+                </span>
             </button>
         </div>
 
@@ -153,8 +164,19 @@
         </div>
 
         <div class="form-group">
-            <button class="btn btn-success">
-                {{ $expenseId ? 'Perbarui' : 'Simpan' }}
+            <button
+                type="submit"
+                class="btn btn-success"
+                wire:loading.attr="disabled"
+                wire:target="save"
+            >
+                <span wire:loading.remove wire:target="save">
+                    {{ $expenseId ? 'Perbarui' : 'Simpan' }}
+                </span>
+                <span wire:loading wire:target="save">
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    Memproses...
+                </span>
             </button>
         </div>
     </form>
