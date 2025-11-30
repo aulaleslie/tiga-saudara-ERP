@@ -12,7 +12,7 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('customers.store') }}" method="POST">
+        <form id="customer-create-form" action="{{ route('customers.store') }}" method="POST">
             @csrf
             <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
             <div class="row">
@@ -22,7 +22,7 @@
                             Kembali
                         </a>
                         @can('customers.create')
-                        <button class="btn btn-primary">Tambahkan Pelanggan <i class="bi bi-check"></i></button>
+                        <button type="submit" class="btn btn-primary">Tambahkan Pelanggan <i class="bi bi-check"></i></button>
                         @endcan
                     </div>
                 </div>
@@ -167,3 +167,38 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('customer-create-form');
+
+            if (!form) {
+                return;
+            }
+
+            const lockSubmitButtons = () => {
+                const submitButtons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+
+                submitButtons.forEach((button) => {
+                    if (button.dataset.locked === 'true') return;
+
+                    button.dataset.locked = 'true';
+                    button.disabled = true;
+
+                    if (button.tagName.toLowerCase() === 'button') {
+                        button.dataset.originalHtml = button.innerHTML;
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Memproses...';
+                    } else {
+                        button.dataset.originalValue = button.value;
+                        button.value = 'Memproses...';
+                    }
+                });
+            };
+
+            form.addEventListener('submit', () => {
+                lockSubmitButtons();
+            }, { once: true });
+        });
+    </script>
+@endpush
