@@ -86,6 +86,7 @@ class PurchaseDataTable extends DataTable
         if ($search = $this->request()->get('search')['value'] ?? null) {
             $query->where(function ($q) use ($search) {
                 $q->where('reference', 'like', "%{$search}%")
+                    ->orWhere('supplier_purchase_number', 'like', "%{$search}%")
                     ->orWhereHas('supplier', function ($q) use ($search) {
                         $q->where('supplier_name', 'like', "%{$search}%");
                     })
@@ -114,7 +115,7 @@ class PurchaseDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(11)
+            ->orderBy(12)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -137,6 +138,10 @@ class PurchaseDataTable extends DataTable
 
             Column::make('reference_hyperlink')
                 ->title('Referensi')
+                ->className('text-center align-middle'),
+
+            Column::make('supplier_purchase_number')
+                ->title('Nomor Pembelian Supplier')
                 ->className('text-center align-middle'),
 
             Column::make('supplier.supplier_name')
