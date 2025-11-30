@@ -73,8 +73,16 @@
 {{--        </button>--}}
 
         <div class="mt-3">
-            <button type="button" class="btn btn-primary" id="submitWithConfirmation">
-                Buat Penjualan <i class="bi bi-check"></i>
+            <button
+                type="button"
+                class="btn btn-primary d-inline-flex align-items-center submit-lock-btn"
+                id="submitWithConfirmation"
+                data-processing-text="Memproses…"
+                data-default-text="Buat Penjualan"
+            >
+                <span class="spinner-border spinner-border-sm mr-2 d-none button-spinner" role="status" aria-hidden="true"></span>
+                <span class="button-text">Buat Penjualan</span>
+                <i class="bi bi-check ml-1"></i>
             </button>
             <a href="{{ route('sales.index') }}" class="btn btn-secondary">Kembali</a>
         </div>
