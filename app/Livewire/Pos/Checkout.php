@@ -2019,9 +2019,24 @@ class Checkout extends Component
 
     protected function initializeChangeModalFromFlash(): void
     {
+        $saleCompleted = session()->pull('pos_sale_completed', false);
         $hasCashOverpayment = session()->pull('pos_cash_overpayment', false);
         $changeDue = session()->pull('pos_change_due');
 
+        if ($saleCompleted) {
+            $this->forceShowChangeModal = true;
+
+            if ($hasCashOverpayment && $changeDue !== null) {
+                $changeDue = round((float) $changeDue, 2);
+                if ($changeDue > 0) {
+                    $this->forcedChangeAmount = $changeDue;
+                }
+            }
+
+            return;
+        }
+
+        // Original logic for manual trigger
         if (! $hasCashOverpayment) {
             return;
         }
@@ -2063,6 +2078,12 @@ class Checkout extends Component
                 $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
             }
 
+            return;
+        }
+
+        // If forced to show (e.g., after sale completion), show even without positive change
+        if ($this->forceShowChangeModal) {
+            $this->dispatch('show-change-modal', amount: null);
             return;
         }
 

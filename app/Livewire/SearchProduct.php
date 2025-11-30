@@ -11,6 +11,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
 use App\Support\PosLocationResolver;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 
 class SearchProduct extends Component
@@ -31,10 +32,16 @@ class SearchProduct extends Component
     public function mount(): void
     {
         // resolve POS location for the current business/setting
+        $settingId = session('setting_id');
         $this->posLocationIds = PosLocationResolver::resolveLocationIds()
             ->map(fn ($id) => (int) $id)
             ->values()
             ->all();
+
+        Log::info('SearchProduct mounted', [
+            'settingId' => $settingId,
+            'posLocationIds' => $this->posLocationIds,
+        ]);
 
         $this->search_results = Collection::empty();
         $this->resultCount = 0;
@@ -70,6 +77,15 @@ class SearchProduct extends Component
         }
 
         $results = $this->suggestions($input);
+        
+        // Debug: log what we're getting
+        Log::info('SearchProduct updatedQuery', [
+            'input' => $input,
+            'posLocationIds' => $this->posLocationIds,
+            'results_count' => $results->count(),
+            'results' => $results->take(3)->toArray(),
+        ]);
+        
         $this->resultCount = $results->count();
 
         $results->push((object) [
@@ -413,10 +429,10 @@ class SearchProduct extends Component
 
         $settingId = session('setting_id');
 
-        $baseStockFilter = $this->buildLocationFilter('location_id', 'suggest_base', true);
-        $conversionStockFilter = $this->buildLocationFilter('location_id', 'suggest_conversion', true);
-        $serialStockFilter = $this->buildLocationFilter('location_id', 'suggest_serial', true);
-        $serialLocationFilter = $this->buildLocationFilter('psn.location_id', 'suggest_serial_loc', true);
+        $baseStockFilter = $this->buildLocationFilter('location_id', 'suggest_base', false);
+        $conversionStockFilter = $this->buildLocationFilter('location_id', 'suggest_conversion', false);
+        $serialStockFilter = $this->buildLocationFilter('location_id', 'suggest_serial', false);
+        $serialLocationFilter = $this->buildLocationFilter('psn.location_id', 'suggest_serial_loc', false);
 
         $sql = "
     SELECT * FROM (
@@ -430,7 +446,7 @@ class SearchProduct extends Component
             COALESCE(pp.tier_1_price, p.tier_1_price) AS tier_1_price,
             COALESCE(pp.tier_2_price, p.tier_2_price) AS tier_2_price,
             p.barcode,
-            p.unit_id,
+            COALESCE(p.unit_id, p.base_unit_id) AS unit_id,
             COALESCE(st.stock_qty, 0) AS product_quantity,
             p.base_unit_id,
             1 AS conversion_factor,
@@ -454,7 +470,7 @@ class SearchProduct extends Component
             WHERE {base_stock_filter}
             GROUP BY product_id
         ) st ON st.product_id = p.id
-        LEFT JOIN units u ON u.id = p.unit_id
+        LEFT JOIN units u ON u.id = COALESCE(p.unit_id, p.base_unit_id)
         WHERE p.serial_number_required = 0
           AND (
               LOWER(p.product_name) LIKE :term_base_name

@@ -362,6 +362,7 @@ class PosController extends Controller
 
         session()->flash('pos_change_due', $changeDue);
         session()->flash('pos_cash_overpayment', $hasCashOverpayment);
+        session()->flash('pos_sale_completed', true);
 
         toast('POS Sale Created!', 'success');
 
