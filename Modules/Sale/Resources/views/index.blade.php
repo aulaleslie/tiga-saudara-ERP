@@ -39,4 +39,18 @@
 
 @push('page_scripts')
     {!! $dataTable->scripts() !!}
+    <script>
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState !== 'visible') {
+                return;
+            }
+
+            const tables = window.LaravelDataTables || {};
+            const salesTable = tables['sales-table'];
+
+            if (salesTable) {
+                salesTable.ajax.reload(null, false);
+            }
+        });
+    </script>
 @endpush
