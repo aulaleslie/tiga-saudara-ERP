@@ -55,6 +55,12 @@
                                 <h5 class="mb-2 border-bottom pb-2">Info Faktur:</h5>
                                 <div>Faktur: <strong>INV/{{ $purchase->reference }}</strong></div>
                                 <div>Tanggal: {{ \Carbon\Carbon::parse($purchase->date)->format('d M, Y') }}</div>
+                                <div class="mt-2">
+                                    <livewire:purchase.supplier-purchase-number-editor
+                                        :purchaseId="$purchase->id"
+                                        :key="'supplier-purchase-number-' . $purchase->id"
+                                    />
+                                </div>
                                 <div>
                                     Status: <strong>{{ $purchase->status }}</strong>
                                 </div>
