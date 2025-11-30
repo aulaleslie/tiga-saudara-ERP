@@ -11,14 +11,19 @@
                 <div class="col-lg-12">
                     <div class="form-group">
                         <a href="{{ route('products.index') }}" class="btn btn-secondary mr-2">Kembali</a>
-                        <x-button label="Tambah Produk" icon="bi-check"/>
+                        <x-button label="Tambah Produk" icon="bi-check" processing-text="Memproses…" />
 
                         <!-- Show when stock_managed is checked -->
-                        <button type="submit" class="btn btn-primary ml-2" id="stock-initiate-btn"
-                                formaction="{{ route('products.storeProductAndRedirectToInitializeProductStock') }}"
-                                style="display: none;">
-                            Tambah Produk & Lanjut Inisiasi Stock
-                        </button>
+                        <x-button
+                            type="submit"
+                            class="ml-2"
+                            id="stock-initiate-btn"
+                            formaction="{{ route('products.storeProductAndRedirectToInitializeProductStock') }}"
+                            style="display: none;"
+                            label="Tambah Produk & Lanjut Inisiasi Stock"
+                            icon="bi-arrow-right"
+                            processing-text="Memproses…"
+                        />
                     </div>
                 </div>
 
@@ -214,6 +219,30 @@
     <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
     <script>
         $(function () {
+            function toggleFormSubmissionLock(form, processing = false) {
+                $(form).find('.submit-lock-btn').each(function () {
+                    const $btn = $(this);
+                    const spinner = $btn.find('.button-spinner');
+                    const textEl = $btn.find('.button-text');
+                    const defaultText = $btn.data('default-text') || (textEl.length ? textEl.text().trim() : $btn.text().trim());
+                    const processingText = $btn.data('processing-text') || 'Processing…';
+
+                    if (!$btn.data('default-text') && defaultText) {
+                        $btn.data('default-text', defaultText);
+                    }
+
+                    if (processing) {
+                        if (spinner.length) spinner.removeClass('d-none');
+                        if (textEl.length) textEl.text(processingText);
+                        $btn.prop('disabled', true).addClass('disabled');
+                    } else {
+                        if (spinner.length) spinner.addClass('d-none');
+                        if (textEl.length) textEl.text($btn.data('default-text'));
+                        $btn.prop('disabled', false).removeClass('disabled');
+                    }
+                });
+            }
+
             // === Mask helpers ===
             function applyMask() {
                 $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').maskMoney({
@@ -322,12 +351,28 @@
             toggleSaleFields(true);
 
             // === Submit: unmask to raw numbers ===
-            $('#product-form').on('submit', function () {
+            $('#product-form').on('submit', function (event) {
+                if (this.dataset.submitting === 'true') {
+                    event.preventDefault();
+                    return;
+                }
+
+                this.dataset.submitting = 'true';
+                toggleFormSubmissionLock(this, true);
+
                 const un = (sel) => $(sel).maskMoney('unmasked')[0] ?? 0;
                 $('#purchase_price').val(un('#purchase_price'));
                 $('#sale_price').val(un('#sale_price'));
                 $('#tier_1_price').val(un('#tier_1_price'));
                 $('#tier_2_price').val(un('#tier_2_price'));
+            });
+
+            window.addEventListener('product:submit-error', () => {
+                const form = document.getElementById('product-form');
+                if (!form) return;
+
+                form.dataset.submitting = 'false';
+                toggleFormSubmissionLock(form, false);
             });
 
             function resetStockDependentValues() {
