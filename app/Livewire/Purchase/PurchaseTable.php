@@ -72,6 +72,7 @@ class PurchaseTable extends Component
                 $q->where(function ($qq) {
                     $search = $this->search;
                     $qq->where('reference', 'like', "%{$search}%")
+                        ->orWhere('supplier_purchase_number', 'like', "%{$search}%")
                         ->orWhereHas('supplier', function ($q2) use ($search) {
                             $q2->where('supplier_name', 'like', "%{$search}%");
                         })

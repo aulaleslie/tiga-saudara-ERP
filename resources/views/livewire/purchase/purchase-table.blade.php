@@ -6,7 +6,7 @@
         <form class="d-flex" wire:submit.prevent="searchSubmit" style="gap: 0.5rem;">
             <input type="text"
                    class="form-control"
-                   placeholder="Cari referensi, pemasok, tag..."
+                   placeholder="Cari referensi, nomor pembelian supplier, pemasok, tag..."
                    wire:model.defer="searchText"
                    style="width: 220px;"
                    autocomplete="off"
@@ -27,6 +27,9 @@
         <tr>
             <th wire:click="sortBy('reference')" style="cursor:pointer">
                 Ref {!! $this->sortIcon('reference') !!}
+            </th>
+            <th wire:click="sortBy('supplier_purchase_number')" style="cursor:pointer">
+                Nomor Pembelian Supplier {!! $this->sortIcon('supplier_purchase_number') !!}
             </th>
             <th wire:click="sortBy('date')" style="cursor:pointer">
                 Tanggal {!! $this->sortIcon('date') !!}
@@ -50,6 +53,7 @@
                         {{ $purchase->reference }}
                     </a>
                 </td>
+                <td>{{ $purchase->supplier_purchase_number ?? '-' }}</td>
                 <td>
                     {{ Carbon::parse($purchase->date)->format('d M Y') }}
                 </td>
@@ -68,7 +72,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="8">Tidak ada data yang ditemukan.</td>
+                <td colspan="9">Tidak ada data yang ditemukan.</td>
             </tr>
         @endforelse
         </tbody>
