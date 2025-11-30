@@ -764,6 +764,7 @@ CREATE TABLE `locations` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `setting_id` bigint unsigned NOT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `pos_cash_threshold` decimal(15,2) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -778,7 +779,7 @@ CREATE TABLE `locations` (
 
 LOCK TABLES `locations` WRITE;
 /*!40000 ALTER TABLE `locations` DISABLE KEYS */;
-INSERT INTO `locations` VALUES (1,1,'DISPLAY','2025-11-22 18:45:28','2025-11-22 18:46:09');
+INSERT INTO `locations` VALUES (1,1,'DISPLAY',NULL,'2025-11-22 18:45:28','2025-11-22 18:46:09');
 /*!40000 ALTER TABLE `locations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -835,7 +836,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=154 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=158 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -844,7 +845,7 @@ CREATE TABLE `migrations` (
 
 LOCK TABLES `migrations` WRITE;
 /*!40000 ALTER TABLE `migrations` DISABLE KEYS */;
-INSERT INTO `migrations` VALUES (1,'0000_00_00_000000_create_websockets_statistics_entries_table',1),(2,'2014_10_12_000000_create_users_table',1),(3,'2014_10_12_100000_create_password_resets_table',1),(4,'2019_08_19_000000_create_failed_jobs_table',1),(5,'2019_12_14_000001_create_personal_access_tokens_table',1),(6,'2021_07_14_145038_create_categories_table',1),(7,'2021_07_14_145047_create_products_table',1),(8,'2021_07_15_211319_create_media_table',1),(9,'2021_07_16_010005_create_uploads_table',1),(10,'2021_07_16_220524_create_permission_tables',1),(11,'2021_07_22_003941_create_adjustments_table',1),(12,'2021_07_22_004043_create_adjusted_products_table',1),(13,'2021_07_28_192608_create_expense_categories_table',1),(14,'2021_07_28_192616_create_expenses_table',1),(15,'2021_07_29_165419_create_customers_table',1),(16,'2021_07_29_165440_create_suppliers_table',1),(17,'2021_07_31_015923_create_currencies_table',1),(18,'2021_07_31_140531_create_settings_table',1),(19,'2021_07_31_201003_create_sales_table',1),(20,'2021_07_31_212446_create_sale_details_table',1),(21,'2021_08_07_192203_create_sale_payments_table',1),(22,'2021_08_08_021108_create_purchases_table',1),(23,'2021_08_08_021131_create_purchase_payments_table',1),(24,'2021_08_08_021713_create_purchase_details_table',1),(25,'2021_08_08_175345_create_sale_returns_table',1),(26,'2021_08_08_175358_create_sale_return_details_table',1),(27,'2021_08_08_175406_create_sale_return_payments_table',1),(28,'2021_08_08_222603_create_purchase_returns_table',1),(29,'2021_08_08_222612_create_purchase_return_details_table',1),(30,'2021_08_08_222646_create_purchase_return_payments_table',1),(31,'2021_08_16_015031_create_quotations_table',1),(32,'2021_08_16_155013_create_quotation_details_table',1),(33,'2023_07_01_184221_create_units_table',1),(34,'2024_08_04_005934_create_user_setting_table',1),(35,'2024_08_05_021746_add_role_id_to_user_setting_table',1),(36,'2024_08_11_212922_add_brand_table',1),(37,'2024_08_12_034946_add_columns_to_categories_table',1),(38,'2024_08_12_213842_add_product_unit_conversions',1),(39,'2024_08_12_221237_add_unit_conversion_columns_to_products_table',1),(40,'2024_08_12_224144_add_setting_id_to_unit_table',1),(41,'2024_08_14_213433_add_locations_table',1),(42,'2024_08_15_220615_update_products_table_add_brand_stock_managed_and_nullable_category',1),(43,'2024_08_17_130443_add_barcode_and_profit_percentage',1),(44,'2024_08_17_130538_add_barcode',1),(45,'2024_08_17_143435_modify_product_foreign_relations',1),(46,'2024_08_20_104656_add_transactions_table',1),(47,'2024_08_23_233053_add_init_to_transaction_type_enum',1),(48,'2024_08_27_163344_add_type_and_status_to_adjustments_table',1),(49,'2024_08_27_184310_add_location_id_to_adjustments_table',1),(50,'2024_08_28_075105_add_broken_quantity_to_products_table',1),(51,'2024_09_03_172838_add_sale_and_purchase_price_and_tax_to_products_table',1),(52,'2024_09_05_222624_add_suppliers_info',1),(53,'2024_09_08_151743_add_stock_transfer_table',1),(54,'2024_09_08_151758_add_stock_transfer_product_table',1),(55,'2024_09_09_215715_add_setting_info_product_table',1),(56,'2024_09_09_224310_add_info_to_customer_table',1),(57,'2024_09_11_223749_add_additional_info_to_customer_table',1),(58,'2024_09_13_230003_add_taxes_table',1),(59,'2024_09_26_115105_add_serial_number_required',1),(60,'2024_09_26_115759_add_serial_number_table',1),(61,'2024_09_27_132637_add_product_stock_table',1),(62,'2024_10_03_225620_add_product_stock_info',1),(63,'2024_10_04_041346_add_product_tax_info',1),(64,'2024_10_29_120721_move_product_price_info',1),(65,'2024_10_29_174735_update_monetary_fields_to_decimal',1),(66,'2024_10_29_190105_add_setting_id_to_purchases_table',1),(67,'2024_10_29_190200_add_due_date_and_tax_id_to_purchases_table',1),(68,'2024_11_10_172538_create_audits_table',1),(69,'2024_11_27_075302_create_chart_of_accounts_table',1),(70,'2024_11_27_154759_add_payment_terms_table',1),(71,'2024_11_28_182827_add_payment_term_to_purchase_table',1),(72,'2024_11_28_184238_drop_supplier_name_from_purchases_table',1),(73,'2024_11_28_190002_add_tax_id_to_purchase_details_table',1),(74,'2024_11_28_190035_add_is_tax_included_to_purchases_table',1),(75,'2024_12_24_130535_create_received_notes_table',1),(76,'2024_12_24_131049_create_received_note_details_table',1),(77,'2025_01_07_185557_update_sales_table',1),(78,'2025_01_07_185711_update_sales_detail_table',1),(79,'2025_01_15_213903_add_payment_term_on_supplier',1),(80,'2025_01_15_213914_add_payment_term_on_customer',1),(81,'2025_01_22_190525_create_payment_methods_table',1),(82,'2025_01_22_201548_add_setting_id_on_coa',1),(83,'2025_01_24_195335_add_attachment_to_purchase_payment_table',1),(84,'2025_02_04_190016_add_receive_detail_id_to_product_serial_numbers',1),(85,'2025_02_16_181943_add_is_broken_to_product_serial_numbers',1),(86,'2025_02_16_185317_add_serial_numbers_to_adjusted_products',1),(87,'2025_02_17_155756_add_is_taxable_to_adjusted_products',1),(88,'2025_02_18_155755_add_po_id_to_purchase_return_details',1),(89,'2025_02_24_135737_add_tier_prices_to_product_table',1),(90,'2025_02_24_155406_add_tier_to_customers_table',1),(91,'2025_02_28_192255_add_product_bundles_table',1),(92,'2025_03_02_130536_add_product_bundle_items_table',1),(93,'2025_03_16_165122_create_journal_tables',1),(94,'2025_03_16_165139_create_journal_item_tables',1),(95,'2025_03_23_075342_update_sales_table_add_due_date_and_is_tax_included',1),(96,'2025_03_23_075357_create_sale_bundle_items_table',1),(97,'2025_03_25_133915_create_dispatch_table',1),(98,'2025_03_25_133919_create_dispatch_detail_table',1),(99,'2025_03_30_154014_add_dispatch_detail_id_to_product_serial_number_table',1),(100,'2025_04_03_151257_add_location_id_and_serial_numbers_dispatch_detail_table',1),(101,'2025_04_03_152358_remove_location_id_from_dispatch_table',1),(102,'2025_04_04_152113_add_payment_method_relation_to_sale_payment_table',1),(103,'2025_04_04_155829_update_amount_to_decimal_sale_payments_table',1),(104,'2025_04_04_160848_update_amount_to_decimal_from_sales_table',1),(105,'2025_04_07_183514_add_tax_id_to_dispatch_detail',1),(106,'2025_04_10_000000_downscale_sale_amounts',1),(107,'2025_04_11_163906_modify_transaction_table',1),(108,'2025_04_24_184159_add_price_to_product_conversion_table',1),(109,'2025_05_04_144041_add_price_to_product_bundles_table',1),(110,'2025_06_02_021018_add_setting_id_to_expense_tables',1),(111,'2025_06_14_175954_add_tax_columns_to_adjusted_products_table',1),(112,'2025_07_01_153916_create_expense_details_table',1),(113,'2025_07_02_173959_create_tag_tables',1),(114,'2025_07_21_151017_add_serial_number_ids_to_purchase_return_details_table',1),(115,'2025_07_28_181615_add_sale_prefix_column',1),(116,'2025_08_03_181507_add_serial_numbers_and_quantity_details',1),(117,'2025_08_06_174311_add_supplier_reference_no_to_purchase_table',1),(118,'2025_08_06_174543_add_sale_and_purchase_document_prefix_to_settings_table',1),(119,'2025_08_09_140912_add_is_pos_to_location_table',1),(120,'2025_08_19_183038_add_approval_and_return_type_to_purchase_returns',1),(121,'2025_08_19_183155_add_payment_method_id_to_purchase_return_payments',1),(122,'2025_08_19_183414_add_supplier_credits_for_purchase_returns',1),(123,'2025_08_19_183632_create_purchase_return_goods_table',1),(124,'2025_08_19_183857_standardize_money_columns_in_purchase_returns',1),(125,'2025_08_31_174825_create_product_price',1),(126,'2025_09_02_174017_create_import_batches',1),(127,'2025_09_02_174043_create_import_rows',1),(128,'2025_09_05_120000_add_return_flow_to_transfers_table',1),(129,'2025_09_05_120000_backfill_product_price_flags',1),(130,'2025_09_07_000001_add_location_and_setting_to_purchase_returns_table',1),(131,'2025_09_07_000002_add_settlement_tracking_to_purchase_returns_table',1),(132,'2025_09_10_120000_create_product_unit_conversion_prices_table',1),(133,'2025_09_23_070646_create_jobs_table',1),(134,'2025_09_23_100001_backfill_pending_purchase_returns',1),(135,'2025_09_23_120500_add_document_number_to_transfers_table',1),(136,'2025_09_30_120000_adjust_transfer_document_number_unique',1),(137,'2025_10_05_000001_create_cashier_cash_movements_table',1),(138,'2025_10_05_000001_remove_setting_id_from_shared_master_tables',1),(139,'2025_10_05_000001_update_price_columns_on_sale_bundle_items_table',1),(140,'2025_10_05_120000_enhance_sale_returns_with_settlement_structures',1),(141,'2025_10_10_000000_add_pos_flags_to_payment_methods_table',1),(142,'2025_11_05_000001_add_receiving_columns_to_sale_returns_table',1),(143,'2025_11_08_120000_create_sales_order_serial_tracking_table',1),(144,'2025_11_08_120001_add_serial_search_indexes',1),(145,'2025_11_08_120002_add_serial_number_ids_to_sale_details',1),(146,'2025_11_08_120003_create_global_sales_searches_table',1),(147,'2025_11_08_181647_create_global_sales_search_permission',1),(148,'2025_11_09_001508_create_global_purchase_and_sales_searches_table',1),(149,'2025_11_09_001528_add_search_indexes_for_global_search',1),(150,'2025_11_09_002049_create_global_purchase_and_sales_search_permission',1),(151,'2025_11_15_120000_create_setting_sale_locations_table',1),(152,'2025_12_01_000001_move_is_pos_to_setting_sale_locations',1),(153,'2026_01_01_000001_add_position_to_setting_sale_locations',1);
+INSERT INTO `migrations` VALUES (1,'0000_00_00_000000_create_websockets_statistics_entries_table',1),(2,'2014_10_12_000000_create_users_table',1),(3,'2014_10_12_100000_create_password_resets_table',1),(4,'2019_08_19_000000_create_failed_jobs_table',1),(5,'2019_12_14_000001_create_personal_access_tokens_table',1),(6,'2021_07_14_145038_create_categories_table',1),(7,'2021_07_14_145047_create_products_table',1),(8,'2021_07_15_211319_create_media_table',1),(9,'2021_07_16_010005_create_uploads_table',1),(10,'2021_07_16_220524_create_permission_tables',1),(11,'2021_07_22_003941_create_adjustments_table',1),(12,'2021_07_22_004043_create_adjusted_products_table',1),(13,'2021_07_28_192608_create_expense_categories_table',1),(14,'2021_07_28_192616_create_expenses_table',1),(15,'2021_07_29_165419_create_customers_table',1),(16,'2021_07_29_165440_create_suppliers_table',1),(17,'2021_07_31_015923_create_currencies_table',1),(18,'2021_07_31_140531_create_settings_table',1),(19,'2021_07_31_201003_create_sales_table',1),(20,'2021_07_31_212446_create_sale_details_table',1),(21,'2021_08_07_192203_create_sale_payments_table',1),(22,'2021_08_08_021108_create_purchases_table',1),(23,'2021_08_08_021131_create_purchase_payments_table',1),(24,'2021_08_08_021713_create_purchase_details_table',1),(25,'2021_08_08_175345_create_sale_returns_table',1),(26,'2021_08_08_175358_create_sale_return_details_table',1),(27,'2021_08_08_175406_create_sale_return_payments_table',1),(28,'2021_08_08_222603_create_purchase_returns_table',1),(29,'2021_08_08_222612_create_purchase_return_details_table',1),(30,'2021_08_08_222646_create_purchase_return_payments_table',1),(31,'2021_08_16_015031_create_quotations_table',1),(32,'2021_08_16_155013_create_quotation_details_table',1),(33,'2023_07_01_184221_create_units_table',1),(34,'2024_08_04_005934_create_user_setting_table',1),(35,'2024_08_05_021746_add_role_id_to_user_setting_table',1),(36,'2024_08_11_212922_add_brand_table',1),(37,'2024_08_12_034946_add_columns_to_categories_table',1),(38,'2024_08_12_213842_add_product_unit_conversions',1),(39,'2024_08_12_221237_add_unit_conversion_columns_to_products_table',1),(40,'2024_08_12_224144_add_setting_id_to_unit_table',1),(41,'2024_08_14_213433_add_locations_table',1),(42,'2024_08_15_220615_update_products_table_add_brand_stock_managed_and_nullable_category',1),(43,'2024_08_17_130443_add_barcode_and_profit_percentage',1),(44,'2024_08_17_130538_add_barcode',1),(45,'2024_08_17_143435_modify_product_foreign_relations',1),(46,'2024_08_20_104656_add_transactions_table',1),(47,'2024_08_23_233053_add_init_to_transaction_type_enum',1),(48,'2024_08_27_163344_add_type_and_status_to_adjustments_table',1),(49,'2024_08_27_184310_add_location_id_to_adjustments_table',1),(50,'2024_08_28_075105_add_broken_quantity_to_products_table',1),(51,'2024_09_03_172838_add_sale_and_purchase_price_and_tax_to_products_table',1),(52,'2024_09_05_222624_add_suppliers_info',1),(53,'2024_09_08_151743_add_stock_transfer_table',1),(54,'2024_09_08_151758_add_stock_transfer_product_table',1),(55,'2024_09_09_215715_add_setting_info_product_table',1),(56,'2024_09_09_224310_add_info_to_customer_table',1),(57,'2024_09_11_223749_add_additional_info_to_customer_table',1),(58,'2024_09_13_230003_add_taxes_table',1),(59,'2024_09_26_115105_add_serial_number_required',1),(60,'2024_09_26_115759_add_serial_number_table',1),(61,'2024_09_27_132637_add_product_stock_table',1),(62,'2024_10_03_225620_add_product_stock_info',1),(63,'2024_10_04_041346_add_product_tax_info',1),(64,'2024_10_29_120721_move_product_price_info',1),(65,'2024_10_29_174735_update_monetary_fields_to_decimal',1),(66,'2024_10_29_190105_add_setting_id_to_purchases_table',1),(67,'2024_10_29_190200_add_due_date_and_tax_id_to_purchases_table',1),(68,'2024_11_10_172538_create_audits_table',1),(69,'2024_11_27_075302_create_chart_of_accounts_table',1),(70,'2024_11_27_154759_add_payment_terms_table',1),(71,'2024_11_28_182827_add_payment_term_to_purchase_table',1),(72,'2024_11_28_184238_drop_supplier_name_from_purchases_table',1),(73,'2024_11_28_190002_add_tax_id_to_purchase_details_table',1),(74,'2024_11_28_190035_add_is_tax_included_to_purchases_table',1),(75,'2024_12_24_130535_create_received_notes_table',1),(76,'2024_12_24_131049_create_received_note_details_table',1),(77,'2025_01_07_185557_update_sales_table',1),(78,'2025_01_07_185711_update_sales_detail_table',1),(79,'2025_01_15_213903_add_payment_term_on_supplier',1),(80,'2025_01_15_213914_add_payment_term_on_customer',1),(81,'2025_01_22_190525_create_payment_methods_table',1),(82,'2025_01_22_201548_add_setting_id_on_coa',1),(83,'2025_01_24_195335_add_attachment_to_purchase_payment_table',1),(84,'2025_02_04_190016_add_receive_detail_id_to_product_serial_numbers',1),(85,'2025_02_16_181943_add_is_broken_to_product_serial_numbers',1),(86,'2025_02_16_185317_add_serial_numbers_to_adjusted_products',1),(87,'2025_02_17_155756_add_is_taxable_to_adjusted_products',1),(88,'2025_02_18_155755_add_po_id_to_purchase_return_details',1),(89,'2025_02_24_135737_add_tier_prices_to_product_table',1),(90,'2025_02_24_155406_add_tier_to_customers_table',1),(91,'2025_02_28_192255_add_product_bundles_table',1),(92,'2025_03_02_130536_add_product_bundle_items_table',1),(93,'2025_03_16_165122_create_journal_tables',1),(94,'2025_03_16_165139_create_journal_item_tables',1),(95,'2025_03_23_075342_update_sales_table_add_due_date_and_is_tax_included',1),(96,'2025_03_23_075357_create_sale_bundle_items_table',1),(97,'2025_03_25_133915_create_dispatch_table',1),(98,'2025_03_25_133919_create_dispatch_detail_table',1),(99,'2025_03_30_154014_add_dispatch_detail_id_to_product_serial_number_table',1),(100,'2025_04_03_151257_add_location_id_and_serial_numbers_dispatch_detail_table',1),(101,'2025_04_03_152358_remove_location_id_from_dispatch_table',1),(102,'2025_04_04_152113_add_payment_method_relation_to_sale_payment_table',1),(103,'2025_04_04_155829_update_amount_to_decimal_sale_payments_table',1),(104,'2025_04_04_160848_update_amount_to_decimal_from_sales_table',1),(105,'2025_04_07_183514_add_tax_id_to_dispatch_detail',1),(106,'2025_04_10_000000_downscale_sale_amounts',1),(107,'2025_04_11_163906_modify_transaction_table',1),(108,'2025_04_24_184159_add_price_to_product_conversion_table',1),(109,'2025_05_04_144041_add_price_to_product_bundles_table',1),(110,'2025_06_02_021018_add_setting_id_to_expense_tables',1),(111,'2025_06_14_175954_add_tax_columns_to_adjusted_products_table',1),(112,'2025_07_01_153916_create_expense_details_table',1),(113,'2025_07_02_173959_create_tag_tables',1),(114,'2025_07_21_151017_add_serial_number_ids_to_purchase_return_details_table',1),(115,'2025_07_28_181615_add_sale_prefix_column',1),(116,'2025_08_03_181507_add_serial_numbers_and_quantity_details',1),(117,'2025_08_06_174311_add_supplier_reference_no_to_purchase_table',1),(118,'2025_08_06_174543_add_sale_and_purchase_document_prefix_to_settings_table',1),(119,'2025_08_09_140912_add_is_pos_to_location_table',1),(120,'2025_08_19_183038_add_approval_and_return_type_to_purchase_returns',1),(121,'2025_08_19_183155_add_payment_method_id_to_purchase_return_payments',1),(122,'2025_08_19_183414_add_supplier_credits_for_purchase_returns',1),(123,'2025_08_19_183632_create_purchase_return_goods_table',1),(124,'2025_08_19_183857_standardize_money_columns_in_purchase_returns',1),(125,'2025_08_31_174825_create_product_price',1),(126,'2025_09_02_174017_create_import_batches',1),(127,'2025_09_02_174043_create_import_rows',1),(128,'2025_09_05_120000_add_return_flow_to_transfers_table',1),(129,'2025_09_05_120000_backfill_product_price_flags',1),(130,'2025_09_07_000001_add_location_and_setting_to_purchase_returns_table',1),(131,'2025_09_07_000002_add_settlement_tracking_to_purchase_returns_table',1),(132,'2025_09_10_120000_create_product_unit_conversion_prices_table',1),(133,'2025_09_23_070646_create_jobs_table',1),(134,'2025_09_23_100001_backfill_pending_purchase_returns',1),(135,'2025_09_23_120500_add_document_number_to_transfers_table',1),(136,'2025_09_30_120000_adjust_transfer_document_number_unique',1),(137,'2025_10_05_000001_create_cashier_cash_movements_table',1),(138,'2025_10_05_000001_remove_setting_id_from_shared_master_tables',1),(139,'2025_10_05_000001_update_price_columns_on_sale_bundle_items_table',1),(140,'2025_10_05_120000_enhance_sale_returns_with_settlement_structures',1),(141,'2025_10_10_000000_add_pos_flags_to_payment_methods_table',1),(142,'2025_11_05_000001_add_receiving_columns_to_sale_returns_table',1),(143,'2025_11_08_120000_create_sales_order_serial_tracking_table',1),(144,'2025_11_08_120001_add_serial_search_indexes',1),(145,'2025_11_08_120002_add_serial_number_ids_to_sale_details',1),(146,'2025_11_08_120003_create_global_sales_searches_table',1),(147,'2025_11_08_181647_create_global_sales_search_permission',1),(148,'2025_11_09_001508_create_global_purchase_and_sales_searches_table',1),(149,'2025_11_09_001528_add_search_indexes_for_global_search',1),(150,'2025_11_09_002049_create_global_purchase_and_sales_search_permission',1),(151,'2025_11_15_120000_create_setting_sale_locations_table',1),(152,'2025_12_01_000001_move_is_pos_to_setting_sale_locations',1),(153,'2026_01_01_000001_add_position_to_setting_sale_locations',1),(154,'2025_12_20_000000_create_pos_sessions_table',2),(155,'2025_12_20_000100_add_pos_session_columns',3),(156,'2026_03_10_000002_add_pos_monitoring_thresholds',3),(157,'2026_07_04_000001_create_pos_receipts_table',3);
 /*!40000 ALTER TABLE `migrations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1042,6 +1043,90 @@ CREATE TABLE `personal_access_tokens` (
 LOCK TABLES `personal_access_tokens` WRITE;
 /*!40000 ALTER TABLE `personal_access_tokens` DISABLE KEYS */;
 /*!40000 ALTER TABLE `personal_access_tokens` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `pos_receipts`
+--
+
+DROP TABLE IF EXISTS `pos_receipts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `pos_receipts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `receipt_number` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_id` bigint unsigned DEFAULT NULL,
+  `customer_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `total_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `paid_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `due_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `change_due` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `payment_status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Unpaid',
+  `payment_method` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `payment_breakdown` json DEFAULT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `pos_session_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `pos_receipts_receipt_number_unique` (`receipt_number`),
+  KEY `pos_receipts_customer_id_foreign` (`customer_id`),
+  KEY `pos_receipts_pos_session_id_foreign` (`pos_session_id`),
+  CONSTRAINT `pos_receipts_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `pos_receipts_pos_session_id_foreign` FOREIGN KEY (`pos_session_id`) REFERENCES `pos_sessions` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pos_receipts`
+--
+
+LOCK TABLES `pos_receipts` WRITE;
+/*!40000 ALTER TABLE `pos_receipts` DISABLE KEYS */;
+/*!40000 ALTER TABLE `pos_receipts` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `pos_sessions`
+--
+
+DROP TABLE IF EXISTS `pos_sessions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `pos_sessions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `location_id` bigint unsigned DEFAULT NULL,
+  `device_name` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `cash_float` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `expected_cash` decimal(15,2) DEFAULT NULL,
+  `actual_cash` decimal(15,2) DEFAULT NULL,
+  `discrepancy` decimal(15,2) DEFAULT NULL,
+  `status` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `started_at` timestamp NULL DEFAULT NULL,
+  `paused_at` timestamp NULL DEFAULT NULL,
+  `resumed_at` timestamp NULL DEFAULT NULL,
+  `closed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `pos_sessions_user_id_foreign` (`user_id`),
+  KEY `pos_sessions_location_id_foreign` (`location_id`),
+  KEY `pos_sessions_status_index` (`status`),
+  KEY `pos_sessions_started_at_index` (`started_at`),
+  CONSTRAINT `pos_sessions_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `pos_sessions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pos_sessions`
+--
+
+LOCK TABLES `pos_sessions` WRITE;
+/*!40000 ALTER TABLE `pos_sessions` DISABLE KEYS */;
+INSERT INTO `pos_sessions` VALUES (1,1,1,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',2000000.00,2000000.00,2000000.00,0.00,'closed','2025-11-24 22:01:58',NULL,NULL,'2025-11-26 17:09:53','2025-11-24 22:01:58','2025-11-26 17:09:53'),(2,1,1,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',100000.00,100000.00,NULL,NULL,'active','2025-11-26 17:17:34',NULL,NULL,NULL,'2025-11-26 17:17:34','2025-11-26 17:17:34');
+/*!40000 ALTER TABLE `pos_sessions` ENABLE KEYS */;
 UNLOCK TABLES;
 
 --
@@ -2065,7 +2150,7 @@ CREATE TABLE `sale_details` (
   CONSTRAINT `sale_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_details_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE,
   CONSTRAINT `sale_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2074,6 +2159,7 @@ CREATE TABLE `sale_details` (
 
 LOCK TABLES `sale_details` WRITE;
 /*!40000 ALTER TABLE `sale_details` DISABLE KEYS */;
+INSERT INTO `sale_details` VALUES (1,1,1,NULL,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',1,55000.00,55000.00,55000.00,0.00,'FIXED',0.00,NULL,'2025-11-24 22:32:23','2025-11-24 22:32:23');
 /*!40000 ALTER TABLE `sale_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2119,6 +2205,8 @@ CREATE TABLE `sale_payments` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `payment_method_id` bigint unsigned DEFAULT NULL,
   `sale_id` bigint unsigned NOT NULL,
+  `pos_session_id` bigint unsigned DEFAULT NULL,
+  `pos_receipt_id` bigint unsigned DEFAULT NULL,
   `amount` decimal(15,2) NOT NULL,
   `date` date NOT NULL,
   `reference` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -2129,7 +2217,11 @@ CREATE TABLE `sale_payments` (
   PRIMARY KEY (`id`),
   KEY `sale_payments_sale_id_foreign` (`sale_id`),
   KEY `sale_payments_payment_method_id_foreign` (`payment_method_id`),
+  KEY `sale_payments_pos_session_id_foreign` (`pos_session_id`),
+  KEY `sale_payments_pos_receipt_id_foreign` (`pos_receipt_id`),
   CONSTRAINT `sale_payments_payment_method_id_foreign` FOREIGN KEY (`payment_method_id`) REFERENCES `payment_methods` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `sale_payments_pos_receipt_id_foreign` FOREIGN KEY (`pos_receipt_id`) REFERENCES `pos_receipts` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_payments_pos_session_id_foreign` FOREIGN KEY (`pos_session_id`) REFERENCES `pos_sessions` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_payments_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -2355,6 +2447,8 @@ CREATE TABLE `sales` (
   `payment_term_id` bigint unsigned DEFAULT NULL,
   `tax_id` bigint unsigned DEFAULT NULL,
   `setting_id` bigint unsigned DEFAULT NULL,
+  `pos_session_id` bigint unsigned DEFAULT NULL,
+  `pos_receipt_id` bigint unsigned DEFAULT NULL,
   `customer_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `tax_percentage` int NOT NULL DEFAULT '0',
   `tax_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
@@ -2381,11 +2475,15 @@ CREATE TABLE `sales` (
   KEY `sales_setting_id_reference_index` (`setting_id`,`reference`),
   KEY `sales_setting_id_customer_id_index` (`setting_id`,`customer_id`),
   KEY `sales_setting_id_created_at_index` (`setting_id`,`created_at`),
+  KEY `sales_pos_session_id_foreign` (`pos_session_id`),
+  KEY `sales_pos_receipt_id_foreign` (`pos_receipt_id`),
   CONSTRAINT `sales_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sales_pos_receipt_id_foreign` FOREIGN KEY (`pos_receipt_id`) REFERENCES `pos_receipts` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sales_pos_session_id_foreign` FOREIGN KEY (`pos_session_id`) REFERENCES `pos_sessions` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2394,6 +2492,7 @@ CREATE TABLE `sales` (
 
 LOCK TABLES `sales` WRITE;
 /*!40000 ALTER TABLE `sales` DISABLE KEYS */;
+INSERT INTO `sales` VALUES (1,'2025-11-24','2025-12-01',0,'TS-SL-2025-11-00001',1,NULL,NULL,1,NULL,NULL,'',0,0.00,0,0.00,0.00,55000.00,0.00,55000.00,'DRAFTED','UNPAID','','','2025-11-24 22:32:23','2025-11-24 22:32:23');
 /*!40000 ALTER TABLE `sales` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2461,7 +2560,7 @@ CREATE TABLE `setting_sale_locations` (
 
 LOCK TABLES `setting_sale_locations` WRITE;
 /*!40000 ALTER TABLE `setting_sale_locations` DISABLE KEYS */;
-INSERT INTO `setting_sale_locations` VALUES (1,1,1,1,1,'2025-11-22 18:45:28','2025-11-24 18:32:23');
+INSERT INTO `setting_sale_locations` VALUES (1,1,1,1,1,'2025-11-22 18:45:28','2025-11-24 18:36:09');
 /*!40000 ALTER TABLE `setting_sale_locations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2488,6 +2587,8 @@ CREATE TABLE `settings` (
   `document_prefix` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `purchase_prefix_document` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sale_prefix_document` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `pos_idle_threshold_minutes` int unsigned NOT NULL DEFAULT '30',
+  `pos_default_cash_threshold` decimal(15,2) NOT NULL DEFAULT '0.00',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -2498,7 +2599,7 @@ CREATE TABLE `settings` (
 
 LOCK TABLES `settings` WRITE;
 /*!40000 ALTER TABLE `settings` DISABLE KEYS */;
-INSERT INTO `settings` VALUES (1,'CV TIGA COMPUTER','contactus@tiga-computer.com','012345678901',NULL,1,'PREFIX','notification@tiga-computer.com','CV TIGA COMPUTER © 2021','BIMA, NTB','2025-11-22 18:05:55','2025-11-22 18:05:55','TS','PR','SL'),(2,'TOP IT','topit@mail.com','081249003893',NULL,1,'PREFIX','topit@mail.com','TOP IT © 2025','JALAN DIPONEGORO NO. 46','2025-11-22 18:07:12','2025-11-22 18:07:12','TI','PO','SL');
+INSERT INTO `settings` VALUES (1,'CV TIGA COMPUTER','contactus@tiga-computer.com','012345678901',NULL,1,'PREFIX','notification@tiga-computer.com','CV TIGA COMPUTER © 2021','BIMA, NTB','2025-11-22 18:05:55','2025-11-22 18:05:55','TS','PR','SL',30,0.00),(2,'TOP IT','topit@mail.com','081249003893',NULL,1,'PREFIX','topit@mail.com','TOP IT © 2025','JALAN DIPONEGORO NO. 46','2025-11-22 18:07:12','2025-11-22 18:07:12','TI','PO','SL',30,0.00);
 /*!40000 ALTER TABLE `settings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2968,4 +3069,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-11-24 12:33:18
+-- Dump completed on 2025-11-29 10:38:05
