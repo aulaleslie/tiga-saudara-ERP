@@ -2,6 +2,7 @@
 
 namespace Modules\Setting\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
@@ -13,6 +14,10 @@ use Modules\Purchase\Entities\PaymentTerm;
 
 class PaymentTermController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
     /**
      * Display a listing of the resource.
      * @return Factory|Application|View|\Illuminate\Contracts\Foundation\Application
@@ -31,10 +36,12 @@ class PaymentTermController extends Controller
      * Show the form for creating a new resource.
      * @return Factory|Application|View|\Illuminate\Contracts\Foundation\Application
      */
-    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function create(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('paymentTerms.create'), 403);
-        return view('setting::payment_terms.create');
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('setting::payment_terms.create', compact('idempotencyToken'));
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace Modules\People\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Modules\People\DataTables\SuppliersDataTable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -13,6 +14,11 @@ use Modules\Purchase\Entities\PaymentTerm;
 class SuppliersController extends Controller
 {
 
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
+
     public function index(SuppliersDataTable $dataTable)
     {
         abort_if(Gate::denies('suppliers.access'), 403);
@@ -21,14 +27,16 @@ class SuppliersController extends Controller
     }
 
 
-    public function create()
+    public function create(Request $request)
     {
         abort_if(Gate::denies('suppliers.create'), 403);
 
         // Ambil data PaymentTerm untuk dropdown
         $paymentTerms = PaymentTerm::all();
 
-        return view('people::suppliers.create', compact('paymentTerms'));
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('people::suppliers.create', compact('paymentTerms', 'idempotencyToken'));
     }
 
 

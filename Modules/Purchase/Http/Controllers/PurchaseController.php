@@ -2,7 +2,6 @@
 
 namespace Modules\Purchase\Http\Controllers;
 
-use App\Services\IdempotencyService;
 use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
@@ -83,12 +82,6 @@ class PurchaseController extends Controller
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('purchases.create'), 403);
-        $token = $request->header('X-Idempotency-Token') ?? $request->input('idempotency_token');
-        if (! IdempotencyService::claim($token, 'purchases.store', optional($request->user())->id)) {
-            return redirect()->back()->withInput()->withErrors([
-                'idempotency' => 'Permintaan pembelian sudah diproses. Silakan tunggu sebelum mencoba lagi.',
-            ]);
-        }
         if (Cart::instance('purchase')->count() == 0) {
             return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
         }

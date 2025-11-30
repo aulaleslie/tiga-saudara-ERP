@@ -2,11 +2,13 @@
 
 namespace Modules\Adjustment\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -27,6 +29,10 @@ use Throwable;
 
 class TransferStockController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
     /**
      * Display a listing of the resource.
      */
@@ -40,7 +46,7 @@ class TransferStockController extends Controller
     /**
      * Show the form for creating a new resource.
      */
-    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function create(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('stockTransfers.create'), 403);
 
@@ -50,7 +56,9 @@ class TransferStockController extends Controller
         $locations        = Location::where('setting_id', $currentSettingId)->get();
         $destinationLocations = Location::all();
 
-        return view('adjustment::transfers.create', compact('currentSetting', 'settings', 'locations', 'destinationLocations'));
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('adjustment::transfers.create', compact('currentSetting', 'settings', 'locations', 'destinationLocations', 'idempotencyToken'));
     }
 
     /**

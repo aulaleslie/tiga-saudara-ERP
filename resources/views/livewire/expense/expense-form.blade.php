@@ -1,5 +1,6 @@
 <div>
     <form wire:submit.prevent="save" enctype="multipart/form-data">
+        <input type="hidden" wire:model="idempotencyToken">
         <div class="d-flex justify-content-end mb-3">
             <button class="btn btn-primary">
                 {{ $expenseId ? 'Ubah Biaya' : 'Simpan Biaya' }}

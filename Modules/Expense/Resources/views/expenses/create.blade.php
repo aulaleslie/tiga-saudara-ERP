@@ -12,7 +12,7 @@
 
 @section('content')
     <div class="container-fluid">
-        <livewire:expense.expense-form />
+        <livewire:expense.expense-form :idempotencyToken="$idempotencyToken" />
     </div>
 @endsection
 

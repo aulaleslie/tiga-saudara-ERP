@@ -2,6 +2,7 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Modules\Expense\DataTables\ExpenseCategoriesDataTable;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
@@ -12,10 +13,17 @@ use Modules\Expense\Entities\ExpenseCategory;
 class ExpenseCategoriesController extends Controller
 {
 
-    public function index(ExpenseCategoriesDataTable $dataTable) {
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
+
+    public function index(ExpenseCategoriesDataTable $dataTable, Request $request) {
         abort_if(Gate::denies('expenseCategories.access'), 403);
 
-        return $dataTable->render('expense::categories.index');
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return $dataTable->render('expense::categories.index', compact('idempotencyToken'));
     }
 
     public function store(Request $request) {

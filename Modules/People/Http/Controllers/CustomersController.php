@@ -2,6 +2,7 @@
 
 namespace Modules\People\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
@@ -17,6 +18,11 @@ use Modules\Purchase\Entities\PaymentTerm;
 class CustomersController extends Controller
 {
 
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
+
     public function index(CustomersDataTable $dataTable)
     {
         abort_if(Gate::denies('customers.access'), 403);
@@ -25,12 +31,14 @@ class CustomersController extends Controller
     }
 
 
-    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function create(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('customers.create'), 403);
 
         $paymentTerms = PaymentTerm::all(); // Ambil semua PaymentTerm
-        return view('people::customers.create', compact('paymentTerms'));
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('people::customers.create', compact('paymentTerms', 'idempotencyToken'));
     }
 
 

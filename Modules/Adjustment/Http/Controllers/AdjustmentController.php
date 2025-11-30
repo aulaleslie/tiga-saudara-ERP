@@ -2,6 +2,7 @@
 
 namespace Modules\Adjustment\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
@@ -27,6 +28,11 @@ use Modules\Setting\Entities\Tax;
 class AdjustmentController extends Controller
 {
 
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only(['store', 'storeBreakage']);
+    }
+
     public function index(AdjustmentsDataTable $dataTable)
     {
         abort_if(Gate::denies('adjustments.access'), 403);
@@ -35,7 +41,7 @@ class AdjustmentController extends Controller
     }
 
 
-    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function create(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('adjustments.create'), 403);
 
@@ -44,10 +50,12 @@ class AdjustmentController extends Controller
         // Fetch locations based on the current setting_id
         $locations = Location::where('setting_id', $currentSettingId)->get();
 
-        return view('adjustment::create', compact('locations'));
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('adjustment::create', compact('locations', 'idempotencyToken'));
     }
 
-    public function createBreakage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function createBreakage(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('adjustments.breakage.create'), 403);
 
@@ -56,7 +64,9 @@ class AdjustmentController extends Controller
         // Fetch locations based on the current setting_id
         $locations = Location::where('setting_id', $currentSettingId)->get();
 
-        return view('adjustment::create-breakage', compact('locations'));
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('adjustment::create-breakage', compact('locations', 'idempotencyToken'));
     }
 
 

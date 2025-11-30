@@ -2,7 +2,9 @@
 
 namespace App\Livewire\Expense;
 
+use App\Services\IdempotencyService;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Modules\Expense\Entities\Expense;
@@ -23,9 +25,11 @@ class ExpenseForm extends Component
     public $is_tax_included = false;
     public $taxRates = [];
     public $expenseId;
+    public string $idempotencyToken;
 
-    public function mount(?Expense $expense = null): void
+    public function mount(?Expense $expense = null, ?string $idempotencyToken = null): void
     {
+        $this->idempotencyToken = $idempotencyToken ?? (string) Str::uuid();
         $this->taxRates = Tax::pluck('value', 'id')->map(fn ($value) => (float) $value)->toArray();
 
         if ($expense) {
@@ -106,6 +110,11 @@ class ExpenseForm extends Component
             'details.*.tax_id' => 'nullable|exists:taxes,id',
             'files.*' => 'nullable|file|max:10240',
         ]);
+
+        if (!$this->expenseId && ! IdempotencyService::claim($this->idempotencyToken, 'expenses.store', auth()->id())) {
+            $this->addError('idempotency', 'Pengajuan biaya sedang diproses. Mohon tunggu sebelum mencoba lagi.');
+            return;
+        }
 
         $this->normalizeAmounts();
 

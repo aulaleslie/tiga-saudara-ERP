@@ -2,6 +2,7 @@
 
 namespace Modules\Quotation\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -18,6 +19,11 @@ use Modules\Quotation\Http\Requests\UpdateQuotationRequest;
 class QuotationController extends Controller
 {
 
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
+
     public function index(QuotationsDataTable $dataTable) {
         abort_if(Gate::denies('quotations.access'), 403);
 
@@ -25,12 +31,14 @@ class QuotationController extends Controller
     }
 
 
-    public function create() {
+    public function create(Request $request) {
         abort_if(Gate::denies('create_quotations'), 403);
 
         Cart::instance('quotation')->destroy();
 
-        return view('quotation::create');
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('quotation::create', compact('idempotencyToken'));
     }
 
 

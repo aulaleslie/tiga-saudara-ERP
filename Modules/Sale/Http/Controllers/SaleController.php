@@ -2,7 +2,6 @@
 
 namespace Modules\Sale\Http\Controllers;
 
-use App\Services\IdempotencyService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Exception;
 use Illuminate\Contracts\Foundation\Application;
@@ -70,12 +69,6 @@ class SaleController extends Controller
     public function store(StoreSaleRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('sales.create'), 403);
-        $token = $request->header('X-Idempotency-Token') ?? $request->input('idempotency_token');
-        if (! IdempotencyService::claim($token, 'sales.store', optional($request->user())->id)) {
-            return redirect()->back()->withInput()->withErrors([
-                'idempotency' => 'Permintaan penjualan sudah dikirim. Mohon tunggu sebelum mencoba lagi.',
-            ]);
-        }
         Log::info('REQUEST', [
             'request' => $request->all(),
             'cart' => Cart::instance('sale')->content()->toArray()

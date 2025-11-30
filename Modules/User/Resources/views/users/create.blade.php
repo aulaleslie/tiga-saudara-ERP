@@ -24,6 +24,7 @@
     <div class="container-fluid mb-4">
         <form action="{{ route('users.store') }}" method="POST" enctype="multipart/form-data" id="user-form">
             @csrf
+            <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
             <div class="row">
                 <div class="col-lg-12">
                     @include('utils.alerts')
