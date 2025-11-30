@@ -114,12 +114,19 @@ class SerialNumberSearchService
         // Build search conditions with OR logic for search filters
         $searchConditions = [];
 
-        // Serial number filter
+        // Serial number filter - search in both dispatch_details and sale_details
         if (!empty($filters['serial_number'])) {
             Log::info('Adding serial number search condition', ['serial_number' => $filters['serial_number']]);
             $searchConditions[] = function (Builder $q) use ($filters) {
-                $q->whereHas('dispatchDetails', function (Builder $subQ) use ($filters) {
-                    $subQ->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$filters['serial_number']]);
+                $q->where(function (Builder $subQ) use ($filters) {
+                    // Search in dispatch_details.serial_numbers
+                    $subQ->whereHas('dispatchDetails', function (Builder $dispatchQ) use ($filters) {
+                        $dispatchQ->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$filters['serial_number']]);
+                    });
+                    // OR search in sale_details.serial_number_ids
+                    $subQ->orWhereHas('saleDetails', function (Builder $saleDetailQ) use ($filters) {
+                        $saleDetailQ->whereJsonContains('serial_number_ids', $filters['serial_number']);
+                    });
                 });
             };
         }

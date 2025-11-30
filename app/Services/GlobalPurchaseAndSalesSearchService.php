@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -107,8 +108,15 @@ class GlobalPurchaseAndSalesSearchService
     {
         $query = Sale::query()
             ->with(['customer', 'seller', 'saleDetails', 'dispatchDetails'])
-            ->whereHas('dispatchDetails', function ($q) use ($serial) {
-                $q->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$serial]);
+            ->where(function (Builder $q) use ($serial) {
+                // Search in dispatch_details.serial_numbers
+                $q->whereHas('dispatchDetails', function ($dispatchQ) use ($serial) {
+                    $dispatchQ->whereRaw('JSON_SEARCH(serial_numbers, \'one\', ?) IS NOT NULL', [$serial]);
+                });
+                // OR search in sale_details.serial_number_ids
+                $q->orWhereHas('saleDetails', function ($saleDetailQ) use ($serial) {
+                    $saleDetailQ->whereJsonContains('serial_number_ids', $serial);
+                });
             });
 
         if ($settingId !== null) {

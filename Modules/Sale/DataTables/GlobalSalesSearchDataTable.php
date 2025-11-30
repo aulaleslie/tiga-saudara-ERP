@@ -58,7 +58,7 @@ class GlobalSalesSearchDataTable extends DataTable
         }
 
         // Default query with relationships
-        $settingId = session('setting_id');
+        $settingId = request('setting_id', session('setting_id'));
         return $model->newQuery()
             ->with(['customer', 'details', 'setting', 'user'])
             ->where('setting_id', $settingId)
@@ -70,7 +70,9 @@ class GlobalSalesSearchDataTable extends DataTable
         return $this->builder()
             ->setTableId('global-sales-search-table')
             ->columns($this->getColumns())
-            ->minifiedAjax()
+            ->minifiedAjax('', null, [
+                'setting_id' => session('setting_id')
+            ])
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                   'tr' .
                   <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")

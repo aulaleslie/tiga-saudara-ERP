@@ -2,6 +2,7 @@
 
 namespace Modules\Sale\DataTables;
 
+use Illuminate\Support\Facades\Log;
 use Modules\Sale\Entities\Sale;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
@@ -61,7 +62,14 @@ class SalesDataTable extends DataTable
     public function query(Sale $model)
     {
         // Load customer relationship.
-        $settingId = session('setting_id');
+        $settingId = request('setting_id', session('setting_id'));
+        
+        Log::info('SalesDataTable query called', [
+            'request_setting_id' => request('setting_id'),
+            'session_setting_id' => session('setting_id'),
+            'final_setting_id' => $settingId,
+            'all_request' => request()->all()
+        ]);
 
         $query = $model->newQuery()
             ->with(['customer', 'posReceipt', 'posSession'])
@@ -92,7 +100,9 @@ class SalesDataTable extends DataTable
         return $this->builder()
             ->setTableId('sales-table')
             ->columns($this->getColumns())
-            ->minifiedAjax()
+            ->minifiedAjax('', null, [
+                'setting_id' => session('setting_id')
+            ])
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                   'tr' .
                   <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
@@ -101,8 +111,6 @@ class SalesDataTable extends DataTable
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
                 Button::make('print')
                     ->text('<i class="bi bi-printer-fill"></i> Print'),
-                Button::make('reset')
-                    ->text('<i class="bi bi-x-circle"></i> Reset'),
                 Button::make('reload')
                     ->text('<i class="bi bi-arrow-repeat"></i> Reload')
             );

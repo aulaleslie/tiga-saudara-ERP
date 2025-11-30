@@ -1,4 +1,4 @@
-php (function ($, DataTable) {
+(function ($, DataTable) {
     "use strict";
 
     var _buildParams = function (dt, action, onlyVisibles) {
