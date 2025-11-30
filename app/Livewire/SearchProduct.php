@@ -459,6 +459,7 @@ class SearchProduct extends Component
           AND (
               LOWER(p.product_name) LIKE :term_base_name
               OR LOWER(p.product_code) LIKE :term_base_code
+              OR LOWER(p.barcode) LIKE :term_base_barcode
           )
 
         UNION ALL
@@ -506,6 +507,7 @@ class SearchProduct extends Component
           AND (
               LOWER(p.product_name) LIKE :term_conv_name
               OR LOWER(p.product_code) LIKE :term_conv_code
+              OR LOWER(puc.barcode) LIKE :term_conv_barcode
           )
 
         UNION ALL
@@ -552,7 +554,8 @@ class SearchProduct extends Component
           AND LOWER(psn.serial_number) LIKE :term_serial
           AND p.serial_number_required = 1
     ) results
-    AND results.product_quantity > 0
+    WHERE results.product_quantity > 0
+    ORDER BY results.product_name ASC
     LIMIT {$limit}
     ";
 
@@ -569,8 +572,10 @@ class SearchProduct extends Component
             [
                 'term_base_name' => $term,
                 'term_base_code' => $term,
+                'term_base_barcode' => $term,
                 'term_conv_name' => $term,
                 'term_conv_code' => $term,
+                'term_conv_barcode' => $term,
                 'term_serial'    => $serialTerm,
                 'settingId_base'            => $settingId,
                 'settingId_conversion_pucp' => $settingId,
