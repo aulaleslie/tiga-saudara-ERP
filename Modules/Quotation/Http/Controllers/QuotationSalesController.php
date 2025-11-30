@@ -5,6 +5,7 @@ namespace Modules\Quotation\Http\Controllers;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Modules\Product\Entities\Product;
 use Modules\Quotation\Entities\Quotation;
 
@@ -41,7 +42,8 @@ class QuotationSalesController extends Controller
 
         return view('quotation::quotation-sales.create', [
             'quotation_id' => $quotation->id,
-            'sale' => $quotation
+            'sale' => $quotation,
+            'idempotencyToken' => (string) Str::uuid(),
         ]);
     }
 }

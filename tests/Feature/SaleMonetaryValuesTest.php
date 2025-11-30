@@ -286,7 +286,7 @@ class SaleMonetaryValuesTest extends TestCase
             'payment_term_id' => $this->paymentTerm->id,
             'note' => 'Store decimals',
             'is_tax_included' => false,
-        ]);
+        ], ['X-Idempotency-Token' => uniqid('sale', true)]);
 
         $response->assertRedirect(route('sales.index'));
 
@@ -353,7 +353,7 @@ class SaleMonetaryValuesTest extends TestCase
             'payment_term_id' => $this->paymentTerm->id,
             'note' => 'Aggregate duplicates',
             'is_tax_included' => false,
-        ]);
+        ], ['X-Idempotency-Token' => uniqid('sale', true)]);
 
         $response->assertRedirect(route('sales.index'));
 
@@ -390,7 +390,7 @@ class SaleMonetaryValuesTest extends TestCase
             'payment_term_id' => $this->paymentTerm->id,
             'note' => 'Store bundle amounts',
             'is_tax_included' => false,
-        ]);
+        ], ['X-Idempotency-Token' => uniqid('sale', true)]);
 
         $response->assertRedirect(route('sales.index'));
 
@@ -612,7 +612,7 @@ class SaleMonetaryValuesTest extends TestCase
             'payment_term_id' => $this->paymentTerm->id,
             'note' => null,
             'is_tax_included' => false,
-        ])->assertRedirect(route('sales.index'));
+        ], ['X-Idempotency-Token' => uniqid('sale', true)])->assertRedirect(route('sales.index'));
 
         $sale = Sale::latest('id')->first();
         $this->assertNotNull($sale);

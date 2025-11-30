@@ -70,7 +70,7 @@ class ProductPriceCreationTest extends TestCase
         ];
 
         $response = $this->withSession(['setting_id' => $activeSetting->id])
-            ->post(route('products.store'), $payload);
+            ->post(route('products.store'), $payload, ['X-Idempotency-Token' => 'test-product-price']);
 
         $response->assertRedirect(route('products.index'));
 

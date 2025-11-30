@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Sale;
 
+use App\Services\IdempotencyService;
 use Carbon\Carbon;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
@@ -25,14 +26,16 @@ class CreateForm extends Component
     public $paymentTermId;
     public $paymentTerms = [];
     public $note;
+    public string $idempotencyToken;
 
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
         'confirmSubmit' => 'submit',
     ];
 
-    public function mount()
+    public function mount(string $idempotencyToken)
     {
+        $this->idempotencyToken = $idempotencyToken;
         // You can leave reference blank—Sale::boot() will generate it on save,
         // or generate here if you prefer.
         $this->reference = 'SL'; // This can be dynamic if needed
@@ -102,6 +105,11 @@ class CreateForm extends Component
                 'type'    => 'error',
                 'message' => 'Produk harus dipilih.'
             ]);
+            return;
+        }
+
+        if (! IdempotencyService::claim($this->idempotencyToken, 'sales.store', auth()->id())) {
+            session()->flash('error', 'Permintaan penjualan sudah diproses. Silakan tunggu sebelum mencoba lagi.');
             return;
         }
 

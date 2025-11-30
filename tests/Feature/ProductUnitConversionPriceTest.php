@@ -99,7 +99,7 @@ class ProductUnitConversionPriceTest extends TestCase
         ];
 
         $response = $this->withSession(['setting_id' => $primarySetting->id])
-            ->post(route('products.store'), $payload);
+            ->post(route('products.store'), $payload, ['X-Idempotency-Token' => 'test-product-token']);
 
         $response->assertRedirect(route('products.index'));
 

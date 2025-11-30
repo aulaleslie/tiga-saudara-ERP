@@ -31,7 +31,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/products/search', [ProductController::class, 'search'])->name('products.search');
     Route::delete('/products/{product}/media/{media}', [ProductController::class, 'destroyMedia'])->name('products.media.destroy');
 
-    Route::resource('products', 'ProductController');
+    Route::resource('products', 'ProductController')->middleware('idempotency');
 
     Route::prefix('products/{product}/bundles')->group(function () {
         Route::get('/', [ProductBundleController::class, 'index'])->name('products.bundle.index');
