@@ -46,7 +46,10 @@
 
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <label for="pos_cash_threshold">Ambang Kas POS (opsional)</label>
+                                        <label for="pos_cash_threshold">
+                                            Ambang Kas POS (opsional)
+                                            <span class="badge badge-warning align-middle ml-1">Deprecated</span>
+                                        </label>
                                         <input
                                             type="number"
                                             step="0.01"
@@ -56,7 +59,7 @@
                                             class="form-control @error('pos_cash_threshold') is-invalid @enderror"
                                             value="{{ old('pos_cash_threshold', $location->pos_cash_threshold ?? $defaultCashThreshold) }}"
                                         >
-                                        <small class="text-muted">Biarkan kosong untuk mengikuti ambang default POS.</small>
+                                        <small class="text-muted">Fitur ini akan dihentikan; biarkan kosong untuk mengikuti setelan default.</small>
                                         @error('pos_cash_threshold')
                                         <div class="invalid-feedback d-block">{{ $message }}</div>
                                         @enderror
