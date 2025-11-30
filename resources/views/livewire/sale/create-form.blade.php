@@ -1,5 +1,6 @@
 <div class="card-body">
     <form wire:submit.prevent="submit">
+        <input type="hidden" wire:model="idempotencyToken">
         <div class="form-row">
             <!-- Referensi -->
             <div class="col-lg-6 mb-3">

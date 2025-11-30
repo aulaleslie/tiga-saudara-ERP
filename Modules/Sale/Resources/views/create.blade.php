@@ -23,7 +23,7 @@
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
-                    <livewire:sale.create-form/>
+                    <livewire:sale.create-form :idempotencyToken="$idempotencyToken" />
                 </div>
             </div>
         </div>

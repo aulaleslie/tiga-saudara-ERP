@@ -25,6 +25,7 @@
                         @include('utils.alerts')
                         <form id="sale-form" action="{{ route('sales.store') }}" method="POST">
                             @csrf
+                            <input type="hidden" name="idempotency_token" value="{{ $idempotencyToken }}">
 
                             <div class="form-row">
                                 <div class="col-lg-4">

@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Purchase;
 
+use App\Services\IdempotencyService;
 use Carbon\Carbon;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Contracts\View\Factory;
@@ -40,9 +41,11 @@ class CreateForm extends Component
     public $shipping = 0;
     public $global_discount = 0;
     public $is_tax_included = false;
+    public string $idempotencyToken;
 
-    public function mount(): void
+    public function mount(string $idempotencyToken): void
     {
+        $this->idempotencyToken = $idempotencyToken;
         $this->reference = 'PR'; // This can be dynamic if needed
         $this->date = now()->format('Y-m-d');
         $this->due_date = now()->format('Y-m-d');
@@ -141,6 +144,11 @@ class CreateForm extends Component
 
         if ($cart->count() === 0) {
             $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk harus dipilih']);
+            return;
+        }
+
+        if (! IdempotencyService::claim($this->idempotencyToken, 'purchases.store', auth()->id())) {
+            session()->flash('error', 'Permintaan pembelian sudah diproses. Silakan tunggu sebelum mencoba lagi.');
             return;
         }
 

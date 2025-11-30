@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
@@ -17,6 +18,7 @@ use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
@@ -71,15 +73,22 @@ class PurchaseController extends Controller
         // Filter PaymentTerms by the setting_id
         $paymentTerms = PaymentTerm::all();
         $suppliers = Supplier::all();
+        $idempotencyToken = (string) Str::uuid();
 
         // Pass the filtered terms to the view
-        return view('purchase::create', compact('paymentTerms','suppliers'));
+        return view('purchase::create', compact('paymentTerms','suppliers', 'idempotencyToken'));
     }
 
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('purchases.create'), 403);
+        $token = $request->header('X-Idempotency-Token') ?? $request->input('idempotency_token');
+        if (! IdempotencyService::claim($token, 'purchases.store', optional($request->user())->id)) {
+            return redirect()->back()->withInput()->withErrors([
+                'idempotency' => 'Permintaan pembelian sudah diproses. Silakan tunggu sebelum mencoba lagi.',
+            ]);
+        }
         if (Cart::instance('purchase')->count() == 0) {
             return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
         }
