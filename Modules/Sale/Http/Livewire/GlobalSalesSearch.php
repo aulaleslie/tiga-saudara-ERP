@@ -173,12 +173,20 @@ class GlobalSalesSearch extends Component
                 case 'customer':
                     $filters['customer_name'] = $this->query;
                     break;
+                case 'pos_transaction':
+                    $filters['pos_transaction'] = $this->query;
+                    break;
+                case 'product_name':
+                    $filters['product_name'] = $this->query;
+                    break;
                 case 'all':
                 default:
                     // Search across multiple fields
                     $filters['serial_number'] = $this->query;
                     $filters['sale_reference'] = $this->query;
                     $filters['customer_name'] = $this->query;
+                    $filters['pos_transaction'] = $this->query;
+                    $filters['product_name'] = $this->query;
                     break;
             }
         }

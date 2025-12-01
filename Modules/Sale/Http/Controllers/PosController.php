@@ -8,6 +8,7 @@ use App\Support\PosSessionManager;
 use App\Models\PosReceipt;
 use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
@@ -1284,5 +1285,32 @@ class PosController extends Controller
         }
 
         return self::$saleBundleItemsHasTaxIdColumn;
+    }
+
+    public function reprintLast()
+    {
+        abort_if(Gate::denies('pos.access'), 403);
+
+        $userId = auth()->id();
+        $settingId = session('setting_id');
+
+        // Find the last POS receipt for this user and tenant
+        $lastReceipt = PosReceipt::whereHas('sales', function (Builder $query) use ($settingId) {
+            $query->where('setting_id', $settingId);
+        })
+        ->whereHas('posSession', function (Builder $query) use ($userId) {
+            $query->where('user_id', $userId);
+        })
+        ->with(['sales.saleDetails.product', 'sales.tenantSetting'])
+        ->latest('created_at')
+        ->first();
+
+        if (!$lastReceipt) {
+            return back()->withErrors(['receipt' => 'Tidak ada transaksi POS sebelumnya untuk dicetak ulang']);
+        }
+
+        $this->triggerReceiptPrint($lastReceipt);
+
+        return back()->with('success', 'Struk transaksi terakhir telah dikirim ke printer');
     }
 }

@@ -154,6 +154,27 @@ class SerialNumberSearchService
             };
         }
 
+        // POS transaction filter
+        if (!empty($filters['pos_transaction'])) {
+            Log::info('Adding POS transaction search condition', ['pos_transaction' => $filters['pos_transaction']]);
+            $searchConditions[] = function (Builder $q) use ($filters) {
+                $q->whereHas('posReceipt', function (Builder $subQ) use ($filters) {
+                    $subQ->where('receipt_number', 'like', "%{$filters['pos_transaction']}%");
+                });
+            };
+        }
+
+        // Product name/code filter
+        if (!empty($filters['product_name'])) {
+            Log::info('Adding product name/code search condition', ['product_name' => $filters['product_name']]);
+            $searchConditions[] = function (Builder $q) use ($filters) {
+                $q->whereHas('saleDetails.product', function (Builder $subQ) use ($filters) {
+                    $subQ->where('product_name', 'like', "%{$filters['product_name']}%")
+                         ->orWhere('product_code', 'like', "%{$filters['product_name']}%");
+                });
+            };
+        }
+
         // Apply search conditions with OR logic if any exist
         if (!empty($searchConditions)) {
             $query->where(function (Builder $q) use ($searchConditions) {
@@ -282,5 +303,56 @@ class SerialNumberSearchService
         }
 
         return $query->orderByDesc('created_at')->get();
+    }
+
+    /**
+     * Search for sales by POS transaction receipt number.
+     *
+     * @param string $receiptNumber
+     * @param int|null $settingId
+     * @param int $limit
+     * @param int $page
+     * @return mixed
+     */
+    public function searchByPosTransactionNo(string $receiptNumber, ?int $settingId = null, int $limit = 50, int $page = 1)
+    {
+        $query = Sale::query()
+            ->with(['customer', 'seller', 'tenantSetting', 'saleDetails', 'location', 'posReceipt'])
+            ->whereHas('posReceipt', function (Builder $query) use ($receiptNumber) {
+                $query->where('receipt_number', 'like', "%{$receiptNumber}%");
+            });
+
+        // Apply tenant filter only if settingId is provided
+        if ($settingId !== null) {
+            $this->applyTenantFilter($query, $settingId);
+        }
+
+        return $query->paginate($limit, ['*'], 'page', $page);
+    }
+
+    /**
+     * Search for sales by product name or code.
+     *
+     * @param string $productQuery
+     * @param int|null $settingId
+     * @param int $limit
+     * @param int $page
+     * @return mixed
+     */
+    public function searchByProductNameOrCode(string $productQuery, ?int $settingId = null, int $limit = 50, int $page = 1)
+    {
+        $query = Sale::query()
+            ->with(['customer', 'seller', 'tenantSetting', 'saleDetails.product', 'location', 'dispatchDetails'])
+            ->whereHas('saleDetails.product', function (Builder $query) use ($productQuery) {
+                $query->where('product_name', 'like', "%{$productQuery}%")
+                      ->orWhere('product_code', 'like', "%{$productQuery}%");
+            });
+
+        // Apply tenant filter only if settingId is provided
+        if ($settingId !== null) {
+            $this->applyTenantFilter($query, $settingId);
+        }
+
+        return $query->paginate($limit, ['*'], 'page', $page);
     }
 }

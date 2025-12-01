@@ -108,6 +108,7 @@ class PermissionsTableSeeder extends Seeder
             // POS
             'pos.access',
             'pos.create',
+            'pos.transactions.access',
 
             // Products & bundles
             'products.access',

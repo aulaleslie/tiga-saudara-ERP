@@ -42,6 +42,8 @@
                     <option value="serial">Nomor Seri</option>
                     <option value="reference">Referensi Penjualan</option>
                     <option value="customer">Pelanggan</option>
+                    <option value="pos_transaction">Nomor Transaksi POS</option>
+                    <option value="product_name">Nama/Kode Produk</option>
                 </select>
             </div>
         </div>

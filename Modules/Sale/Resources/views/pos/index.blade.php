@@ -26,9 +26,17 @@
                             <h6 class="mb-0">Kelola Sesi POS</h6>
                             <small class="text-muted">Jeda, lanjutkan, atau tutup sesi kasir Anda</small>
                         </div>
-                        <a href="{{ route('app.pos.session') }}" class="btn btn-outline-primary">
-                            <i class="bi bi-gear mr-1"></i> Status Sesi POS
-                        </a>
+                        <div class="d-flex gap-2">
+                            <form method="POST" action="{{ route('app.pos.reprint-last') }}" class="d-inline">
+                                @csrf
+                                <button type="submit" class="btn btn-outline-secondary">
+                                    <i class="bi bi-printer mr-1"></i> Cetak Ulang Terakhir
+                                </button>
+                            </form>
+                            <a href="{{ route('app.pos.session') }}" class="btn btn-outline-primary">
+                                <i class="bi bi-gear mr-1"></i> Status Sesi POS
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>

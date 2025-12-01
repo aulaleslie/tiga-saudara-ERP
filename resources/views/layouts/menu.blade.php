@@ -121,6 +121,17 @@
                 </li>
             </ul>
         @endcan
+
+        @can('pos.transactions.access')
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.transactions.*') ? 'c-active' : '' }}"
+                       href="{{ route('pos.transactions.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-receipt-cutoff" style="line-height: 1;"></i> Riwayat Transaksi POS
+                    </a>
+                </li>
+            </ul>
+        @endcan
     </li>
 @endcanany
 

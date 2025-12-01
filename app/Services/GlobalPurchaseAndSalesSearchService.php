@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Sale\Entities\Sale;
 use Modules\Product\Entities\ProductSerialNumber;
+use App\Models\PosReceipt;
 
 /**
  * Global Purchase and Sales Search Service
@@ -390,6 +391,8 @@ class GlobalPurchaseAndSalesSearchService
         $salesRefResults = $this->searchBySalesReference($query, $settingId, 1000, 1)['results'];
         $supplierResults = $this->searchBySupplier($query, $settingId, 1000, 1)['results'];
         $customerResults = $this->searchByCustomer($query, $settingId, 1000, 1)['results'];
+        $posTransactionResults = $this->searchByPosTransactionNo($query, $settingId, 1000, 1)['results'];
+        $productResults = $this->searchByProduct($query, $settingId, 1000, 1)['results'];
 
         // Combine all results
         $allResults = array_merge(
@@ -397,7 +400,9 @@ class GlobalPurchaseAndSalesSearchService
             $purchaseRefResults,
             $salesRefResults,
             $supplierResults,
-            $customerResults
+            $customerResults,
+            $posTransactionResults,
+            $productResults
         );
 
         // Remove duplicates based on type + id
@@ -427,6 +432,8 @@ class GlobalPurchaseAndSalesSearchService
             'sales_ref_results' => count($salesRefResults),
             'supplier_results' => count($supplierResults),
             'customer_results' => count($customerResults),
+            'pos_transaction_results' => count($posTransactionResults),
+            'product_results' => count($productResults),
             'unique_results' => $total,
             'response_time_ms' => $responseTime
         ]);
@@ -438,6 +445,168 @@ class GlobalPurchaseAndSalesSearchService
             'limit' => $limit,
             'response_time_ms' => $responseTime
         ];
+    }
+
+    /**
+     * Search for POS transactions by receipt number.
+     *
+     * @param string $receiptNumber
+     * @param int|null $settingId
+     * @param int $limit
+     * @param int $page
+     * @return array
+     */
+    public function searchByPosTransactionNo(string $receiptNumber, ?int $settingId = null, int $limit = 20, int $page = 1): array
+    {
+        $startTime = microtime(true);
+
+        $query = PosReceipt::query()
+            ->with(['sales.customer', 'posSession.location'])
+            ->where('receipt_number', 'like', "%{$receiptNumber}%")
+            ->whereHas('sales', function (Builder $query) use ($settingId) {
+                if ($settingId !== null) {
+                    $query->where('setting_id', $settingId);
+                }
+            });
+
+        $paginator = $query->orderByDesc('created_at')->paginate($limit, ['*'], 'page', $page);
+
+        $results = $paginator->getCollection()->map(function ($receipt) {
+            $sale = $receipt->sales->first();
+            return [
+                'type' => 'pos_transaction',
+                'id' => $receipt->id,
+                'reference' => $receipt->receipt_number,
+                'party_name' => $receipt->customer_name ?: ($sale?->customer?->customer_name ?: 'Walk-in'),
+                'amount' => $receipt->total_amount,
+                'status' => $receipt->payment_status,
+                'location' => $receipt->posSession?->location?->name ?? null,
+                'date' => $receipt->created_at->format('Y-m-d'),
+                'serial_count' => 0, // POS transactions may not have serial tracking
+                'tenant' => $sale?->setting_id ?? null
+            ];
+        })->toArray();
+
+        $responseTime = (int) ((microtime(true) - $startTime) * 1000);
+
+        return [
+            'results' => $results,
+            'total' => $paginator->total(),
+            'page' => $paginator->currentPage(),
+            'limit' => $paginator->perPage(),
+            'response_time_ms' => $responseTime
+        ];
+    }
+
+    /**
+     * Search for transactions by product name or code.
+     *
+     * @param string $productQuery
+     * @param int|null $settingId
+     * @param int $limit
+     * @param int $page
+     * @return array
+     */
+    public function searchByProduct(string $productQuery, ?int $settingId = null, int $limit = 20, int $page = 1): array
+    {
+        $startTime = microtime(true);
+
+        // Search in purchases
+        $purchaseResults = $this->searchPurchasesByProduct($productQuery, $settingId);
+
+        // Search in sales
+        $saleResults = $this->searchSalesByProduct($productQuery, $settingId);
+
+        // Combine and sort results
+        $combinedResults = array_merge($purchaseResults, $saleResults);
+        usort($combinedResults, fn($a, $b) => strtotime($b['date']) <=> strtotime($a['date']));
+
+        $total = count($combinedResults);
+        $paginatedResults = array_slice($combinedResults, ($page - 1) * $limit, $limit);
+
+        $responseTime = (int) ((microtime(true) - $startTime) * 1000);
+
+        Log::info('GlobalPurchaseAndSalesSearchService::searchByProduct completed', [
+            'productQuery' => $productQuery,
+            'settingId' => $settingId,
+            'purchase_results' => count($purchaseResults),
+            'sale_results' => count($saleResults),
+            'total_results' => $total,
+            'response_time_ms' => $responseTime
+        ]);
+
+        return [
+            'results' => $paginatedResults,
+            'total' => $total,
+            'page' => $page,
+            'limit' => $limit,
+            'response_time_ms' => $responseTime
+        ];
+    }
+
+    /**
+     * Search purchases by product name or code.
+     */
+    private function searchPurchasesByProduct(string $productQuery, ?int $settingId = null): array
+    {
+        $query = Purchase::query()
+            ->with(['supplier', 'purchaseDetails.product'])
+            ->whereHas('purchaseDetails.product', function (Builder $q) use ($productQuery) {
+                $q->where('product_name', 'like', "%{$productQuery}%")
+                  ->orWhere('product_code', 'like', "%{$productQuery}%");
+            });
+
+        if ($settingId !== null) {
+            $query->where('setting_id', $settingId);
+        }
+
+        return $query->orderByDesc('created_at')->get()->map(function ($purchase) {
+            return [
+                'type' => 'purchase',
+                'id' => $purchase->id,
+                'reference' => $purchase->reference,
+                'party_name' => $purchase->supplier?->supplier_name ?? 'Unknown Supplier',
+                'amount' => $purchase->total_amount,
+                'status' => $purchase->status,
+                'location' => null,
+                'date' => $purchase->created_at->format('Y-m-d'),
+                'serial_count' => $this->countSerialsInPurchase($purchase),
+                'tenant' => $purchase->setting_id
+            ];
+        })->toArray();
+    }
+
+    /**
+     * Search sales by product name or code.
+     */
+    private function searchSalesByProduct(string $productQuery, ?int $settingId = null): array
+    {
+        $query = Sale::query()
+            ->with(['customer', 'seller', 'saleDetails.product'])
+            ->whereHas('saleDetails.product', function (Builder $q) use ($productQuery) {
+                $q->where('product_name', 'like', "%{$productQuery}%")
+                  ->orWhere('product_code', 'like', "%{$productQuery}%");
+            });
+
+        if ($settingId !== null) {
+            $query->where('setting_id', $settingId);
+        }
+
+        return $query->orderByDesc('created_at')->get()->map(function ($sale) {
+            return [
+                'type' => 'sale',
+                'id' => $sale->id,
+                'reference' => $sale->reference,
+                'party_name' => $sale->customer?->customer_name ?? 'Unknown Customer',
+                'amount' => $sale->total_amount,
+                'status' => $sale->status,
+                'location' => $sale->location?->name ?? null,
+                'seller_name' => $sale->seller?->name ?? null,
+                'date' => $sale->created_at->format('Y-m-d'),
+                'serial_count' => $this->countSerialsInSale($sale),
+                'tenant' => $sale->setting_id
+            ];
+        })->toArray();
     }
 
     /**
