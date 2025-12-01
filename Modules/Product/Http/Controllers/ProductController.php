@@ -96,6 +96,24 @@ class ProductController extends Controller
         // persist prices only for that context.
         $settingId = $this->getActiveSettingId();
 
+        // Auto-generate product_code if not provided
+        if (empty($validatedData['product_code'])) {
+            // Generate SKU in format SKU-000001, SKU-000002, etc.
+            $lastSku = Product::where('product_code', 'like', 'SKU-%')
+                ->orderByRaw("CAST(SUBSTRING(product_code, 5) AS UNSIGNED) DESC")
+                ->value('product_code');
+
+            if ($lastSku) {
+                // Extract the number from SKU-XXXXXX and increment
+                $lastNumber = (int) substr($lastSku, 4);
+                $nextNumber = $lastNumber + 1;
+            } else {
+                $nextNumber = 1;
+            }
+
+            $validatedData['product_code'] = 'SKU-' . str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
+        }
+
         // Capture all setting IDs up-front (needed for multi-setting price rows).
         $settingIds = Setting::query()->pluck('id');
         if ($settingIds->isEmpty()) {

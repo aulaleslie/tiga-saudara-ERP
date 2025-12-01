@@ -215,6 +215,7 @@ class BusinessController extends Controller
             'document_prefix' => $request->document_prefix,
             'purchase_prefix_document' => $request->purchase_prefix_document,
             'sale_prefix_document' => $request->sale_prefix_document,
+            'pos_document_prefix' => $request->pos_document_prefix,
             // footer_text will be set after uppercasing company_name
         ];
 
@@ -225,6 +226,7 @@ class BusinessController extends Controller
                      'document_prefix',
                      'purchase_prefix_document',
                      'sale_prefix_document',
+                     'pos_document_prefix',
                  ] as $key) {
             if (isset($data[$key]) && $data[$key] !== null) {
                 $data[$key] = mb_strtoupper(trim((string)$data[$key]), 'UTF-8');

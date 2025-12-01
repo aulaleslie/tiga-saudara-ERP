@@ -11,6 +11,7 @@ use Modules\People\DataTables\CustomersDataTable;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
@@ -48,9 +49,25 @@ class CustomersController extends Controller
         abort_if(Gate::denies('customers.create'), 403);
 
         // Validate the request data
+        $settingId = session('setting_id');
         $request->validate([
             'contact_name' => 'required|string|max:255',
-            'customer_phone' => 'required|string|max:255',
+            'customer_phone' => [
+                'required',
+                'string',
+                'max:255',
+                function ($attribute, $value, $fail) use ($settingId) {
+                    if (!empty($value)) {
+                        $exists = DB::table('customers')
+                            ->where('setting_id', $settingId)
+                            ->where('customer_phone', $value)
+                            ->exists();
+                        if ($exists) {
+                            $fail('Nomor telepon sudah digunakan.');
+                        }
+                    }
+                }
+            ],
             'payment_term_id' => 'nullable|exists:payment_terms,id', // Validasi PaymentTerm
 
             // Bank fields validation, mandatory only if one is filled
@@ -60,10 +77,56 @@ class CustomersController extends Controller
             'account_holder' => 'nullable|required_with:bank_name,bank_branch,account_number|string|max:255',
 
             'customer_name' => 'nullable|string|max:255',
-            'customer_email' => 'nullable|email|max:255',
+            'customer_email' => [
+                'nullable',
+                'email',
+                'max:255',
+                function ($attribute, $value, $fail) use ($settingId) {
+                    if (!empty($value)) {
+                        $exists = DB::table('customers')
+                            ->where('setting_id', $settingId)
+                            ->where('customer_email', $value)
+                            ->exists();
+                        if ($exists) {
+                            $fail('Email sudah digunakan.');
+                        }
+                    }
+                }
+            ],
             'identity' => 'nullable|string|max:50',
-            'identity_number' => 'nullable|required_if:identity,KTP,SIM,Passport|string|max:100',  // Required if identity is selected
-            'npwp' => 'nullable|string|max:100',
+            'identity_number' => [
+                'nullable',
+                'required_if:identity,KTP,SIM,Passport',
+                'string',
+                'max:100',
+                function ($attribute, $value, $fail) use ($settingId) {
+                    if (!empty($value)) {
+                        $exists = DB::table('customers')
+                            ->where('setting_id', $settingId)
+                            ->where('identity_number', $value)
+                            ->exists();
+                        if ($exists) {
+                            $fail('Nomor identitas sudah digunakan.');
+                        }
+                    }
+                }
+            ],
+            'npwp' => [
+                'nullable',
+                'string',
+                'max:100',
+                function ($attribute, $value, $fail) use ($settingId) {
+                    if (!empty($value)) {
+                        $exists = DB::table('customers')
+                            ->where('setting_id', $settingId)
+                            ->where('npwp', $value)
+                            ->exists();
+                        if ($exists) {
+                            $fail('NPWP sudah digunakan.');
+                        }
+                    }
+                }
+            ],
             'billing_address' => 'nullable|string|max:500',
             'shipping_address' => 'nullable|string|max:500',
             'additional_info' => 'nullable|string|max:1000',
@@ -136,15 +199,80 @@ class CustomersController extends Controller
     {
         abort_if(Gate::denies('customers.edit'), 403);
 
+        $settingId = session('setting_id');
         $request->validate([
             'contact_name' => 'required|string|max:255',
-            'customer_phone' => 'required|max:255',
+            'customer_phone' => [
+                'required',
+                'string',
+                'max:255',
+                function ($attribute, $value, $fail) use ($settingId, $customer) {
+                    if (!empty($value)) {
+                        $exists = DB::table('customers')
+                            ->where('setting_id', $settingId)
+                            ->where('customer_phone', $value)
+                            ->where('id', '!=', $customer->id)
+                            ->exists();
+                        if ($exists) {
+                            $fail('Nomor telepon sudah digunakan.');
+                        }
+                    }
+                }
+            ],
             'payment_term_id' => 'nullable|exists:payment_terms,id', // Validasi PaymentTerm
-            'customer_email' => 'nullable|email|max:255',
+            'customer_email' => [
+                'nullable',
+                'email',
+                'max:255',
+                function ($attribute, $value, $fail) use ($settingId, $customer) {
+                    if (!empty($value)) {
+                        $exists = DB::table('customers')
+                            ->where('setting_id', $settingId)
+                            ->where('customer_email', $value)
+                            ->where('id', '!=', $customer->id)
+                            ->exists();
+                        if ($exists) {
+                            $fail('Email sudah digunakan.');
+                        }
+                    }
+                }
+            ],
             'identity' => 'nullable|string|max:50',
-            'identity_number' => 'nullable|string|max:100',
+            'identity_number' => [
+                'nullable',
+                'string',
+                'max:100',
+                function ($attribute, $value, $fail) use ($settingId, $customer) {
+                    if (!empty($value)) {
+                        $exists = DB::table('customers')
+                            ->where('setting_id', $settingId)
+                            ->where('identity_number', $value)
+                            ->where('id', '!=', $customer->id)
+                            ->exists();
+                        if ($exists) {
+                            $fail('Nomor identitas sudah digunakan.');
+                        }
+                    }
+                }
+            ],
             'fax' => 'nullable|string|max:100',
-            'npwp' => 'nullable|string|max:100',
+            'npwp' => [
+                'nullable',
+                'string',
+                'max:100',
+                function ($attribute, $value, $fail) use ($settingId, $customer) {
+                    if (!empty($value)) {
+                        $exists = DB::table('customers')
+                            ->where('setting_id', $settingId)
+                            ->where('npwp', $value)
+                            ->where('id', '!=', $customer->id)
+                            ->exists();
+                        if ($exists) {
+                            $fail('NPWP sudah digunakan.');
+                        }
+                    }
+                }
+            ],
             'billing_address' => 'nullable|string|max:500',
             'shipping_address' => 'nullable|string|max:500',
             'bank_name' => 'nullable|string|max:255',

@@ -20,7 +20,7 @@ class StoreProductInfoRequest extends FormRequest
     {
         return [
             'product_name'        => ['required', 'string', 'max:255'],
-            'product_code'        => ['required', 'string', 'max:255', 'unique:products,product_code'],
+            'product_code'        => ['nullable', 'string', 'max:255', 'unique:products,product_code'],
             'category_id'         => ['nullable', 'integer'],
             'brand_id'            => ['nullable', 'integer'],
 

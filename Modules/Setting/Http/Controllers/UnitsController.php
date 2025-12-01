@@ -34,8 +34,8 @@ class UnitsController extends Controller
     {
         abort_if(Gate::denies('units.create'), 403);
         $request->validate([
-            'name' => 'required|string|max:255',
-            'short_name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:units,name,NULL,id,setting_id,' . session('setting_id'),
+            'short_name' => 'required|string|max:255|unique:units,short_name,NULL,id,setting_id,' . session('setting_id'),
         ]);
 
         $currentSettingId = session('setting_id'); // Get setting ID from session
@@ -63,8 +63,8 @@ class UnitsController extends Controller
     {
         abort_if(Gate::denies('units.edit'), 403);
         $request->validate([
-            'name' => 'required|string|max:255',
-            'short_name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:units,name,' . $unit->id . ',id,setting_id,' . session('setting_id'),
+            'short_name' => 'required|string|max:255|unique:units,short_name,' . $unit->id . ',id,setting_id,' . session('setting_id'),
         ]);
 
         $currentSettingId = session('setting_id'); // Get setting ID from session

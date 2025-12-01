@@ -52,7 +52,7 @@ class SalePaymentsDataTable extends DataTable
 
     public function query(SalePayment $model)
     {
-        $saleId = $this->request()->get('sale_id');
+        $saleId = $this->sale_id;
 
         return $model->newQuery()
             ->when($saleId, fn($q) => $q->where('sale_id', $saleId))

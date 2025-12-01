@@ -44,7 +44,7 @@ class BrandController extends Controller
     {
         abort_if(Gate::denies('brands.create'), 403);
         $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:brands,name,NULL,id,setting_id,' . session('setting_id'),
             'description' => 'nullable|string',
         ]);
 
@@ -89,7 +89,7 @@ class BrandController extends Controller
     {
         abort_if(Gate::denies('brands.edit'), 403);
         $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:brands,name,' . $brand->id . ',id,setting_id,' . session('setting_id'),
             'description' => 'nullable|string',
         ]);
 

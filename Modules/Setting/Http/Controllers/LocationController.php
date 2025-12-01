@@ -52,7 +52,7 @@ class LocationController extends Controller
         abort_if(Gate::denies('locations.create'), 403);
 
         $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:locations,name,NULL,id,setting_id,' . session('setting_id'),
             'pos_cash_threshold' => 'nullable|numeric|min:0',
         ]);
 
@@ -95,7 +95,7 @@ class LocationController extends Controller
         abort_if(Gate::denies('locations.edit'), 403);
 
         $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:locations,name,' . $location->id . ',id,setting_id,' . session('setting_id'),
             'pos_cash_threshold' => 'nullable|numeric|min:0',
         ]);
 

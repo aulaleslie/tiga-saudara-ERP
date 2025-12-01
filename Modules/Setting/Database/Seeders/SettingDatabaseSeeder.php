@@ -26,6 +26,7 @@ class SettingDatabaseSeeder extends Seeder
             'document_prefix' => 'TS',
             'purchase_prefix_document' => 'PR',
             'sale_prefix_document' => 'SL',
+            'pos_document_prefix' => null, // Will use sale_prefix_document if null
             'pos_idle_threshold_minutes' => 30,
             'pos_default_cash_threshold' => 0,
         ]);

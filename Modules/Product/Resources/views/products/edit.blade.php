@@ -33,7 +33,8 @@
                                 </div>
                                 <div class="col-md-6">
                                     <x-input label="Kode Produk" name="product_code"
-                                             value="{{ old('product_code', $product->product_code) }}" required/>
+                                             value="{{ old('product_code', $product->product_code) }}"/>
+                                    <small class="form-text text-muted">Biarkan kosong untuk mempertahankan kode yang ada</small>
                                 </div>
                             </div>
 

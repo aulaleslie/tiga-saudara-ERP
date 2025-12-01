@@ -34,7 +34,7 @@ class PaymentMethodController extends Controller
         abort_if(Gate::denies('paymentMethods.create'), 403);
         // Validate the request
         $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:payment_methods,name',
             'coa_id' => 'required|exists:chart_of_accounts,id',
             'is_cash' => 'nullable|boolean',
             'is_available_in_pos' => 'nullable|boolean',
@@ -66,7 +66,7 @@ class PaymentMethodController extends Controller
         abort_if(Gate::denies('paymentMethods.edit'), 403);
         // Validate the request
         $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:payment_methods,name,' . $paymentMethod->id,
             'coa_id' => 'required|exists:chart_of_accounts,id',
             'is_cash' => 'nullable|boolean',
             'is_available_in_pos' => 'nullable|boolean',

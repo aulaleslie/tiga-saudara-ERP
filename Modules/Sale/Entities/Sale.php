@@ -64,11 +64,21 @@ class Sale extends BaseModel
             $year = now()->year;
             $month = now()->month;
 
-            // Fetch the latest reference for the current year and month
-            $latestReference = Sale::whereYear('created_at', $year)
+            // Determine if this is a POS sale
+            $isPosSale = !empty($model->pos_receipt_id);
+
+            // Fetch the latest reference for the current year and month, filtered by setting_id and POS status
+            $latestReferenceQuery = Sale::whereYear('created_at', $year)
                 ->whereMonth('created_at', $month)
-                ->latest('id')
-                ->value('reference');
+                ->where('setting_id', $model->setting_id);
+
+            if ($isPosSale) {
+                $latestReferenceQuery->whereNotNull('pos_receipt_id');
+            } else {
+                $latestReferenceQuery->whereNull('pos_receipt_id');
+            }
+
+            $latestReference = $latestReferenceQuery->latest('id')->value('reference');
 
             // Extract the number from the latest reference
             $nextNumber = 1; // Default to 1 if no reference exists
@@ -78,14 +88,20 @@ class Sale extends BaseModel
                 $nextNumber = $lastNumber + 1;
             }
 
-            // Grab the setting (find(null) simply returns null)
-            $setting = Setting::find(session('setting_id'));
+            // Grab the setting for this sale's tenant
+            $setting = Setting::find($model->setting_id);
 
-            // Build prefix:
-            // 1) take document_prefix if truthy, else empty string
-            // 2) then take sale_prefix_document if truthy, else fallback to 'SL'
-            $prefix = (optional($setting)->document_prefix ?: '') . '-'
-                . (optional($setting)->sale_prefix_document ?: 'SL');
+            // Build prefix based on POS or regular sale
+            $documentPrefix = optional($setting)->document_prefix ?: '';
+            if ($isPosSale) {
+                // For POS sales, use pos_document_prefix if set, otherwise fallback to sale_prefix_document
+                $salePrefix = optional($setting)->pos_document_prefix ?: (optional($setting)->sale_prefix_document ?: 'SL');
+            } else {
+                // For regular sales, use sale_prefix_document
+                $salePrefix = optional($setting)->sale_prefix_document ?: 'SL';
+            }
+
+            $prefix = $documentPrefix . '-' . $salePrefix;
 
             $model->reference = make_reference_id($prefix, $year, $month, $nextNumber);
         });

@@ -74,6 +74,14 @@
                                                value="{{ $settings->sale_prefix_document }}" required>
                                     </div>
                                 </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="pos_document_prefix">Prefix Dokumen POS</label>
+                                        <input type="text" class="form-control" name="pos_document_prefix"
+                                               value="{{ $settings->pos_document_prefix }}">
+                                        <small class="form-text text-muted">Kosongkan untuk menggunakan prefix penjualan</small>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-row">

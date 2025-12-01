@@ -25,7 +25,7 @@ class UpdateProductRequest extends FormRequest
         return [
             // === Core ===
             'product_name'        => ['required', 'string', 'max:255'],
-            'product_code'        => ['required', 'string', 'max:255', Rule::unique('products', 'product_code')->ignore($productId)],
+            'product_code'        => ['nullable', 'string', 'max:255', Rule::unique('products', 'product_code')->ignore($productId)],
             'category_id'         => ['nullable', 'integer'],
             'brand_id'            => ['nullable', 'integer'],
 

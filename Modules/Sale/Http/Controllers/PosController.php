@@ -19,6 +19,7 @@ use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\Transaction;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\Dispatch;
@@ -619,9 +620,12 @@ class PosController extends Controller
             return $this->posLocationSettingMap;
         }
 
+        // Map location_id to the LOCATION OWNER's setting_id (not the POS config setting_id)
+        // This ensures sales are attributed to the tenant who owns the stock/location
         $map = SettingSaleLocation::query()
-            ->select(['location_id', 'setting_id'])
-            ->where('is_pos', true)
+            ->select(['setting_sale_locations.location_id', 'locations.setting_id'])
+            ->join('locations', 'locations.id', '=', 'setting_sale_locations.location_id')
+            ->where('setting_sale_locations.is_pos', true)
             ->get()
             ->mapWithKeys(fn ($row) => [(int) $row->location_id => (int) $row->setting_id])
             ->toArray();
@@ -950,11 +954,64 @@ class PosController extends Controller
             ]);
         }
 
+        $previousQuantityNonTax = $stock->quantity_non_tax;
+        $previousQuantityTax = $stock->quantity_tax;
+        $previousQuantity = $stock->quantity;
+
         $stock->quantity_non_tax = max(0, $availableNonTax - $nonTaxToDeduct);
         $stock->quantity_tax = max(0, $availableTax - $taxToDeduct);
         $stock->quantity = max(0, (int) $stock->quantity_non_tax + (int) $stock->quantity_tax);
         $stock->broken_quantity = max(0, (int) $stock->broken_quantity_non_tax + (int) $stock->broken_quantity_tax);
         $stock->save();
+
+        $afterQuantityNonTax = $stock->quantity_non_tax;
+        $afterQuantityTax = $stock->quantity_tax;
+        $afterQuantity = $stock->quantity;
+
+        // Create transaction records for stock movements
+        if ($nonTaxToDeduct > 0) {
+            Transaction::create([
+                'product_id' => $productId,
+                'setting_id' => $sale->setting_id,
+                'quantity' => -$nonTaxToDeduct,
+                'current_quantity' => $afterQuantity,
+                'broken_quantity' => 0,
+                'location_id' => $locationId,
+                'user_id' => auth()->id(),
+                'reason' => 'Dispatched for POS Sale #' . $sale->reference,
+                'type' => 'DISPATCH',
+                'previous_quantity' => $previousQuantity,
+                'after_quantity' => $afterQuantity,
+                'previous_quantity_at_location' => $previousQuantity,
+                'after_quantity_at_location' => $afterQuantity,
+                'quantity_non_tax' => -$nonTaxToDeduct,
+                'quantity_tax' => 0,
+                'broken_quantity_non_tax' => 0,
+                'broken_quantity_tax' => 0,
+            ]);
+        }
+
+        if ($taxToDeduct > 0) {
+            Transaction::create([
+                'product_id' => $productId,
+                'setting_id' => $sale->setting_id,
+                'quantity' => -$taxToDeduct,
+                'current_quantity' => $afterQuantity,
+                'broken_quantity' => 0,
+                'location_id' => $locationId,
+                'user_id' => auth()->id(),
+                'reason' => 'Dispatched for POS Sale #' . $sale->reference,
+                'type' => 'DISPATCH',
+                'previous_quantity' => $previousQuantity,
+                'after_quantity' => $afterQuantity,
+                'previous_quantity_at_location' => $previousQuantity,
+                'after_quantity_at_location' => $afterQuantity,
+                'quantity_non_tax' => 0,
+                'quantity_tax' => -$taxToDeduct,
+                'broken_quantity_non_tax' => 0,
+                'broken_quantity_tax' => 0,
+            ]);
+        }
     }
     private function markSerialNumbersAsSold(SaleDetails $saleDetail, array $options): void
     {

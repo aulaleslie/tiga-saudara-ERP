@@ -114,7 +114,7 @@ CREATE TABLE `audits` (
   PRIMARY KEY (`id`),
   KEY `audits_auditable_type_auditable_id_index` (`auditable_type`,`auditable_id`),
   KEY `audits_user_id_user_type_index` (`user_id`,`user_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -123,6 +123,7 @@ CREATE TABLE `audits` (
 
 LOCK TABLES `audits` WRITE;
 /*!40000 ALTER TABLE `audits` DISABLE KEYS */;
+INSERT INTO `audits` VALUES (1,'App\\Models\\User',1,'created','Modules\\Product\\Entities\\Category',2,'[]','{\"category_code\":\"CA_02\",\"category_name\":\"GROCERY\",\"parent_id\":null,\"created_by\":1,\"setting_id\":1,\"id\":2}','http://localhost:8000/product-categories','127.0.0.1','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',NULL,'2025-12-01 13:19:46','2025-12-01 13:19:46');
 /*!40000 ALTER TABLE `audits` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -143,7 +144,7 @@ CREATE TABLE `brands` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `brands_setting_id_foreign` (`setting_id`),
+  UNIQUE KEY `brands_setting_name_unique` (`setting_id`,`name`),
   KEY `brands_created_by_foreign` (`created_by`),
   CONSTRAINT `brands_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `brands_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
@@ -156,7 +157,7 @@ CREATE TABLE `brands` (
 
 LOCK TABLES `brands` WRITE;
 /*!40000 ALTER TABLE `brands` DISABLE KEYS */;
-INSERT INTO `brands` VALUES (1,1,'SIDU',NULL,1,NULL,'2025-11-22 18:14:42','2025-11-22 18:14:42');
+INSERT INTO `brands` VALUES (1,1,'SIDU',NULL,1,NULL,'2025-12-01 13:19:33','2025-12-01 13:19:33');
 /*!40000 ALTER TABLE `brands` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -216,13 +217,13 @@ CREATE TABLE `categories` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `categories_category_code_unique` (`category_code`),
+  UNIQUE KEY `categories_setting_category_name_unique` (`setting_id`,`category_name`),
   KEY `categories_parent_id_foreign` (`parent_id`),
   KEY `categories_created_by_foreign` (`created_by`),
-  KEY `categories_setting_id_foreign` (`setting_id`),
   CONSTRAINT `categories_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `categories_parent_id_foreign` FOREIGN KEY (`parent_id`) REFERENCES `categories` (`id`) ON DELETE CASCADE,
   CONSTRAINT `categories_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -231,7 +232,7 @@ CREATE TABLE `categories` (
 
 LOCK TABLES `categories` WRITE;
 /*!40000 ALTER TABLE `categories` DISABLE KEYS */;
-INSERT INTO `categories` VALUES (1,'CA_01','STATIONERY',NULL,1,1,'2025-11-22 18:05:55','2025-11-22 18:05:55');
+INSERT INTO `categories` VALUES (1,'CA_01','STATIONERY',NULL,1,1,'2025-12-01 13:15:27','2025-12-01 13:15:27'),(2,'CA_02','GROCERY',NULL,1,1,'2025-12-01 13:19:46','2025-12-01 13:19:46');
 /*!40000 ALTER TABLE `categories` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -271,7 +272,7 @@ CREATE TABLE `chart_of_accounts` (
 
 LOCK TABLES `chart_of_accounts` WRITE;
 /*!40000 ALTER TABLE `chart_of_accounts` DISABLE KEYS */;
-INSERT INTO `chart_of_accounts` VALUES (1,1,'KAS','1-10001','Kas & Bank',NULL,NULL,'AKUN KAS UNTUK TRANSAKSI TUNAI','2025-11-22 18:05:55','2025-11-22 18:05:55');
+INSERT INTO `chart_of_accounts` VALUES (1,1,'KAS','1-10001','Kas & Bank',NULL,NULL,'AKUN KAS UNTUK TRANSAKSI TUNAI','2025-12-01 13:15:27','2025-12-01 13:15:27');
 /*!40000 ALTER TABLE `chart_of_accounts` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -302,7 +303,7 @@ CREATE TABLE `currencies` (
 
 LOCK TABLES `currencies` WRITE;
 /*!40000 ALTER TABLE `currencies` DISABLE KEYS */;
-INSERT INTO `currencies` VALUES (1,'RUPIAH','IDR','RP',',','.',NULL,'2025-11-22 18:05:55','2025-11-22 18:05:55');
+INSERT INTO `currencies` VALUES (1,'RUPIAH','IDR','RP',',','.',NULL,'2025-12-01 13:15:27','2025-12-01 13:15:27');
 /*!40000 ALTER TABLE `currencies` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -373,11 +374,14 @@ CREATE TABLE `customers` (
   `tier` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `payment_term_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `customers_setting_id_foreign` (`setting_id`),
+  UNIQUE KEY `customers_setting_phone_unique` (`setting_id`,`customer_phone`),
+  UNIQUE KEY `customers_setting_email_unique` (`setting_id`,`customer_email`),
+  UNIQUE KEY `customers_setting_identity_unique` (`setting_id`,`identity_number`),
+  UNIQUE KEY `customers_setting_npwp_unique` (`setting_id`,`npwp`),
   KEY `customers_payment_term_id_foreign` (`payment_term_id`),
   CONSTRAINT `customers_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
   CONSTRAINT `customers_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -386,7 +390,7 @@ CREATE TABLE `customers` (
 
 LOCK TABLES `customers` WRITE;
 /*!40000 ALTER TABLE `customers` DISABLE KEYS */;
-INSERT INTO `customers` VALUES (1,'','','081221862551','','','','2025-11-22 18:16:48','2025-11-22 18:16:48',NULL,'WALK IN',NULL,'KP PONDOK BENDA','KP PONDOK BENDA',NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,'',NULL,858232),(2,'','','081249003893','','','','2025-11-22 18:17:06','2025-11-22 18:17:06',NULL,'GROSIR',NULL,'JALAN DIPONEGORO NO. 46','JALAN DIPONEGORO NO. 46',NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,'','WHOLESALER',858231),(3,'','','081249003893','','','','2025-11-22 18:17:23','2025-11-22 18:17:23',NULL,'RESELLER',NULL,'JALAN SWATANTRA V','JALAN SWATANTRA V',NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,'','RESELLER',858234),(4,'','','','','','','2025-11-24 18:20:14','2025-11-24 18:20:14',NULL,'TUAN TAKUR','','','',NULL,'','','','','','',1,'','WHOLESALER',NULL),(5,'','','','','','','2025-11-24 18:28:00','2025-11-24 18:28:00',NULL,'TIB','','','',NULL,'','','','','','',1,'','WHOLESALER',NULL),(6,'','','','','','','2025-11-24 18:31:29','2025-11-24 18:31:29',NULL,'SANDY','','','',NULL,'','','','','','',1,'','WHOLESALER',NULL);
+INSERT INTO `customers` VALUES (1,'','','081249003893','','','','2025-12-01 13:29:46','2025-12-01 13:29:46',NULL,'WALK IN',NULL,'JALAN SWATANTRA V','JALAN SWATANTRA V',NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,'',NULL,858232);
 /*!40000 ALTER TABLE `customers` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -420,7 +424,7 @@ CREATE TABLE `dispatch_details` (
   CONSTRAINT `dispatch_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `dispatch_details_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE,
   CONSTRAINT `dispatch_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -429,6 +433,7 @@ CREATE TABLE `dispatch_details` (
 
 LOCK TABLES `dispatch_details` WRITE;
 /*!40000 ALTER TABLE `dispatch_details` DISABLE KEYS */;
+INSERT INTO `dispatch_details` VALUES (1,NULL,1,1,1,1,1,NULL,'2025-12-01 13:37:21','2025-12-01 13:37:21'),(2,NULL,1,1,2,2,1,NULL,'2025-12-01 13:37:21','2025-12-01 13:37:21');
 /*!40000 ALTER TABLE `dispatch_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -448,7 +453,7 @@ CREATE TABLE `dispatches` (
   PRIMARY KEY (`id`),
   KEY `dispatches_sale_id_foreign` (`sale_id`),
   CONSTRAINT `dispatches_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -457,6 +462,7 @@ CREATE TABLE `dispatches` (
 
 LOCK TABLES `dispatches` WRITE;
 /*!40000 ALTER TABLE `dispatches` DISABLE KEYS */;
+INSERT INTO `dispatches` VALUES (1,1,'2025-12-01 00:00:00','2025-12-01 13:37:21','2025-12-01 13:37:21');
 /*!40000 ALTER TABLE `dispatches` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -692,7 +698,7 @@ CREATE TABLE `jobs` (
 
 LOCK TABLES `jobs` WRITE;
 /*!40000 ALTER TABLE `jobs` DISABLE KEYS */;
-INSERT INTO `jobs` VALUES (1,'default','{\"uuid\":\"d0fd0d78-1c74-4a56-9f96-a36e561ee02f\",\"displayName\":\"App\\\\Events\\\\PrintJobEvent\",\"job\":\"Illuminate\\\\Queue\\\\CallQueuedHandler@call\",\"maxTries\":null,\"maxExceptions\":null,\"failOnTimeout\":false,\"backoff\":null,\"timeout\":null,\"retryUntil\":null,\"data\":{\"commandName\":\"Illuminate\\\\Broadcasting\\\\BroadcastEvent\",\"command\":\"O:38:\\\"Illuminate\\\\Broadcasting\\\\BroadcastEvent\\\":14:{s:5:\\\"event\\\";O:24:\\\"App\\\\Events\\\\PrintJobEvent\\\":3:{s:11:\\\"htmlContent\\\";s:7861:\\\"<!DOCTYPE html>\\r\\n<html>\\r\\n<head>\\r\\n    <meta charset=\\\"utf-8\\\">\\r\\n    <meta http-equiv=\\\"X-UA-Compatible\\\" content=\\\"IE=edge\\\">\\r\\n    <title><\\/title>\\r\\n    <meta name=\\\"description\\\" content=\\\"\\\">\\r\\n    <meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1\\\">\\r\\n    <style>\\r\\n        * {\\r\\n            font-size: 12px;\\r\\n            line-height: 18px;\\r\\n            font-family: \'Ubuntu\', sans-serif;\\r\\n        }\\r\\n        h2 {\\r\\n            font-size: 16px;\\r\\n        }\\r\\n        td,\\r\\n        th,\\r\\n        tr,\\r\\n        table {\\r\\n            border-collapse: collapse;\\r\\n        }\\r\\n        tr {border-bottom: 1px dashed #ddd;}\\r\\n        td,th {padding: 7px 0;width: 50%;}\\r\\n\\r\\n        table {width: 100%;}\\r\\n        tfoot tr th:first-child {text-align: left;}\\r\\n\\r\\n        .centered {\\r\\n            text-align: center;\\r\\n            align-content: center;\\r\\n        }\\r\\n        small{font-size:11px;}\\r\\n\\r\\n        @media print {\\r\\n            * {\\r\\n                font-size:12px;\\r\\n                line-height: 20px;\\r\\n            }\\r\\n            td,th {padding: 5px 0;}\\r\\n            .hidden-print {\\r\\n                display: none !important;\\r\\n            }\\r\\n            tbody::after {\\r\\n                content: \'\';\\r\\n                display: block;\\r\\n                page-break-after: always;\\r\\n                page-break-inside: auto;\\r\\n                page-break-before: avoid;\\r\\n            }\\r\\n        }\\r\\n    <\\/style>\\r\\n<\\/head>\\r\\n<body>\\r\\n\\r\\n<div style=\\\"max-width:400px;margin:0 auto\\\">\\r\\n    <div id=\\\"receipt-data\\\">\\r\\n        <div class=\\\"centered\\\">\\r\\n            <h2 style=\\\"margin-bottom: 5px\\\">CV TIGA COMPUTER<\\/h2>\\r\\n\\r\\n            <p style=\\\"font-size: 11px;line-height: 15px;margin-top: 0\\\">\\r\\n                contactus@tiga-computer.com, 012345678901\\r\\n                <br>BIMA, NTB\\r\\n            <\\/p>\\r\\n        <\\/div>\\r\\n        \\r\\n        <p>\\r\\n            Date: 30 Nov, 2025<br>\\r\\n            Reference: PR-2025-11-00001<br>\\r\\n            Name: \\r\\n        <\\/p>\\r\\n\\r\\n                                    <table class=\\\"table-data\\\" style=\\\"margin-bottom: 10px;\\\">\\r\\n                    <tbody>\\r\\n                    <tr>\\r\\n                        <th colspan=\\\"3\\\" style=\\\"text-align:left;\\\">CV TIGA COMPUTER<\\/th>\\r\\n                    <\\/tr>\\r\\n                                            <tr>\\r\\n                            <td colspan=\\\"2\\\">\\r\\n                                KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET\\r\\n                                (1 x 55,000.00RP)\\r\\n                            <\\/td>\\r\\n                            <td style=\\\"text-align:right;vertical-align:bottom\\\">55,000.00RP<\\/td>\\r\\n                        <\\/tr>\\r\\n                    \\r\\n                                            <tr>\\r\\n                            <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Tax<\\/th>\\r\\n                            <th style=\\\"text-align:right\\\">0.00RP<\\/th>\\r\\n                        <\\/tr>\\r\\n                                                                <tr>\\r\\n                            <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Discount<\\/th>\\r\\n                            <th style=\\\"text-align:right\\\">0.00RP<\\/th>\\r\\n                        <\\/tr>\\r\\n                                                                <tr>\\r\\n                            <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Shipping<\\/th>\\r\\n                            <th style=\\\"text-align:right\\\">0.00RP<\\/th>\\r\\n                        <\\/tr>\\r\\n                                        <tr>\\r\\n                        <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Subtotal<\\/th>\\r\\n                        <th style=\\\"text-align:right\\\">55,000.00RP<\\/th>\\r\\n                    <\\/tr>\\r\\n                    <\\/tbody>\\r\\n                <\\/table>\\r\\n            \\r\\n            <table>\\r\\n                <tbody>\\r\\n                <tr>\\r\\n                    <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Grand Total<\\/th>\\r\\n                    <th style=\\\"text-align:right\\\">55,000.00RP<\\/th>\\r\\n                <\\/tr>\\r\\n                <tr style=\\\"background-color:#ddd;\\\">\\r\\n                    <td class=\\\"centered\\\" style=\\\"padding: 5px;\\\">\\r\\n                        Paid By: CASH\\r\\n                    <\\/td>\\r\\n                    <td class=\\\"centered\\\" style=\\\"padding: 5px;\\\">\\r\\n                        Amount: 100,000.00RP\\r\\n                    <\\/td>\\r\\n                <\\/tr>\\r\\n                                    <tr>\\r\\n                        <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Change<\\/th>\\r\\n                        <th style=\\\"text-align:right\\\">45,000.00RP<\\/th>\\r\\n                    <\\/tr>\\r\\n                                <tr style=\\\"border-bottom: 0;\\\">\\r\\n                    <td class=\\\"centered\\\" colspan=\\\"3\\\">\\r\\n                        <div style=\\\"margin-top: 10px;\\\">\\r\\n                            <?xml version=\\\"1.0\\\" standalone=\\\"no\\\"?>\\n<!DOCTYPE svg PUBLIC \\\"-\\/\\/W3C\\/\\/DTD SVG 1.1\\/\\/EN\\\" \\\"http:\\/\\/www.w3.org\\/Graphics\\/SVG\\/1.1\\/DTD\\/svg11.dtd\\\">\\n<svg width=\\\"211\\\" height=\\\"25\\\" version=\\\"1.1\\\" xmlns=\\\"http:\\/\\/www.w3.org\\/2000\\/svg\\\">\\n\\t<g id=\\\"bars\\\" fill=\\\"black\\\" stroke=\\\"none\\\">\\n\\t\\t<rect x=\\\"0\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"3\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"6\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"11\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"15\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"19\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"22\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"27\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"29\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"33\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"36\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"39\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"44\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"46\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"50\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"55\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"59\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"62\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"66\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"71\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"73\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"77\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"79\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"84\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"88\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"91\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"94\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"99\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"102\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"107\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"110\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"113\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"118\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"121\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"124\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"127\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"132\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"134\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"138\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"143\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"146\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"150\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"154\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"157\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"161\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"165\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"167\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"172\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"176\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"179\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"184\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"187\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"190\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"195\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"198\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"203\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"207\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"209\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"211\\\" y=\\\"0\\\" width=\\\"0\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"211\\\" y=\\\"0\\\" width=\\\"0\\\" height=\\\"25\\\" \\/>\\n\\t<\\/g>\\n<\\/svg>\\n\\r\\n                        <\\/div>\\r\\n                    <\\/td>\\r\\n                <\\/tr>\\r\\n                <\\/tbody>\\r\\n            <\\/table>\\r\\n            <\\/div>\\r\\n<\\/div>\\r\\n\\r\\n<\\/body>\\r\\n<\\/html>\\r\\n\\\";s:6:\\\"userId\\\";i:1;s:4:\\\"type\\\";s:8:\\\"pos-sale\\\";}s:5:\\\"tries\\\";N;s:7:\\\"timeout\\\";N;s:7:\\\"backoff\\\";N;s:13:\\\"maxExceptions\\\";N;s:10:\\\"connection\\\";N;s:5:\\\"queue\\\";N;s:15:\\\"chainConnection\\\";N;s:10:\\\"chainQueue\\\";N;s:19:\\\"chainCatchCallbacks\\\";N;s:5:\\\"delay\\\";N;s:11:\\\"afterCommit\\\";N;s:10:\\\"middleware\\\";a:0:{}s:7:\\\"chained\\\";a:0:{}}\"}}',0,NULL,1764517764,1764517764);
+INSERT INTO `jobs` VALUES (1,'default','{\"uuid\":\"2c03840d-8bf1-4e88-9d7a-4efd7d4519d7\",\"displayName\":\"App\\\\Events\\\\PrintJobEvent\",\"job\":\"Illuminate\\\\Queue\\\\CallQueuedHandler@call\",\"maxTries\":null,\"maxExceptions\":null,\"failOnTimeout\":false,\"backoff\":null,\"timeout\":null,\"retryUntil\":null,\"data\":{\"commandName\":\"Illuminate\\\\Broadcasting\\\\BroadcastEvent\",\"command\":\"O:38:\\\"Illuminate\\\\Broadcasting\\\\BroadcastEvent\\\":14:{s:5:\\\"event\\\";O:24:\\\"App\\\\Events\\\\PrintJobEvent\\\":3:{s:11:\\\"htmlContent\\\";s:8220:\\\"<!DOCTYPE html>\\r\\n<html>\\r\\n<head>\\r\\n    <meta charset=\\\"utf-8\\\">\\r\\n    <meta http-equiv=\\\"X-UA-Compatible\\\" content=\\\"IE=edge\\\">\\r\\n    <title><\\/title>\\r\\n    <meta name=\\\"description\\\" content=\\\"\\\">\\r\\n    <meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1\\\">\\r\\n    <style>\\r\\n        * {\\r\\n            font-size: 12px;\\r\\n            line-height: 18px;\\r\\n            font-family: \'Ubuntu\', sans-serif;\\r\\n        }\\r\\n        h2 {\\r\\n            font-size: 16px;\\r\\n        }\\r\\n        td,\\r\\n        th,\\r\\n        tr,\\r\\n        table {\\r\\n            border-collapse: collapse;\\r\\n        }\\r\\n        tr {border-bottom: 1px dashed #ddd;}\\r\\n        td,th {padding: 7px 0;width: 50%;}\\r\\n\\r\\n        table {width: 100%;}\\r\\n        tfoot tr th:first-child {text-align: left;}\\r\\n\\r\\n        .centered {\\r\\n            text-align: center;\\r\\n            align-content: center;\\r\\n        }\\r\\n        small{font-size:11px;}\\r\\n\\r\\n        @media print {\\r\\n            * {\\r\\n                font-size:12px;\\r\\n                line-height: 20px;\\r\\n            }\\r\\n            td,th {padding: 5px 0;}\\r\\n            .hidden-print {\\r\\n                display: none !important;\\r\\n            }\\r\\n            tbody::after {\\r\\n                content: \'\';\\r\\n                display: block;\\r\\n                page-break-after: always;\\r\\n                page-break-inside: auto;\\r\\n                page-break-before: avoid;\\r\\n            }\\r\\n        }\\r\\n    <\\/style>\\r\\n<\\/head>\\r\\n<body>\\r\\n\\r\\n<div style=\\\"max-width:400px;margin:0 auto\\\">\\r\\n    <div id=\\\"receipt-data\\\">\\r\\n        <div class=\\\"centered\\\">\\r\\n            <h2 style=\\\"margin-bottom: 5px\\\">CV TIGA COMPUTER<\\/h2>\\r\\n\\r\\n            <p style=\\\"font-size: 11px;line-height: 15px;margin-top: 0\\\">\\r\\n                contactus@tiga-computer.com, 012345678901\\r\\n                <br>BIMA, NTB\\r\\n            <\\/p>\\r\\n        <\\/div>\\r\\n        \\r\\n        <p>\\r\\n            Date: 01 Dec, 2025<br>\\r\\n            Reference: PR-2025-12-00001<br>\\r\\n            Name: \\r\\n        <\\/p>\\r\\n\\r\\n                                    <table class=\\\"table-data\\\" style=\\\"margin-bottom: 10px;\\\">\\r\\n                    <tbody>\\r\\n                    <tr>\\r\\n                        <th colspan=\\\"3\\\" style=\\\"text-align:left;\\\">CV TIGA COMPUTER<\\/th>\\r\\n                    <\\/tr>\\r\\n                                            <tr>\\r\\n                            <td colspan=\\\"2\\\">\\r\\n                                KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET\\r\\n                                (1 x 55,000.00RP)\\r\\n                            <\\/td>\\r\\n                            <td style=\\\"text-align:right;vertical-align:bottom\\\">55,000.00RP<\\/td>\\r\\n                        <\\/tr>\\r\\n                                            <tr>\\r\\n                            <td colspan=\\\"2\\\">\\r\\n                                INDOMIE AYAM BAWANG\\r\\n                                (1 x 3,500.00RP)\\r\\n                            <\\/td>\\r\\n                            <td style=\\\"text-align:right;vertical-align:bottom\\\">3,500.00RP<\\/td>\\r\\n                        <\\/tr>\\r\\n                    \\r\\n                                            <tr>\\r\\n                            <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Tax<\\/th>\\r\\n                            <th style=\\\"text-align:right\\\">0.00RP<\\/th>\\r\\n                        <\\/tr>\\r\\n                                                                <tr>\\r\\n                            <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Discount<\\/th>\\r\\n                            <th style=\\\"text-align:right\\\">0.00RP<\\/th>\\r\\n                        <\\/tr>\\r\\n                                                                <tr>\\r\\n                            <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Shipping<\\/th>\\r\\n                            <th style=\\\"text-align:right\\\">0.00RP<\\/th>\\r\\n                        <\\/tr>\\r\\n                                        <tr>\\r\\n                        <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Subtotal<\\/th>\\r\\n                        <th style=\\\"text-align:right\\\">58,500.00RP<\\/th>\\r\\n                    <\\/tr>\\r\\n                    <\\/tbody>\\r\\n                <\\/table>\\r\\n            \\r\\n            <table>\\r\\n                <tbody>\\r\\n                <tr>\\r\\n                    <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Grand Total<\\/th>\\r\\n                    <th style=\\\"text-align:right\\\">58,500.00RP<\\/th>\\r\\n                <\\/tr>\\r\\n                <tr style=\\\"background-color:#ddd;\\\">\\r\\n                    <td class=\\\"centered\\\" style=\\\"padding: 5px;\\\">\\r\\n                        Paid By: CASH\\r\\n                    <\\/td>\\r\\n                    <td class=\\\"centered\\\" style=\\\"padding: 5px;\\\">\\r\\n                        Amount: 60,000.00RP\\r\\n                    <\\/td>\\r\\n                <\\/tr>\\r\\n                                    <tr>\\r\\n                        <th colspan=\\\"2\\\" style=\\\"text-align:left\\\">Change<\\/th>\\r\\n                        <th style=\\\"text-align:right\\\">1,500.00RP<\\/th>\\r\\n                    <\\/tr>\\r\\n                                <tr style=\\\"border-bottom: 0;\\\">\\r\\n                    <td class=\\\"centered\\\" colspan=\\\"3\\\">\\r\\n                        <div style=\\\"margin-top: 10px;\\\">\\r\\n                            <?xml version=\\\"1.0\\\" standalone=\\\"no\\\"?>\\n<!DOCTYPE svg PUBLIC \\\"-\\/\\/W3C\\/\\/DTD SVG 1.1\\/\\/EN\\\" \\\"http:\\/\\/www.w3.org\\/Graphics\\/SVG\\/1.1\\/DTD\\/svg11.dtd\\\">\\n<svg width=\\\"211\\\" height=\\\"25\\\" version=\\\"1.1\\\" xmlns=\\\"http:\\/\\/www.w3.org\\/2000\\/svg\\\">\\n\\t<g id=\\\"bars\\\" fill=\\\"black\\\" stroke=\\\"none\\\">\\n\\t\\t<rect x=\\\"0\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"3\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"6\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"11\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"15\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"19\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"22\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"27\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"29\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"33\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"36\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"39\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"44\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"46\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"50\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"55\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"59\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"62\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"66\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"71\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"73\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"77\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"79\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"84\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"88\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"91\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"94\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"99\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"102\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"107\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"110\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"114\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"119\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"121\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"124\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"127\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"132\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"134\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"138\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"143\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"146\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"150\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"154\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"157\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"161\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"165\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"167\\\" y=\\\"0\\\" width=\\\"4\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"172\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"176\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"179\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"184\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"187\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"191\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"195\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"198\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"203\\\" y=\\\"0\\\" width=\\\"3\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"207\\\" y=\\\"0\\\" width=\\\"1\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"209\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"211\\\" y=\\\"0\\\" width=\\\"0\\\" height=\\\"25\\\" \\/>\\n\\t\\t<rect x=\\\"211\\\" y=\\\"0\\\" width=\\\"0\\\" height=\\\"25\\\" \\/>\\n\\t<\\/g>\\n<\\/svg>\\n\\r\\n                        <\\/div>\\r\\n                    <\\/td>\\r\\n                <\\/tr>\\r\\n                <\\/tbody>\\r\\n            <\\/table>\\r\\n            <\\/div>\\r\\n<\\/div>\\r\\n\\r\\n<\\/body>\\r\\n<\\/html>\\r\\n\\\";s:6:\\\"userId\\\";i:1;s:4:\\\"type\\\";s:8:\\\"pos-sale\\\";}s:5:\\\"tries\\\";N;s:7:\\\"timeout\\\";N;s:7:\\\"backoff\\\";N;s:13:\\\"maxExceptions\\\";N;s:10:\\\"connection\\\";N;s:5:\\\"queue\\\";N;s:15:\\\"chainConnection\\\";N;s:10:\\\"chainQueue\\\";N;s:19:\\\"chainCatchCallbacks\\\";N;s:5:\\\"delay\\\";N;s:11:\\\"afterCommit\\\";N;s:10:\\\"middleware\\\";a:0:{}s:7:\\\"chained\\\";a:0:{}}\"}}',0,NULL,1764574641,1764574641);
 /*!40000 ALTER TABLE `jobs` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -769,9 +775,9 @@ CREATE TABLE `locations` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `locations_setting_id_foreign` (`setting_id`),
+  UNIQUE KEY `locations_setting_name_unique` (`setting_id`,`name`),
   CONSTRAINT `locations_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -780,7 +786,7 @@ CREATE TABLE `locations` (
 
 LOCK TABLES `locations` WRITE;
 /*!40000 ALTER TABLE `locations` DISABLE KEYS */;
-INSERT INTO `locations` VALUES (1,1,'DISPLAY',NULL,'2025-11-22 18:45:28','2025-11-22 18:46:09');
+INSERT INTO `locations` VALUES (1,1,'DISPLAY',0.00,'2025-12-01 13:17:49','2025-12-01 13:17:49'),(2,2,'GUDANG VIRTUAL TOP IT DI TIGA COMPUTER',0.00,'2025-12-01 13:18:09','2025-12-01 13:18:09');
 /*!40000 ALTER TABLE `locations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -813,7 +819,7 @@ CREATE TABLE `media` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `media_uuid_unique` (`uuid`),
   KEY `media_model_type_model_id_index` (`model_type`,`model_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -822,7 +828,6 @@ CREATE TABLE `media` (
 
 LOCK TABLES `media` WRITE;
 /*!40000 ALTER TABLE `media` DISABLE KEYS */;
-INSERT INTO `media` VALUES (1,'Modules\\Purchase\\Entities\\PurchasePayment',1,'e4a4176e-7a5e-4589-845b-ac057e7bd80b','attachments','22c0c9ad-aa53-495d-be76-9db322506b3e','22c0c9ad-aa53-495d-be76-9db322506b3e.png','image/png','public','public',41151,'[]','[]','[]','[]',1,'2025-11-30 21:13:39','2025-11-30 21:13:39'),(2,'Modules\\Purchase\\Entities\\PurchasePayment',2,'ac2ca61f-d3e5-4897-a495-f895c7295a96','attachments','ee6e4802-2460-47af-b398-63a2523c5bb8','ee6e4802-2460-47af-b398-63a2523c5bb8.png','image/png','public','public',44318,'[]','[]','[]','[]',1,'2025-11-30 21:14:38','2025-11-30 21:14:38');
 /*!40000 ALTER TABLE `media` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -838,7 +843,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=159 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=161 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -847,7 +852,7 @@ CREATE TABLE `migrations` (
 
 LOCK TABLES `migrations` WRITE;
 /*!40000 ALTER TABLE `migrations` DISABLE KEYS */;
-INSERT INTO `migrations` VALUES (1,'0000_00_00_000000_create_websockets_statistics_entries_table',1),(2,'2014_10_12_000000_create_users_table',1),(3,'2014_10_12_100000_create_password_resets_table',1),(4,'2019_08_19_000000_create_failed_jobs_table',1),(5,'2019_12_14_000001_create_personal_access_tokens_table',1),(6,'2021_07_14_145038_create_categories_table',1),(7,'2021_07_14_145047_create_products_table',1),(8,'2021_07_15_211319_create_media_table',1),(9,'2021_07_16_010005_create_uploads_table',1),(10,'2021_07_16_220524_create_permission_tables',1),(11,'2021_07_22_003941_create_adjustments_table',1),(12,'2021_07_22_004043_create_adjusted_products_table',1),(13,'2021_07_28_192608_create_expense_categories_table',1),(14,'2021_07_28_192616_create_expenses_table',1),(15,'2021_07_29_165419_create_customers_table',1),(16,'2021_07_29_165440_create_suppliers_table',1),(17,'2021_07_31_015923_create_currencies_table',1),(18,'2021_07_31_140531_create_settings_table',1),(19,'2021_07_31_201003_create_sales_table',1),(20,'2021_07_31_212446_create_sale_details_table',1),(21,'2021_08_07_192203_create_sale_payments_table',1),(22,'2021_08_08_021108_create_purchases_table',1),(23,'2021_08_08_021131_create_purchase_payments_table',1),(24,'2021_08_08_021713_create_purchase_details_table',1),(25,'2021_08_08_175345_create_sale_returns_table',1),(26,'2021_08_08_175358_create_sale_return_details_table',1),(27,'2021_08_08_175406_create_sale_return_payments_table',1),(28,'2021_08_08_222603_create_purchase_returns_table',1),(29,'2021_08_08_222612_create_purchase_return_details_table',1),(30,'2021_08_08_222646_create_purchase_return_payments_table',1),(31,'2021_08_16_015031_create_quotations_table',1),(32,'2021_08_16_155013_create_quotation_details_table',1),(33,'2023_07_01_184221_create_units_table',1),(34,'2024_08_04_005934_create_user_setting_table',1),(35,'2024_08_05_021746_add_role_id_to_user_setting_table',1),(36,'2024_08_11_212922_add_brand_table',1),(37,'2024_08_12_034946_add_columns_to_categories_table',1),(38,'2024_08_12_213842_add_product_unit_conversions',1),(39,'2024_08_12_221237_add_unit_conversion_columns_to_products_table',1),(40,'2024_08_12_224144_add_setting_id_to_unit_table',1),(41,'2024_08_14_213433_add_locations_table',1),(42,'2024_08_15_220615_update_products_table_add_brand_stock_managed_and_nullable_category',1),(43,'2024_08_17_130443_add_barcode_and_profit_percentage',1),(44,'2024_08_17_130538_add_barcode',1),(45,'2024_08_17_143435_modify_product_foreign_relations',1),(46,'2024_08_20_104656_add_transactions_table',1),(47,'2024_08_23_233053_add_init_to_transaction_type_enum',1),(48,'2024_08_27_163344_add_type_and_status_to_adjustments_table',1),(49,'2024_08_27_184310_add_location_id_to_adjustments_table',1),(50,'2024_08_28_075105_add_broken_quantity_to_products_table',1),(51,'2024_09_03_172838_add_sale_and_purchase_price_and_tax_to_products_table',1),(52,'2024_09_05_222624_add_suppliers_info',1),(53,'2024_09_08_151743_add_stock_transfer_table',1),(54,'2024_09_08_151758_add_stock_transfer_product_table',1),(55,'2024_09_09_215715_add_setting_info_product_table',1),(56,'2024_09_09_224310_add_info_to_customer_table',1),(57,'2024_09_11_223749_add_additional_info_to_customer_table',1),(58,'2024_09_13_230003_add_taxes_table',1),(59,'2024_09_26_115105_add_serial_number_required',1),(60,'2024_09_26_115759_add_serial_number_table',1),(61,'2024_09_27_132637_add_product_stock_table',1),(62,'2024_10_03_225620_add_product_stock_info',1),(63,'2024_10_04_041346_add_product_tax_info',1),(64,'2024_10_29_120721_move_product_price_info',1),(65,'2024_10_29_174735_update_monetary_fields_to_decimal',1),(66,'2024_10_29_190105_add_setting_id_to_purchases_table',1),(67,'2024_10_29_190200_add_due_date_and_tax_id_to_purchases_table',1),(68,'2024_11_10_172538_create_audits_table',1),(69,'2024_11_27_075302_create_chart_of_accounts_table',1),(70,'2024_11_27_154759_add_payment_terms_table',1),(71,'2024_11_28_182827_add_payment_term_to_purchase_table',1),(72,'2024_11_28_184238_drop_supplier_name_from_purchases_table',1),(73,'2024_11_28_190002_add_tax_id_to_purchase_details_table',1),(74,'2024_11_28_190035_add_is_tax_included_to_purchases_table',1),(75,'2024_12_24_130535_create_received_notes_table',1),(76,'2024_12_24_131049_create_received_note_details_table',1),(77,'2025_01_07_185557_update_sales_table',1),(78,'2025_01_07_185711_update_sales_detail_table',1),(79,'2025_01_15_213903_add_payment_term_on_supplier',1),(80,'2025_01_15_213914_add_payment_term_on_customer',1),(81,'2025_01_22_190525_create_payment_methods_table',1),(82,'2025_01_22_201548_add_setting_id_on_coa',1),(83,'2025_01_24_195335_add_attachment_to_purchase_payment_table',1),(84,'2025_02_04_190016_add_receive_detail_id_to_product_serial_numbers',1),(85,'2025_02_16_181943_add_is_broken_to_product_serial_numbers',1),(86,'2025_02_16_185317_add_serial_numbers_to_adjusted_products',1),(87,'2025_02_17_155756_add_is_taxable_to_adjusted_products',1),(88,'2025_02_18_155755_add_po_id_to_purchase_return_details',1),(89,'2025_02_24_135737_add_tier_prices_to_product_table',1),(90,'2025_02_24_155406_add_tier_to_customers_table',1),(91,'2025_02_28_192255_add_product_bundles_table',1),(92,'2025_03_02_130536_add_product_bundle_items_table',1),(93,'2025_03_16_165122_create_journal_tables',1),(94,'2025_03_16_165139_create_journal_item_tables',1),(95,'2025_03_23_075342_update_sales_table_add_due_date_and_is_tax_included',1),(96,'2025_03_23_075357_create_sale_bundle_items_table',1),(97,'2025_03_25_133915_create_dispatch_table',1),(98,'2025_03_25_133919_create_dispatch_detail_table',1),(99,'2025_03_30_154014_add_dispatch_detail_id_to_product_serial_number_table',1),(100,'2025_04_03_151257_add_location_id_and_serial_numbers_dispatch_detail_table',1),(101,'2025_04_03_152358_remove_location_id_from_dispatch_table',1),(102,'2025_04_04_152113_add_payment_method_relation_to_sale_payment_table',1),(103,'2025_04_04_155829_update_amount_to_decimal_sale_payments_table',1),(104,'2025_04_04_160848_update_amount_to_decimal_from_sales_table',1),(105,'2025_04_07_183514_add_tax_id_to_dispatch_detail',1),(106,'2025_04_10_000000_downscale_sale_amounts',1),(107,'2025_04_11_163906_modify_transaction_table',1),(108,'2025_04_24_184159_add_price_to_product_conversion_table',1),(109,'2025_05_04_144041_add_price_to_product_bundles_table',1),(110,'2025_06_02_021018_add_setting_id_to_expense_tables',1),(111,'2025_06_14_175954_add_tax_columns_to_adjusted_products_table',1),(112,'2025_07_01_153916_create_expense_details_table',1),(113,'2025_07_02_173959_create_tag_tables',1),(114,'2025_07_21_151017_add_serial_number_ids_to_purchase_return_details_table',1),(115,'2025_07_28_181615_add_sale_prefix_column',1),(116,'2025_08_03_181507_add_serial_numbers_and_quantity_details',1),(117,'2025_08_06_174311_add_supplier_reference_no_to_purchase_table',1),(118,'2025_08_06_174543_add_sale_and_purchase_document_prefix_to_settings_table',1),(119,'2025_08_09_140912_add_is_pos_to_location_table',1),(120,'2025_08_19_183038_add_approval_and_return_type_to_purchase_returns',1),(121,'2025_08_19_183155_add_payment_method_id_to_purchase_return_payments',1),(122,'2025_08_19_183414_add_supplier_credits_for_purchase_returns',1),(123,'2025_08_19_183632_create_purchase_return_goods_table',1),(124,'2025_08_19_183857_standardize_money_columns_in_purchase_returns',1),(125,'2025_08_31_174825_create_product_price',1),(126,'2025_09_02_174017_create_import_batches',1),(127,'2025_09_02_174043_create_import_rows',1),(128,'2025_09_05_120000_add_return_flow_to_transfers_table',1),(129,'2025_09_05_120000_backfill_product_price_flags',1),(130,'2025_09_07_000001_add_location_and_setting_to_purchase_returns_table',1),(131,'2025_09_07_000002_add_settlement_tracking_to_purchase_returns_table',1),(132,'2025_09_10_120000_create_product_unit_conversion_prices_table',1),(133,'2025_09_23_070646_create_jobs_table',1),(134,'2025_09_23_100001_backfill_pending_purchase_returns',1),(135,'2025_09_23_120500_add_document_number_to_transfers_table',1),(136,'2025_09_30_120000_adjust_transfer_document_number_unique',1),(137,'2025_10_05_000001_create_cashier_cash_movements_table',1),(138,'2025_10_05_000001_remove_setting_id_from_shared_master_tables',1),(139,'2025_10_05_000001_update_price_columns_on_sale_bundle_items_table',1),(140,'2025_10_05_120000_enhance_sale_returns_with_settlement_structures',1),(141,'2025_10_10_000000_add_pos_flags_to_payment_methods_table',1),(142,'2025_11_05_000001_add_receiving_columns_to_sale_returns_table',1),(143,'2025_11_08_120000_create_sales_order_serial_tracking_table',1),(144,'2025_11_08_120001_add_serial_search_indexes',1),(145,'2025_11_08_120002_add_serial_number_ids_to_sale_details',1),(146,'2025_11_08_120003_create_global_sales_searches_table',1),(147,'2025_11_08_181647_create_global_sales_search_permission',1),(148,'2025_11_09_001508_create_global_purchase_and_sales_searches_table',1),(149,'2025_11_09_001528_add_search_indexes_for_global_search',1),(150,'2025_11_09_002049_create_global_purchase_and_sales_search_permission',1),(151,'2025_11_15_120000_create_setting_sale_locations_table',1),(152,'2025_12_01_000001_move_is_pos_to_setting_sale_locations',1),(153,'2026_01_01_000001_add_position_to_setting_sale_locations',1),(154,'2025_12_20_000000_create_pos_sessions_table',2),(155,'2025_12_20_000100_add_pos_session_columns',3),(156,'2026_03_10_000002_add_pos_monitoring_thresholds',3),(157,'2026_07_04_000001_create_pos_receipts_table',3),(158,'2025_09_10_000500_add_supplier_purchase_number_to_purchases_table',4);
+INSERT INTO `migrations` VALUES (1,'0000_00_00_000000_create_websockets_statistics_entries_table',1),(2,'2014_10_12_000000_create_users_table',1),(3,'2014_10_12_100000_create_password_resets_table',1),(4,'2019_08_19_000000_create_failed_jobs_table',1),(5,'2019_12_14_000001_create_personal_access_tokens_table',1),(6,'2021_07_14_145038_create_categories_table',1),(7,'2021_07_14_145047_create_products_table',1),(8,'2021_07_15_211319_create_media_table',1),(9,'2021_07_16_010005_create_uploads_table',1),(10,'2021_07_16_220524_create_permission_tables',1),(11,'2021_07_22_003941_create_adjustments_table',1),(12,'2021_07_22_004043_create_adjusted_products_table',1),(13,'2021_07_28_192608_create_expense_categories_table',1),(14,'2021_07_28_192616_create_expenses_table',1),(15,'2021_07_29_165419_create_customers_table',1),(16,'2021_07_29_165440_create_suppliers_table',1),(17,'2021_07_31_015923_create_currencies_table',1),(18,'2021_07_31_140531_create_settings_table',1),(19,'2021_07_31_201003_create_sales_table',1),(20,'2021_07_31_212446_create_sale_details_table',1),(21,'2021_08_07_192203_create_sale_payments_table',1),(22,'2021_08_08_021108_create_purchases_table',1),(23,'2021_08_08_021131_create_purchase_payments_table',1),(24,'2021_08_08_021713_create_purchase_details_table',1),(25,'2021_08_08_175345_create_sale_returns_table',1),(26,'2021_08_08_175358_create_sale_return_details_table',1),(27,'2021_08_08_175406_create_sale_return_payments_table',1),(28,'2021_08_08_222603_create_purchase_returns_table',1),(29,'2021_08_08_222612_create_purchase_return_details_table',1),(30,'2021_08_08_222646_create_purchase_return_payments_table',1),(31,'2021_08_16_015031_create_quotations_table',1),(32,'2021_08_16_155013_create_quotation_details_table',1),(33,'2023_07_01_184221_create_units_table',1),(34,'2024_08_04_005934_create_user_setting_table',1),(35,'2024_08_05_021746_add_role_id_to_user_setting_table',1),(36,'2024_08_11_212922_add_brand_table',1),(37,'2024_08_12_034946_add_columns_to_categories_table',1),(38,'2024_08_12_213842_add_product_unit_conversions',1),(39,'2024_08_12_221237_add_unit_conversion_columns_to_products_table',1),(40,'2024_08_12_224144_add_setting_id_to_unit_table',1),(41,'2024_08_14_213433_add_locations_table',1),(42,'2024_08_15_220615_update_products_table_add_brand_stock_managed_and_nullable_category',1),(43,'2024_08_17_130443_add_barcode_and_profit_percentage',1),(44,'2024_08_17_130538_add_barcode',1),(45,'2024_08_17_143435_modify_product_foreign_relations',1),(46,'2024_08_20_104656_add_transactions_table',1),(47,'2024_08_23_233053_add_init_to_transaction_type_enum',1),(48,'2024_08_27_163344_add_type_and_status_to_adjustments_table',1),(49,'2024_08_27_184310_add_location_id_to_adjustments_table',1),(50,'2024_08_28_075105_add_broken_quantity_to_products_table',1),(51,'2024_09_03_172838_add_sale_and_purchase_price_and_tax_to_products_table',1),(52,'2024_09_05_222624_add_suppliers_info',1),(53,'2024_09_08_151743_add_stock_transfer_table',1),(54,'2024_09_08_151758_add_stock_transfer_product_table',1),(55,'2024_09_09_215715_add_setting_info_product_table',1),(56,'2024_09_09_224310_add_info_to_customer_table',1),(57,'2024_09_11_223749_add_additional_info_to_customer_table',1),(58,'2024_09_13_230003_add_taxes_table',1),(59,'2024_09_26_115105_add_serial_number_required',1),(60,'2024_09_26_115759_add_serial_number_table',1),(61,'2024_09_27_132637_add_product_stock_table',1),(62,'2024_10_03_225620_add_product_stock_info',1),(63,'2024_10_04_041346_add_product_tax_info',1),(64,'2024_10_29_120721_move_product_price_info',1),(65,'2024_10_29_174735_update_monetary_fields_to_decimal',1),(66,'2024_10_29_190105_add_setting_id_to_purchases_table',1),(67,'2024_10_29_190200_add_due_date_and_tax_id_to_purchases_table',1),(68,'2024_11_10_172538_create_audits_table',1),(69,'2024_11_27_075302_create_chart_of_accounts_table',1),(70,'2024_11_27_154759_add_payment_terms_table',1),(71,'2024_11_28_182827_add_payment_term_to_purchase_table',1),(72,'2024_11_28_184238_drop_supplier_name_from_purchases_table',1),(73,'2024_11_28_190002_add_tax_id_to_purchase_details_table',1),(74,'2024_11_28_190035_add_is_tax_included_to_purchases_table',1),(75,'2024_12_24_130535_create_received_notes_table',1),(76,'2024_12_24_131049_create_received_note_details_table',1),(77,'2025_01_07_185557_update_sales_table',1),(78,'2025_01_07_185711_update_sales_detail_table',1),(79,'2025_01_15_213903_add_payment_term_on_supplier',1),(80,'2025_01_15_213914_add_payment_term_on_customer',1),(81,'2025_01_22_190525_create_payment_methods_table',1),(82,'2025_01_22_201548_add_setting_id_on_coa',1),(83,'2025_01_24_195335_add_attachment_to_purchase_payment_table',1),(84,'2025_02_04_190016_add_receive_detail_id_to_product_serial_numbers',1),(85,'2025_02_16_181943_add_is_broken_to_product_serial_numbers',1),(86,'2025_02_16_185317_add_serial_numbers_to_adjusted_products',1),(87,'2025_02_17_155756_add_is_taxable_to_adjusted_products',1),(88,'2025_02_18_155755_add_po_id_to_purchase_return_details',1),(89,'2025_02_24_135737_add_tier_prices_to_product_table',1),(90,'2025_02_24_155406_add_tier_to_customers_table',1),(91,'2025_02_28_192255_add_product_bundles_table',1),(92,'2025_03_02_130536_add_product_bundle_items_table',1),(93,'2025_03_16_165122_create_journal_tables',1),(94,'2025_03_16_165139_create_journal_item_tables',1),(95,'2025_03_23_075342_update_sales_table_add_due_date_and_is_tax_included',1),(96,'2025_03_23_075357_create_sale_bundle_items_table',1),(97,'2025_03_25_133915_create_dispatch_table',1),(98,'2025_03_25_133919_create_dispatch_detail_table',1),(99,'2025_03_30_154014_add_dispatch_detail_id_to_product_serial_number_table',1),(100,'2025_04_03_151257_add_location_id_and_serial_numbers_dispatch_detail_table',1),(101,'2025_04_03_152358_remove_location_id_from_dispatch_table',1),(102,'2025_04_04_152113_add_payment_method_relation_to_sale_payment_table',1),(103,'2025_04_04_155829_update_amount_to_decimal_sale_payments_table',1),(104,'2025_04_04_160848_update_amount_to_decimal_from_sales_table',1),(105,'2025_04_07_183514_add_tax_id_to_dispatch_detail',1),(106,'2025_04_10_000000_downscale_sale_amounts',1),(107,'2025_04_11_163906_modify_transaction_table',1),(108,'2025_04_24_184159_add_price_to_product_conversion_table',1),(109,'2025_05_04_144041_add_price_to_product_bundles_table',1),(110,'2025_06_02_021018_add_setting_id_to_expense_tables',1),(111,'2025_06_14_175954_add_tax_columns_to_adjusted_products_table',1),(112,'2025_07_01_153916_create_expense_details_table',1),(113,'2025_07_02_173959_create_tag_tables',1),(114,'2025_07_21_151017_add_serial_number_ids_to_purchase_return_details_table',1),(115,'2025_07_28_181615_add_sale_prefix_column',1),(116,'2025_08_03_181507_add_serial_numbers_and_quantity_details',1),(117,'2025_08_06_174311_add_supplier_reference_no_to_purchase_table',1),(118,'2025_08_06_174543_add_sale_and_purchase_document_prefix_to_settings_table',1),(119,'2025_08_09_140912_add_is_pos_to_location_table',1),(120,'2025_08_19_183038_add_approval_and_return_type_to_purchase_returns',1),(121,'2025_08_19_183155_add_payment_method_id_to_purchase_return_payments',1),(122,'2025_08_19_183414_add_supplier_credits_for_purchase_returns',1),(123,'2025_08_19_183632_create_purchase_return_goods_table',1),(124,'2025_08_19_183857_standardize_money_columns_in_purchase_returns',1),(125,'2025_08_31_174825_create_product_price',1),(126,'2025_09_02_174017_create_import_batches',1),(127,'2025_09_02_174043_create_import_rows',1),(128,'2025_09_05_120000_add_return_flow_to_transfers_table',1),(129,'2025_09_05_120000_backfill_product_price_flags',1),(130,'2025_09_07_000001_add_location_and_setting_to_purchase_returns_table',1),(131,'2025_09_07_000002_add_settlement_tracking_to_purchase_returns_table',1),(132,'2025_09_10_000500_add_supplier_purchase_number_to_purchases_table',1),(133,'2025_09_10_120000_create_product_unit_conversion_prices_table',1),(134,'2025_09_23_070646_create_jobs_table',1),(135,'2025_09_23_100001_backfill_pending_purchase_returns',1),(136,'2025_09_23_120500_add_document_number_to_transfers_table',1),(137,'2025_09_30_120000_adjust_transfer_document_number_unique',1),(138,'2025_10_05_000001_create_cashier_cash_movements_table',1),(139,'2025_10_05_000001_remove_setting_id_from_shared_master_tables',1),(140,'2025_10_05_000001_update_price_columns_on_sale_bundle_items_table',1),(141,'2025_10_05_120000_enhance_sale_returns_with_settlement_structures',1),(142,'2025_10_10_000000_add_pos_flags_to_payment_methods_table',1),(143,'2025_11_05_000001_add_receiving_columns_to_sale_returns_table',1),(144,'2025_11_08_120000_create_sales_order_serial_tracking_table',1),(145,'2025_11_08_120001_add_serial_search_indexes',1),(146,'2025_11_08_120002_add_serial_number_ids_to_sale_details',1),(147,'2025_11_08_120003_create_global_sales_searches_table',1),(148,'2025_11_08_181647_create_global_sales_search_permission',1),(149,'2025_11_09_001508_create_global_purchase_and_sales_searches_table',1),(150,'2025_11_09_001528_add_search_indexes_for_global_search',1),(151,'2025_11_09_002049_create_global_purchase_and_sales_search_permission',1),(152,'2025_11_15_120000_create_setting_sale_locations_table',1),(153,'2025_12_01_000001_move_is_pos_to_setting_sale_locations',1),(154,'2025_12_01_083359_add_pos_document_prefix_to_settings_table',1),(155,'2025_12_01_130006_add_unique_constraints_across_entities',1),(156,'2025_12_20_000000_create_pos_sessions_table',1),(157,'2025_12_20_000100_add_pos_session_columns',1),(158,'2026_01_01_000001_add_position_to_setting_sale_locations',1),(159,'2026_03_10_000002_add_pos_monitoring_thresholds',1),(160,'2026_07_04_000001_create_pos_receipts_table',1);
 /*!40000 ALTER TABLE `migrations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -944,6 +949,7 @@ CREATE TABLE `payment_methods` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `payment_methods_name_unique` (`name`),
   KEY `payment_methods_coa_id_foreign` (`coa_id`),
   CONSTRAINT `payment_methods_coa_id_foreign` FOREIGN KEY (`coa_id`) REFERENCES `chart_of_accounts` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -955,7 +961,7 @@ CREATE TABLE `payment_methods` (
 
 LOCK TABLES `payment_methods` WRITE;
 /*!40000 ALTER TABLE `payment_methods` DISABLE KEYS */;
-INSERT INTO `payment_methods` VALUES (1,'CASH',1,1,1,'2025-11-22 18:05:55','2025-11-22 18:05:55');
+INSERT INTO `payment_methods` VALUES (1,'CASH',1,1,1,'2025-12-01 13:15:27','2025-12-01 13:15:27');
 /*!40000 ALTER TABLE `payment_methods` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1010,7 +1016,7 @@ CREATE TABLE `permissions` (
 
 LOCK TABLES `permissions` WRITE;
 /*!40000 ALTER TABLE `permissions` DISABLE KEYS */;
-INSERT INTO `permissions` VALUES (1,'globalSalesSearch.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(3,'adjustments.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(4,'adjustments.approval','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(5,'adjustments.breakage.approval','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(6,'adjustments.breakage.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(7,'adjustments.breakage.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(8,'adjustments.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(9,'adjustments.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(10,'adjustments.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(11,'adjustments.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(12,'adjustments.reject','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(13,'barcodes.print','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(14,'brands.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(15,'brands.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(16,'brands.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(17,'brands.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(18,'brands.view','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(19,'businesses.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(20,'businesses.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(21,'businesses.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(22,'businesses.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(23,'businesses.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(24,'categories.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(25,'categories.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(26,'categories.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(27,'categories.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(28,'chartOfAccounts.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(29,'chartOfAccounts.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(30,'chartOfAccounts.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(31,'chartOfAccounts.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(32,'chartOfAccounts.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(33,'currencies.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(34,'currencies.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(35,'currencies.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(36,'currencies.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(37,'customers.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(38,'customers.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(39,'customers.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(40,'customers.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(41,'customers.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(42,'expenseCategories.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(43,'expenseCategories.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(44,'expenseCategories.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(45,'expenseCategories.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(46,'expenses.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(47,'expenses.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(48,'expenses.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(49,'expenses.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(50,'journals.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(51,'journals.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(52,'journals.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(53,'journals.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(54,'journals.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(55,'locations.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(56,'locations.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(57,'locations.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(58,'saleLocations.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(59,'saleLocations.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(60,'paymentMethods.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(61,'paymentMethods.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(62,'paymentMethods.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(63,'paymentMethods.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(64,'paymentTerms.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(65,'paymentTerms.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(66,'paymentTerms.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(67,'paymentTerms.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(68,'pos.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(69,'pos.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(70,'products.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(71,'products.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(72,'products.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(73,'products.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(74,'products.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(75,'products.bundle.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(76,'products.bundle.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(77,'products.bundle.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(78,'products.bundle.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(79,'profiles.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(80,'purchases.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(81,'purchases.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(82,'purchases.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(83,'purchases.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(84,'purchases.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(85,'purchases.receive','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(86,'purchases.approval','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(87,'purchases.view','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(88,'purchaseReceivings.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(89,'purchaseReports.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(90,'purchasePayments.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(91,'purchasePayments.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(92,'purchasePayments.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(93,'purchasePayments.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(94,'purchaseReturns.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(95,'purchaseReturns.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(96,'purchaseReturns.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(97,'purchaseReturns.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(98,'purchaseReturns.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(99,'purchaseReturnPayments.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(100,'purchaseReturnPayments.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(101,'purchaseReturnPayments.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(102,'purchaseReturnPayments.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(103,'purchaseReturnPayments.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(104,'reports.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(105,'settings.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(106,'settings.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(107,'stockTransfers.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(108,'stockTransfers.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(109,'stockTransfers.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(110,'stockTransfers.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(111,'stockTransfers.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(112,'stockTransfers.dispatch','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(113,'stockTransfers.receive','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(114,'stockTransfers.approval','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(115,'suppliers.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(116,'suppliers.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(117,'suppliers.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(118,'suppliers.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(119,'suppliers.show','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(120,'taxes.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(121,'taxes.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(122,'taxes.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(123,'taxes.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(124,'units.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(125,'units.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(126,'units.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(127,'units.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(128,'users.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(129,'users.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(130,'users.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(131,'users.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(132,'roles.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(133,'roles.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(134,'roles.edit','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(135,'roles.delete','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(136,'salePayments.access','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(137,'salePayments.create','web','2025-11-22 18:05:54','2025-11-22 18:05:54'),(138,'salePayments.edit','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(139,'salePayments.delete','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(140,'saleReturnPayments.access','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(141,'saleReturnPayments.create','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(142,'saleReturnPayments.edit','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(143,'saleReturnPayments.delete','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(144,'salePayments.show','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(145,'saleReturns.access','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(146,'saleReturns.create','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(147,'saleReturns.edit','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(148,'saleReturns.delete','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(149,'saleReturns.show','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(150,'saleReturns.approve','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(151,'saleReturns.receive','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(152,'sales.access','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(153,'sales.create','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(154,'sales.edit','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(155,'sales.delete','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(156,'sales.dispatch','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(157,'sales.show','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(158,'sales.approval','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(159,'show_notifications','web','2025-11-22 18:05:55','2025-11-22 18:05:55');
+INSERT INTO `permissions` VALUES (1,'globalSalesSearch.access','web','2025-12-01 13:15:21','2025-12-01 13:15:21'),(3,'adjustments.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(4,'adjustments.approval','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(5,'adjustments.breakage.approval','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(6,'adjustments.breakage.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(7,'adjustments.breakage.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(8,'adjustments.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(9,'adjustments.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(10,'adjustments.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(11,'adjustments.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(12,'adjustments.reject','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(13,'barcodes.print','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(14,'brands.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(15,'brands.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(16,'brands.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(17,'brands.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(18,'brands.view','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(19,'businesses.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(20,'businesses.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(21,'businesses.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(22,'businesses.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(23,'businesses.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(24,'categories.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(25,'categories.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(26,'categories.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(27,'categories.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(28,'chartOfAccounts.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(29,'chartOfAccounts.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(30,'chartOfAccounts.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(31,'chartOfAccounts.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(32,'chartOfAccounts.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(33,'currencies.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(34,'currencies.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(35,'currencies.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(36,'currencies.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(37,'customers.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(38,'customers.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(39,'customers.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(40,'customers.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(41,'customers.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(42,'expenseCategories.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(43,'expenseCategories.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(44,'expenseCategories.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(45,'expenseCategories.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(46,'expenses.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(47,'expenses.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(48,'expenses.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(49,'expenses.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(50,'journals.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(51,'journals.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(52,'journals.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(53,'journals.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(54,'journals.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(55,'locations.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(56,'locations.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(57,'locations.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(58,'saleLocations.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(59,'saleLocations.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(60,'paymentMethods.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(61,'paymentMethods.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(62,'paymentMethods.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(63,'paymentMethods.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(64,'paymentTerms.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(65,'paymentTerms.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(66,'paymentTerms.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(67,'paymentTerms.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(68,'pos.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(69,'pos.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(70,'products.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(71,'products.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(72,'products.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(73,'products.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(74,'products.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(75,'products.bundle.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(76,'products.bundle.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(77,'products.bundle.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(78,'products.bundle.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(79,'profiles.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(80,'purchases.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(81,'purchases.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(82,'purchases.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(83,'purchases.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(84,'purchases.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(85,'purchases.receive','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(86,'purchases.approval','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(87,'purchases.view','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(88,'purchaseReceivings.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(89,'purchaseReports.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(90,'purchasePayments.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(91,'purchasePayments.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(92,'purchasePayments.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(93,'purchasePayments.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(94,'purchaseReturns.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(95,'purchaseReturns.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(96,'purchaseReturns.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(97,'purchaseReturns.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(98,'purchaseReturns.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(99,'purchaseReturnPayments.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(100,'purchaseReturnPayments.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(101,'purchaseReturnPayments.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(102,'purchaseReturnPayments.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(103,'purchaseReturnPayments.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(104,'reports.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(105,'settings.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(106,'settings.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(107,'stockTransfers.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(108,'stockTransfers.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(109,'stockTransfers.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(110,'stockTransfers.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(111,'stockTransfers.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(112,'stockTransfers.dispatch','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(113,'stockTransfers.receive','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(114,'stockTransfers.approval','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(115,'suppliers.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(116,'suppliers.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(117,'suppliers.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(118,'suppliers.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(119,'suppliers.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(120,'taxes.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(121,'taxes.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(122,'taxes.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(123,'taxes.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(124,'units.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(125,'units.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(126,'units.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(127,'units.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(128,'users.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(129,'users.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(130,'users.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(131,'users.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(132,'roles.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(133,'roles.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(134,'roles.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(135,'roles.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(136,'salePayments.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(137,'salePayments.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(138,'salePayments.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(139,'salePayments.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(140,'saleReturnPayments.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(141,'saleReturnPayments.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(142,'saleReturnPayments.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(143,'saleReturnPayments.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(144,'salePayments.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(145,'saleReturns.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(146,'saleReturns.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(147,'saleReturns.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(148,'saleReturns.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(149,'saleReturns.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(150,'saleReturns.approve','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(151,'saleReturns.receive','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(152,'sales.access','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(153,'sales.create','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(154,'sales.edit','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(155,'sales.delete','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(156,'sales.dispatch','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(157,'sales.show','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(158,'sales.approval','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(159,'show_notifications','web','2025-12-01 13:15:26','2025-12-01 13:15:26');
 /*!40000 ALTER TABLE `permissions` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1085,7 +1091,7 @@ CREATE TABLE `pos_receipts` (
 
 LOCK TABLES `pos_receipts` WRITE;
 /*!40000 ALTER TABLE `pos_receipts` DISABLE KEYS */;
-INSERT INTO `pos_receipts` VALUES (1,'PR-2025-11-00001',1,'',55000.00,100000.00,0.00,45000.00,'PAID','CASH','[{\"amount\": 100000, \"method_id\": 1, \"method_name\": \"CASH\"}]',NULL,2,'2025-11-30 21:49:24','2025-11-30 21:49:24');
+INSERT INTO `pos_receipts` VALUES (1,'PR-2025-12-00001',1,'',58500.00,60000.00,0.00,1500.00,'PAID','CASH','[{\"amount\": 60000, \"method_id\": 1, \"method_name\": \"CASH\"}]',NULL,1,'2025-12-01 13:37:21','2025-12-01 13:37:21');
 /*!40000 ALTER TABLE `pos_receipts` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1119,7 +1125,7 @@ CREATE TABLE `pos_sessions` (
   KEY `pos_sessions_started_at_index` (`started_at`),
   CONSTRAINT `pos_sessions_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `pos_sessions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1128,7 +1134,7 @@ CREATE TABLE `pos_sessions` (
 
 LOCK TABLES `pos_sessions` WRITE;
 /*!40000 ALTER TABLE `pos_sessions` DISABLE KEYS */;
-INSERT INTO `pos_sessions` VALUES (1,1,1,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',2000000.00,2000000.00,2000000.00,0.00,'closed','2025-11-24 22:01:58',NULL,NULL,'2025-11-26 17:09:53','2025-11-24 22:01:58','2025-11-26 17:09:53'),(2,1,1,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',100000.00,100000.00,NULL,NULL,'active','2025-11-26 17:17:34',NULL,NULL,NULL,'2025-11-26 17:17:34','2025-11-26 17:17:34');
+INSERT INTO `pos_sessions` VALUES (1,1,1,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',1000000.00,1000000.00,NULL,NULL,'active','2025-12-01 13:35:24',NULL,NULL,NULL,'2025-12-01 13:35:24','2025-12-01 13:35:24');
 /*!40000 ALTER TABLE `pos_sessions` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1307,7 +1313,7 @@ CREATE TABLE `product_prices` (
   CONSTRAINT `product_prices_purchase_tax_id_foreign` FOREIGN KEY (`purchase_tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `product_prices_sale_tax_id_foreign` FOREIGN KEY (`sale_tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `product_prices_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1316,7 +1322,7 @@ CREATE TABLE `product_prices` (
 
 LOCK TABLES `product_prices` WRITE;
 /*!40000 ALTER TABLE `product_prices` DISABLE KEYS */;
-INSERT INTO `product_prices` VALUES (1,1,1,55000.00,54000.00,53000.00,50000.00,50000.00,NULL,NULL,'2025-11-22 18:19:00','2025-11-22 18:19:00'),(2,1,2,55000.00,54000.00,53000.00,50000.00,50000.00,NULL,NULL,'2025-11-22 18:19:00','2025-11-22 18:19:00');
+INSERT INTO `product_prices` VALUES (1,1,1,55000.00,54000.00,53000.00,50000.00,50000.00,NULL,NULL,'2025-12-01 13:26:14','2025-12-01 13:26:14'),(2,1,2,55000.00,54000.00,53000.00,50000.00,50000.00,NULL,NULL,'2025-12-01 13:26:14','2025-12-01 13:26:14'),(3,2,1,3500.00,3400.00,3300.00,3000.00,3000.00,NULL,NULL,'2025-12-01 13:28:15','2025-12-01 13:28:15'),(4,2,2,3500.00,3400.00,3300.00,3000.00,3000.00,NULL,NULL,'2025-12-01 13:28:15','2025-12-01 13:28:15');
 /*!40000 ALTER TABLE `product_prices` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1390,7 +1396,7 @@ CREATE TABLE `product_stocks` (
   CONSTRAINT `product_stocks_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_stocks_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_stocks_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1399,7 +1405,7 @@ CREATE TABLE `product_stocks` (
 
 LOCK TABLES `product_stocks` WRITE;
 /*!40000 ALTER TABLE `product_stocks` DISABLE KEYS */;
-INSERT INTO `product_stocks` VALUES (1,1,1,199,199,0,0,0,0,NULL,'2025-11-22 18:47:02','2025-11-30 21:49:24');
+INSERT INTO `product_stocks` VALUES (1,1,1,99,99,0,0,0,0,NULL,'2025-12-01 13:32:02','2025-12-01 13:37:21'),(2,2,2,999,999,0,0,0,0,NULL,'2025-12-01 13:33:25','2025-12-01 13:37:21');
 /*!40000 ALTER TABLE `product_stocks` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1422,7 +1428,7 @@ CREATE TABLE `product_unit_conversion_prices` (
   KEY `conv_price_setting_fk` (`setting_id`),
   CONSTRAINT `conv_price_conversion_fk` FOREIGN KEY (`product_unit_conversion_id`) REFERENCES `product_unit_conversions` (`id`) ON DELETE CASCADE,
   CONSTRAINT `conv_price_setting_fk` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1431,7 +1437,7 @@ CREATE TABLE `product_unit_conversion_prices` (
 
 LOCK TABLES `product_unit_conversion_prices` WRITE;
 /*!40000 ALTER TABLE `product_unit_conversion_prices` DISABLE KEYS */;
-INSERT INTO `product_unit_conversion_prices` VALUES (1,1,1,270000.00,'2025-11-22 18:19:00','2025-11-22 18:19:00'),(2,1,2,270000.00,'2025-11-22 18:19:00','2025-11-22 18:19:00');
+INSERT INTO `product_unit_conversion_prices` VALUES (1,1,1,270000.00,'2025-12-01 13:26:14','2025-12-01 13:26:14'),(2,1,2,270000.00,'2025-12-01 13:26:14','2025-12-01 13:26:14'),(3,2,1,136000.00,'2025-12-01 13:28:15','2025-12-01 13:28:15'),(4,2,2,136000.00,'2025-12-01 13:28:15','2025-12-01 13:28:15');
 /*!40000 ALTER TABLE `product_unit_conversion_prices` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1458,7 +1464,7 @@ CREATE TABLE `product_unit_conversions` (
   CONSTRAINT `product_unit_conversions_base_unit_id_foreign` FOREIGN KEY (`base_unit_id`) REFERENCES `units` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_unit_conversions_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_unit_conversions_unit_id_foreign` FOREIGN KEY (`unit_id`) REFERENCES `units` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1467,7 +1473,7 @@ CREATE TABLE `product_unit_conversions` (
 
 LOCK TABLES `product_unit_conversions` WRITE;
 /*!40000 ALTER TABLE `product_unit_conversions` DISABLE KEYS */;
-INSERT INTO `product_unit_conversions` VALUES (1,1,3,2,5.00,NULL,'2025-11-22 18:19:00','2025-11-22 18:19:00');
+INSERT INTO `product_unit_conversions` VALUES (1,1,2,3,5.00,NULL,'2025-12-01 13:26:14','2025-12-01 13:26:14'),(2,2,2,1,40.00,NULL,'2025-12-01 13:28:15','2025-12-01 13:28:15');
 /*!40000 ALTER TABLE `product_unit_conversions` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1531,7 +1537,7 @@ CREATE TABLE `products` (
   CONSTRAINT `products_sale_tax_id_foreign` FOREIGN KEY (`sale_tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `products_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
   CONSTRAINT `products_unit_id_foreign` FOREIGN KEY (`unit_id`) REFERENCES `units` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1540,7 +1546,7 @@ CREATE TABLE `products` (
 
 LOCK TABLES `products` WRITE;
 /*!40000 ALTER TABLE `products` DISABLE KEYS */;
-INSERT INTO `products` VALUES (1,1,1,1,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',NULL,199,0,0,0,0,NULL,0.00,NULL,2,NULL,0,1,0,NULL,1,0.00,54000.00,53000.00,NULL,50000.00,50000.00,0,0,1,NULL,'2025-11-22 18:19:00','2025-11-30 21:49:24',NULL,NULL);
+INSERT INTO `products` VALUES (1,1,1,1,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SKU-000001',NULL,99,0,0,0,0,NULL,0.00,NULL,3,NULL,0,1,0,NULL,1,0.00,54000.00,53000.00,NULL,50000.00,50000.00,0,0,1,NULL,'2025-12-01 13:26:14','2025-12-01 13:37:21',NULL,NULL),(2,1,2,NULL,'INDOMIE AYAM BAWANG','SKU-000002',NULL,999,0,0,0,0,NULL,0.00,NULL,1,NULL,0,1,0,NULL,1,0.00,3400.00,3300.00,NULL,3000.00,3000.00,0,0,1,NULL,'2025-12-01 13:28:15','2025-12-01 13:37:21',NULL,NULL);
 /*!40000 ALTER TABLE `products` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1583,7 +1589,7 @@ CREATE TABLE `purchase_details` (
 
 LOCK TABLES `purchase_details` WRITE;
 /*!40000 ALTER TABLE `purchase_details` DISABLE KEYS */;
-INSERT INTO `purchase_details` VALUES (1,1,1,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',100,50000.00,50000.00,5000000.00,0.00,'FIXED',0.00,NULL,'2025-11-22 18:44:03','2025-11-22 18:44:03'),(2,2,1,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',100,50000.00,50000.00,5000000.00,0.00,'FIXED',0.00,NULL,'2025-11-30 21:11:19','2025-11-30 21:11:19');
+INSERT INTO `purchase_details` VALUES (1,1,1,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SKU-000001',100,50000.00,50000.00,5000000.00,0.00,'FIXED',0.00,NULL,'2025-12-01 13:31:14','2025-12-01 13:31:14'),(2,2,2,'INDOMIE AYAM BAWANG','SKU-000002',1000,3000.00,3000.00,3000000.00,0.00,'FIXED',0.00,NULL,'2025-12-01 13:32:59','2025-12-01 13:32:59');
 /*!40000 ALTER TABLE `purchase_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1641,7 +1647,7 @@ CREATE TABLE `purchase_payments` (
   KEY `purchase_payments_payment_method_id_foreign` (`payment_method_id`),
   CONSTRAINT `purchase_payments_payment_method_id_foreign` FOREIGN KEY (`payment_method_id`) REFERENCES `payment_methods` (`id`) ON DELETE CASCADE,
   CONSTRAINT `purchase_payments_purchase_id_foreign` FOREIGN KEY (`purchase_id`) REFERENCES `purchases` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1650,7 +1656,6 @@ CREATE TABLE `purchase_payments` (
 
 LOCK TABLES `purchase_payments` WRITE;
 /*!40000 ALTER TABLE `purchase_payments` DISABLE KEYS */;
-INSERT INTO `purchase_payments` VALUES (1,1,1,500000000.00,'2025-11-30','INV/TS-PR-2025-11-00001','',NULL,'2025-11-30 21:13:39','2025-11-30 21:13:39'),(2,1,2,500000000.00,'2025-11-30','INV/TS-PR-2025-11-00002','',NULL,'2025-11-30 21:14:38','2025-11-30 21:14:38');
 /*!40000 ALTER TABLE `purchase_payments` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1869,8 +1874,8 @@ CREATE TABLE `purchases` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `purchases_setting_reference_unique` (`setting_id`,`reference`),
   KEY `purchases_supplier_id_foreign` (`supplier_id`),
-  KEY `purchases_setting_id_foreign` (`setting_id`),
   KEY `purchases_tax_id_foreign` (`tax_id`),
   KEY `purchases_payment_term_id_foreign` (`payment_term_id`),
   CONSTRAINT `purchases_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
@@ -1886,7 +1891,7 @@ CREATE TABLE `purchases` (
 
 LOCK TABLES `purchases` WRITE;
 /*!40000 ALTER TABLE `purchases` DISABLE KEYS */;
-INSERT INTO `purchases` VALUES (1,'2025-11-22','2026-01-21','TS-PR-2025-11-00001',1,NULL,'JL1234.234',NULL,0,0.00,0.00,0.00,0.00,0.00,5000000.00,5000000.00,0.00,'RECEIVED','PAID','',NULL,858234,1,'2025-11-22 18:44:03','2025-11-30 21:13:39'),(2,'2025-11-30','2025-12-14','TS-PR-2025-11-00002',1,NULL,'JL1234.235',NULL,0,0.00,0.00,0.00,0.00,0.00,5000000.00,5000000.00,0.00,'RECEIVED','PAID','',NULL,873940,1,'2025-11-30 21:11:18','2025-11-30 21:14:38');
+INSERT INTO `purchases` VALUES (1,'2025-12-01','2026-01-30','TS-PR-2025-12-00001',1,NULL,NULL,NULL,0,0.00,0.00,0.00,0.00,0.00,5000000.00,0.00,5000000.00,'RECEIVED','UNPAID','',NULL,858234,1,'2025-12-01 13:31:14','2025-12-01 13:32:02'),(2,'2025-12-01','2026-01-30','TI-BL-2025-12-00002',1,NULL,NULL,NULL,0,0.00,0.00,0.00,0.00,0.00,3000000.00,0.00,3000000.00,'RECEIVED','UNPAID','',NULL,858234,2,'2025-12-01 13:32:59','2025-12-01 13:33:25');
 /*!40000 ALTER TABLE `purchases` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1953,6 +1958,7 @@ CREATE TABLE `quotations` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `quotations_reference_unique` (`reference`),
   KEY `quotations_customer_id_foreign` (`customer_id`),
   CONSTRAINT `quotations_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1995,7 +2001,7 @@ CREATE TABLE `received_note_details` (
 
 LOCK TABLES `received_note_details` WRITE;
 /*!40000 ALTER TABLE `received_note_details` DISABLE KEYS */;
-INSERT INTO `received_note_details` VALUES (1,1,1,100,'2025-11-22 18:47:02','2025-11-22 18:47:02'),(2,2,2,100,'2025-11-30 21:14:11','2025-11-30 21:14:11');
+INSERT INTO `received_note_details` VALUES (1,1,1,100,'2025-12-01 13:32:02','2025-12-01 13:32:02'),(2,2,2,1000,'2025-12-01 13:33:25','2025-12-01 13:33:25');
 /*!40000 ALTER TABLE `received_note_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2015,7 +2021,7 @@ CREATE TABLE `received_notes` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `received_notes_po_id_foreign` (`po_id`),
+  UNIQUE KEY `received_notes_po_external_unique` (`po_id`,`external_delivery_number`),
   CONSTRAINT `received_notes_po_id_foreign` FOREIGN KEY (`po_id`) REFERENCES `purchases` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -2026,7 +2032,7 @@ CREATE TABLE `received_notes` (
 
 LOCK TABLES `received_notes` WRITE;
 /*!40000 ALTER TABLE `received_notes` DISABLE KEYS */;
-INSERT INTO `received_notes` VALUES (1,1,'',NULL,'2025-11-22','2025-11-22 18:47:02','2025-11-22 18:47:02'),(2,2,'',NULL,'2025-11-30','2025-11-30 21:14:11','2025-11-30 21:14:11');
+INSERT INTO `received_notes` VALUES (1,1,'',NULL,'2025-12-01','2025-12-01 13:32:02','2025-12-01 13:32:02'),(2,2,'',NULL,'2025-12-01','2025-12-01 13:33:25','2025-12-01 13:33:25');
 /*!40000 ALTER TABLE `received_notes` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2081,7 +2087,7 @@ CREATE TABLE `roles` (
 
 LOCK TABLES `roles` WRITE;
 /*!40000 ALTER TABLE `roles` DISABLE KEYS */;
-INSERT INTO `roles` VALUES (1,'Admin','web','2025-11-22 18:05:55','2025-11-22 18:05:55'),(2,'Super Admin','web','2025-11-22 18:05:55','2025-11-22 18:05:55');
+INSERT INTO `roles` VALUES (1,'Admin','web','2025-12-01 13:15:26','2025-12-01 13:15:26'),(2,'Super Admin','web','2025-12-01 13:15:27','2025-12-01 13:15:27');
 /*!40000 ALTER TABLE `roles` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2164,7 +2170,7 @@ CREATE TABLE `sale_details` (
 
 LOCK TABLES `sale_details` WRITE;
 /*!40000 ALTER TABLE `sale_details` DISABLE KEYS */;
-INSERT INTO `sale_details` VALUES (1,1,1,NULL,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',1,55000.00,55000.00,55000.00,0.00,'FIXED',0.00,NULL,'2025-11-24 22:32:23','2025-11-24 22:32:23'),(2,2,1,NULL,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SIDU-PPR-A4',1,55000.00,55000.00,55000.00,0.00,'FIXED',0.00,NULL,'2025-11-30 21:49:24','2025-11-30 21:49:24');
+INSERT INTO `sale_details` VALUES (1,1,1,NULL,'KERTAS SINAR DUNIA A4 70 GSM 1 RIM 500 SHEET','SKU-000001',1,55000.00,55000.00,55000.00,0.00,'FIXED',0.00,NULL,'2025-12-01 13:37:21','2025-12-01 13:37:21'),(2,1,2,NULL,'INDOMIE AYAM BAWANG','SKU-000002',1,3500.00,3500.00,3500.00,0.00,'FIXED',0.00,NULL,'2025-12-01 13:37:21','2025-12-01 13:37:21');
 /*!40000 ALTER TABLE `sale_details` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2237,7 +2243,7 @@ CREATE TABLE `sale_payments` (
 
 LOCK TABLES `sale_payments` WRITE;
 /*!40000 ALTER TABLE `sale_payments` DISABLE KEYS */;
-INSERT INTO `sale_payments` VALUES (1,1,2,2,1,55000.00,'2025-11-30','INV/TS-SL-2025-11-00002','CASH',NULL,'2025-11-30 21:49:24','2025-11-30 21:49:24');
+INSERT INTO `sale_payments` VALUES (1,1,1,1,1,58500.00,'2025-12-01','INV/TS-SL-2025-12-00001','CASH',NULL,'2025-12-01 13:37:21','2025-12-01 13:37:21');
 /*!40000 ALTER TABLE `sale_payments` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2406,9 +2412,9 @@ CREATE TABLE `sale_returns` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `sale_returns_setting_reference_unique` (`setting_id`,`reference`),
   KEY `sale_returns_customer_id_foreign` (`customer_id`),
   KEY `sale_returns_sale_id_foreign` (`sale_id`),
-  KEY `sale_returns_setting_id_foreign` (`setting_id`),
   KEY `sale_returns_location_id_foreign` (`location_id`),
   KEY `sale_returns_approval_status_index` (`approval_status`),
   KEY `sale_returns_return_type_index` (`return_type`),
@@ -2471,6 +2477,7 @@ CREATE TABLE `sales` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `sales_setting_reference_unique` (`setting_id`,`reference`),
   KEY `sales_customer_id_foreign` (`customer_id`),
   KEY `sales_payment_term_id_foreign` (`payment_term_id`),
   KEY `sales_tax_id_foreign` (`tax_id`),
@@ -2489,7 +2496,7 @@ CREATE TABLE `sales` (
   CONSTRAINT `sales_pos_session_id_foreign` FOREIGN KEY (`pos_session_id`) REFERENCES `pos_sessions` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2498,7 +2505,7 @@ CREATE TABLE `sales` (
 
 LOCK TABLES `sales` WRITE;
 /*!40000 ALTER TABLE `sales` DISABLE KEYS */;
-INSERT INTO `sales` VALUES (1,'2025-11-24','2025-12-01',0,'TS-SL-2025-11-00001',1,NULL,NULL,1,NULL,NULL,'',0,0.00,0,0.00,0.00,55000.00,0.00,55000.00,'DRAFTED','UNPAID','','','2025-11-24 22:32:23','2025-11-24 22:32:23'),(2,'2025-11-30',NULL,0,'TS-SL-2025-11-00002',1,NULL,NULL,1,2,1,'',0,0.00,0,0.00,0.00,55000.00,55000.00,0.00,'COMPLETED','PAID','CASH',NULL,'2025-11-30 21:49:24','2025-11-30 21:49:24');
+INSERT INTO `sales` VALUES (1,'2025-12-01',NULL,0,'TS-SL-2025-12-00001',1,NULL,NULL,1,1,1,'',0,0.00,0,0.00,0.00,58500.00,58500.00,0.00,'COMPLETED','PAID','CASH',NULL,'2025-12-01 13:37:21','2025-12-01 13:37:21');
 /*!40000 ALTER TABLE `sales` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2557,7 +2564,7 @@ CREATE TABLE `setting_sale_locations` (
   KEY `setting_sale_locations_setting_id_index` (`setting_id`),
   CONSTRAINT `setting_sale_locations_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `setting_sale_locations_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2566,7 +2573,7 @@ CREATE TABLE `setting_sale_locations` (
 
 LOCK TABLES `setting_sale_locations` WRITE;
 /*!40000 ALTER TABLE `setting_sale_locations` DISABLE KEYS */;
-INSERT INTO `setting_sale_locations` VALUES (1,1,1,1,1,'2025-11-22 18:45:28','2025-11-24 18:36:09');
+INSERT INTO `setting_sale_locations` VALUES (1,1,1,1,1,'2025-12-01 13:17:49','2025-12-01 13:18:30'),(2,1,2,1,2,'2025-12-01 13:18:09','2025-12-01 13:18:43');
 /*!40000 ALTER TABLE `setting_sale_locations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2595,7 +2602,9 @@ CREATE TABLE `settings` (
   `sale_prefix_document` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `pos_idle_threshold_minutes` int unsigned NOT NULL DEFAULT '30',
   `pos_default_cash_threshold` decimal(15,2) NOT NULL DEFAULT '0.00',
-  PRIMARY KEY (`id`)
+  `pos_document_prefix` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `settings_company_name_unique` (`company_name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -2605,7 +2614,7 @@ CREATE TABLE `settings` (
 
 LOCK TABLES `settings` WRITE;
 /*!40000 ALTER TABLE `settings` DISABLE KEYS */;
-INSERT INTO `settings` VALUES (1,'CV TIGA COMPUTER','contactus@tiga-computer.com','012345678901',NULL,1,'PREFIX','notification@tiga-computer.com','CV TIGA COMPUTER © 2021','BIMA, NTB','2025-11-22 18:05:55','2025-11-22 18:05:55','TS','PR','SL',30,0.00),(2,'TOP IT','topit@mail.com','081249003893',NULL,1,'PREFIX','topit@mail.com','TOP IT © 2025','JALAN DIPONEGORO NO. 46','2025-11-22 18:07:12','2025-11-22 18:07:12','TI','PO','SL',30,0.00);
+INSERT INTO `settings` VALUES (1,'CV TIGA COMPUTER','contactus@tiga-computer.com','012345678901',NULL,1,'PREFIX','notification@tiga-computer.com','CV TIGA COMPUTER © 2021','BIMA, NTB','2025-12-01 13:15:27','2025-12-01 13:15:27','TS','PR','SL',30,0.00,NULL),(2,'TOP IT','topit@mail.com','081249003893',NULL,1,'PREFIX','topit@mail.com','TOP IT © 2025','JALAN SWATANTRA V','2025-12-01 13:17:16','2025-12-01 13:17:16','TI','BL','JL',30,0.00,'KS');
 /*!40000 ALTER TABLE `settings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2673,7 +2682,10 @@ CREATE TABLE `suppliers` (
   `setting_id` bigint unsigned NOT NULL,
   `payment_term_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `suppliers_setting_id_foreign` (`setting_id`),
+  UNIQUE KEY `suppliers_setting_name_unique` (`setting_id`,`supplier_name`),
+  UNIQUE KEY `suppliers_setting_phone_unique` (`setting_id`,`supplier_phone`),
+  UNIQUE KEY `suppliers_setting_email_unique` (`setting_id`,`supplier_email`),
+  UNIQUE KEY `suppliers_setting_identity_unique` (`setting_id`,`identity_number`),
   KEY `suppliers_payment_term_id_foreign` (`payment_term_id`),
   CONSTRAINT `suppliers_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
   CONSTRAINT `suppliers_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
@@ -2686,7 +2698,7 @@ CREATE TABLE `suppliers` (
 
 LOCK TABLES `suppliers` WRITE;
 /*!40000 ALTER TABLE `suppliers` DISABLE KEYS */;
-INSERT INTO `suppliers` VALUES (1,'PT SIDU TJAHAJA ASIA','','','','','','2025-11-22 18:16:17','2025-11-22 18:16:17','SALES SIDU','','',NULL,'','','','','','','',1,873940);
+INSERT INTO `suppliers` VALUES (1,'PT SIDU TJAHAJA ASIA','','','','','','2025-12-01 13:28:54','2025-12-01 13:28:54','SALES SIDU','','',NULL,'','','','','','','',1,858234);
 /*!40000 ALTER TABLE `suppliers` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2757,7 +2769,8 @@ CREATE TABLE `taxes` (
   `value` decimal(8,2) NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `taxes_name_unique` (`name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -2767,7 +2780,7 @@ CREATE TABLE `taxes` (
 
 LOCK TABLES `taxes` WRITE;
 /*!40000 ALTER TABLE `taxes` DISABLE KEYS */;
-INSERT INTO `taxes` VALUES (1,'PPN 11%',11.00,'2025-11-22 18:05:55','2025-11-22 18:05:55');
+INSERT INTO `taxes` VALUES (1,'PPN 11%',11.00,'2025-12-01 13:15:27','2025-12-01 13:15:27');
 /*!40000 ALTER TABLE `taxes` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2790,7 +2803,7 @@ CREATE TABLE `transactions` (
   `reason` text COLLATE utf8mb4_unicode_ci COMMENT 'Reason for the transaction',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
-  `type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Type of transaction',
   `previous_quantity` int NOT NULL,
   `after_quantity` int NOT NULL,
   `previous_quantity_at_location` int NOT NULL,
@@ -2817,7 +2830,7 @@ CREATE TABLE `transactions` (
 
 LOCK TABLES `transactions` WRITE;
 /*!40000 ALTER TABLE `transactions` DISABLE KEYS */;
-INSERT INTO `transactions` VALUES (1,1,1,100,100,0,1,1,'RECEIVED FROM PURCHASE ORDER #TS-PR-2025-11-00001','2025-11-22 18:47:02','2025-11-22 18:47:02','BUY',0,100,0,100,100,0,0,0),(2,1,1,100,200,0,1,1,'RECEIVED FROM PURCHASE ORDER #TS-PR-2025-11-00002','2025-11-30 21:14:11','2025-11-30 21:14:11','BUY',100,200,100,200,100,0,0,0);
+INSERT INTO `transactions` VALUES (1,1,1,100,100,0,1,1,'RECEIVED FROM PURCHASE ORDER #TS-PR-2025-12-00001','2025-12-01 13:32:02','2025-12-01 13:32:02','BUY',0,100,0,100,100,0,0,0),(2,2,2,1000,1000,0,2,1,'RECEIVED FROM PURCHASE ORDER #TI-BL-2025-12-00002','2025-12-01 13:33:25','2025-12-01 13:33:25','BUY',0,1000,0,1000,1000,0,0,0);
 /*!40000 ALTER TABLE `transactions` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2932,7 +2945,8 @@ CREATE TABLE `units` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `units_setting_id_foreign` (`setting_id`),
+  UNIQUE KEY `units_setting_name_unique` (`setting_id`,`name`),
+  UNIQUE KEY `units_setting_short_name_unique` (`setting_id`,`short_name`),
   CONSTRAINT `units_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -2943,7 +2957,7 @@ CREATE TABLE `units` (
 
 LOCK TABLES `units` WRITE;
 /*!40000 ALTER TABLE `units` DISABLE KEYS */;
-INSERT INTO `units` VALUES (1,NULL,'PIECE','PC(S)','*',1,'2025-11-22 18:05:55','2025-11-22 18:05:55'),(2,1,'RIM','RIM(S)',NULL,NULL,'2025-11-22 18:14:14','2025-11-22 18:14:14'),(3,1,'BOX','BOX(ES)',NULL,NULL,'2025-11-22 18:14:32','2025-11-22 18:14:32');
+INSERT INTO `units` VALUES (1,NULL,'PIECE','PC(S)','*',1,'2025-12-01 13:15:27','2025-12-01 13:15:27'),(2,1,'BOX','BOX(ES)',NULL,NULL,'2025-12-01 13:19:09','2025-12-01 13:19:09'),(3,1,'RIM','RIM(S)',NULL,NULL,'2025-12-01 13:19:19','2025-12-01 13:19:19');
 /*!40000 ALTER TABLE `units` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -3034,7 +3048,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'ADMINISTRATOR','super.admin@tiga-computer.com',NULL,'$2y$10$sIq7shmwYATIogz3qlPoSeIhtCoQv2PIbHV.G8DwT7RAg532kB8ky',1,NULL,'2025-11-22 18:05:55','2025-11-22 18:05:55');
+INSERT INTO `users` VALUES (1,'ADMINISTRATOR','super.admin@tiga-computer.com',NULL,'$2y$10$NTeBNOlXBp0LVidnf29dGuZnMEyx.mR.qKeAJIcGSQUUx5EsXb6Di',1,NULL,'2025-12-01 13:15:27','2025-12-01 13:15:27');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -3075,4 +3089,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-11-30 15:50:58
+-- Dump completed on 2025-12-01  7:38:16

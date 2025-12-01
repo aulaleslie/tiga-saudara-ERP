@@ -32,7 +32,7 @@ class CategoriesController extends Controller
 
         $validatedData = $request->validate([
             'category_code' => 'required|unique:categories',
-            'category_name' => 'required',
+            'category_name' => 'required|unique:categories,category_name,NULL,id,setting_id,' . session('setting_id'),
             'parent_id' => 'nullable|exists:categories,id',
         ]);
 
@@ -71,7 +71,7 @@ class CategoriesController extends Controller
 
         $request->validate([
             'category_code' => 'required|unique:categories,category_code,' . $id,
-            'category_name' => 'required',
+            'category_name' => 'required|unique:categories,category_name,' . $id . ',id,setting_id,' . session('setting_id'),
             'parent_id' => 'nullable|exists:categories,id' // Ensure parent_id is a valid category ID or null
         ]);
 

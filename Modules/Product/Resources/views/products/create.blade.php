@@ -37,7 +37,8 @@
                                     <x-input label="Nama Produk" name="product_name" required/>
                                 </div>
                                 <div class="col-md-6">
-                                    <x-input label="Kode Produk" name="product_code" required/>
+                                    <x-input label="Kode Produk" name="product_code"/>
+                                    <small class="form-text text-muted">Biarkan kosong untuk auto-generate (SKU-000001, SKU-000002, dll.)</small>
                                 </div>
                             </div>
 

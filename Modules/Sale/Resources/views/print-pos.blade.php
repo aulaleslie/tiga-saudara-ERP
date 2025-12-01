@@ -79,12 +79,9 @@
         </p>
 
         @if($receipt)
-            @foreach($receipt->sales as $tenantSale)
-                <table class="table-data" style="margin-bottom: 10px;">
-                    <tbody>
-                    <tr>
-                        <th colspan="3" style="text-align:left;">{{ $tenantSale->tenantSetting->company_name ?? 'Tenant #' . $tenantSale->setting_id }}</th>
-                    </tr>
+            <table class="table-data" style="margin-bottom: 10px;">
+                <tbody>
+                @foreach($receipt->sales as $tenantSale)
                     @foreach($tenantSale->saleDetails as $saleDetail)
                         <tr>
                             <td colspan="2">
@@ -94,32 +91,38 @@
                             <td style="text-align:right;vertical-align:bottom">{{ format_currency($saleDetail->sub_total) }}</td>
                         </tr>
                     @endforeach
+                @endforeach
 
-                    @if($tenantSale->tax_amount)
-                        <tr>
-                            <th colspan="2" style="text-align:left">Tax</th>
-                            <th style="text-align:right">{{ format_currency($tenantSale->tax_amount) }}</th>
-                        </tr>
-                    @endif
-                    @if($tenantSale->discount_amount)
-                        <tr>
-                            <th colspan="2" style="text-align:left">Discount</th>
-                            <th style="text-align:right">{{ format_currency($tenantSale->discount_amount) }}</th>
-                        </tr>
-                    @endif
-                    @if($tenantSale->shipping_amount)
-                        <tr>
-                            <th colspan="2" style="text-align:left">Shipping</th>
-                            <th style="text-align:right">{{ format_currency($tenantSale->shipping_amount) }}</th>
-                        </tr>
-                    @endif
+                @php
+                    $totalTax = $receipt->sales->sum('tax_amount');
+                    $totalDiscount = $receipt->sales->sum('discount_amount');
+                    $totalShipping = $receipt->sales->sum('shipping_amount');
+                @endphp
+
+                @if($totalTax)
                     <tr>
-                        <th colspan="2" style="text-align:left">Subtotal</th>
-                        <th style="text-align:right">{{ format_currency($tenantSale->total_amount) }}</th>
+                        <th colspan="2" style="text-align:left">Tax</th>
+                        <th style="text-align:right">{{ format_currency($totalTax) }}</th>
                     </tr>
-                    </tbody>
-                </table>
-            @endforeach
+                @endif
+                @if($totalDiscount)
+                    <tr>
+                        <th colspan="2" style="text-align:left">Discount</th>
+                        <th style="text-align:right">{{ format_currency($totalDiscount) }}</th>
+                    </tr>
+                @endif
+                @if($totalShipping)
+                    <tr>
+                        <th colspan="2" style="text-align:left">Shipping</th>
+                        <th style="text-align:right">{{ format_currency($totalShipping) }}</th>
+                    </tr>
+                @endif
+                <tr>
+                    <th colspan="2" style="text-align:left">Subtotal</th>
+                    <th style="text-align:right">{{ format_currency($receipt->total_amount) }}</th>
+                </tr>
+                </tbody>
+            </table>
 
             <table>
                 <tbody>

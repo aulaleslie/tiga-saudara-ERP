@@ -1432,52 +1432,97 @@ class Checkout extends Component
             $totalAvailableNonTax += $availableNonTax;
             $totalAvailableTax += $availableTax;
 
-            $locationAllocatedNonTax = 0;
-            $locationAllocatedTax = 0;
-
-            $forced = $forcedByLocation[$locationId] ?? null;
-            if ($forced) {
-                $forcedNonTax = min($availableNonTax, $forced['allocated_non_tax']);
-                $forcedTax = min($availableTax, $forced['allocated_tax']);
-
-                if ($forcedNonTax < $forced['allocated_non_tax'] || $forcedTax < $forced['allocated_tax']) {
-                    $sufficient = false;
-                }
-
-                $locationAllocatedNonTax += $forcedNonTax;
-                $locationAllocatedTax += $forcedTax;
-
-                $allocatedNonTax += $forcedNonTax;
-                $allocatedTax += $forcedTax;
-            }
-
-            $remainingForLocation = max(0, $quantity - ($allocatedNonTax + $allocatedTax));
-
-            if ($remainingForLocation > 0 && $locationAllocatedNonTax < $availableNonTax) {
-                $take = min($remainingForLocation, $availableNonTax - $locationAllocatedNonTax);
-                $locationAllocatedNonTax += $take;
-                $allocatedNonTax += $take;
-                $remainingForLocation -= $take;
-            }
-
-            if ($remainingForLocation > 0 && $locationAllocatedTax < $availableTax) {
-                $take = min($remainingForLocation, $availableTax - $locationAllocatedTax);
-                $locationAllocatedTax += $take;
-                $allocatedTax += $take;
-                $remainingForLocation -= $take;
-            }
-
-            $allocations[] = [
+            $allocations[$locationId] = [
                 'location_id' => $locationId,
-                'allocated_non_tax' => $locationAllocatedNonTax,
-                'allocated_tax' => $locationAllocatedTax,
+                'allocated_non_tax' => 0,
+                'allocated_tax' => 0,
                 'available_non_tax' => $availableNonTax,
                 'available_tax' => $availableTax,
-                'remaining_non_tax' => max(0, $availableNonTax - $locationAllocatedNonTax),
-                'remaining_tax' => max(0, $availableTax - $locationAllocatedTax),
-                'resolved_tax_id' => $locationAllocatedTax > 0 && $stockTaxId !== null ? (int) $stockTaxId : null,
+                'remaining_non_tax' => $availableNonTax,
+                'remaining_tax' => $availableTax,
+                'resolved_tax_id' => $availableTax > 0 && $stockTaxId !== null ? (int) $stockTaxId : null,
             ];
         }
+
+        // New priority logic: non-tax across ALL locations first, then tax across ALL locations
+        $remainingQuantity = $quantity;
+
+        // Phase 1: Allocate from non-tax quantity across all locations in priority order
+        foreach ($locationIds as $locationId) {
+            if ($remainingQuantity <= 0) {
+                break;
+            }
+
+            $allocation = &$allocations[$locationId];
+            $availableNonTax = $allocation['remaining_non_tax'];
+
+            if ($availableNonTax > 0) {
+                $take = min($remainingQuantity, $availableNonTax);
+                $allocation['allocated_non_tax'] += $take;
+                $allocation['remaining_non_tax'] -= $take;
+                $allocatedNonTax += $take;
+                $remainingQuantity -= $take;
+            }
+        }
+
+        // Phase 2: Allocate from tax quantity across all locations in priority order
+        foreach ($locationIds as $locationId) {
+            if ($remainingQuantity <= 0) {
+                break;
+            }
+
+            $allocation = &$allocations[$locationId];
+            $availableTax = $allocation['remaining_tax'];
+
+            if ($availableTax > 0) {
+                $take = min($remainingQuantity, $availableTax);
+                $allocation['allocated_tax'] += $take;
+                $allocation['remaining_tax'] -= $take;
+                $allocatedTax += $take;
+                $remainingQuantity -= $take;
+            }
+        }
+
+        // Handle forced allocations (override the above logic if specified)
+        foreach ($forcedByLocation as $locationId => $forced) {
+            if (!isset($allocations[$locationId])) {
+                continue;
+            }
+
+            $allocation = &$allocations[$locationId];
+            $forcedNonTax = min($allocation['available_non_tax'], $forced['allocated_non_tax']);
+            $forcedTax = min($allocation['available_tax'], $forced['allocated_tax']);
+
+            if ($forcedNonTax < $forced['allocated_non_tax'] || $forcedTax < $forced['allocated_tax']) {
+                $sufficient = false;
+            }
+
+            // Adjust allocations for forced amounts
+            $nonTaxDiff = $forcedNonTax - $allocation['allocated_non_tax'];
+            $taxDiff = $forcedTax - $allocation['allocated_tax'];
+
+            if ($nonTaxDiff > 0) {
+                $allocation['allocated_non_tax'] += $nonTaxDiff;
+                $allocation['remaining_non_tax'] -= $nonTaxDiff;
+                $allocatedNonTax += $nonTaxDiff;
+            } elseif ($nonTaxDiff < 0) {
+                $allocation['allocated_non_tax'] += $nonTaxDiff;
+                $allocation['remaining_non_tax'] -= $nonTaxDiff;
+                $allocatedNonTax += $nonTaxDiff;
+            }
+
+            if ($taxDiff > 0) {
+                $allocation['allocated_tax'] += $taxDiff;
+                $allocation['remaining_tax'] -= $taxDiff;
+                $allocatedTax += $taxDiff;
+            } elseif ($taxDiff < 0) {
+                $allocation['allocated_tax'] += $taxDiff;
+                $allocation['remaining_tax'] -= $taxDiff;
+                $allocatedTax += $taxDiff;
+            }
+        }
+
+        $allocations = array_values($allocations);
 
         $availableTotal = $totalAvailableNonTax + $totalAvailableTax;
 
