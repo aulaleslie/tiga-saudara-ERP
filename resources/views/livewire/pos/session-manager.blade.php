@@ -15,13 +15,33 @@
     </div>
     <div class="card-body">
         @if(!$session)
-            <form wire:submit.prevent="startSession" class="mb-0">
+            <form wire:submit.prevent="startSession" class="mb-0" id="startSessionForm">
                 <div class="form-group">
                     <label class="font-weight-bold">Modal Kas Awal</label>
                     <input type="text" wire:ignore.self id="cashFloatInput" class="form-control" placeholder="Masukkan modal kas">
                     @error('cashFloat') <span class="text-danger small">{{ $message }}</span> @enderror
                 </div>
-                <button type="submit" class="btn btn-primary">Mulai Sesi POS</button>
+
+                <!-- Printer Selection -->
+                <div class="form-group">
+                    <label class="font-weight-bold">
+                        <i class="bi bi-printer mr-1"></i> Konfigurasi Printer
+                    </label>
+                    <div class="input-group">
+                        <input type="text" id="printerNameInput" class="form-control" placeholder="Nama printer (contoh: EPSON TM-T82)" readonly>
+                        <div class="input-group-append">
+                            <button type="button" class="btn btn-outline-secondary" onclick="openPrinterSetupModal()">
+                                <i class="bi bi-gear"></i> Pilih
+                            </button>
+                        </div>
+                    </div>
+                    <small class="text-muted">Printer akan digunakan untuk mencetak struk. Klik "Pilih" untuk mengatur.</small>
+                    <div id="printerError" class="text-danger small mt-1" style="display: none;">
+                        Silakan pilih printer sebelum memulai sesi POS.
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="startSessionBtn">Mulai Sesi POS</button>
             </form>
         @else
             <div class="row">
@@ -104,10 +124,105 @@
 </div>
 
 @push('page_scripts')
+    <script src="{{ asset('js/pos-printer.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             initializeCashFloatInput();
+            initializePrinterSelection();
         });
+
+        function initializePrinterSelection() {
+            const printerInput = document.getElementById('printerNameInput');
+            if (!printerInput) return;
+
+            // Load stored printer name
+            const storedPrinter = window.PosPrinterManager.getStoredPrinter();
+            if (storedPrinter) {
+                printerInput.value = storedPrinter;
+            } else {
+                printerInput.value = '';
+                printerInput.placeholder = 'Belum dikonfigurasi - Klik "Pilih"';
+            }
+
+            // Intercept form submission to check printer
+            const form = document.getElementById('startSessionForm');
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    if (!window.PosPrinterManager.isPrinterConfigured()) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        document.getElementById('printerError').style.display = 'block';
+                        openPrinterSetupModal();
+                        return false;
+                    }
+                    document.getElementById('printerError').style.display = 'none';
+                });
+            }
+        }
+
+        function openPrinterSetupModal() {
+            const modal = document.getElementById('printerSetupModal');
+            if (modal) {
+                $('#printerSetupModal').modal('show');
+                // Pre-fill with stored printer name
+                const storedPrinter = window.PosPrinterManager.getStoredPrinter();
+                const modalInput = document.getElementById('modalPrinterName');
+                if (modalInput && storedPrinter) {
+                    modalInput.value = storedPrinter;
+                }
+            }
+        }
+
+        function savePrinterSelection() {
+            const printerName = document.getElementById('modalPrinterName').value.trim();
+            if (!printerName) {
+                alert('Silakan masukkan nama printer.');
+                return;
+            }
+
+            window.PosPrinterManager.savePrinter(printerName);
+
+            // Update display
+            const printerInput = document.getElementById('printerNameInput');
+            if (printerInput) {
+                printerInput.value = printerName;
+            }
+
+            document.getElementById('printerError').style.display = 'none';
+            $('#printerSetupModal').modal('hide');
+        }
+
+        function testPrinter() {
+            const printerName = document.getElementById('modalPrinterName').value.trim();
+            if (!printerName) {
+                alert('Silakan masukkan nama printer terlebih dahulu.');
+                return;
+            }
+
+            // Temporarily save for test
+            window.PosPrinterManager.savePrinter(printerName);
+
+            window.PosPrinterManager.testPrint()
+                .then(() => {
+                    alert('Test print berhasil dikirim! Periksa printer Anda.');
+                })
+                .catch((error) => {
+                    alert('Gagal mengirim test print: ' + error.message);
+                });
+        }
+
+        function clearPrinterSelection() {
+            window.PosPrinterManager.clearPrinter();
+            const printerInput = document.getElementById('printerNameInput');
+            if (printerInput) {
+                printerInput.value = '';
+                printerInput.placeholder = 'Belum dikonfigurasi - Klik "Pilih"';
+            }
+            const modalInput = document.getElementById('modalPrinterName');
+            if (modalInput) {
+                modalInput.value = '';
+            }
+        }
 
         function initializeCashFloatInput() {
             const input = document.getElementById('cashFloatInput');
@@ -154,3 +269,55 @@
         }
     </script>
 @endpush
+
+<!-- Printer Setup Modal -->
+<div class="modal fade" id="printerSetupModal" tabindex="-1" role="dialog" aria-labelledby="printerSetupModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="printerSetupModalLabel">
+                    <i class="bi bi-printer mr-2"></i> Konfigurasi Printer
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle mr-1"></i>
+                    <strong>Petunjuk:</strong> Masukkan nama printer thermal 80mm yang terhubung ke komputer ini.
+                    Pastikan printer sudah diatur sebagai printer default di sistem operasi jika menggunakan mode kiosk.
+                </div>
+
+                <div class="form-group">
+                    <label class="font-weight-bold">Nama Printer</label>
+                    <input type="text" id="modalPrinterName" class="form-control" placeholder="Contoh: EPSON TM-T82, Xprinter XP-58">
+                    <small class="text-muted">
+                        Masukkan nama printer sesuai yang tertera di sistem. Untuk mode kiosk Chrome, ini hanya sebagai referensi.
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label class="font-weight-bold">Tips Pengaturan:</label>
+                    <ul class="small text-muted mb-0">
+                        <li>Pastikan printer thermal 80mm sudah terpasang dan terdeteksi di komputer.</li>
+                        <li>Untuk Chrome kiosk mode, atur printer sebagai default di sistem operasi.</li>
+                        <li>Gunakan tombol "Test Print" untuk memastikan printer berfungsi.</li>
+                        <li>Pengaturan printer disimpan per perangkat (browser).</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger" onclick="clearPrinterSelection()">
+                    <i class="bi bi-trash mr-1"></i> Hapus
+                </button>
+                <button type="button" class="btn btn-outline-secondary" onclick="testPrinter()">
+                    <i class="bi bi-printer mr-1"></i> Test Print
+                </button>
+                <button type="button" class="btn btn-primary" onclick="savePrinterSelection()">
+                    <i class="bi bi-check-lg mr-1"></i> Simpan
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

@@ -44,7 +44,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('sales.invoicePdf');
 
     Route::get('/sales/pos/pdf/{id}', function ($id) {
-        $sale = Sale::with(['saleDetails.product', 'posReceipt.sales.saleDetails.product', 'posReceipt.sales.tenantSetting'])
+        $sale = Sale::with(['saleDetails.product.conversions.unit', 'saleDetails.product.conversions.prices', 'saleDetails.product.baseUnit', 'saleDetails.product.prices', 'customer', 'posReceipt.sales.saleDetails.product.conversions.unit', 'posReceipt.sales.saleDetails.product.conversions.prices', 'posReceipt.sales.saleDetails.product.baseUnit', 'posReceipt.sales.saleDetails.product.prices', 'posReceipt.sales.tenantSetting', 'posReceipt.sales.customer'])
             ->findOrFail($id);
 
         $receipt = $sale->posReceipt;

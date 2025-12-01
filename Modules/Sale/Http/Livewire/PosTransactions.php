@@ -72,7 +72,7 @@ class PosTransactions extends Component
 
     public function reprintReceipt($receiptId)
     {
-        $receipt = PosReceipt::with(['sales.saleDetails.product', 'sales.tenantSetting'])
+        $receipt = PosReceipt::with(['sales.saleDetails.product.conversions.unit', 'sales.saleDetails.product.conversions.prices', 'sales.saleDetails.product.baseUnit', 'sales.saleDetails.product.prices', 'sales.tenantSetting', 'sales.customer'])
             ->findOrFail($receiptId);
 
         // Check if receipt belongs to current tenant
@@ -86,7 +86,11 @@ class PosTransactions extends Component
                 'receipt' => $receipt,
             ])->render();
 
+            // Broadcast for legacy Echo listeners
             event(new PrintJobEvent($htmlContent, 'pos-sale', Auth::id()));
+
+            // Dispatch browser event for direct printing (kiosk mode)
+            $this->dispatch('pos-print-receipt', content: $htmlContent);
 
             session()->flash('success', 'Receipt reprint job sent successfully');
         } catch (\Exception $e) {

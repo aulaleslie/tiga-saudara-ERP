@@ -346,7 +346,7 @@ class PosController extends Controller
 
             DB::commit();
 
-            $posReceipt->loadMissing(['sales.saleDetails.product', 'sales.tenantSetting']);
+            $posReceipt->loadMissing(['sales.saleDetails.product.conversions.unit', 'sales.saleDetails.product.conversions.prices', 'sales.saleDetails.product.baseUnit', 'sales.saleDetails.product.prices', 'sales.tenantSetting', 'sales.customer']);
 
             $this->triggerReceiptPrint($posReceipt);
         } catch (Exception $e) {
@@ -365,6 +365,19 @@ class PosController extends Controller
         session()->flash('pos_change_due', $changeDue);
         session()->flash('pos_cash_overpayment', $hasCashOverpayment);
         session()->flash('pos_sale_completed', true);
+
+        // Store print content for direct browser printing (kiosk mode)
+        try {
+            $printHtml = view('sale::print-pos', [
+                'receipt' => $posReceipt,
+            ])->render();
+            session()->flash('pos_print_content', $printHtml);
+        } catch (Throwable $e) {
+            Log::warning('Failed to generate print content for session', [
+                'receipt_id' => $posReceipt->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         toast('POS Sale Created!', 'success');
 
@@ -1161,7 +1174,7 @@ class PosController extends Controller
         }
 
         try {
-            $receipt->loadMissing(['sales.saleDetails.product', 'sales.tenantSetting']);
+            $receipt->loadMissing(['sales.saleDetails.product.conversions.unit', 'sales.saleDetails.product.conversions.prices', 'sales.saleDetails.product.baseUnit', 'sales.saleDetails.product.prices', 'sales.tenantSetting', 'sales.customer']);
             $htmlContent = view('sale::print-pos', [
                 'receipt' => $receipt,
             ])->render();
@@ -1301,7 +1314,7 @@ class PosController extends Controller
         ->whereHas('posSession', function (Builder $query) use ($userId) {
             $query->where('user_id', $userId);
         })
-        ->with(['sales.saleDetails.product', 'sales.tenantSetting'])
+        ->with(['sales.saleDetails.product.conversions.unit', 'sales.saleDetails.product.conversions.prices', 'sales.saleDetails.product.baseUnit', 'sales.saleDetails.product.prices', 'sales.tenantSetting', 'sales.customer'])
         ->latest('created_at')
         ->first();
 
@@ -1310,6 +1323,19 @@ class PosController extends Controller
         }
 
         $this->triggerReceiptPrint($lastReceipt);
+
+        // Store print content for direct browser printing (kiosk mode)
+        try {
+            $printHtml = view('sale::print-pos', [
+                'receipt' => $lastReceipt,
+            ])->render();
+            session()->flash('pos_print_content', $printHtml);
+        } catch (Throwable $e) {
+            Log::warning('Failed to generate reprint content for session', [
+                'receipt_id' => $lastReceipt->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         return back()->with('success', 'Struk transaksi terakhir telah dikirim ke printer');
     }

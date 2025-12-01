@@ -14,6 +14,71 @@
 @endsection
 
 @section('content')
+    <!-- Printer Not Configured Overlay -->
+    <div id="printerNotConfiguredOverlay" class="position-fixed w-100 h-100 d-none" style="top: 0; left: 0; background: rgba(0,0,0,0.7); z-index: 9999;">
+        <div class="d-flex align-items-center justify-content-center h-100">
+            <div class="card shadow-lg" style="max-width: 500px;">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">
+                        <i class="bi bi-exclamation-triangle mr-2"></i> Printer Belum Dikonfigurasi
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="mb-3">
+                        Printer untuk mencetak struk belum dikonfigurasi di perangkat ini.
+                        Silakan konfigurasi printer terlebih dahulu sebelum melanjutkan.
+                    </p>
+                    <div class="alert alert-info">
+                        <small>
+                            <i class="bi bi-info-circle mr-1"></i>
+                            Pengaturan printer disimpan per perangkat. Jika Anda baru saja pindah ke perangkat baru atau menghapus data browser, konfigurasi printer perlu dilakukan ulang.
+                        </small>
+                    </div>
+                </div>
+                <div class="card-footer d-flex justify-content-between">
+                    <a href="{{ route('app.pos.session') }}" class="btn btn-primary">
+                        <i class="bi bi-gear mr-1"></i> Konfigurasi Printer
+                    </a>
+                    <button type="button" class="btn btn-outline-secondary" onclick="openQuickPrinterSetup()">
+                        <i class="bi bi-lightning mr-1"></i> Setup Cepat
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Printer Setup Modal -->
+    <div class="modal fade" id="quickPrinterSetupModal" tabindex="-1" role="dialog" aria-labelledby="quickPrinterSetupModalLabel" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="quickPrinterSetupModalLabel">
+                        <i class="bi bi-printer mr-2"></i> Setup Cepat Printer
+                    </h5>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle mr-1"></i>
+                        Masukkan nama printer thermal 80mm yang terhubung ke komputer ini.
+                    </div>
+
+                    <div class="form-group">
+                        <label class="font-weight-bold">Nama Printer</label>
+                        <input type="text" id="quickPrinterName" class="form-control" placeholder="Contoh: EPSON TM-T82, Xprinter XP-58">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" onclick="quickTestPrint()">
+                        <i class="bi bi-printer mr-1"></i> Test Print
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="quickSavePrinter()">
+                        <i class="bi bi-check-lg mr-1"></i> Simpan & Lanjutkan
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="container-fluid">
         <div class="row">
             <div class="col-12">
@@ -52,6 +117,87 @@
 @endsection
 
 @push('page_scripts')
+    <script src="{{ asset('js/pos-printer.js') }}"></script>
+    <script>
+        // Check printer configuration on page load
+        document.addEventListener('DOMContentLoaded', function () {
+            checkPrinterConfiguration();
+            handlePendingPrint();
+        });
+
+        function checkPrinterConfiguration() {
+            const overlay = document.getElementById('printerNotConfiguredOverlay');
+            if (!window.PosPrinterManager || !window.PosPrinterManager.isPrinterConfigured()) {
+                overlay.classList.remove('d-none');
+            } else {
+                overlay.classList.add('d-none');
+            }
+        }
+
+        // Handle pending print from session (after successful POS sale)
+        function handlePendingPrint() {
+            @if(session('pos_print_content'))
+            // Auto print receipt after successful sale
+            const printContent = @json(session('pos_print_content'));
+            if (printContent && window.PosPrinterManager && window.PosPrinterManager.isPrinterConfigured()) {
+                // Small delay to ensure page is fully loaded
+                setTimeout(function() {
+                    window.PosPrinterManager.print(printContent)
+                        .then(() => {
+                            console.log('Receipt printed successfully');
+                        })
+                        .catch((error) => {
+                            console.error('Failed to print receipt:', error);
+                            alert('Gagal mencetak struk: ' + error.message);
+                        });
+                }, 500);
+            }
+            @endif
+        }
+
+        function openQuickPrinterSetup() {
+            document.getElementById('printerNotConfiguredOverlay').classList.add('d-none');
+            $('#quickPrinterSetupModal').modal('show');
+        }
+
+        function quickSavePrinter() {
+            const printerName = document.getElementById('quickPrinterName').value.trim();
+            if (!printerName) {
+                alert('Silakan masukkan nama printer.');
+                return;
+            }
+
+            window.PosPrinterManager.savePrinter(printerName);
+            $('#quickPrinterSetupModal').modal('hide');
+            checkPrinterConfiguration();
+        }
+
+        function quickTestPrint() {
+            const printerName = document.getElementById('quickPrinterName').value.trim();
+            if (!printerName) {
+                alert('Silakan masukkan nama printer terlebih dahulu.');
+                return;
+            }
+
+            // Temporarily save for test
+            window.PosPrinterManager.savePrinter(printerName);
+
+            window.PosPrinterManager.testPrint()
+                .then(() => {
+                    alert('Test print berhasil dikirim! Periksa printer Anda.');
+                })
+                .catch((error) => {
+                    alert('Gagal mengirim test print: ' + error.message);
+                });
+        }
+
+        // Listen for printer selection changes from other tabs/windows
+        window.addEventListener('storage', function(e) {
+            if (e.key === 'pos_printer_configured') {
+                checkPrinterConfiguration();
+            }
+        });
+    </script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const currencySettings = {

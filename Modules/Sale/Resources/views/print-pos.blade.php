@@ -7,22 +7,53 @@
     <meta name="description" content="">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
+        /* 80mm Thermal Receipt Printer Styles - Portrait Orientation */
+        @page {
+            size: 72mm auto;
+            margin: 0;
+            orientation: portrait;
+        }
+
         * {
             font-size: 12px;
-            line-height: 18px;
-            font-family: 'Ubuntu', sans-serif;
+            line-height: 16px;
+            font-family: 'Arial', 'Helvetica', sans-serif;
+            font-weight: 700;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
+
+        body {
+            width: 72mm;
+            max-width: 72mm;
+            margin: 0 auto;
+            padding: 2mm;
+            font-weight: 700;
+        }
+
         h2 {
-            font-size: 16px;
+            font-size: 14px;
+            font-weight: 700;
         }
+
         td,
         th,
         tr,
         table {
             border-collapse: collapse;
         }
-        tr {border-bottom: 1px dashed #ddd;}
-        td,th {padding: 7px 0;width: 50%;}
+
+        tr {border-bottom: 1px dashed #000;}
+        td, th {
+            padding: 3px 0;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        th {
+            font-weight: 700;
+        }
 
         table {width: 100%;}
         tfoot tr th:first-child {text-align: left;}
@@ -31,35 +62,87 @@
             text-align: center;
             align-content: center;
         }
-        small{font-size:11px;}
+
+        small {
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .dashed-line {
+            border-top: 1px dashed #000;
+            margin: 5px 0;
+        }
+
+        .bold {
+            font-weight: 700;
+        }
+
+        p {
+            font-weight: 700;
+        }
 
         @media print {
-            * {
-                font-size:12px;
-                line-height: 20px;
+            @page {
+                size: 72mm auto;
+                margin: 0;
+                orientation: portrait;
             }
-            td,th {padding: 5px 0;}
+
+            html, body {
+                width: 72mm;
+                max-width: 72mm;
+            }
+
+            * {
+                font-size: 11px;
+                line-height: 14px;
+                font-weight: 700;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+
+            td, th {
+                padding: 2px 0;
+                font-weight: 700;
+            }
+
+            th {
+                font-weight: 700;
+            }
+
             .hidden-print {
                 display: none !important;
             }
-            tbody::after {
-                content: '';
-                display: block;
-                page-break-after: always;
-                page-break-inside: auto;
-                page-break-before: avoid;
+
+            /* Remove default margins for thermal print */
+            body {
+                margin: 0;
+                padding: 2mm;
+            }
+        }
+
+        @media screen {
+            body {
+                background: #f0f0f0;
+                padding: 10px;
+            }
+
+            .receipt-container {
+                background: white;
+                padding: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             }
         }
     </style>
 </head>
 <body>
 
-<div style="max-width:400px;margin:0 auto">
+<div class="receipt-container" style="max-width:72mm;margin:0 auto">
     <div id="receipt-data">
         <div class="centered">
             <h2 style="margin-bottom: 5px">{{ settings()->company_name }}</h2>
 
-            <p style="font-size: 11px;line-height: 15px;margin-top: 0">
+            <p style="font-size: 10px;line-height: 14px;margin-top: 0">
                 {{ settings()->company_email }}, {{ settings()->company_phone }}
                 <br>{{ settings()->company_address }}
             </p>
@@ -68,27 +151,105 @@
             $receipt = $receipt ?? null;
             $activeSale = $sale ?? null;
             $reference = $receipt?->receipt_number ?? $activeSale?->reference;
-            $customerName = $receipt?->customer_name ?? $activeSale?->customer_name;
+            $customerName = $receipt?->sales->first()?->customer?->contact_name ?? $activeSale?->customer?->contact_name ?? '-';
             $displayDate = $receipt?->created_at ?? ($activeSale?->date);
         @endphp
 
-        <p>
-            Date: {{ \Carbon\Carbon::parse($displayDate)->format('d M, Y') }}<br>
-            Reference: {{ $reference }}<br>
-            Name: {{ $customerName }}
+        <p style="margin-top: 5px;">
+            <span class="bold">Tanggal:</span> {{ \Carbon\Carbon::parse($displayDate)->format('d M, Y H:i') }}<br>
+            <span class="bold">No. Struk:</span> {{ $reference }}<br>
+            <span class="bold">Pelanggan:</span> {{ $customerName }}
         </p>
 
         @if($receipt)
-            <table class="table-data" style="margin-bottom: 10px;">
+            <table class="table-data" style="margin-top: 5px; margin-bottom: 5px;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; width: 30px;">Qty</th>
+                        <th style="text-align:left">Nama Barang</th>
+                        <th style="text-align:right">Total</th>
+                    </tr>
+                </thead>
                 <tbody>
                 @foreach($receipt->sales as $tenantSale)
                     @foreach($tenantSale->saleDetails as $saleDetail)
+                        @php
+                            // Calculate unit breakdown
+                            $product = $saleDetail->product;
+                            $qty = (int) $saleDetail->quantity;
+                            $unitBreakdown = [];
+                            
+                            if ($product && $product->conversions && $product->conversions->isNotEmpty()) {
+                                $settingId = $tenantSale->setting_id;
+                                $conversions = $product->conversions->sortByDesc('conversion_factor');
+                                $remaining = $qty;
+                                
+                                foreach ($conversions as $conv) {
+                                    $factor = (int) $conv->conversion_factor;
+                                    if ($factor < 1 || $remaining <= 0) continue;
+                                    
+                                    $unitCount = intdiv($remaining, $factor);
+                                    if ($unitCount <= 0) continue;
+                                    
+                                    // Get price for this conversion
+                                    $price = 0;
+                                    if ($settingId && $conv->prices) {
+                                        $priceRecord = $conv->prices->where('setting_id', $settingId)->first();
+                                        $price = $priceRecord ? (float) $priceRecord->price : (float) $conv->price;
+                                    } else {
+                                        $price = (float) $conv->price;
+                                    }
+                                    
+                                    if ($price > 0) {
+                                        $unitBreakdown[] = [
+                                            'count' => $unitCount,
+                                            'unit' => $conv->unit->short_name ?? $conv->unit->name ?? 'unit',
+                                            'price' => $price,
+                                        ];
+                                    }
+                                    
+                                    $remaining -= $unitCount * $factor;
+                                }
+                                
+                                // Handle remainder with base unit - get price from product_prices table
+                                if ($remaining > 0) {
+                                    $baseUnit = $product->baseUnit;
+                                    // Get actual base price from product_prices
+                                    $basePrice = 0;
+                                    if ($product->relationLoaded('prices') && $product->prices) {
+                                        $priceRecord = $product->prices->where('setting_id', $settingId)->first();
+                                        $basePrice = $priceRecord ? (float) $priceRecord->sale_price : 0;
+                                    }
+                                    if ($basePrice <= 0) {
+                                        $basePrice = (float) $saleDetail->price; // fallback to sale detail price
+                                    }
+                                    $unitBreakdown[] = [
+                                        'count' => $remaining,
+                                        'unit' => $baseUnit->short_name ?? $baseUnit->name ?? 'pcs',
+                                        'price' => $basePrice,
+                                    ];
+                                }
+                            }
+                            
+                            // If no conversion breakdown, show simple format
+                            if (empty($unitBreakdown)) {
+                                $unitBreakdown[] = [
+                                    'count' => $qty,
+                                    'unit' => '',
+                                    'price' => (float) $saleDetail->price,
+                                ];
+                            }
+                        @endphp
                         <tr>
-                            <td colspan="2">
+                            <td style="vertical-align:top">{{ $saleDetail->quantity }}</td>
+                            <td>
                                 {{ $saleDetail->product->product_name ?? $saleDetail->product_name }}
-                                ({{ $saleDetail->quantity }} x {{ format_currency($saleDetail->price) }})
+                                <br>
+                                @foreach($unitBreakdown as $segment)
+                                    <small>{{ $segment['count'] }} {{ $segment['unit'] }} @ {{ number_format($segment['price'], 0, ',', '.') }}</small>@if(!$loop->last)<br>@endif
+                                @endforeach
                             </td>
-                            <td style="text-align:right;vertical-align:bottom">{{ format_currency($saleDetail->sub_total) }}</td>
+                            <td style="text-align:right;vertical-align:top">{{ number_format($saleDetail->sub_total, 0, ',', '.') }}</td>
                         </tr>
                     @endforeach
                 @endforeach
@@ -101,25 +262,25 @@
 
                 @if($totalTax)
                     <tr>
-                        <th colspan="2" style="text-align:left">Tax</th>
-                        <th style="text-align:right">{{ format_currency($totalTax) }}</th>
+                        <th colspan="2" style="text-align:left">Pajak</th>
+                        <th style="text-align:right">{{ number_format($totalTax, 0, ',', '.') }}</th>
                     </tr>
                 @endif
                 @if($totalDiscount)
                     <tr>
-                        <th colspan="2" style="text-align:left">Discount</th>
-                        <th style="text-align:right">{{ format_currency($totalDiscount) }}</th>
+                        <th colspan="2" style="text-align:left">Diskon</th>
+                        <th style="text-align:right">{{ number_format($totalDiscount, 0, ',', '.') }}</th>
                     </tr>
                 @endif
                 @if($totalShipping)
                     <tr>
-                        <th colspan="2" style="text-align:left">Shipping</th>
-                        <th style="text-align:right">{{ format_currency($totalShipping) }}</th>
+                        <th colspan="2" style="text-align:left">Ongkir</th>
+                        <th style="text-align:right">{{ number_format($totalShipping, 0, ',', '.') }}</th>
                     </tr>
                 @endif
                 <tr>
                     <th colspan="2" style="text-align:left">Subtotal</th>
-                    <th style="text-align:right">{{ format_currency($receipt->total_amount) }}</th>
+                    <th style="text-align:right">{{ number_format($receipt->total_amount, 0, ',', '.') }}</th>
                 </tr>
                 </tbody>
             </table>
@@ -127,89 +288,157 @@
             <table>
                 <tbody>
                 <tr>
-                    <th colspan="2" style="text-align:left">Grand Total</th>
-                    <th style="text-align:right">{{ format_currency($receipt->total_amount) }}</th>
+                    <th colspan="2" style="text-align:left">Total</th>
+                    <th style="text-align:right">{{ number_format($receipt->total_amount, 0, ',', '.') }}</th>
                 </tr>
                 <tr style="background-color:#ddd;">
-                    <td class="centered" style="padding: 5px;">
-                        Paid By: {{ $receipt->payment_method }}
-                    </td>
-                    <td class="centered" style="padding: 5px;">
-                        Amount: {{ format_currency($receipt->paid_amount) }}
-                    </td>
+                    <th colspan="2" style="text-align:left; padding: 4px;">
+                        <span class="bold">Bayar:</span> {{ $receipt->payment_method }}
+                    </th>
+                    <th style="text-align:right; padding: 4px;">{{ number_format($receipt->paid_amount, 0, ',', '.') }}</th>
                 </tr>
                 @if($receipt->change_due > 0)
                     <tr>
-                        <th colspan="2" style="text-align:left">Change</th>
-                        <th style="text-align:right">{{ format_currency($receipt->change_due) }}</th>
+                        <th colspan="2" style="text-align:left">Kembalian</th>
+                        <th style="text-align:right">{{ number_format($receipt->change_due, 0, ',', '.') }}</th>
                     </tr>
                 @endif
-                <tr style="border-bottom: 0;">
-                    <td class="centered" colspan="3">
-                        <div style="margin-top: 10px;">
-                            {!! \Milon\Barcode\Facades\DNS1DFacade::getBarcodeSVG($reference, 'C128', 1, 25, 'black', false) !!}
-                        </div>
-                    </td>
-                </tr>
                 </tbody>
             </table>
         @elseif(isset($sale))
-            <table class="table-data">
+            <table class="table-data" style="margin-top: 5px;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; width: 25px;">Qty</th>
+                        <th style="text-align:left">Nama Barang</th>
+                        <th style="text-align:right">Total</th>
+                    </tr>
+                </thead>
                 <tbody>
                 @foreach($sale->saleDetails as $saleDetail)
+                    @php
+                        // Calculate unit breakdown
+                        $product = $saleDetail->product;
+                        $qty = (int) $saleDetail->quantity;
+                        $unitBreakdown = [];
+                        
+                        if ($product && $product->conversions && $product->conversions->isNotEmpty()) {
+                            $settingId = $sale->setting_id;
+                            $conversions = $product->conversions->sortByDesc('conversion_factor');
+                            $remaining = $qty;
+                            
+                            foreach ($conversions as $conv) {
+                                $factor = (int) $conv->conversion_factor;
+                                if ($factor < 1 || $remaining <= 0) continue;
+                                
+                                $unitCount = intdiv($remaining, $factor);
+                                if ($unitCount <= 0) continue;
+                                
+                                // Get price for this conversion
+                                $price = 0;
+                                if ($settingId && $conv->prices) {
+                                    $priceRecord = $conv->prices->where('setting_id', $settingId)->first();
+                                    $price = $priceRecord ? (float) $priceRecord->price : (float) $conv->price;
+                                } else {
+                                    $price = (float) $conv->price;
+                                }
+                                
+                                if ($price > 0) {
+                                    $unitBreakdown[] = [
+                                        'count' => $unitCount,
+                                        'unit' => $conv->unit->short_name ?? $conv->unit->name ?? 'unit',
+                                        'price' => $price,
+                                    ];
+                                }
+                                
+                                $remaining -= $unitCount * $factor;
+                            }
+                            
+                            // Handle remainder with base unit - get price from product_prices table
+                            if ($remaining > 0) {
+                                $baseUnit = $product->baseUnit;
+                                // Get actual base price from product_prices
+                                $basePrice = 0;
+                                if ($product->relationLoaded('prices') && $product->prices) {
+                                    $priceRecord = $product->prices->where('setting_id', $settingId)->first();
+                                    $basePrice = $priceRecord ? (float) $priceRecord->sale_price : 0;
+                                }
+                                if ($basePrice <= 0) {
+                                    $basePrice = (float) $saleDetail->price; // fallback to sale detail price
+                                }
+                                $unitBreakdown[] = [
+                                    'count' => $remaining,
+                                    'unit' => $baseUnit->short_name ?? $baseUnit->name ?? 'pcs',
+                                    'price' => $basePrice,
+                                ];
+                            }
+                        }
+                        
+                        // If no conversion breakdown, show simple format
+                        if (empty($unitBreakdown)) {
+                            $unitBreakdown[] = [
+                                'count' => $qty,
+                                'unit' => '',
+                                'price' => (float) $saleDetail->price,
+                            ];
+                        }
+                    @endphp
                     <tr>
-                        <td colspan="2">
+                        <td style="vertical-align:top">{{ $saleDetail->quantity }}</td>
+                        <td>
                             {{ $saleDetail->product->product_name }}
-                            ({{ $saleDetail->quantity }} x {{ format_currency($saleDetail->price) }})
+                            <br>
+                            @foreach($unitBreakdown as $segment)
+                                <small>{{ $segment['count'] }} {{ $segment['unit'] }} @ {{ number_format($segment['price'], 0, ',', '.') }}</small>@if(!$loop->last)<br>@endif
+                            @endforeach
                         </td>
-                        <td style="text-align:right;vertical-align:bottom">{{ format_currency($saleDetail->sub_total) }}</td>
+                        <td style="text-align:right;vertical-align:top">{{ number_format($saleDetail->sub_total, 0, ',', '.') }}</td>
                     </tr>
                 @endforeach
 
                 @if($sale->tax_percentage)
                     <tr>
-                        <th colspan="2" style="text-align:left">Tax ({{ $sale->tax_percentage }}%)</th>
-                        <th style="text-align:right">{{ format_currency($sale->tax_amount) }}</th>
+                        <th colspan="2" style="text-align:left">Pajak ({{ $sale->tax_percentage }}%)</th>
+                        <th style="text-align:right">{{ number_format($sale->tax_amount, 0, ',', '.') }}</th>
                     </tr>
                 @endif
                 @if($sale->discount_percentage)
                     <tr>
-                        <th colspan="2" style="text-align:left">Discount ({{ $sale->discount_percentage }}%)</th>
-                        <th style="text-align:right">{{ format_currency($sale->discount_amount) }}</th>
+                        <th colspan="2" style="text-align:left">Diskon ({{ $sale->discount_percentage }}%)</th>
+                        <th style="text-align:right">{{ number_format($sale->discount_amount, 0, ',', '.') }}</th>
                     </tr>
                 @endif
                 @if($sale->shipping_amount)
                     <tr>
-                        <th colspan="2" style="text-align:left">Shipping</th>
-                        <th style="text-align:right">{{ format_currency($sale->shipping_amount) }}</th>
+                        <th colspan="2" style="text-align:left">Ongkir</th>
+                        <th style="text-align:right">{{ number_format($sale->shipping_amount, 0, ',', '.') }}</th>
                     </tr>
                 @endif
                 <tr>
-                    <th colspan="2" style="text-align:left">Grand Total</th>
-                    <th style="text-align:right">{{ format_currency($sale->total_amount) }}</th>
+                    <th colspan="2" style="text-align:left">Total</th>
+                    <th style="text-align:right">{{ number_format($sale->total_amount, 0, ',', '.') }}</th>
                 </tr>
                 </tbody>
             </table>
             <table>
                 <tbody>
                 <tr style="background-color:#ddd;">
-                    <td class="centered" style="padding: 5px;">
-                        Paid By: {{ $sale->payment_method }}
-                    </td>
-                    <td class="centered" style="padding: 5px;">
-                        Amount: {{ format_currency($sale->paid_amount) }}
-                    </td>
-                </tr>
-                <tr style="border-bottom: 0;">
-                    <td class="centered" colspan="3">
-                        <div style="margin-top: 10px;">
-                            {!! \Milon\Barcode\Facades\DNS1DFacade::getBarcodeSVG($sale->reference, 'C128', 1, 25, 'black', false) !!}
-                        </div>
-                    </td>
+                    <th colspan="2" style="text-align:left; padding: 4px;">
+                        <span class="bold">Bayar:</span> {{ $sale->payment_method }}
+                    </th>
+                    <th style="text-align:right; padding: 4px;">{{ number_format($sale->paid_amount, 0, ',', '.') }}</th>
                 </tr>
                 </tbody>
             </table>
         @endif
+
+        <div class="centered" style="margin-top: 8px;">
+            <small style="font-style: italic;">Harga sudah termasuk PPN</small>
+        </div>
+        <div class="centered" style="margin-top: 5px;">
+            <small class="bold">Terima kasih atas kunjungan Anda!</small>
+        </div>
+        <div style="margin-top: 20px;">&nbsp;</div>
     </div>
 </div>
 

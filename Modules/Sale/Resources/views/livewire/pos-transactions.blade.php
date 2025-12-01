@@ -146,6 +146,32 @@
         </div>
     </div>
 </div>
+
+@push('page_scripts')
+<script src="{{ asset('js/pos-printer.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Listen for Livewire print event
+        Livewire.on('pos-print-receipt', function(event) {
+            const content = event.content || event[0]?.content;
+            if (content && window.PosPrinterManager) {
+                if (!window.PosPrinterManager.isPrinterConfigured()) {
+                    alert('Printer belum dikonfigurasi. Silakan konfigurasi printer di halaman Sesi POS.');
+                    return;
+                }
+                window.PosPrinterManager.print(content)
+                    .then(() => {
+                        console.log('Receipt printed successfully');
+                    })
+                    .catch((error) => {
+                        console.error('Failed to print receipt:', error);
+                        alert('Gagal mencetak struk: ' + error.message);
+                    });
+            }
+        });
+    });
+</script>
+@endpush
 @endsection
 
 @section('styles')
