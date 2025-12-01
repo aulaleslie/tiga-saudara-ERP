@@ -1,3 +1,4 @@
+<div>
 <div class="card shadow-sm">
     <div class="card-header d-flex align-items-center justify-content-between">
         <div>
@@ -320,4 +321,5 @@
             </div>
         </div>
     </div>
+</div>
 </div>
