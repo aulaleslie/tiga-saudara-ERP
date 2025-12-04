@@ -54,6 +54,7 @@ class Checkout extends Component
     public array $payments = [];
     public ?int $posLocationId = null;
     public array $posLocationIds = [];
+    public ?string $posSessionWarning = null;
     public bool $changeModalHasPositiveChange = false;
     public ?string $changeModalAmount = null;
     #[Locked]
@@ -111,21 +112,32 @@ class Checkout extends Component
 
     public function hydrate()
     {
-        $this->guardActivePosSession();
-
         $this->refreshPosLocationContext();
         $this->resetChangeComputedCache();
         $this->refreshTotals();
         $this->dispatch('pos-mask-money-init');
     }
 
-    private function guardActivePosSession(): void
+    public function checkPosSessionHealth(): void
+    {
+        $this->guardActivePosSession(redirect: false);
+    }
+
+    private function guardActivePosSession(bool $redirect = true): void
     {
         $session = app(PosSessionManager::class)->current();
 
         if (! $session || $session->status === PosSession::STATUS_PAUSED) {
-            $this->redirectRoute('app.pos.session');
+            $this->posSessionWarning = __('Sesi POS tidak aktif atau sedang dijeda. Mulai atau lanjutkan untuk melanjutkan transaksi.');
+
+            if ($redirect) {
+                $this->redirectRoute('app.pos.session');
+            }
+
+            return;
         }
+
+        $this->posSessionWarning = null;
     }
 
     private function refreshPosLocationContext(): void
