@@ -364,6 +364,7 @@ class PosController extends Controller
 
         session()->flash('pos_change_due', $changeDue);
         session()->flash('pos_cash_overpayment', $hasCashOverpayment);
+        session()->flash('pos_last_transaction_id', (string) $posReceipt->id);
         session()->flash('pos_sale_completed', true);
 
         // Store print content for direct browser printing (kiosk mode)

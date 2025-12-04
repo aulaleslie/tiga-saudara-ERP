@@ -64,6 +64,8 @@ class Checkout extends Component
     public bool $forceShowChangeModal = false;
     public ?float $forcedChangeAmount = null;
     public bool $changeModalExplicitlyRequested = false;
+    public ?string $checkoutCompletionTransactionId = null;
+    public ?string $lastChangeModalTransactionId = null;
 
     public function mount($cartInstance, $customers)
     {
@@ -261,7 +263,7 @@ class Checkout extends Component
         $this->changeModalExplicitlyRequested = true;
         $this->syncChangeModalState();
 
-        $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
+        $this->dispatch('show-change-modal', amount: $this->changeModalAmount, explicit: true, transactionId: null);
 
         $this->lastChangeModalAmount = $this->changeModalHasPositiveChange
             ? $this->changeModalAmount
@@ -1899,7 +1901,13 @@ class Checkout extends Component
             $this->changeModalHasPositiveChange = true;
             $this->changeModalAmount = $this->formatChangeAmount($this->forcedChangeAmount);
             $this->lastChangeModalAmount = $this->changeModalAmount;
-            $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
+            $this->dispatch(
+                'show-change-modal',
+                amount: $this->changeModalAmount,
+                transactionId: $this->checkoutCompletionTransactionId,
+                explicit: false
+            );
+            $this->lastChangeModalTransactionId = $this->checkoutCompletionTransactionId ?? $this->lastChangeModalTransactionId;
             $this->forceShowChangeModal = false;
             $this->forcedChangeAmount = null;
 
@@ -2077,6 +2085,7 @@ class Checkout extends Component
     protected function initializeChangeModalFromFlash(): void
     {
         $saleCompleted = session()->pull('pos_sale_completed', false);
+        $this->checkoutCompletionTransactionId = session()->pull('pos_last_transaction_id');
         $hasCashOverpayment = session()->pull('pos_cash_overpayment', false);
         $changeDue = session()->pull('pos_change_due');
 
@@ -2125,23 +2134,51 @@ class Checkout extends Component
 
     protected function maybeAutoShowChangeModal(): void
     {
+        $hasPendingCheckoutModal = $this->forceShowChangeModal
+            && ($this->checkoutCompletionTransactionId === null
+                || $this->checkoutCompletionTransactionId !== $this->lastChangeModalTransactionId);
+
         if ($this->changeModalHasPositiveChange) {
-            if (! $this->changeModalExplicitlyRequested && ! $this->forceShowChangeModal) {
+            $shouldShow = $this->changeModalExplicitlyRequested || $hasPendingCheckoutModal;
+
+            if (! $shouldShow) {
                 return;
             }
 
-            if ($this->lastChangeModalAmount !== $this->changeModalAmount) {
+            if ($hasPendingCheckoutModal || $this->lastChangeModalAmount !== $this->changeModalAmount) {
                 $this->lastChangeModalAmount = $this->changeModalAmount;
-                $this->dispatch('show-change-modal', amount: $this->changeModalAmount);
+
+                $this->dispatch(
+                    'show-change-modal',
+                    amount: $this->changeModalAmount,
+                    transactionId: $hasPendingCheckoutModal ? $this->checkoutCompletionTransactionId : null,
+                    explicit: $this->changeModalExplicitlyRequested
+                );
+            }
+
+            if ($hasPendingCheckoutModal) {
+                $this->lastChangeModalTransactionId = $this->checkoutCompletionTransactionId;
+                $this->forceShowChangeModal = false;
             }
 
             return;
         }
 
-        // If forced to show (e.g., after sale completion), show even without positive change
-        if ($this->forceShowChangeModal) {
-            $this->dispatch('show-change-modal', amount: null);
+        if ($hasPendingCheckoutModal) {
+            $this->dispatch(
+                'show-change-modal',
+                amount: null,
+                transactionId: $this->checkoutCompletionTransactionId,
+                explicit: false
+            );
+            $this->lastChangeModalTransactionId = $this->checkoutCompletionTransactionId;
+            $this->forceShowChangeModal = false;
+
             return;
+        }
+
+        if ($this->forceShowChangeModal) {
+            $this->forceShowChangeModal = false;
         }
 
         if ($this->lastChangeModalAmount !== null) {

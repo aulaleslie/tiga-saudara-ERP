@@ -466,9 +466,20 @@
                 window.initPosCurrencyFormatter();
             });
 
+            let lastChangeModalTransactionId = null;
+
             window.addEventListener('show-change-modal', (event) => {
                 const modal = $('#posChangeModal');
-                const amount = event?.detail?.amount ?? '';
+                const detail = event?.detail ?? {};
+                const amount = detail.amount ?? '';
+                const transactionId = detail.transactionId ?? null;
+                const explicit = detail.explicit ?? false;
+
+                if (transactionId && transactionId === lastChangeModalTransactionId && !explicit) {
+                    return;
+                }
+
+                lastChangeModalTransactionId = transactionId ?? lastChangeModalTransactionId;
 
                 if (amount) {
                     modal.attr('aria-label', `Kembalian Rp. ${amount}`);
