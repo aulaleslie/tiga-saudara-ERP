@@ -45,9 +45,25 @@
 @endpush
 
 @php use Gloudemans\Shoppingcart\Facades\Cart; @endphp
-<div>
+<div wire:poll.30s="checkPosSessionHealth">
     <div class="card border-0 shadow-sm">
         <div class="card-body">
+
+            {{-- POS Session Status --}}
+            @if($posSessionWarning)
+                <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                    <div class="alert-body d-flex align-items-start">
+                        <i class="bi bi-exclamation-triangle-fill mr-2"></i>
+                        <div>
+                            <strong class="d-block">{{ __('Periksa sesi POS Anda') }}</strong>
+                            <span>{{ $posSessionWarning }}</span>
+                        </div>
+                        <button type="button" class="close ml-auto" data-bs-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">×</span>
+                        </button>
+                    </div>
+                </div>
+            @endif
 
             {{-- Flash Message --}}
             @if (session()->has('message'))
