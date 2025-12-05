@@ -24,14 +24,14 @@
 @section('content')
     <div class="container-fluid mb-4">
         <form action="{{ route('users.update', $user->id) }}" method="POST" enctype="multipart/form-data"
-              id="user-form">
+              id="user-edit-form">
             @csrf
             @method('patch')
             <div class="row">
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary" type="submit">Perbarui Akun <i class="bi bi-check"></i></button>
+                        <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="user-edit-form">Perbarui Akun <i class="bi bi-check"></i></x-button>
                         <a href="{{ route('users.index') }}" class="btn btn-secondary">Kembali</a>
                     </div>
                 </div>
@@ -171,6 +171,9 @@
                 }
             });
         });
+
+        // Initialize form submission lock
+        initFormSubmissionLock('user-edit-form', 'user:submit-error');
 
         // FilePond initialization
         FilePond.registerPlugin(

@@ -12,14 +12,14 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('currencies.update', $currency) }}" method="POST">
+        <form action="{{ route('currencies.update', $currency) }}" method="POST" id="currency-edit-form">
             @csrf
             @method('patch')
             <div class="row">
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Update Currency <i class="bi bi-check"></i></button>
+                        <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="currency-edit-form">Update Currency <i class="bi bi-check"></i></x-button>
                     </div>
                 </div>
                 <div class="col-lg-12">
@@ -67,4 +67,11 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        // Initialize form submission lock
+        initFormSubmissionLock('currency-edit-form', 'currency:submit-error');
+    </script>
+@endpush
 

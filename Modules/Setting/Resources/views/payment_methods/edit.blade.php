@@ -6,7 +6,7 @@
     <div class="container">
         <h1>Ubah Metode Pembayaran</h1>
 
-        <form action="{{ route('payment-methods.update', $paymentMethod->id) }}" method="POST">
+        <form id="payment-method-edit-form" action="{{ route('payment-methods.update', $paymentMethod->id) }}" method="POST">
             @csrf
             @method('PUT')
             <div class="form-group">
@@ -46,8 +46,19 @@
             @error('is_available_in_pos')
             <div class="text-danger small">{{ $message }}</div>
             @enderror
-            <button type="submit" class="btn btn-success">Update</button>
+            <x-button label="Update" processing-text="Memproses…" />
             <a href="{{ route('payment-methods.index') }}" class="btn btn-secondary">Batal</a>
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('payment-method-edit-form', {
+                errorEventName: 'payment-method:submit-error'
+            });
+        });
+    </script>
+@endpush

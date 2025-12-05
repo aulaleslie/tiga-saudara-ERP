@@ -4,7 +4,7 @@
 
 @section('content')
     <div class="container">
-        <form action="{{ route('payment-methods.store') }}" method="POST">
+        <form id="payment-method-create-form" action="{{ route('payment-methods.store') }}" method="POST">
             @csrf
             <div class="form-group">
                 <label for="name">Metode Pembayaran</label>
@@ -43,8 +43,19 @@
             @error('is_available_in_pos')
             <div class="text-danger small">{{ $message }}</div>
             @enderror
-            <button type="submit" class="btn btn-primary">Simpan</button>
+            <x-button label="Simpan" processing-text="Memproses…" />
             <a href="{{ route('payment-methods.index') }}" class="btn btn-secondary">Batal</a>
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('payment-method-create-form', {
+                errorEventName: 'payment-method:submit-error'
+            });
+        });
+    </script>
+@endpush

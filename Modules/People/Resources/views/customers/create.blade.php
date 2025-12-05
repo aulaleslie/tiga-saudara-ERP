@@ -22,7 +22,7 @@
                             Kembali
                         </a>
                         @can('customers.create')
-                        <button type="submit" class="btn btn-primary">Tambahkan Pelanggan <i class="bi bi-check"></i></button>
+                        <x-button label="Tambahkan Pelanggan" icon="bi-check" processing-text="Memproses…" />
                         @endcan
                     </div>
                 </div>
@@ -169,36 +169,12 @@
 @endsection
 
 @push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            const form = document.getElementById('customer-create-form');
-
-            if (!form) {
-                return;
-            }
-
-            const lockSubmitButtons = () => {
-                const submitButtons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
-
-                submitButtons.forEach((button) => {
-                    if (button.dataset.locked === 'true') return;
-
-                    button.dataset.locked = 'true';
-                    button.disabled = true;
-
-                    if (button.tagName.toLowerCase() === 'button') {
-                        button.dataset.originalHtml = button.innerHTML;
-                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Memproses...';
-                    } else {
-                        button.dataset.originalValue = button.value;
-                        button.value = 'Memproses...';
-                    }
-                });
-            };
-
-            form.addEventListener('submit', () => {
-                lockSubmitButtons();
-            }, { once: true });
+            initFormSubmissionLock('customer-create-form', {
+                errorEventName: 'customer:submit-error'
+            });
         });
     </script>
 @endpush

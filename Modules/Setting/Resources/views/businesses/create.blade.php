@@ -20,7 +20,7 @@
                         <h5 class="mb-0">Tambah Bisnis</h5>
                     </div>
                     <div class="card-body">
-                        <form action="{{ route('businesses.store') }}" method="POST">
+                        <form id="business-create-form" action="{{ route('businesses.store') }}" method="POST">
                             @csrf
                             @method('post')
                             <div class="form-row">
@@ -90,7 +90,7 @@
                                 <a href="{{ route('businesses.index') }}" class="btn btn-secondary mr-2">
                                     Kembali
                                 </a>
-                                <button type="submit" class="btn btn-primary"><i class="bi bi-check"></i> Buat</button>
+                                <x-button label="Buat" icon="bi-check" processing-text="Memproses…" />
                             </div>
                         </form>
                     </div>
@@ -99,4 +99,15 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('business-create-form', {
+                errorEventName: 'business:submit-error'
+            });
+        });
+    </script>
+@endpush
 

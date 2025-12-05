@@ -23,11 +23,11 @@
         <div class="row">
             <div class="col-md-12">
                 @include('utils.alerts')
-                <form action="{{ route('roles.store') }}" method="POST">
+                <form action="{{ route('roles.store') }}" method="POST" id="role-create-form">
                     @csrf
                     <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
                     <div class="form-group mb-3 d-flex gap-2">
-                        <button type="submit" class="btn btn-primary">Buat Peran <i class="bi bi-check"></i></button>
+                        <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="role-create-form">Buat Peran <i class="bi bi-check"></i></x-button>
                         <a href="{{ route('roles.index') }}" class="btn btn-secondary">Kembali</a>
                     </div>
 
@@ -371,5 +371,8 @@
                 });
             });
         });
+
+        // Initialize form submission lock
+        initFormSubmissionLock('role-create-form', 'role:submit-error');
     </script>
 @endpush

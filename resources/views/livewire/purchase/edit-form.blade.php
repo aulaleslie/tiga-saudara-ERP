@@ -64,8 +64,13 @@
         </div>
 
         <div class="mt-3">
-            <button type="button" class="btn btn-primary" id="submitWithConfirmation">
-                Perbarui Pembelian <i class="bi bi-check"></i>
+            <button type="button" class="btn btn-primary" id="submitWithConfirmation"
+                data-processing-text="Memproses…"
+                data-default-text="Perbarui Pembelian"
+            >
+                <span class="spinner-border spinner-border-sm mr-2 d-none button-spinner" role="status" aria-hidden="true"></span>
+                <span class="button-text">Perbarui Pembelian</span>
+                <i class="bi bi-check ml-1"></i>
             </button>
             <a href="{{ route('purchases.index') }}" class="btn btn-secondary">Kembali</a>
         </div>

@@ -23,7 +23,7 @@
                 <div class="card">
                     <div class="card-body">
                         @include('utils.alerts')
-                        <form id="quotation-form" action="{{ route('quotations.update', $quotation) }}" method="POST">
+                        <form id="quotation-edit-form" action="{{ route('quotations.update', $quotation) }}" method="POST">
                             @csrf
                             @method('patch')
                             <div class="form-row">
@@ -75,9 +75,9 @@
                             </div>
 
                             <div class="mt-3">
-                                <button type="submit" class="btn btn-primary">
+                                <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="quotation-edit-form">
                                     Update Quotation <i class="bi bi-check"></i>
-                                </button>
+                                </x-button>
                             </div>
                         </form>
                     </div>
@@ -88,5 +88,8 @@
 @endsection
 
 @push('page_scripts')
-
+    <script>
+        // Initialize form submission lock
+        initFormSubmissionLock('quotation-edit-form', 'quotation:submit-error');
+    </script>
 @endpush

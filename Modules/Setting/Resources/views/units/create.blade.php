@@ -12,7 +12,7 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('units.store') }}" method="POST">
+        <form action="{{ route('units.store') }}" method="POST" id="unit-create-form">
             @csrf
             <div class="row">
                 <div class="col-lg-12">
@@ -37,7 +37,7 @@
                                         <a href="{{ route('units.index') }}" class="btn btn-secondary mr-2">
                                             Kembali
                                         </a>
-                                        <button class="btn btn-primary">Tambah Unit <i class="bi bi-check"></i></button>
+                                        <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="unit-create-form">Tambah Unit <i class="bi bi-check"></i></x-button>
                                     </div>
                                 </div>
                             </div>
@@ -48,3 +48,10 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        // Initialize form submission lock
+        initFormSubmissionLock('unit-create-form', 'unit:submit-error');
+    </script>
+@endpush

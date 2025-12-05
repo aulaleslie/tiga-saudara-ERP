@@ -9,7 +9,7 @@
                 <div class="card">
                     <div class="card-body">
                         @include('utils.alerts')
-                        <form action="{{ route('adjustments.store') }}" method="POST">
+                        <form action="{{ route('adjustments.store') }}" method="POST" id="adjustment-create-form">
                             @csrf
                             <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
 
@@ -70,9 +70,9 @@
                                     Kembali
                                 </a>
                                 @can('adjustments.create')
-                                    <button type="submit" class="btn btn-primary">
+                                    <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="adjustment-create-form">
                                         Buat Penyesuaian <i class="bi bi-check"></i>
-                                    </button>
+                                    </x-button>
                                 @endcan
                             </div>
                         </form>
@@ -82,3 +82,10 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        // Initialize form submission lock
+        initFormSubmissionLock('adjustment-create-form', 'adjustment:submit-error');
+    </script>
+@endpush

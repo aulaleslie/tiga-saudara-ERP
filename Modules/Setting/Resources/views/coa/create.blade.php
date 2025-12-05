@@ -12,7 +12,7 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('chart-of-account.store') }}" method="POST">
+        <form id="chart-of-account-create-form" action="{{ route('chart-of-account.store') }}" method="POST">
             @csrf
             <div class="row">
                 <div class="col-lg-12">
@@ -91,7 +91,7 @@
                                             Kembali
                                         </a>
                                         @can("create_account")
-                                        <button class="btn btn-primary">Tambah Akun <i class="bi bi-check"></i></button>
+                                        <x-button label="Tambah Akun" icon="bi-check" processing-text="Memproses…" />
                                         @endcan
                                     </div>
                                 </div>
@@ -103,3 +103,14 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('chart-of-account-create-form', {
+                errorEventName: 'chart-of-account:submit-error'
+            });
+        });
+    </script>
+@endpush

@@ -102,32 +102,38 @@ class ExpenseForm extends Component
 
     public function save()
     {
-        $this->validate([
-            'date' => 'required|date',
-            'category_id' => 'required|exists:expense_categories,id',
-            'details.*.name' => 'required|string|max:255',
-            'details.*.amount' => 'required',
-            'details.*.tax_id' => 'nullable|exists:taxes,id',
-            'files.*' => 'nullable|file|max:10240',
-        ]);
+        $this->dispatchBrowserEvent('expense:submit-start');
 
-        if (!$this->expenseId && ! IdempotencyService::claim($this->idempotencyToken, 'expenses.store', auth()->id())) {
-            $this->addError('idempotency', 'Pengajuan biaya sedang diproses. Mohon tunggu sebelum mencoba lagi.');
-            return;
+        try {
+            $this->validate([
+                'date' => 'required|date',
+                'category_id' => 'required|exists:expense_categories,id',
+                'details.*.name' => 'required|string|max:255',
+                'details.*.amount' => 'required',
+                'details.*.tax_id' => 'nullable|exists:taxes,id',
+                'files.*' => 'nullable|file|max:10240',
+            ]);
+
+            if (!$this->expenseId && ! IdempotencyService::claim($this->idempotencyToken, 'expenses.store', auth()->id())) {
+                $this->addError('idempotency', 'Pengajuan biaya sedang diproses. Mohon tunggu sebelum mencoba lagi.');
+                return;
+            }
+
+            $this->normalizeAmounts();
+
+            $settingId = session('setting_id');
+            $totalAmount = $this->calculateTotalAmount();
+
+            if ($this->expenseId) {
+                $this->updateExpense($totalAmount);
+            } else {
+                $this->createExpense($settingId, $totalAmount);
+            }
+
+            return redirect()->route('expenses.index');
+        } finally {
+            $this->dispatchBrowserEvent('expense:submit-finish');
         }
-
-        $this->normalizeAmounts();
-
-        $settingId = session('setting_id');
-        $totalAmount = $this->calculateTotalAmount();
-
-        if ($this->expenseId) {
-            $this->updateExpense($totalAmount);
-        } else {
-            $this->createExpense($settingId, $totalAmount);
-        }
-
-        return redirect()->route('expenses.index');
     }
 
     public function render()

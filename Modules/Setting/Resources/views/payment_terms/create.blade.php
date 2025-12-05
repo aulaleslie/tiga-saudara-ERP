@@ -25,7 +25,7 @@
             </div>
         @endif
 
-        <form action="{{ route('payment-terms.store') }}" method="POST">
+        <form id="payment-term-create-form" action="{{ route('payment-terms.store') }}" method="POST">
             @csrf
             <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
             <div class="row">
@@ -73,7 +73,7 @@
                                 <div class="col-lg-12 d-flex justify-content-end">
                                     <div class="form-group">
                                         <a href="{{ route('payment-terms.index') }}" class="btn btn-secondary mr-2">Kembali</a>
-                                        <button class="btn btn-primary">Tambah <i class="bi bi-check"></i></button>
+                                        <x-button label="Tambah" icon="bi-check" processing-text="Memproses…" />
                                     </div>
                                 </div>
 
@@ -85,3 +85,14 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('payment-term-create-form', {
+                errorEventName: 'payment-term:submit-error'
+            });
+        });
+    </script>
+@endpush

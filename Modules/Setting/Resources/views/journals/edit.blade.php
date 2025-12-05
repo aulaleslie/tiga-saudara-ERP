@@ -20,7 +20,7 @@
             </div>
         @endif
 
-        <form action="{{ route('journals.update', $journal->id) }}" method="POST" id="journalForm">
+        <form action="{{ route('journals.update', $journal->id) }}" method="POST" id="journal-edit-form">
             @csrf
             @method('PUT')
             <div class="form-group">
@@ -77,7 +77,7 @@
             </table>
             <button type="button" class="btn btn-secondary" id="addRow">Tambah Item</button>
             <br><br>
-            <button type="submit" class="btn btn-primary">Ubah Jurnal</button>
+            <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="journal-edit-form">Ubah Jurnal</x-button>
         </form>
     </div>
 @endsection
@@ -125,5 +125,8 @@
                 }
             });
         });
+
+        // Initialize form submission lock
+        initFormSubmissionLock('journal-edit-form', 'journal:submit-error');
     </script>
 @endpush

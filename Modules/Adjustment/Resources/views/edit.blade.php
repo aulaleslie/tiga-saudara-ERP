@@ -21,7 +21,7 @@
                 <div class="card">
                     <div class="card-body">
                         @include('utils.alerts')
-                        <form action="{{ route('adjustments.update', $adjustment) }}" method="POST">
+                        <form action="{{ route('adjustments.update', $adjustment) }}" method="POST" id="adjustment-edit-form">
                             @csrf
                             @method('patch')
                             <div class="form-row">
@@ -68,9 +68,9 @@
                                 <a href="{{ route('adjustments.index') }}" class="btn btn-secondary mr-2">
                                     Kembali
                                 </a>
-                                <button type="submit" class="btn btn-primary">
+                                <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="adjustment-edit-form">
                                     Perbaharui Penyesuaian <i class="bi bi-check"></i>
-                                </button>
+                                </x-button>
                             </div>
                         </form>
                     </div>
@@ -79,3 +79,10 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        // Initialize form submission lock
+        initFormSubmissionLock('adjustment-edit-form', 'adjustment:submit-error');
+    </script>
+@endpush

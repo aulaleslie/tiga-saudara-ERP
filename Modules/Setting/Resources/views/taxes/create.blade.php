@@ -12,7 +12,7 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('taxes.store') }}" method="POST">
+        <form id="tax-create-form" action="{{ route('taxes.store') }}" method="POST">
             @csrf
             <div class="row">
                 <div class="col-lg-12">
@@ -37,7 +37,7 @@
                                         <a href="{{ route('taxes.index') }}" class="btn btn-secondary mr-2">
                                             Kembali
                                         </a>
-                                        <button class="btn btn-primary">Tambah <i class="bi bi-check"></i></button>
+                                        <x-button label="Tambah" icon="bi-check" processing-text="Memproses…" />
                                     </div>
                                 </div>
                             </div>
@@ -48,3 +48,14 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('tax-create-form', {
+                errorEventName: 'tax:submit-error'
+            });
+        });
+    </script>
+@endpush

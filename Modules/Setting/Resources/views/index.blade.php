@@ -20,7 +20,7 @@
                         <h5 class="mb-0">Pengaturan Bisnis</h5>
                     </div>
                     <div class="card-body">
-                        <form action="{{ route('settings.update') }}" method="POST">
+                        <form id="settings-update-form" action="{{ route('settings.update') }}" method="POST">
                             @csrf
                             @method('patch')
                             <div class="form-row">
@@ -118,8 +118,7 @@
                             </div>
 
                             <div class="form-group mb-0">
-                                <button type="submit" class="btn btn-primary"><i class="bi bi-check"></i> Simpan Perubahan
-                                </button>
+                                <x-button label="Simpan Perubahan" icon="bi-check" processing-text="Memproses…" />
                             </div>
                         </form>
                     </div>
@@ -128,3 +127,14 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('settings-update-form', {
+                errorEventName: 'settings:submit-error'
+            });
+        });
+    </script>
+@endpush

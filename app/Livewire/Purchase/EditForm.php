@@ -111,29 +111,31 @@ class EditForm extends Component
 
     public function submit()
     {
-        $this->validate([
-            'supplier_id' => 'required|exists:suppliers,id',
-            'supplier_purchase_number' => 'nullable|string|max:255',
-            'date' => 'required|date',
-            'due_date' => 'required|date|after_or_equal:date',
-            'payment_term' => 'required|exists:payment_terms,id',
-            'note' => 'nullable|string|max:1000',
-            'tags' => 'nullable|array',
-            'tags.*' => 'string|max:50',
-        ], [
-            'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
-            'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
-            'date.required' => 'Tanggal pembelian wajib diisi.',
-            'due_date.required' => 'Tanggal jatuh tempo wajib diisi.',
-            'payment_term.required' => 'Term pembayaran harus dipilih.',
-        ]);
-
-        if (Cart::instance('purchase')->count() === 0) {
-            $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk harus dipilih']);
-            return;
-        }
+        $this->dispatchBrowserEvent('purchase:submit-start');
 
         try {
+            $this->validate([
+                'supplier_id' => 'required|exists:suppliers,id',
+                'supplier_purchase_number' => 'nullable|string|max:255',
+                'date' => 'required|date',
+                'due_date' => 'required|date|after_or_equal:date',
+                'payment_term' => 'required|exists:payment_terms,id',
+                'note' => 'nullable|string|max:1000',
+                'tags' => 'nullable|array',
+                'tags.*' => 'string|max:50',
+            ], [
+                'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
+                'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
+                'date.required' => 'Tanggal pembelian wajib diisi.',
+                'due_date.required' => 'Tanggal jatuh tempo wajib diisi.',
+                'payment_term.required' => 'Term pembayaran harus dipilih.',
+            ]);
+
+            if (Cart::instance('purchase')->count() === 0) {
+                $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk harus dipilih']);
+                return;
+            }
+
             DB::transaction(function () {
                 $purchase = $this->purchase; // already loaded in mount()
 
@@ -214,6 +216,8 @@ class EditForm extends Component
             Log::error('Edit Purchase Failed', ['error' => $e->getMessage()]);
             $this->dispatch('notify', ['type' => 'error', 'message' => 'Terjadi kesalahan saat memperbarui pembelian.']);
             $this->restoreCart(); // Rehydrate cart for UX
+        } finally {
+            $this->dispatchBrowserEvent('purchase:submit-finish');
         }
     }
 

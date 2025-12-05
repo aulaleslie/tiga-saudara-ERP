@@ -12,7 +12,7 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('taxes.update', $tax) }}" method="POST">
+        <form action="{{ route('taxes.update', $tax) }}" method="POST" id="tax-edit-form">
             @csrf
             @method('put')
             <div class="row">
@@ -39,7 +39,7 @@
                                         <a href="{{ route('taxes.index') }}" class="btn btn-secondary mr-2">
                                             Kembali
                                         </a>
-                                        <button class="btn btn-primary">Simpan <i class="bi bi-check"></i></button>
+                                        <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="tax-edit-form">Simpan <i class="bi bi-check"></i></x-button>
                                     </div>
                                 </div>
                             </div>
@@ -50,3 +50,10 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        // Initialize form submission lock
+        initFormSubmissionLock('tax-edit-form', 'tax:submit-error');
+    </script>
+@endpush

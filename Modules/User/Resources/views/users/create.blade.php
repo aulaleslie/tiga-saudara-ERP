@@ -22,14 +22,14 @@
 
 @section('content')
     <div class="container-fluid mb-4">
-        <form action="{{ route('users.store') }}" method="POST" enctype="multipart/form-data" id="user-form">
+        <form action="{{ route('users.store') }}" method="POST" enctype="multipart/form-data" id="user-create-form">
             @csrf
             <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
             <div class="row">
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary" type="submit">Buat Akun <i class="bi bi-check"></i></button>
+                        <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="user-create-form">Buat Akun <i class="bi bi-check"></i></x-button>
                         <a href="{{ route('users.index') }}" class="btn btn-secondary">Kembali</a>
                     </div>
                 </div>
@@ -155,7 +155,7 @@
         });
 
         // Form submission validation to ensure role is selected for each checked setting
-        document.getElementById('user-form').addEventListener('submit', function(event) {
+        document.getElementById('user-create-form').addEventListener('submit', function(event) {
             let valid = true;
             document.querySelectorAll('.setting-checkbox:checked').forEach(function(checkbox) {
                 const roleSelect = document.getElementById('role' + checkbox.value);
@@ -169,6 +169,9 @@
                 event.preventDefault();  // Prevent form submission
             }
         });
+
+        // Initialize form submission lock
+        initFormSubmissionLock('user-create-form', 'user:submit-error');
 
         // FilePond initialization
         FilePond.registerPlugin(

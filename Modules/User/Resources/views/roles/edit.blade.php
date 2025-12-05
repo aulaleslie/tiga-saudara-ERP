@@ -21,11 +21,11 @@
         <div class="row">
             <div class="col-md-12">
                 @include('utils.alerts')
-                <form action="{{ route('roles.update', $role->id) }}" method="POST">
+                <form action="{{ route('roles.update', $role->id) }}" method="POST" id="role-edit-form">
                     @csrf
                     @method('patch')
                     <div class="form-group mb-3 d-flex gap-2">
-                        <button type="submit" class="btn btn-primary">Perbaharui Peran <i class="bi bi-check"></i></button>
+                        <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="role-edit-form">Perbaharui Peran <i class="bi bi-check"></i></x-button>
                         <a href="{{ route('roles.index') }}" class="btn btn-secondary">Kembali</a>
                     </div>
 
@@ -367,5 +367,8 @@
                 });
             });
         });
+
+        // Initialize form submission lock
+        initFormSubmissionLock('role-edit-form', 'role:submit-error');
     </script>
 @endpush

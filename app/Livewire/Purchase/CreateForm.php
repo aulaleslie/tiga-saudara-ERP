@@ -124,40 +124,42 @@ class CreateForm extends Component
      */
     public function submit()
     {
-        $this->validate([
-            'supplier_id' => 'required|exists:suppliers,id',
-            'supplier_purchase_number' => 'nullable|string|max:255',
-            'date' => 'required|date',
-            'due_date' => 'required|date|after_or_equal:date',
-            'payment_term' => 'required|exists:payment_terms,id',
-            'note' => 'nullable|string|max:1000',
-        ], [
-            'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
-            'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
-            'date.required' => 'Tanggal pembelian wajib diisi.',
-            'date.date' => 'Format tanggal tidak valid.',
-            'due_date.required' => 'Tanggal jatuh tempo wajib diisi.',
-            'due_date.date' => 'Format tanggal tidak valid.',
-            'due_date.after_or_equal' => 'Tanggal jatuh tempo harus lebih besar dari atau sama dengan tanggal pembelian.',
-            'payment_term.required' => 'Pilih jatuh tempo terlebih dahulu.',
-            'payment_term.exists' => 'Jatuh tempo yang dipilih tidak valid.',
-        ]);
-
-        $cart = Cart::instance('purchase');
-
-        if ($cart->count() === 0) {
-            $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk harus dipilih']);
-            return;
-        }
-
-        if (! IdempotencyService::claim($this->idempotencyToken, 'purchases.store', auth()->id())) {
-            session()->flash('error', 'Permintaan pembelian sudah diproses. Silakan tunggu sebelum mencoba lagi.');
-            return;
-        }
-
-        DB::beginTransaction();
+        $this->dispatchBrowserEvent('purchase:submit-start');
 
         try {
+            $this->validate([
+                'supplier_id' => 'required|exists:suppliers,id',
+                'supplier_purchase_number' => 'nullable|string|max:255',
+                'date' => 'required|date',
+                'due_date' => 'required|date|after_or_equal:date',
+                'payment_term' => 'required|exists:payment_terms,id',
+                'note' => 'nullable|string|max:1000',
+            ], [
+                'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
+                'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
+                'date.required' => 'Tanggal pembelian wajib diisi.',
+                'date.date' => 'Format tanggal tidak valid.',
+                'due_date.required' => 'Tanggal jatuh tempo wajib diisi.',
+                'due_date.date' => 'Format tanggal tidak valid.',
+                'due_date.after_or_equal' => 'Tanggal jatuh tempo harus lebih besar dari atau sama dengan tanggal pembelian.',
+                'payment_term.required' => 'Pilih jatuh tempo terlebih dahulu.',
+                'payment_term.exists' => 'Jatuh tempo yang dipilih tidak valid.',
+            ]);
+
+            $cart = Cart::instance('purchase');
+
+            if ($cart->count() === 0) {
+                $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk harus dipilih']);
+                return;
+            }
+
+            if (! IdempotencyService::claim($this->idempotencyToken, 'purchases.store', auth()->id())) {
+                session()->flash('error', 'Permintaan pembelian sudah diproses. Silakan tunggu sebelum mencoba lagi.');
+                return;
+            }
+
+            DB::beginTransaction();
+
             $setting_id = session('setting_id');
 
             // Global discount and tax calculations
@@ -241,6 +243,8 @@ class CreateForm extends Component
 
             session()->flash('error', 'Gagal menyimpan pembelian. Silakan coba lagi.');
             return;
+        } finally {
+            $this->dispatchBrowserEvent('purchase:submit-finish');
         }
     }
 

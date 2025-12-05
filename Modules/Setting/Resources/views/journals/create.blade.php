@@ -20,7 +20,7 @@
             </div>
         @endif
 
-        <form action="{{ route('journals.store') }}" method="POST" id="journalForm">
+        <form action="{{ route('journals.store') }}" method="POST" id="journal-create-form">
             @csrf
             <div class="form-group">
                 <label for="transaction_date">Tanggal Transaksi</label>
@@ -69,7 +69,7 @@
             </table>
             <button type="button" class="btn btn-secondary" id="addRow">Tambah Item</button>
             <br><br>
-            <button type="submit" class="btn btn-primary">Buat Jurnal</button>
+            <x-button label="Buat Jurnal" processing-text="Memproses…" />
         </form>
     </div>
 @endsection
@@ -117,5 +117,18 @@
                 }
             });
         });
+
+        // Form submission lock
+        document.addEventListener('DOMContentLoaded', function () {
+            if (typeof initFormSubmissionLock !== 'undefined') {
+                initFormSubmissionLock('journal-create-form', {
+                    errorEventName: 'journal:submit-error'
+                });
+            }
+        });
     </script>
+@endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
 @endpush

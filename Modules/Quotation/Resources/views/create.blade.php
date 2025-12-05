@@ -76,9 +76,7 @@
                             </div>
 
                             <div class="mt-3">
-                                <button type="submit" class="btn btn-primary">
-                                    Create Quotation <i class="bi bi-check"></i>
-                                </button>
+                                <x-button label="Create Quotation" icon="bi-check" processing-text="Memproses…" />
                             </div>
                         </form>
                     </div>
@@ -89,5 +87,12 @@
 @endsection
 
 @push('page_scripts')
-
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('quotation-form', {
+                errorEventName: 'quotation:submit-error'
+            });
+        });
+    </script>
 @endpush

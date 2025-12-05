@@ -12,7 +12,7 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('chart-of-account.update', $chartOfAccount) }}" method="POST">
+        <form id="chart-of-account-edit-form" action="{{ route('chart-of-account.update', $chartOfAccount) }}" method="POST">
             @csrf
             @method('put')
             <div class="row">
@@ -88,7 +88,7 @@
                                     <div class="form-group">
                                         <a href="{{ route('chart-of-account.index') }}" class="btn btn-secondary mr-2">Kembali</a>
                                         @can("edit_account")
-                                        <button class="btn btn-primary">Update Akun <i class="bi bi-check"></i></button>
+                                        <x-button label="Update Akun" icon="bi-check" processing-text="Memproses…" />
                                         @endcan
                                     </div>
                                 </div>
@@ -100,3 +100,14 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('chart-of-account-edit-form', {
+                errorEventName: 'chart-of-account:submit-error'
+            });
+        });
+    </script>
+@endpush

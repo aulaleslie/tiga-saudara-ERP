@@ -19,7 +19,7 @@
                         @include('utils.alerts')
 
                         <!-- Full Form for Transfers, including Business Location and Product Table -->
-                        <form id="transfer-form" action="{{ route('transfers.update', $transfer->id) }}" method="POST">
+                        <form id="transfer-edit-form" action="{{ route('transfers.update', $transfer->id) }}" method="POST">
                             @csrf
                             @method('PUT')
 
@@ -87,9 +87,9 @@
                                 <!-- Update button to submit the form -->
                                 <div class="col-md-12 mt-4 text-right">
                                     @can('stockTransfers.edit')
-                                    <button type="submit" class="btn btn-primary">
+                                    <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="transfer-edit-form">
                                         Update Transfer <i class="bi bi-check"></i>
-                                    </button>
+                                    </x-button>
                                     @endcan
                                 </div>
                             </div>
@@ -100,3 +100,10 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        // Initialize form submission lock
+        initFormSubmissionLock('transfer-edit-form', 'transfer:submit-error');
+    </script>
+@endpush

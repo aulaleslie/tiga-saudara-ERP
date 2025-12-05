@@ -17,7 +17,7 @@
             </div>
         @endif
 
-        <form action="{{ route('locations.store') }}" method="POST">
+        <form id="location-create-form" action="{{ route('locations.store') }}" method="POST">
             @csrf
             <div class="row">
                 <div class="col-lg-12">
@@ -68,9 +68,7 @@
                                 <div class="col-lg-12 d-flex justify-content-end">
                                     <div class="form-group">
                                         <a href="{{ route('locations.index') }}" class="btn btn-secondary mr-2">Kembali</a>
-                                        <button class="btn btn-primary">
-                                            Tambahkan Lokasi <i class="bi bi-check"></i>
-                                        </button>
+                                        <x-button label="Tambahkan Lokasi" icon="bi-check" processing-text="Memproses…" />
                                     </div>
                                 </div>
 
@@ -82,3 +80,14 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('location-create-form', {
+                errorEventName: 'location:submit-error'
+            });
+        });
+    </script>
+@endpush

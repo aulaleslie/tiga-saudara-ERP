@@ -19,7 +19,7 @@
                         <h5 class="mb-0">Ubah Informasi Bisnis</h5>
                     </div>
                     <div class="card-body">
-                        <form action="{{ route('businesses.update', $business) }}" method="POST">
+                        <form id="business-edit-form" action="{{ route('businesses.update', $business) }}" method="POST">
                             @csrf
                             @method('patch')
                             <div class="form-row">
@@ -91,7 +91,7 @@
                                 <a href="{{ route('businesses.index') }}" class="btn btn-secondary mr-2">
                                     Kembali
                                 </a>
-                                <button type="submit" class="btn btn-primary"><i class="bi bi-check"></i> Simpan Perubahan</button>
+                                <x-button label="Simpan Perubahan" icon="bi-check" processing-text="Memproses…" />
                             </div>
                         </form>
                     </div>
@@ -100,4 +100,15 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('business-edit-form', {
+                errorEventName: 'business:submit-error'
+            });
+        });
+    </script>
+@endpush
 

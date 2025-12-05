@@ -86,6 +86,8 @@ class PurchaseReturnCreateForm extends Component
     {
         Log::info('Submitting purchase return form', get_object_vars($this));
 
+        $this->dispatchBrowserEvent('purchase-return:submit-start');
+
         try {
             $prepared = $this->validateAndPrepare();
 
@@ -148,6 +150,8 @@ class PurchaseReturnCreateForm extends Component
         } catch (Exception $e) {
             Log::error('Failed to save purchase return', ['message' => $e->getMessage()]);
             session()->flash('error', 'Terjadi kesalahan saat menyimpan retur pembelian.');
+        } finally {
+            $this->dispatchBrowserEvent('purchase-return:submit-finish');
         }
 
         return null;
