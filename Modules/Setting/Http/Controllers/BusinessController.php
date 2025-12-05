@@ -45,6 +45,35 @@ class BusinessController extends Controller
     {
         abort_if(Gate::denies('businesses.create'), 403);
 
+        $request->validate([
+            'company_name' => [
+                'required',
+                'string',
+                'max:255',
+                'unique:settings,company_name',
+            ],
+            'company_email' => 'required|email|max:255',
+            'company_phone' => 'nullable|string|max:20',
+            'company_address' => 'nullable|string|max:500',
+            'document_prefix' => 'nullable|string|max:10',
+            'purchase_prefix_document' => 'nullable|string|max:10',
+            'sale_prefix_document' => 'nullable|string|max:10',
+            'pos_document_prefix' => 'nullable|string|max:10',
+            'default_currency_id' => 'nullable|exists:currencies,id',
+        ], [
+            'company_name.required' => 'Nama perusahaan wajib diisi.',
+            'company_name.unique' => 'Nama perusahaan sudah digunakan.',
+            'company_email.required' => 'Email perusahaan wajib diisi.',
+            'company_email.email' => 'Format email tidak valid.',
+            'company_phone.max' => 'Nomor telepon maksimal 20 karakter.',
+            'company_address.max' => 'Alamat maksimal 500 karakter.',
+            'document_prefix.max' => 'Prefix dokumen maksimal 10 karakter.',
+            'purchase_prefix_document.max' => 'Prefix dokumen pembelian maksimal 10 karakter.',
+            'sale_prefix_document.max' => 'Prefix dokumen penjualan maksimal 10 karakter.',
+            'pos_document_prefix.max' => 'Prefix dokumen POS maksimal 10 karakter.',
+            'default_currency_id.exists' => 'Mata uang yang dipilih tidak valid.',
+        ]);
+
         $currentYear = date("Y");
         $currency    = Currency::first();
         $currencyId  = $request->default_currency_id ?: optional($currency)->id;
@@ -90,6 +119,35 @@ class BusinessController extends Controller
     public function update(Request $request, Setting $business)
     {
         abort_if(Gate::denies('businesses.edit'), 403);
+
+        $request->validate([
+            'company_name' => [
+                'required',
+                'string',
+                'max:255',
+                'unique:settings,company_name,' . $business->id,
+            ],
+            'company_email' => 'required|email|max:255',
+            'company_phone' => 'nullable|string|max:20',
+            'company_address' => 'nullable|string|max:500',
+            'document_prefix' => 'nullable|string|max:10',
+            'purchase_prefix_document' => 'nullable|string|max:10',
+            'sale_prefix_document' => 'nullable|string|max:10',
+            'pos_document_prefix' => 'nullable|string|max:10',
+            'default_currency_id' => 'nullable|exists:currencies,id',
+        ], [
+            'company_name.required' => 'Nama perusahaan wajib diisi.',
+            'company_name.unique' => 'Nama perusahaan sudah digunakan.',
+            'company_email.required' => 'Email perusahaan wajib diisi.',
+            'company_email.email' => 'Format email tidak valid.',
+            'company_phone.max' => 'Nomor telepon maksimal 20 karakter.',
+            'company_address.max' => 'Alamat maksimal 500 karakter.',
+            'document_prefix.max' => 'Prefix dokumen maksimal 10 karakter.',
+            'purchase_prefix_document.max' => 'Prefix dokumen pembelian maksimal 10 karakter.',
+            'sale_prefix_document.max' => 'Prefix dokumen penjualan maksimal 10 karakter.',
+            'pos_document_prefix.max' => 'Prefix dokumen POS maksimal 10 karakter.',
+            'default_currency_id.exists' => 'Mata uang yang dipilih tidak valid.',
+        ]);
 
         $currency   = Currency::first();
         $currencyId = $request->default_currency_id ?: optional($currency)->id;

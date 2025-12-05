@@ -373,7 +373,21 @@ class PurchaseController extends Controller
             'received.*' => 'nullable|integer|min:0',
             'notes.*' => 'nullable|string|max:255',
             'serial_numbers.*.*' => ['nullable', 'string', 'max:255'],
-            'external_delivery_number' => 'nullable|string|max:255',
+            'external_delivery_number' => [
+                'nullable',
+                'string',
+                'max:255',
+                function ($attribute, $value, $fail) use ($purchase) {
+                    if (!empty($value)) {
+                        $exists = ReceivedNote::where('po_id', $purchase->id)
+                            ->where('external_delivery_number', $value)
+                            ->exists();
+                        if ($exists) {
+                            $fail('Nomor pengiriman eksternal sudah digunakan untuk pembelian ini.');
+                        }
+                    }
+                }
+            ],
             'location_id' => 'required|integer|exists:locations,id',
         ]);
 

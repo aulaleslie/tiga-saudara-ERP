@@ -92,9 +92,11 @@ class SaleReturn extends BaseModel
         static::creating(function ($model) {
             $year = now()->year;
             $month = now()->month;
+            $settingId = $model->setting_id;
 
-            // Fetch the latest reference for the current year and month
-            $latestReference = SaleReturn::whereYear('created_at', $year)
+            // Fetch the latest reference for the current year, month, and setting
+            $latestReference = SaleReturn::where('setting_id', $settingId)
+                ->whereYear('created_at', $year)
                 ->whereMonth('created_at', $month)
                 ->latest('id')
                 ->value('reference');

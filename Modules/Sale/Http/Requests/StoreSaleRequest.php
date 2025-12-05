@@ -16,7 +16,7 @@ class StoreSaleRequest extends FormRequest
     {
         return [
             'customer_id' => 'required|integer|exists:customers,id',
-            'reference' => 'required|string|max:255',
+            'reference' => 'required|string|max:255|unique:sales,reference,NULL,id,setting_id,' . session('setting_id'),
             'date' => 'required|date',
             'due_date' => 'required|date|after_or_equal:date',
             'tax_id' => 'nullable|integer|exists:taxes,id',
@@ -26,6 +26,42 @@ class StoreSaleRequest extends FormRequest
             'total_amount' => 'required|numeric|min:0', // Ensure total amount is a valid number
             'payment_term_id' => 'required|integer|exists:payment_terms,id', // New field for payment term
             'note' => 'nullable|string|max:1000',
+        ];
+    }
+
+    /**
+     * Get custom messages for validator errors.
+     *
+     * @return array
+     */
+    public function messages(): array
+    {
+        return [
+            'customer_id.required' => 'Pelanggan wajib dipilih.',
+            'customer_id.exists' => 'Pelanggan yang dipilih tidak valid.',
+            'reference.required' => 'Referensi penjualan wajib diisi.',
+            'reference.unique' => 'Referensi penjualan sudah digunakan.',
+            'date.required' => 'Tanggal penjualan wajib diisi.',
+            'date.date' => 'Format tanggal tidak valid.',
+            'due_date.required' => 'Tanggal jatuh tempo wajib diisi.',
+            'due_date.date' => 'Format tanggal jatuh tempo tidak valid.',
+            'due_date.after_or_equal' => 'Tanggal jatuh tempo harus sama atau setelah tanggal penjualan.',
+            'tax_id.exists' => 'Pajak yang dipilih tidak valid.',
+            'discount_percentage.numeric' => 'Persentase diskon harus berupa angka.',
+            'discount_percentage.min' => 'Persentase diskon minimal 0.',
+            'discount_percentage.max' => 'Persentase diskon maksimal 100.',
+            'discount_percentage.required_without' => 'Persentase diskon wajib diisi jika jumlah diskon tidak diisi.',
+            'discount_amount.numeric' => 'Jumlah diskon harus berupa angka.',
+            'discount_amount.min' => 'Jumlah diskon minimal 0.',
+            'discount_amount.required_without' => 'Jumlah diskon wajib diisi jika persentase diskon tidak diisi.',
+            'shipping_amount.required' => 'Biaya pengiriman wajib diisi.',
+            'shipping_amount.numeric' => 'Biaya pengiriman harus berupa angka.',
+            'total_amount.required' => 'Total jumlah wajib diisi.',
+            'total_amount.numeric' => 'Total jumlah harus berupa angka.',
+            'total_amount.min' => 'Total jumlah minimal 0.',
+            'payment_term_id.required' => 'Term pembayaran wajib dipilih.',
+            'payment_term_id.exists' => 'Term pembayaran yang dipilih tidak valid.',
+            'note.max' => 'Catatan maksimal 1000 karakter.',
         ];
     }
 
