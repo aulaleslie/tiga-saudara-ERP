@@ -11,7 +11,17 @@
             <!-- Supplier -->
             <div class="col-lg-6 mb-3">
                 <label for="supplier_name">Pemasok <span class="text-danger">*</span></label>
-                <livewire:auto-complete.supplier-loader/>
+                <div class="d-flex">
+                    <div class="flex-grow-1">
+                        <livewire:auto-complete.supplier-loader wire:key="purchase-supplier-loader"/>
+                    </div>
+                    <x-quick-add-button
+                        entity="pemasok"
+                        permission="suppliers.create"
+                        modal-event="openSupplierModal"
+                        tooltip="Tambah pemasok baru"
+                    />
+                </div>
                 @error('supplier_id')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
@@ -41,26 +51,33 @@
 
             <!-- Payment Term -->
             <div class="col-lg-6 mb-3">
-                <label for="payment_term">Term Pembayaran <span class="text-danger">*</span></label>
-                <select id="payment_term" class="form-control" wire:model.lazy="payment_term">
-                    <option value="">Pilih Term Pembayaran</option>
-                    @foreach($paymentTerms as $term)
-                        <option value="{{ (int) $term->id }}">{{ $term->name }}</option>
-                    @endforeach
-                </select>
+                <livewire:components.searchable-select
+                    name="payment_term"
+                    label="Term Pembayaran"
+                    :model-class="'Modules\Purchase\Entities\PaymentTerm'"
+                    :selected="$payment_term"
+                    placeholder="Cari term pembayaran..."
+                    required="true"
+                    quickAddEntity="term pembayaran"
+                    quickAddPermission="purchases.create"
+                    quickAddModalEvent="openPaymentTermModal"
+                    quickAddTooltip="Tambah term pembayaran baru"
+                    listenForCreatedEvent="paymentTermCreated"
+                    wire:key="purchase-payment-term-select"
+                />
                 @error('payment_term')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
 
             <div class="col-lg-6 mb-3">
                 <label for="tags">Tag Pembelian</label>
-                <livewire:utils.tag-selector :initial-tags="$tags ?? []" />
+                <livewire:utils.tag-selector :initial-tags="$tags ?? []" wire:key="purchase-tag-selector" />
             </div>
         </div>
 
         <!-- Product Cart -->
         <div class="my-3">
-            <livewire:purchase.product-cart :cartInstance="'purchase'"/>
+            <livewire:purchase.product-cart :cartInstance="'purchase'" wire:key="purchase-product-cart"/>
         </div>
 
         <!-- Catatan -->
@@ -84,4 +101,10 @@
             <a href="{{ route('purchases.index') }}" class="btn btn-secondary">Kembali</a>
         </div>
     </form>
+
+    <!-- Modals -->
+    <livewire:modules.purchase.modals.payment-term-quick-add-modal wire:key="purchase-payment-term-modal" />
+    <livewire:modules.people.modals.supplier-quick-add-modal wire:key="purchase-supplier-modal" />
+    <livewire:modules.product.modals.product-quick-add-modal wire:key="purchase-product-modal" />
+    <livewire:modules.setting.modals.tax-quick-add-modal wire:key="purchase-tax-modal" />
 </div>

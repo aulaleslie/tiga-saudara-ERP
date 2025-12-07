@@ -16,6 +16,10 @@ class SearchProduct extends Component
     public $search_results;
     public int $how_many = 5;
 
+    protected $listeners = [
+        'productCreated' => 'handleProductCreated',
+    ];
+
     public function mount(): void
     {
         $this->search_results = Collection::empty();
@@ -43,6 +47,14 @@ class SearchProduct extends Component
     {
         $this->how_many += 5;
         $this->updatedQuery();
+    }
+
+    public function handleProductCreated($data): void
+    {
+        // Refresh search results to include the new product
+        $this->updatedQuery();
+        // Optionally set the query to the new product name to show it
+        $this->query = $data['product_name'];
     }
 
     public function resetQuery(): void

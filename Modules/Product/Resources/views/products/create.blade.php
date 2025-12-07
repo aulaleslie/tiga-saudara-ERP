@@ -45,10 +45,12 @@
                             <!-- Kategori and Merek -->
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <x-select label="Kategori" name="category_id" :options="$formattedCategories"/>
+                                    <x-select label="Kategori" name="category_id" :options="$formattedCategories"
+                                              :quickAddButton="'<x-quick-add-button entity=\"kategori\" permission=\"products.create\" modal-event=\"openCategoryModal\" tooltip=\"Tambah kategori baru\" />'" />
                                 </div>
                                 <div class="col-md-6">
-                                    <x-select label="Merek" name="brand_id" :options="$brands->pluck('name', 'id')"/>
+                                    <x-select label="Merek" name="brand_id" :options="$brands->pluck('name', 'id')"
+                                              :quickAddButton="'<x-quick-add-button entity=\"merek\" permission=\"products.create\" modal-event=\"openBrandModal\" tooltip=\"Tambah merek baru\" />'" />
                                 </div>
                             </div>
 
@@ -69,7 +71,8 @@
                                                 <div class="col-md-6">
                                                     <x-select label="Pajak Beli" name="purchase_tax_id"
                                                               :options="$taxes->pluck('name', 'id')"
-                                                              :disabled="!old('is_purchased')"/>
+                                                              :disabled="!old('is_purchased')"
+                                                              :quickAddButton="'<x-quick-add-button entity=\"pajak\" permission=\"settings.access\" modal-event=\"openTaxModal\" tooltip=\"Tambah pajak baru\" size=\"sm\" />'" />
                                                 </div>
                                             </div>
                                         </div>
@@ -95,7 +98,8 @@
                                                 <div class="col-md-6">
                                                     <x-select label="Pajak Jual" name="sale_tax_id"
                                                               :options="$taxes->pluck('name', 'id')"
-                                                              :disabled="!old('is_sold')"/>
+                                                              :disabled="!old('is_sold')"
+                                                              :quickAddButton="'<x-quick-add-button entity=\"pajak\" permission=\"settings.access\" modal-event=\"openTaxModal\" tooltip=\"Tambah pajak baru\" size=\"sm\" />'" />
                                                 </div>
                                             </div>
 
@@ -159,7 +163,8 @@
                                 <!-- Unit and Barcode -->
                                 <div class="form-row">
                                     <div class="col-md-6">
-                                        <x-select label="Unit Utama" name="base_unit_id" :options="$units->pluck('name', 'id')" />
+                                        <x-select label="Unit Utama" name="base_unit_id" :options="$units->pluck('name', 'id')"
+                                                  :quickAddButton="'<x-quick-add-button entity=\"unit\" permission=\"settings.access\" modal-event=\"openUnitModal\" tooltip=\"Tambah unit baru\" />'" />
                                     </div>
                                     <div class="col-md-6">
                                         <x-input label="Barcode Unit Utama" name="barcode"/>
@@ -514,4 +519,10 @@
             }
         };
     </script>
+
+    <!-- Modals -->
+    <livewire:modules.product.modals.category-quick-add-modal />
+    <livewire:modules.product.modals.brand-quick-add-modal />
+    <livewire:modules.setting.modals.tax-quick-add-modal />
+    <livewire:modules.setting.modals.unit-quick-add-modal />
 @endsection

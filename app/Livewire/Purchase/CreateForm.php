@@ -35,6 +35,10 @@ class CreateForm extends Component
         'shippingUpdated'        => 'handleShippingUpdated',
         'globalDiscountUpdated'  => 'handleGlobalDiscountUpdated',
         'taxIncludedUpdated'    => 'handleTaxIncludedUpdated',
+        'paymentTermCreated' => 'handlePaymentTermCreated',
+        'supplierCreated' => 'handleSupplierCreated',
+        'taxCreated' => 'handleTaxCreated',
+        'itemSelected' => 'handleItemSelected',
     ];
 
     public $paymentTerms = [];
@@ -43,6 +47,7 @@ class CreateForm extends Component
     public $global_discount = 0;
     public $is_tax_included = false;
     public string $idempotencyToken;
+    private const PAYMENT_TERM_FIELD = 'payment_term';
 
     public function mount(string $idempotencyToken): void
     {
@@ -60,6 +65,11 @@ class CreateForm extends Component
         if ($supplier && $supplier->payment_term_id) {
             $this->payment_term = $supplier->payment_term_id;
             $this->updateDueDateFromPaymentTerm();
+            $this->syncPaymentTermSelect();
+        } else {
+            $this->payment_term = null;
+            $this->due_date = $this->date;
+            $this->syncPaymentTermSelect();
         }
     }
 
@@ -72,6 +82,7 @@ class CreateForm extends Component
     {
         $this->payment_term = (int) $value;
         $this->updateDueDateFromPaymentTerm();
+        $this->syncPaymentTermSelect();
     }
 
     private function updateDueDateFromPaymentTerm(): void
@@ -83,6 +94,8 @@ class CreateForm extends Component
                 $date = Carbon::parse($this->date);
                 $this->due_date = $date->addDays($term->longevity)->format('Y-m-d');
             }
+        } else {
+            $this->due_date = $this->date;
         }
     }
 
@@ -101,6 +114,9 @@ class CreateForm extends Component
         } else {
             $this->supplier_id = null;
             $this->supplier_name = null;
+            $this->payment_term = null;
+            $this->due_date = $this->date;
+            $this->syncPaymentTermSelect();
         }
     }
 
@@ -117,6 +133,70 @@ class CreateForm extends Component
     public function handleTaxIncludedUpdated(bool $included)
     {
         $this->is_tax_included = $included;
+    }
+
+    public function handlePaymentTermCreated($data): void
+    {
+        $this->paymentTerms = PaymentTerm::all(); // Refresh the list
+        $this->payment_term = $data['id']; // Auto-select the new payment term
+        $this->updateDueDateFromPaymentTerm();
+        $this->syncPaymentTermSelect();
+    }
+
+    public function handleSupplierCreated($data): void
+    {
+        $this->supplier_id = $data['id'];
+        $this->supplier_name = $data['supplier_name'];
+        
+        // Fetch the fresh supplier from database to get payment term
+        $supplier = Supplier::find($data['id']);
+        
+        // Auto-populate payment term if supplier has one
+        if ($supplier && $supplier->payment_term_id) {
+            $this->payment_term = $supplier->payment_term_id;
+            $this->updateDueDateFromPaymentTerm();
+            $this->syncPaymentTermSelect();
+        }
+        
+        // Dispatch event to update supplier loader
+        $this->dispatch('supplierSelected', $data);
+    }
+
+    public function handleTaxCreated($data): void
+    {
+        // This will be handled by the product cart component
+        $this->dispatch('taxCreated', $data);
+    }
+
+    public function handleItemSelected(array $payload): void
+    {
+        if (($payload['name'] ?? null) !== self::PAYMENT_TERM_FIELD) {
+            return;
+        }
+
+        $this->payment_term = $payload['value'] ? (int) $payload['value'] : null;
+
+        if ($this->payment_term) {
+            $this->updateDueDateFromPaymentTerm();
+        } else {
+            $this->due_date = $this->date;
+        }
+        $this->syncPaymentTermSelect();
+    }
+
+    private function syncPaymentTermSelect(): void
+    {
+        $termName = null;
+        if ($this->payment_term) {
+            $term = PaymentTerm::find($this->payment_term);
+            $termName = $term?->name;
+        }
+
+        $this->dispatch('setSelectedValue', [
+            'name' => self::PAYMENT_TERM_FIELD,
+            'value' => $this->payment_term,
+            'label' => $termName,
+        ]);
     }
 
     /**

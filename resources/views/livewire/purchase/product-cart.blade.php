@@ -126,20 +126,29 @@
                             </td>
 
                             <td class="align-middle text-center">
-                                <select
-                                    wire:model.defer="product_tax.{{ $cart_item->id }}"
-                                    class="form-control"
-                                    wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
-                                >
-                                    <option value="">Non Pajak</option>
-                                    @foreach($taxes as $tax)
-                                        <option
-                                            value="{{ $tax->id }}"
-                                            {{ $tax->id == $cart_item->options->product_tax ? 'selected' : '' }}>
-                                            {{ $tax->name }} ({{ $tax->value }}%)
-                                        </option>
-                                    @endforeach
-                                </select>
+                                <div class="input-group input-group-sm">
+                                    <select
+                                        wire:model.defer="product_tax.{{ $cart_item->id }}"
+                                        class="form-control form-control-sm"
+                                        wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
+                                    >
+                                        <option value="">Non Pajak</option>
+                                        @foreach($taxes as $tax)
+                                            <option
+                                                value="{{ $tax->id }}"
+                                                {{ $tax->id == $cart_item->options->product_tax ? 'selected' : '' }}>
+                                                {{ $tax->name }} ({{ $tax->value }}%)
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                    <x-quick-add-button
+                                        entity="pajak"
+                                        permission="settings.access"
+                                        modal-event="openTaxModal"
+                                        size="sm"
+                                        tooltip="Tambah pajak baru"
+                                    />
+                                </div>
                                 @error('product_tax.' . $cart_item->id)
                                 <span class="text-danger">{{ $message }}</span>
                                 @enderror
@@ -290,3 +299,6 @@
         </div>
     </div>
 </div>
+
+<!-- Modals -->
+<livewire:modules.setting.modals.tax-quick-add-modal />

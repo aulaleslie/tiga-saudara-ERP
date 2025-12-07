@@ -1,4 +1,4 @@
-@props(['label', 'name', 'options' => [], 'selected' => null, 'required' => false, 'addCategoryButton' => false, 'placeholder' => 'Pilih', 'disabled' => false])
+@props(['label', 'name', 'options' => [], 'selected' => null, 'required' => false, 'addCategoryButton' => false, 'placeholder' => 'Pilih', 'disabled' => false, 'quickAddButton' => null])
 
 <div class="form-group">
     <label for="{{ $name }}">{{ $label }} @if($required)<span class="text-danger">*</span>@endif</label>
@@ -14,6 +14,9 @@
                 </option>
             @endforeach
         </select>
+        @if($quickAddButton)
+            {!! $quickAddButton !!}
+        @endif
     </div>
 
     @error($name)

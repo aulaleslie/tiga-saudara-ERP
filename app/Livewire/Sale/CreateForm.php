@@ -31,6 +31,9 @@ class CreateForm extends Component
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
         'confirmSubmit' => 'submit',
+        'paymentTermCreated' => 'handlePaymentTermCreated',
+        'customerCreated' => 'handleCustomerCreated',
+        'taxCreated' => 'handleTaxCreated',
     ];
 
     public function mount(string $idempotencyToken)
@@ -40,7 +43,7 @@ class CreateForm extends Component
         // or generate here if you prefer.
         $this->reference = 'SL'; // This can be dynamic if needed
         $this->date = now()->format('Y-m-d');
-        $this->due_date = now()->format('Y-m-d');
+        $this->dueDate = now()->format('Y-m-d');
         $this->paymentTerms = PaymentTerm::all();
     }
 
@@ -84,6 +87,32 @@ class CreateForm extends Component
     public function updatedDate($value)
     {
         $this->updateDueDateFromPaymentTerm();
+    }
+
+    public function handlePaymentTermCreated($data): void
+    {
+        $this->paymentTerms = PaymentTerm::all(); // Refresh the list
+        $this->paymentTermId = $data['id']; // Auto-select the new payment term
+        $this->updateDueDateFromPaymentTerm();
+    }
+
+    public function handleCustomerCreated($data): void
+    {
+        $this->customerId = $data['id'];
+        $this->customerName = $data['customer_name'];
+        // Auto-populate payment term if customer has one
+        if (isset($data['payment_term_id']) && $data['payment_term_id']) {
+            $this->paymentTermId = $data['payment_term_id'];
+            $this->updateDueDateFromPaymentTerm();
+        }
+        // Dispatch event to update customer loader
+        $this->dispatch('customerSelected', $data);
+    }
+
+    public function handleTaxCreated($data): void
+    {
+        // This will be handled by the product cart component
+        $this->dispatch('taxCreated', $data);
     }
 
     public function submit()

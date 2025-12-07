@@ -16,7 +16,17 @@
             <!-- Pelanggan -->
             <div class="col-lg-6 mb-3">
                 <label for="customer">Pelanggan</label>
-                <livewire:auto-complete.customer-loader :customerId="$customerId" />
+                <div class="d-flex">
+                    <div class="flex-grow-1">
+                        <livewire:auto-complete.customer-loader :customerId="$customerId" />
+                    </div>
+                    <x-quick-add-button
+                        entity="pelanggan"
+                        permission="customers.create"
+                        modal-event="openCustomerModal"
+                        tooltip="Tambah pelanggan baru"
+                    />
+                </div>
                 @error('customerId') <div class="text-danger">{{ $message }}</div> @enderror
             </div>
 
@@ -42,15 +52,19 @@
 
             <!-- Term Pembayaran -->
             <div class="col-lg-6 mb-3">
-                <label for="paymentTermId">Term Pembayaran</label>
-                <select id="paymentTermId"
-                        class="form-control @error('paymentTermId') is-invalid @enderror"
-                        wire:model="paymentTermId">
-                    <option value="">Pilih Term Pembayaran</option>
-                    @foreach($paymentTerms as $term)
-                        <option value="{{ $term->id }}">{{ $term->name }}</option>
-                    @endforeach
-                </select>
+                <livewire:components.searchable-select
+                    name="paymentTermId"
+                    label="Term Pembayaran"
+                    :model-class="'Modules\Purchase\Entities\PaymentTerm'"
+                    :selected="$paymentTermId"
+                    placeholder="Cari term pembayaran..."
+                    required="true"
+                    quickAddEntity="term pembayaran"
+                    quickAddPermission="purchases.create"
+                    quickAddModalEvent="openPaymentTermModal"
+                    quickAddTooltip="Tambah term pembayaran baru"
+                    listenForCreatedEvent="paymentTermCreated"
+                />
                 @error('paymentTermId') <div class="invalid-feedback">{{ $message }}</div> @enderror
             </div>
         </div>
@@ -87,4 +101,9 @@
             <a href="{{ route('sales.index') }}" class="btn btn-secondary">Kembali</a>
         </div>
     </form>
+
+    <!-- Modals -->
+    <livewire:modules.purchase.modals.payment-term-quick-add-modal />
+    <livewire:modules.people.modals.customer-quick-add-modal />
+    <livewire:modules.setting.modals.tax-quick-add-modal />
 </div>

@@ -15,7 +15,7 @@ use Modules\Setting\Entities\Unit;
 
 class ProductCart extends Component
 {
-    public $listeners = ['productSelected', 'discountModalRefresh'];
+    public $listeners = ['productSelected', 'discountModalRefresh', 'taxCreated' => 'handleTaxCreated'];
 
     public $cart_instance;
     public $global_discount;
@@ -144,6 +144,11 @@ class ProductCart extends Component
         }
 
         return implode(', ', $parts);
+    }
+
+    public function handleTaxCreated($data): void
+    {
+        $this->taxes = Tax::all(); // Refresh the taxes list
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application

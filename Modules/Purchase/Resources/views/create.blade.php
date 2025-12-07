@@ -15,7 +15,7 @@
         <!-- Search Product Livewire Component -->
         <div class="row">
             <div class="col-12">
-                <livewire:purchase.search-product/>
+                <livewire:purchase.search-product wire:key="purchase-search-product" />
             </div>
         </div>
 
@@ -23,7 +23,10 @@
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
-                    <livewire:purchase.create-form :idempotencyToken="$idempotencyToken" />
+                    <livewire:purchase.create-form
+                        :idempotencyToken="$idempotencyToken"
+                        wire:key="purchase-create-form-{{ $idempotencyToken }}"
+                    />
                 </div>
             </div>
         </div>
@@ -80,9 +83,6 @@
 
             window.addEventListener('purchase:submit-start', () => setButtonProcessing(true));
             window.addEventListener('purchase:submit-finish', () => setButtonProcessing(false));
-        });
-    </script>
-@endpush
         });
     </script>
 @endpush

@@ -12,6 +12,11 @@ use Modules\People\Entities\Supplier;
 
 class SupplierLoader extends Component
 {
+    public $listeners = [
+        'supplierSelected' => 'handleSupplierSelected',
+        'supplierCreated' => 'handleSupplierCreated',
+    ];
+
     public $query = '';  // User input for search
     public $search_results = []; // search results
     public $index; // Row index in table
@@ -92,10 +97,41 @@ class SupplierLoader extends Component
             $this->search_results = [$supplier];
             $this->supplierSelected = true; // ✅ mark as selected
 
-            $this->dispatch('supplierSelected', $supplier);
+            $supplierPayload = $supplier->only([
+                'id',
+                'supplier_name',
+                'contact_name',
+                'payment_term_id',
+                'supplier_email',
+                'supplier_phone',
+            ]);
+
+            $this->dispatch('supplierSelected', $supplierPayload);
             $this->isFocused = false;
             $this->query_count = 0;
         }
+    }
+
+    public function handleSupplierSelected($supplier): void
+    {
+        if ($supplier) {
+            $this->query = $supplier['supplier_name'];
+            $this->search_results = [$supplier];
+            $this->supplierSelected = true;
+            $this->isFocused = false;
+            $this->query_count = 1;
+        } else {
+            $this->query = '';
+            $this->search_results = [];
+            $this->supplierSelected = false;
+            $this->query_count = 0;
+        }
+    }
+
+    public function handleSupplierCreated($supplier): void
+    {
+        // Handle the newly created supplier same as selected supplier
+        $this->handleSupplierSelected($supplier);
     }
 
     public function loadMore(): void
