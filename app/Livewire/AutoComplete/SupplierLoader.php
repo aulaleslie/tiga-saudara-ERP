@@ -13,7 +13,7 @@ use Modules\People\Entities\Supplier;
 class SupplierLoader extends Component
 {
     public $listeners = [
-        'supplierSelected' => 'handleSupplierSelected',
+        // External components (e.g. quick-add modal) can push new suppliers in via this event.
         'supplierCreated' => 'handleSupplierCreated',
     ];
 
@@ -24,9 +24,12 @@ class SupplierLoader extends Component
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
     public $supplierSelected = false;
+    public string $idempotencyToken = '';
 
-    public function mount($supplierId = null)
+    public function mount($supplierId = null, $idempotencyToken = '')
     {
+        $this->idempotencyToken = $idempotencyToken;
+        
         if ($supplierId) {
             $supplier = Supplier::find($supplierId);
             $this->query = $supplier->supplier_name;
@@ -40,16 +43,26 @@ class SupplierLoader extends Component
         Log::info('updated query', [
             'query' => $this->query,
             'isFocused' => $this->isFocused,
-            'search_results' => $this->search_results,
+            'supplierSelected' => $this->supplierSelected,
         ]);
-        $this->supplierSelected = false;
+        
+        // If a supplier is already selected, don't process query changes
+        // unless the user is actively typing (isFocused = true)
+        if ($this->supplierSelected && !$this->isFocused) {
+            Log::info('SupplierLoader: Skipping query update - supplier already selected');
+            return;
+        }
+        
+        // If user is typing after selection, clear local selection flag but let the new pick
+        // drive the parent update to avoid double re-renders mid-search.
+        if ($this->supplierSelected && $this->isFocused) {
+            Log::info('SupplierLoader: User typing after selection - clearing local selection flag');
+            $this->supplierSelected = false;
+        }
 
         if (trim($this->query) === '') {
             $this->search_results = [];
             $this->query_count = 0;
-            Log::info('3. supplier loader trigger event', [
-                'supplierSelected' => $this->supplierSelected,
-            ]);
             $this->dispatch('supplierSelected', null);
             return;
         }
@@ -63,12 +76,22 @@ class SupplierLoader extends Component
     {
         usleep(150 * 1000); // 150ms delay - reduced from 1s for faster response
         $this->isFocused = false;
+        // Don't dispatch null on blur - only dispatch when user explicitly clears selection
+    }
 
-        if (!$this->supplierSelected) {
-            Log::info('2. supplier loader trigger event', [
-                'supplierSelected' => $this->supplierSelected,
-            ]);
-            $this->dispatch('supplierSelected', null);
+    public function handleBlur(): void
+    {
+        // Delay hiding dropdown to allow click events on dropdown items to fire first
+        $this->js("setTimeout(() => { \$wire.set('isFocused', false) }, 200)");
+    }
+
+    public function handleFocus(): void
+    {
+        $this->isFocused = true;
+        
+        // If there's a query but no search results, trigger a search
+        if (trim($this->query) !== '' && count($this->search_results) === 0) {
+            $this->searchSuppliers();
         }
     }
 
@@ -94,8 +117,10 @@ class SupplierLoader extends Component
         $supplier = Supplier::find($supplierId);
         if ($supplier) {
             $this->query = $supplier->supplier_name;
-            $this->search_results = [$supplier];
             $this->supplierSelected = true; // ✅ mark as selected
+            $this->isFocused = false;
+            $this->search_results = []; // Clear results to hide dropdown
+            $this->query_count = 0;
 
             $supplierPayload = $supplier->only([
                 'id',
@@ -106,9 +131,13 @@ class SupplierLoader extends Component
                 'supplier_phone',
             ]);
 
-            $this->dispatch('supplierSelected', $supplierPayload);
-            $this->isFocused = false;
-            $this->query_count = 0;
+            Log::info('SupplierLoader: Dispatching supplierSelected event', [
+                'supplier_id' => $supplierPayload['id'],
+                'payment_term_id' => $supplierPayload['payment_term_id'] ?? 'NULL'
+            ]);
+            
+            // Dispatch after this component's update completes to avoid race condition
+            $this->js("setTimeout(() => { Livewire.dispatch('supplierSelected', " . json_encode([$supplierPayload]) . ") }, 50)");
         }
     }
 
@@ -116,10 +145,10 @@ class SupplierLoader extends Component
     {
         if ($supplier) {
             $this->query = $supplier['supplier_name'];
-            $this->search_results = [$supplier];
+            $this->search_results = []; // Clear results - supplier already selected
             $this->supplierSelected = true;
             $this->isFocused = false;
-            $this->query_count = 1;
+            $this->query_count = 0;
         } else {
             $this->query = '';
             $this->search_results = [];

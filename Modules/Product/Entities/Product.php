@@ -150,6 +150,11 @@ class Product extends BaseModel implements HasMedia
         return $this->hasMany(Transaction::class);
     }
 
+    public function purchaseDetails(): HasMany
+    {
+        return $this->hasMany(\Modules\Purchase\Entities\PurchaseDetail::class);
+    }
+
     public function serialNumbers(): HasMany
     {
         return $this->hasMany(ProductSerialNumber::class);

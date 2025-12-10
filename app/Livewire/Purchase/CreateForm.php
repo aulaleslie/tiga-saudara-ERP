@@ -1,4 +1,6 @@
 <?php
+/* @deprecated - Replaced by Alpine.js implementation in create-alpine.blade.php */
+/* This file is kept for reference but should not be used for new development */
 
 namespace App\Livewire\Purchase;
 
@@ -10,6 +12,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
@@ -21,7 +24,6 @@ class CreateForm extends Component
 {
     public $reference;
     public $supplier_id;
-    public $supplier_name; // To sync with SupplierLoader
     public $supplier_purchase_number;
     public $date;
     public $due_date;
@@ -29,16 +31,13 @@ class CreateForm extends Component
     public $note;
     public array $tags = [];
     public $listeners = [
-        'supplierSelected' => 'handleSupplierSelected',
         'confirmSubmit' => 'submit',
         'tagsUpdated' => 'handleTagsUpdated',
         'shippingUpdated'        => 'handleShippingUpdated',
         'globalDiscountUpdated'  => 'handleGlobalDiscountUpdated',
         'taxIncludedUpdated'    => 'handleTaxIncludedUpdated',
         'paymentTermCreated' => 'handlePaymentTermCreated',
-        'supplierCreated' => 'handleSupplierCreated',
         'taxCreated' => 'handleTaxCreated',
-        'itemSelected' => 'handleItemSelected',
     ];
 
     public $paymentTerms = [];
@@ -59,20 +58,6 @@ class CreateForm extends Component
         $this->supplier_purchase_number = null;
     }
 
-    public function updatedSupplierId($value): void
-    {
-        $supplier = Supplier::find($value);
-        if ($supplier && $supplier->payment_term_id) {
-            $this->payment_term = $supplier->payment_term_id;
-            $this->updateDueDateFromPaymentTerm();
-            $this->syncPaymentTermSelect();
-        } else {
-            $this->payment_term = null;
-            $this->due_date = $this->date;
-            $this->syncPaymentTermSelect();
-        }
-    }
-
     public function handleTagsUpdated(array $tags): void
     {
         $this->tags = $tags;
@@ -82,7 +67,6 @@ class CreateForm extends Component
     {
         $this->payment_term = (int) $value;
         $this->updateDueDateFromPaymentTerm();
-        $this->syncPaymentTermSelect();
     }
 
     private function updateDueDateFromPaymentTerm(): void
@@ -104,20 +88,23 @@ class CreateForm extends Component
         $this->updateDueDateFromPaymentTerm();
     }
 
-    public function handleSupplierSelected($supplier): void
+    public function updatedSupplierId($value): void
     {
-        Log::info('Updated supplier id: ', ['$supplier' => $supplier]);
-        if ($supplier) {
-            $this->supplier_id = $supplier['id'];
-            $this->supplier_name = $supplier['supplier_name'];
-            $this->updatedSupplierId($supplier['id']);
+        if ($value) {
+            $supplier = Supplier::find($value);
+            if ($supplier && $supplier->payment_term_id) {
+                $this->payment_term = $supplier->payment_term_id;
+                $this->updateDueDateFromPaymentTerm();
+            } else {
+                $this->payment_term = null;
+                $this->due_date = $this->date;
+            }
         } else {
             $this->supplier_id = null;
-            $this->supplier_name = null;
             $this->payment_term = null;
             $this->due_date = $this->date;
-            $this->syncPaymentTermSelect();
         }
+        $this->dispatch('supplierSelected', $value);
     }
 
     public function handleShippingUpdated($shipping)
@@ -140,63 +127,12 @@ class CreateForm extends Component
         $this->paymentTerms = PaymentTerm::all(); // Refresh the list
         $this->payment_term = $data['id']; // Auto-select the new payment term
         $this->updateDueDateFromPaymentTerm();
-        $this->syncPaymentTermSelect();
-    }
-
-    public function handleSupplierCreated($data): void
-    {
-        $this->supplier_id = $data['id'];
-        $this->supplier_name = $data['supplier_name'];
-        
-        // Fetch the fresh supplier from database to get payment term
-        $supplier = Supplier::find($data['id']);
-        
-        // Auto-populate payment term if supplier has one
-        if ($supplier && $supplier->payment_term_id) {
-            $this->payment_term = $supplier->payment_term_id;
-            $this->updateDueDateFromPaymentTerm();
-            $this->syncPaymentTermSelect();
-        }
-        
-        // Dispatch event to update supplier loader
-        $this->dispatch('supplierSelected', $data);
     }
 
     public function handleTaxCreated($data): void
     {
         // This will be handled by the product cart component
         $this->dispatch('taxCreated', $data);
-    }
-
-    public function handleItemSelected(array $payload): void
-    {
-        if (($payload['name'] ?? null) !== self::PAYMENT_TERM_FIELD) {
-            return;
-        }
-
-        $this->payment_term = $payload['value'] ? (int) $payload['value'] : null;
-
-        if ($this->payment_term) {
-            $this->updateDueDateFromPaymentTerm();
-        } else {
-            $this->due_date = $this->date;
-        }
-        $this->syncPaymentTermSelect();
-    }
-
-    private function syncPaymentTermSelect(): void
-    {
-        $termName = null;
-        if ($this->payment_term) {
-            $term = PaymentTerm::find($this->payment_term);
-            $termName = $term?->name;
-        }
-
-        $this->dispatch('setSelectedValue', [
-            'name' => self::PAYMENT_TERM_FIELD,
-            'value' => $this->payment_term,
-            'label' => $termName,
-        ]);
     }
 
     /**

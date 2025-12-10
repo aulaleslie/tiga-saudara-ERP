@@ -979,7 +979,7 @@ CREATE TABLE `payment_terms` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2917155 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2917158 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -988,7 +988,7 @@ CREATE TABLE `payment_terms` (
 
 LOCK TABLES `payment_terms` WRITE;
 /*!40000 ALTER TABLE `payment_terms` DISABLE KEYS */;
-INSERT INTO `payment_terms` VALUES (858231,'NET 30',30,NULL,'2025-12-05 19:08:23'),(858232,'Cash on Delivery',0,NULL,NULL),(858233,'Net 15',15,NULL,NULL),(858234,'Net 60',60,NULL,NULL),(858235,'Custom',0,NULL,NULL),(873940,'Term 14 hari',14,NULL,NULL),(898556,'net 21',21,NULL,NULL),(1188378,'NET 7 HARI',7,NULL,NULL),(1726493,'45 HR',45,NULL,NULL),(2353345,'10 HARI',10,NULL,NULL),(2627421,'24 HR',24,NULL,NULL),(2917154,'28HR',28,NULL,NULL);
+INSERT INTO `payment_terms` VALUES (858231,'NET 30',30,NULL,'2025-12-05 19:08:23'),(858232,'Cash on Delivery',0,NULL,NULL),(858233,'Net 15',15,NULL,NULL),(858234,'Net 60',60,NULL,NULL),(858235,'Custom',0,NULL,NULL),(873940,'Term 14 hari',14,NULL,NULL),(898556,'net 21',21,NULL,NULL),(1188378,'NET 7 HARI',7,NULL,NULL),(1726493,'45 HR',45,NULL,NULL),(2353345,'10 HARI',10,NULL,NULL),(2627421,'24 HR',24,NULL,NULL),(2917154,'28HR',28,NULL,NULL),(2917155,'TERM CICILAN 0% 6 BULAN',180,'2025-12-06 18:09:36','2025-12-06 18:09:36'),(2917156,'CICILAN 0 % 12 BULAN',356,'2025-12-06 18:14:53','2025-12-06 18:14:53'),(2917157,'CICILAN SHOPEE 0% 21 HARI',21,'2025-12-06 18:19:14','2025-12-06 18:19:14');
 /*!40000 ALTER TABLE `payment_terms` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2641,7 +2641,7 @@ CREATE TABLE `settings` (
   `pos_document_prefix` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `settings_company_name_unique` (`company_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2650,7 +2650,7 @@ CREATE TABLE `settings` (
 
 LOCK TABLES `settings` WRITE;
 /*!40000 ALTER TABLE `settings` DISABLE KEYS */;
-INSERT INTO `settings` VALUES (1,'CV TIGA COMPUTER','contactus@tiga-computer.com','012345678901',NULL,1,'PREFIX','notification@tiga-computer.com','CV TIGA COMPUTER © 2021','BIMA, NTB','2025-12-01 13:15:27','2025-12-01 13:15:27','TS','PR','SL',30,0.00,NULL),(2,'TOP IT','topit@mail.com','081249003893',NULL,1,'PREFIX','topit@mail.com','TOP IT © 2025','JALAN SWATANTRA V','2025-12-01 13:17:16','2025-12-01 13:17:16','TI','BL','JL',30,0.00,'KS'),(3,'WHITE KNIGHT','wk@mail.com','081249003893',NULL,1,'PREFIX','wk@mail.com','WHITE KNIGHT © 2025','JALAN SWATANTRA V','2025-12-05 19:07:36','2025-12-05 19:07:36','WK','BL','JL',30,0.00,'KS');
+INSERT INTO `settings` VALUES (1,'CV TIGA COMPUTER','contactus@tiga-computer.com','012345678901',NULL,1,'PREFIX','notification@tiga-computer.com','CV TIGA COMPUTER © 2021','BIMA, NTB','2025-12-01 13:15:27','2025-12-01 13:15:27','TS','PR','SL',30,0.00,NULL),(2,'TOP IT','topit@mail.com','081249003893',NULL,1,'PREFIX','topit@mail.com','TOP IT © 2025','JALAN SWATANTRA V','2025-12-01 13:17:16','2025-12-01 13:17:16','TI','BL','JL',30,0.00,'KS'),(3,'WHITE KNIGHT','wk@mail.com','081249003893',NULL,1,'PREFIX','wk@mail.com','WHITE KNIGHT © 2025','JALAN SWATANTRA V','2025-12-05 19:07:36','2025-12-05 19:07:36','WK','BL','JL',30,0.00,'KS'),(4,'LAM LAM CEMERLANG','lamlam@lamlam.com','081249003893',NULL,1,'PREFIX','lamlam@lamlam.com','LAM LAM CEMERLANG © 2025','JALAN DIPONEGORO NO. 46','2025-12-05 19:14:21','2025-12-05 19:14:21','LL','TB','DD',30,0.00,'KSR');
 /*!40000 ALTER TABLE `settings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -2725,7 +2725,7 @@ CREATE TABLE `suppliers` (
   KEY `suppliers_payment_term_id_foreign` (`payment_term_id`),
   CONSTRAINT `suppliers_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
   CONSTRAINT `suppliers_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2734,7 +2734,7 @@ CREATE TABLE `suppliers` (
 
 LOCK TABLES `suppliers` WRITE;
 /*!40000 ALTER TABLE `suppliers` DISABLE KEYS */;
-INSERT INTO `suppliers` VALUES (1,'PT SIDU TJAHAJA ASIA','','','','','','2025-12-01 13:28:54','2025-12-01 13:28:54','SALES SIDU','','',NULL,'','','','','','','',1,858234),(2,'PT ACER INDONESIA','','','','','','2025-12-04 18:39:48','2025-12-04 18:39:48','SUPPLIER ACER','','',NULL,'','','','','','','',2,1726493);
+INSERT INTO `suppliers` VALUES (1,'PT SIDU TJAHAJA ASIA','','','','','','2025-12-01 13:28:54','2025-12-01 13:28:54','SALES SIDU','','',NULL,'','','','','','','',1,858234),(2,'PT ACER INDONESIA','','','','','','2025-12-04 18:39:48','2025-12-04 18:39:48','SUPPLIER ACER','','',NULL,'','','','','','','',2,1726493),(6,'PT WINGS FOOD','noemail-693425eb8c216@placeholder.local','nophone-693425eb8c216','','','','2025-12-06 18:47:39','2025-12-06 18:47:39','SALES WINGS FOOD',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,2917155),(7,'PT VOTRE','noemail-6934270139645@placeholder.local','nophone-6934270139645','','','','2025-12-06 18:52:17','2025-12-06 18:52:17','SALES VOTRE',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,858231),(8,'PT ASUS','noemail-6934282ec6f99@placeholder.local','nophone-6934282ec6f99','','','','2025-12-06 18:57:18','2025-12-06 18:57:18','SALES ASUS',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,2917155);
 /*!40000 ALTER TABLE `suppliers` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -3125,4 +3125,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-12-05 13:11:30
+-- Dump completed on 2025-12-07 12:00:29

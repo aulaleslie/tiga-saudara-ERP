@@ -1,11 +1,11 @@
 {
   "resources/css/tw.css": {
-    "file": "assets/tw-dbe7c18c.css",
+    "file": "assets/tw-a8958b3a.css",
     "isEntry": true,
     "src": "resources/css/tw.css"
   },
   "resources/js/app.js": {
-    "file": "assets/app-4bd38d4a.js",
+    "file": "assets/app-0833d452.js",
     "isEntry": true,
     "src": "resources/js/app.js"
   },

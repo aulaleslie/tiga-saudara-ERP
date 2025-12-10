@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Components;
 
+use Livewire\Attributes\Reactive;
 use Livewire\Component;
 use Illuminate\Database\Eloquent\Model;
 
@@ -25,13 +26,24 @@ class SearchableSelect extends Component
     public $additionalWhere = [];
     public $limit = 20;
     public $minQueryLength = 1;
+    
+    #[Reactive]
     public $selected = null;
+    
     public $quickAddButton = null;
     public $quickAddEntity = null;
     public $quickAddPermission = null;
     public $quickAddModalEvent = null;
     public $quickAddTooltip = null;
     public $listenForCreatedEvent = null;
+
+    public function hydrate(): void
+    {
+        // Keep the displayed label in sync when the parent updates the selected value.
+        if ($this->selectedValue !== $this->selected) {
+            $this->setSelectedValue($this->selected);
+        }
+    }
 
     protected function getListeners()
     {

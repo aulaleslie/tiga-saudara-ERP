@@ -78,29 +78,79 @@ class PurchaseController extends Controller
         return view('purchase::create', compact('paymentTerms','suppliers', 'idempotencyToken'));
     }
 
+    public function createAlpine(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('purchases.create'), 403);
+
+        // Get data for Alpine.js form
+        $paymentTerms = PaymentTerm::all();
+        $suppliers = Supplier::all();
+        $taxes = \Modules\Setting\Entities\Tax::all();
+        $categories = \Modules\Product\Entities\Category::all();
+        $brands = \Modules\Product\Entities\Brand::all();
+        $units = \Modules\Setting\Entities\Unit::all();
+        $idempotencyToken = (string) Str::uuid();
+
+        return view('purchase::create-alpine', compact(
+            'paymentTerms',
+            'suppliers',
+            'taxes',
+            'categories',
+            'brands',
+            'units',
+            'idempotencyToken'
+        ));
+    }
+
+    public function createNew(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('purchases.create'), 403);
+
+        // Get data for new Alpine.js form
+        $paymentTerms = PaymentTerm::all();
+        $taxes = \Modules\Setting\Entities\Tax::all();
+        $categories = \Modules\Product\Entities\Category::all();
+        $brands = \Modules\Product\Entities\Brand::all();
+        $units = \Modules\Setting\Entities\Unit::all();
+        $idempotencyToken = (string) Str::uuid();
+
+        return view('purchase::create-new', compact(
+            'paymentTerms',
+            'taxes',
+            'categories',
+            'brands',
+            'units',
+            'idempotencyToken'
+        ));
+    }
+
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('purchases.create'), 403);
-        if (Cart::instance('purchase')->count() == 0) {
+
+        // Check if cart data is provided in request (Alpine.js form) or use session cart (Livewire)
+        $cartItems = $request->has('cart') ? $request->cart : Cart::instance('purchase')->content();
+
+        if (empty($cartItems) || (is_array($cartItems) && count($cartItems) == 0) || (!is_array($cartItems) && $cartItems->count() == 0)) {
             return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
         }
 
         $setting_id = session('setting_id');
         DB::beginTransaction(); // Start the transaction manually
         try {
-            // Create the purchase record (example shown earlier)
+            // Create the purchase record
             $purchase = Purchase::create([
                 'date' => $request->date,
                 'due_date' => $request->due_date,
                 'supplier_id' => $request->supplier_id,
                 'supplier_purchase_number' => $request->supplier_purchase_number,
                 'tax_id' => $request->tax_id,
-                'tax_percentage' => 0, // Example
-                'tax_amount' => 0, // Example
+                'tax_percentage' => 0,
+                'tax_amount' => 0,
                 'discount_percentage' => $request->discount_percentage ?? 0,
                 'discount_amount' => $request->discount_amount ?? 0,
-                'shipping_amount' => $request->shipping_amount,
+                'shipping_amount' => $request->shipping_amount ?? $request->shipping ?? 0,
                 'total_amount' => $request->total_amount,
                 'due_amount' => $request->total_amount,
                 'status' => Purchase::STATUS_DRAFTED,
@@ -109,30 +159,66 @@ class PurchaseController extends Controller
                 'note' => $request->note,
                 'setting_id' => $setting_id,
                 'paid_amount' => 0.0,
-                'is_tax_included' => $request->is_tax_included,
+                'is_tax_included' => $request->is_tax_included ?? true,
                 'payment_method' => '',
             ]);
 
-            // Iterate over cart items
-            foreach (Cart::instance('purchase')->content() as $cart_item) {
-                // Map cart item to purchase details
-                $product_tax_amount = $cart_item->options['sub_total'] -
-                    ($cart_item->options['sub_total_before_tax'] ?? 0);
+            // Handle cart items from Alpine.js form or Livewire cart
+            if ($request->has('cart')) {
+                // Alpine.js form data
+                foreach ($request->cart as $cartItem) {
+                    $product = \Modules\Product\Entities\Product::find($cartItem['product_id']);
+                    if (!$product) continue;
 
-                PurchaseDetail::create([
-                    'purchase_id' => $purchase->id, // FK reference
-                    'product_id' => $cart_item->id,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options['code'],
-                    'quantity' => $cart_item->qty,
-                    'unit_price' => $cart_item->options['unit_price'],
-                    'price' => $cart_item->price,
-                    'product_discount_type' => $cart_item->options['product_discount_type'],
-                    'product_discount_amount' => $cart_item->options['product_discount'],
-                    'sub_total' => $cart_item->options['sub_total'],
-                    'product_tax_amount' => $product_tax_amount, // Calculated
-                    'tax_id' => $cart_item->options['product_tax'], // Tax ID
-                ]);
+                    // Calculate tax amount
+                    $taxAmount = 0;
+                    if ($cartItem['tax_id']) {
+                        $tax = \Modules\Setting\Entities\Tax::find($cartItem['tax_id']);
+                        if ($tax) {
+                            $subtotal = $cartItem['unit_price'] * $cartItem['quantity'];
+                            $taxAmount = $subtotal * ($tax->value / 100);
+                        }
+                    }
+
+                    PurchaseDetail::create([
+                        'purchase_id' => $purchase->id,
+                        'product_id' => $cartItem['product_id'],
+                        'product_name' => $product->product_name,
+                        'product_code' => $product->product_code,
+                        'quantity' => $cartItem['quantity'],
+                        'unit_price' => $cartItem['unit_price'],
+                        'price' => $cartItem['unit_price'],
+                        'product_discount_type' => $cartItem['discount_type'],
+                        'product_discount_amount' => $cartItem['discount'],
+                        'sub_total' => ($cartItem['unit_price'] * $cartItem['quantity']) - $cartItem['discount'],
+                        'product_tax_amount' => $taxAmount,
+                        'tax_id' => $cartItem['tax_id'],
+                    ]);
+                }
+            } else {
+                // Livewire cart data
+                foreach ($cartItems as $cart_item) {
+                    $product_tax_amount = $cart_item->options['sub_total'] -
+                        ($cart_item->options['sub_total_before_tax'] ?? 0);
+
+                    PurchaseDetail::create([
+                        'purchase_id' => $purchase->id,
+                        'product_id' => $cart_item->id,
+                        'product_name' => $cart_item->name,
+                        'product_code' => $cart_item->options['code'],
+                        'quantity' => $cart_item->qty,
+                        'unit_price' => $cart_item->options['unit_price'],
+                        'price' => $cart_item->price,
+                        'product_discount_type' => $cart_item->options['product_discount_type'],
+                        'product_discount_amount' => $cart_item->options['product_discount'],
+                        'sub_total' => $cart_item->options['sub_total'],
+                        'product_tax_amount' => $product_tax_amount,
+                        'tax_id' => $cart_item->options['product_tax'],
+                    ]);
+                }
+
+                // Clear the cart after successful creation
+                Cart::instance('purchase')->destroy();
             }
 
             // Commit transaction

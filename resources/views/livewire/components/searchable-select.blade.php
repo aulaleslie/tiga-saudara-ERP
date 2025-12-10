@@ -1,12 +1,12 @@
-<div class="form-group">
+<div class="form-group" x-data="{ showDropdown: false }">
     <label for="{{ $name }}">{{ $label }} @if($required)<span class="text-danger">*</span>@endif</label>
     <div class="input-group">
         <input
             type="text"
             class="form-control @error($name) is-invalid @enderror"
             wire:model.live.debounce.300ms="query"
-            wire:focus="isFocused = true"
-            wire:blur="isFocused = false"
+            x-on:focus="showDropdown = true"
+            x-on:blur="setTimeout(() => { showDropdown = false }, 250)"
             placeholder="{{ $placeholder }}"
             @if($required) required @endif
             @if($disabled) disabled @endif
@@ -30,8 +30,11 @@
         @endif
     </div>
 
-    @if($isFocused && !empty($searchResults))
-        <div class="position-absolute bg-white border rounded shadow-sm mt-1" style="z-index: 1050; width: 100%; max-height: 200px; overflow-y: auto;">
+    @if(!empty($searchResults))
+        <div x-show="showDropdown" 
+             x-cloak
+             class="position-absolute bg-white border rounded shadow-sm mt-1" 
+             style="z-index: 1050; width: 100%; max-height: 200px; overflow-y: auto;">
             @if($isLoading)
                 <div class="p-2 text-center">
                     <div class="spinner-border spinner-border-sm" role="status">
@@ -44,6 +47,8 @@
                     <div
                         class="p-2 border-bottom cursor-pointer hover-bg-light"
                         wire:click="selectItem({{ $result['id'] }}, '{{ addslashes($result['label']) }}')"
+                        x-on:mousedown.prevent
+                        x-on:click="showDropdown = false"
                         style="cursor: pointer;"
                         onmouseover="this.style.backgroundColor='#f8f9fa'"
                         onmouseout="this.style.backgroundColor='transparent'"

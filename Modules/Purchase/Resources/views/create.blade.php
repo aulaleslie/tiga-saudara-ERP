@@ -15,7 +15,7 @@
         <!-- Search Product Livewire Component -->
         <div class="row">
             <div class="col-12">
-                <livewire:purchase.search-product wire:key="purchase-search-product" />
+                <livewire:purchase.search-product />
             </div>
         </div>
 
@@ -25,7 +25,7 @@
                 <div class="card">
                     <livewire:purchase.create-form
                         :idempotencyToken="$idempotencyToken"
-                        wire:key="purchase-create-form-{{ $idempotencyToken }}"
+                        wire:key="purchase-create-form"
                     />
                 </div>
             </div>
@@ -83,6 +83,11 @@
 
             window.addEventListener('purchase:submit-start', () => setButtonProcessing(true));
             window.addEventListener('purchase:submit-finish', () => setButtonProcessing(false));
+            
+            // Console logging for debugging payment term auto-fill
+            window.addEventListener('console-log', (event) => {
+                console.log('[Purchase Form Debug]', event.detail);
+            });
         });
     </script>
 @endpush

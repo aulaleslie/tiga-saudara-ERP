@@ -1,3 +1,5 @@
+{{-- @deprecated - Replaced by Alpine.js implementation in product-cart-alpine.blade.php --}}
+{{-- This file is kept for reference but should not be used for new development --}}
 <div>
     <div>
         @if (session()->has('message'))
