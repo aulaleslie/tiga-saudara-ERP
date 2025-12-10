@@ -7,6 +7,17 @@
         <form id="product-form" action="{{ route('products.store') }}" method="POST" enctype="multipart/form-data">
             @csrf
             <input type="hidden" name="idempotency_token" value="{{ $idempotencyToken }}">
+
+            @if($errors->any())
+                <div class="alert alert-danger">
+                    <strong>Periksa kembali data yang Anda masukkan.</strong>
+                    <ul class="mb-0 mt-2">
+                        @foreach($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
             <div class="row">
                 <div class="col-lg-12">
                     <div class="form-group">
@@ -45,16 +56,143 @@
                             <!-- Kategori and Merek -->
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <x-select label="Kategori" name="category_id" :options="$formattedCategories"
-                                              :quickAddButton="'<x-quick-add-button entity=\"kategori\" permission=\"products.create\" modal-event=\"openCategoryModal\" tooltip=\"Tambah kategori baru\" />'" />
+                                    <label for="category_search">Kategori</label>
+                                    <div class="d-flex">
+                                        <div class="flex-grow-1 position-relative"
+                                             x-data="searchableDropdown()"
+                                             x-init="
+                                                 config = {
+                                                     apiUrl: null, // Local filtering
+                                                     entityType: 'category',
+                                                     placeholder: 'Cari kategori...',
+                                                     displayField: 'name',
+                                                     valueField: 'id',
+                                                     minQueryLength: 1,
+                                                     staticOptions: @js(collect($formattedCategories ?? [])->map(function($name, $id) { return ['id' => $id, 'name' => $name]; })->values()->all()),
+                                                     additionalParams: {},
+                                                     initialSelectedId: {{ old('category_id') ? (int) old('category_id') : 'null' }},
+                                                     initialSelectedName: @js(collect($formattedCategories ?? [])->get(old('category_id')) ?? '')
+                                                 };
+                                                 results = @js(collect($formattedCategories ?? [])->map(function($name, $id) { return ['id' => $id, 'name' => $name]; })->values()->all());
+                                                 allTerms = @js(collect($formattedCategories ?? [])->map(function($name, $id) { return ['id' => $id, 'name' => $name]; })->values()->all());
+                                                 init();
+                                             "
+                                        >
+                                            <div class="form-control d-flex justify-content-between align-items-center"
+                                                 style="cursor: pointer;"
+                                                 @click="open = !open; if(open){ search(); }">
+                                                <span x-text="selectedName || 'Pilih kategori...'"></span>
+                                                <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                            </div>
+
+                                            <div class="dropdown-menu w-100 shadow show p-2"
+                                                 x-show="open"
+                                                 x-cloak
+                                                 style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
+                                                <input
+                                                    type="text"
+                                                    class="form-control form-control-sm mb-2"
+                                                    x-model="inputValue"
+                                                    @input.debounce.300ms="search()"
+                                                    placeholder="Cari kategori..."
+                                                    autocomplete="off"
+                                                >
+                                                <template x-if="results.length > 0">
+                                                    <div>
+                                                        <template x-for="category in results" :key="category.id">
+                                                            <button
+                                                                type="button"
+                                                                @mousedown.prevent="selectItem(category); open = false;"
+                                                                class="dropdown-item"
+                                                                x-text="category.name"
+                                                            ></button>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <template x-if="results.length === 0">
+                                                    <div class="dropdown-item disabled">Tidak ada hasil</div>
+                                                </template>
+                                            </div>
+                                            <input type="hidden" name="category_id" x-model="selectedId">
+                                        </div>
+                                        <button type="button" class="btn btn-outline-primary btn-sm ms-1"
+                                                @click="$dispatch('open-category-modal')"
+                                                data-bs-toggle="tooltip" title="Tambah kategori baru">
+                                            <i class="bi bi-plus-circle"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="col-md-6">
-                                    <x-select label="Merek" name="brand_id" :options="$brands->pluck('name', 'id')"
-                                              :quickAddButton="'<x-quick-add-button entity=\"merek\" permission=\"products.create\" modal-event=\"openBrandModal\" tooltip=\"Tambah merek baru\" />'" />
+                                    <label for="brand_search">Merek</label>
+                                    <div class="d-flex">
+                                        <div class="flex-grow-1 position-relative"
+                                             x-data="searchableDropdown()"
+                                             x-init="
+                                                 config = {
+                                                     apiUrl: null, // Local filtering
+                                                     entityType: 'brand',
+                                                     placeholder: 'Cari merek...',
+                                                     displayField: 'name',
+                                                     valueField: 'id',
+                                                     minQueryLength: 1,
+                                                     staticOptions: @js($brands->map(function($brand) { return ['id' => $brand->id, 'name' => $brand->name]; })->all()),
+                                                     additionalParams: {},
+                                                     initialSelectedId: {{ old('brand_id') ? (int) old('brand_id') : 'null' }},
+                                                     initialSelectedName: @js(optional($brands->firstWhere('id', old('brand_id')))->name ?? '')
+                                                 };
+                                                 results = @js($brands->map(function($brand) { return ['id' => $brand->id, 'name' => $brand->name]; })->all());
+                                                 allTerms = @js($brands->map(function($brand) { return ['id' => $brand->id, 'name' => $brand->name]; })->all());
+                                                 init();
+                                             "
+                                        >
+                                            <div class="form-control d-flex justify-content-between align-items-center"
+                                                 style="cursor: pointer;"
+                                                 @click="open = !open; if(open){ search(); }">
+                                                <span x-text="selectedName || 'Pilih merek...'"></span>
+                                                <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                            </div>
+
+                                            <div class="dropdown-menu w-100 shadow show p-2"
+                                                 x-show="open"
+                                                 x-cloak
+                                                 style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
+                                                <input
+                                                    type="text"
+                                                    class="form-control form-control-sm mb-2"
+                                                    x-model="inputValue"
+                                                    @input.debounce.300ms="search()"
+                                                    placeholder="Cari merek..."
+                                                    autocomplete="off"
+                                                >
+                                                <template x-if="results.length > 0">
+                                                    <div>
+                                                        <template x-for="brand in results" :key="brand.id">
+                                                            <button
+                                                                type="button"
+                                                                @mousedown.prevent="selectItem(brand); open = false;"
+                                                                class="dropdown-item"
+                                                                x-text="brand.name"
+                                                            ></button>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <template x-if="results.length === 0">
+                                                    <div class="dropdown-item disabled">Tidak ada hasil</div>
+                                                </template>
+                                            </div>
+                                            <input type="hidden" name="brand_id" x-model="selectedId">
+                                        </div>
+                                        <button type="button" class="btn btn-outline-primary btn-sm ms-1"
+                                                @click="$dispatch('open-brand-modal')"
+                                                data-bs-toggle="tooltip" title="Tambah merek baru">
+                                            <i class="bi bi-plus-circle"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div class="form-row">
+                            <!-- Purchase Section -->
+                            <div class="form-row mt-4">
                                 <div class="col-md-12">
                                     <div class="border p-3 mb-3">
                                         <div class="form-group">
@@ -69,10 +207,81 @@
                                                              value="{{ old('purchase_price', $purchase_price ?? '') }}"/>
                                                 </div>
                                                 <div class="col-md-6">
-                                                    <x-select label="Pajak Beli" name="purchase_tax_id"
-                                                              :options="$taxes->pluck('name', 'id')"
-                                                              :disabled="!old('is_purchased')"
-                                                              :quickAddButton="'<x-quick-add-button entity=\"pajak\" permission=\"settings.access\" modal-event=\"openTaxModal\" tooltip=\"Tambah pajak baru\" size=\"sm\" />'" />
+                                                    <label for="purchase_tax_search">Pajak Beli</label>
+                                                    <div class="d-flex">
+                                                        <div class="flex-grow-1 position-relative"
+                                                             x-data="searchableDropdown()"
+                                                             x-init="
+                                                                 config = {
+                                                                     apiUrl: null, // Local filtering
+                                                                     entityType: 'tax',
+                                                                 placeholder: 'Cari pajak...',
+                                                                 displayField: 'name',
+                                                                 valueField: 'id',
+                                                                 minQueryLength: 1,
+                                                                 staticOptions: @js($taxes ?? []),
+                                                                 additionalParams: {},
+                                                                 initialSelectedId: {{ old('purchase_tax_id') ? (int) old('purchase_tax_id') : 'null' }},
+                                                                 initialSelectedName: @js(data_get(collect($taxes ?? [])->firstWhere('id', old('purchase_tax_id')), 'name', ''))
+                                                             };
+                                                             results = @js($taxes ?? []);
+                                                             allTerms = @js($taxes ?? []);
+                                                             init();
+
+                                                                 // Lock when purchase unchecked
+                                                                 disabled = !document.getElementById('is_purchased').checked;
+                                                                 document.getElementById('is_purchased').addEventListener('change', (e) => {
+                                                                     disabled = !e.target.checked;
+                                                                 });
+                                                             "
+                                                        >
+                                                            <div class="form-control d-flex justify-content-between align-items-center"
+                                                                 :class="{ 'bg-light text-muted': disabled }"
+                                                                 :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
+                                                                 @click="!disabled && toggleDropdown()">
+                                                                <span x-text="selectedName || 'Pilih pajak...'"></span>
+                                                                <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                                            </div>
+
+                                                            <div class="dropdown-menu w-100 shadow show p-2"
+                                                                 x-show="open"
+                                                                 x-cloak
+                                                                 style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
+                                                                <input
+                                                                    type="text"
+                                                                    class="form-control form-control-sm mb-2"
+                                                                    :class="{ 'bg-light': disabled }"
+                                                                    :disabled="disabled"
+                                                                    x-model="inputValue"
+                                                                    @input.debounce.300ms="search()"
+                                                                    placeholder="Cari pajak..."
+                                                                    autocomplete="off"
+                                                                >
+                                                                <template x-if="results.length > 0">
+                                                                    <div>
+                                                                        <template x-for="tax in results" :key="tax.id">
+                                                                            <button
+                                                                                type="button"
+                                                                                :disabled="disabled"
+                                                                                @mousedown.prevent="selectItem(tax); open = false;"
+                                                                                class="dropdown-item"
+                                                                                x-text="tax.name + ' (' + tax.value + '%)'"
+                                                                            ></button>
+                                                                        </template>
+                                                                    </div>
+                                                                </template>
+                                                                <template x-if="results.length === 0">
+                                                                    <div class="dropdown-item disabled">Tidak ada hasil</div>
+                                                                </template>
+                                                            </div>
+                                                            <input type="hidden" name="purchase_tax_id" x-model="selectedId">
+                                                        </div>
+                                                        <button type="button" class="btn btn-outline-primary btn-sm ms-1"
+                                                                @click="$dispatch('open-tax-modal')"
+                                                                data-bs-toggle="tooltip" title="Tambah pajak baru">
+                                                            <i class="bi bi-plus-circle"></i>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -80,8 +289,8 @@
                                 </div>
                             </div>
 
-                            <!-- Bordered Group for "Saya Jual Barang Ini" -->
-                            <div class="form-row">
+                            <!-- Sale Section -->
+                            <div class="form-row mt-4">
                                 <div class="col-md-12">
                                     <div class="border p-3 mb-3">
                                         <div class="form-group">
@@ -96,10 +305,81 @@
                                                              value="{{ old('sale_price', $sale_price ?? '') }}"/>
                                                 </div>
                                                 <div class="col-md-6">
-                                                    <x-select label="Pajak Jual" name="sale_tax_id"
-                                                              :options="$taxes->pluck('name', 'id')"
-                                                              :disabled="!old('is_sold')"
-                                                              :quickAddButton="'<x-quick-add-button entity=\"pajak\" permission=\"settings.access\" modal-event=\"openTaxModal\" tooltip=\"Tambah pajak baru\" size=\"sm\" />'" />
+                                                    <label for="sale_tax_search">Pajak Jual</label>
+                                                    <div class="d-flex">
+                                                        <div class="flex-grow-1 position-relative"
+                                                         x-data="searchableDropdown()"
+                                                         x-init="
+                                                             config = {
+                                                                 apiUrl: null, // Local filtering
+                                                                 entityType: 'tax',
+                                                                placeholder: 'Cari pajak...',
+                                                                displayField: 'name',
+                                                                valueField: 'id',
+                                                                minQueryLength: 1,
+                                                                staticOptions: @js($taxes ?? []),
+                                                                 additionalParams: {},
+                                                                 initialSelectedId: {{ old('sale_tax_id') ? (int) old('sale_tax_id') : 'null' }},
+                                                                 initialSelectedName: @js(data_get(collect($taxes ?? [])->firstWhere('id', old('sale_tax_id')), 'name', ''))
+                                                             };
+                                                             results = @js($taxes ?? []);
+                                                             allTerms = @js($taxes ?? []);
+                                                             init();
+
+                                                             // Lock when sale unchecked
+                                                             disabled = !document.getElementById('is_sold').checked;
+                                                             document.getElementById('is_sold').addEventListener('change', (e) => {
+                                                                 disabled = !e.target.checked;
+                                                             });
+                                                         "
+                                                    >
+                                                        <div class="form-control d-flex justify-content-between align-items-center"
+                                                             :class="{ 'bg-light text-muted': disabled }"
+                                                             :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
+                                                             @click="!disabled && toggleDropdown()">
+                                                            <span x-text="selectedName || 'Pilih pajak...'"></span>
+                                                            <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                                        </div>
+
+                                                        <div class="dropdown-menu w-100 shadow show p-2"
+                                                                 x-show="open"
+                                                                 x-cloak
+                                                                 style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
+                                                            <input
+                                                                type="text"
+                                                                class="form-control form-control-sm mb-2"
+                                                                :class="{ 'bg-light': disabled }"
+                                                                :disabled="disabled"
+                                                                x-model="inputValue"
+                                                                @input.debounce.300ms="search()"
+                                                                placeholder="Cari pajak..."
+                                                                autocomplete="off"
+                                                            >
+                                                                <template x-if="results.length > 0">
+                                                                <div>
+                                                                    <template x-for="tax in results" :key="tax.id">
+                                                                        <button
+                                                                            type="button"
+                                                                            :disabled="disabled"
+                                                                            @mousedown.prevent="selectItem(tax); open = false;"
+                                                                            class="dropdown-item"
+                                                                            x-text="tax.name + ' (' + tax.value + '%)'"
+                                                                        ></button>
+                                                                    </template>
+                                                                </div>
+                                                                </template>
+                                                                <template x-if="results.length === 0">
+                                                                    <div class="dropdown-item disabled">Tidak ada hasil</div>
+                                                                </template>
+                                                            </div>
+                                                            <input type="hidden" name="sale_tax_id" x-model="selectedId">
+                                                        </div>
+                                                        <button type="button" class="btn btn-outline-primary btn-sm ms-1"
+                                                                @click="$dispatch('open-tax-modal')"
+                                                                data-bs-toggle="tooltip" title="Tambah pajak baru">
+                                                            <i class="bi bi-plus-circle"></i>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
 
@@ -125,8 +405,8 @@
 
 
 
-                            <!-- Stock Management -->
-                            <div class="form-row">
+                            <!-- Stock Management Section -->
+                            <div class="form-row mt-4">
                                 <div class="col-md-4">
                                     <div class="form-group">
                                         <label>
@@ -143,7 +423,7 @@
                             <fieldset id="stock-dependent">
 
                                 <!-- Serial Number Requirement -->
-                                <div class="form-row">
+                                <div class="form-row mt-4">
                                     <div class="col-md-4">
                                         <div class="form-group">
                                             <input type="checkbox" name="serial_number_required" id="serial_number_required"
@@ -154,17 +434,92 @@
                                 </div>
 
                                 <!-- Product Quantity and Stock Alert -->
-                                <div class="form-row">
+                                <div class="form-row mt-4">
                                     <div class="col-md-6">
                                         <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number" step="1"/>
                                     </div>
                                 </div>
 
                                 <!-- Unit and Barcode -->
-                                <div class="form-row">
+                                <div class="form-row mt-4">
                                     <div class="col-md-6">
-                                        <x-select label="Unit Utama" name="base_unit_id" :options="$units->pluck('name', 'id')"
-                                                  :quickAddButton="'<x-quick-add-button entity=\"unit\" permission=\"settings.access\" modal-event=\"openUnitModal\" tooltip=\"Tambah unit baru\" />'" />
+                                        <label for="unit_search">Unit Utama</label>
+                                        <div class="d-flex">
+                                            <div class="flex-grow-1 position-relative"
+                                                 x-data="searchableDropdown()"
+                                                 x-init="
+                                                     config = {
+                                                         apiUrl: null, // Local filtering
+                                                         entityType: 'unit',
+                                                     placeholder: 'Cari unit...',
+                                                     displayField: 'name',
+                                                     valueField: 'id',
+                                                     minQueryLength: 1,
+                                                     staticOptions: @js($units->map(function($unit) { return ['id' => $unit->id, 'name' => $unit->name]; })->all()),
+                                                     additionalParams: {},
+                                                     initialSelectedId: {{ old('base_unit_id') ? (int) old('base_unit_id') : 'null' }},
+                                                     initialSelectedName: @js(optional($units->firstWhere('id', old('base_unit_id')))->name ?? '')
+                                                 };
+                                                 results = @js($units->map(function($unit) { return ['id' => $unit->id, 'name' => $unit->name]; })->all());
+                                                 allTerms = @js($units->map(function($unit) { return ['id' => $unit->id, 'name' => $unit->name]; })->all());
+                                                 init();
+
+                                                     // Initialize disabled state based on checkbox
+                                                     disabled = !document.getElementById('stock_managed').checked;
+
+                                                     // Watch for checkbox changes
+                                                     document.getElementById('stock_managed').addEventListener('change', (e) => {
+                                                         disabled = !e.target.checked;
+                                                     });
+                                                 "
+                                                 >
+                                                <div class="form-control d-flex justify-content-between align-items-center"
+                                                     :class="{ 'bg-light text-muted': disabled }"
+                                                     :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
+                                                     @click="!disabled && toggleDropdown()">
+                                                    <span x-text="selectedName || 'Pilih unit...'"></span>
+                                                    <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                                </div>
+
+                                                <div class="dropdown-menu w-100 shadow show p-2"
+                                                     x-show="open"
+                                                     x-cloak
+                                                     style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
+                                                    <input
+                                                        type="text"
+                                                        class="form-control form-control-sm mb-2"
+                                                        :class="{ 'bg-light': disabled }"
+                                                        :disabled="disabled"
+                                                        x-model="inputValue"
+                                                        @input.debounce.300ms="search()"
+                                                        placeholder="Cari unit..."
+                                                        autocomplete="off"
+                                                    >
+                                                    <template x-if="results.length > 0">
+                                                        <div>
+                                                            <template x-for="unit in results" :key="unit.id">
+                                                                <button
+                                                                    type="button"
+                                                                    :disabled="disabled"
+                                                                    @mousedown.prevent="selectItem(unit); open = false;"
+                                                                    class="dropdown-item"
+                                                                    x-text="unit.name"
+                                                                ></button>
+                                                            </template>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="results.length === 0">
+                                                        <div class="dropdown-item disabled">Tidak ada hasil</div>
+                                                    </template>
+                                                </div>
+                                                <input type="hidden" name="base_unit_id" x-model="selectedId">
+                                            </div>
+                                            <button type="button" class="btn btn-outline-primary btn-sm ms-1"
+                                                    @click="$dispatch('open-unit-modal')"
+                                                    data-bs-toggle="tooltip" title="Tambah unit baru">
+                                                <i class="bi bi-plus-circle"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                     <div class="col-md-6">
                                         <x-input label="Barcode Unit Utama" name="barcode"/>
@@ -172,7 +527,7 @@
                                 </div>
 
                                 <!-- Livewire component for Unit Conversion Table -->
-                                <div class="form-row">
+                                <div class="form-row mt-4">
                                     <div class="col-lg-12">
                                         <div class="card">
                                             <div class="card-body">
@@ -186,7 +541,7 @@
                                 </div>
                             </fieldset>
 
-                            <div class="form-row">
+                            <div class="form-row mt-4">
                                 <div class="col-lg-12">
                                     <div class="card">
                                         <div class="card-body">
@@ -223,8 +578,11 @@
 
 @section('third_party_scripts')
     <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
+    <script src="{{ asset('js/alpine-components/searchable-dropdown.js') }}"></script>
     <script>
         $(function () {
+            // Event listeners for Alpine modals are now handled by the searchable dropdown components
+
             function toggleFormSubmissionLock(form, processing = false) {
                 $(form).find('.submit-lock-btn').each(function () {
                     const $btn = $(this);
@@ -392,7 +750,7 @@
                 $section.find('input[type="hidden"]').each(function () {
                     // only clear if it’s clearly part of stock-dependent data (avoid CSRF etc.)
                     const name = this.name || '';
-                    if (name.startsWith('conversions') || name.startsWith('barcode') || name.startsWith('product_stock_alert')) {
+                    if (name.startsWith('conversions') || name.startsWith('barcode') || name.startsWith('product_stock_alert') || name === 'base_unit_id') {
                         $(this).val('');
                     }
                 });
@@ -405,6 +763,9 @@
 
                 // Textareas
                 $section.find('textarea').val('');
+
+                // Tell Alpine unit dropdown to clear itself
+                window.dispatchEvent(new CustomEvent('unit-cleared'));
 
                 // If your Livewire component renders inputs for conversions, clear them too
                 // (this already catches them because they’re inputs/selects inside the section).
@@ -427,6 +788,8 @@
 
                 if (!on) {
                     resetStockDependentValues();
+                } else {
+                    // Unit dropdown will enable itself by checking the checkbox state directly
                 }
 
                 if (window.Livewire && typeof Livewire.dispatch === 'function') {
@@ -434,14 +797,24 @@
                     Livewire.dispatch('stock:lock', {'locked': !on}); // true = lock, false = unlock
                 }
 
-                $section.find('input, select, textarea, button').prop('disabled', !on);
+                // Disable form fields but NOT Alpine dropdowns (they manage their own disabled state)
+                // We exclude: elements with x-data, their parents with x-data, and buttons inside those containers
+                const $dropdownContainers = $section.find('[x-data*="searchableDropdown"]');
+                $section.find('input, select, textarea, button').each(function() {
+                    const $this = $(this);
+                    // Skip if this element or any parent is an Alpine dropdown
+                    const isInDropdown = $this.closest('[x-data*="searchableDropdown"]').length > 0;
+                    if (!isInDropdown) {
+                        $this.prop('disabled', !on);
+                    }
+                });
 
                 // Optional: if turning OFF, clear “Serial Number Required” check visually
                 if (!on) {
                     $('#serial_number_required').prop('checked', false);
                 }
 
-                // If you’re using any Select2 inside #stock-dependent, trigger change:
+                // If you're using any Select2 inside #stock-dependent, trigger change:
                 $section.find('select').trigger('change');
             }
 
@@ -521,8 +894,8 @@
     </script>
 
     <!-- Modals -->
-    <livewire:modules.product.modals.category-quick-add-modal />
-    <livewire:modules.product.modals.brand-quick-add-modal />
-    <livewire:modules.setting.modals.tax-quick-add-modal />
-    <livewire:modules.setting.modals.unit-quick-add-modal />
+    @include('components.alpine.category-quick-add-modal')
+    @include('components.alpine.brand-quick-add-modal')
+    @include('components.alpine.tax-quick-add-modal')
+    @include('components.alpine.unit-quick-add-modal')
 @endsection

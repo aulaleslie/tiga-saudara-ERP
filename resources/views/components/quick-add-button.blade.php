@@ -15,7 +15,7 @@
         data-bs-toggle="tooltip"
         data-bs-placement="top"
         title="{{ $tooltip }}"
-        wire:click="$dispatch('{{ $modalEvent }}')"
+        @click="$dispatch('{{ $modalEvent }}')"
     >
         <i class="bi bi-plus-circle"></i>
     </button>

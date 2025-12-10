@@ -154,7 +154,7 @@ function searchableDropdown() {
 
         selectItem(item) {
             if (this.disabled) return;
-
+            
             this.selectedId = item[this.config.valueField];
             this.selectedName = item[this.config.displayField];
             this.inputValue = '';
@@ -168,7 +168,7 @@ function searchableDropdown() {
 
         toggleDropdown() {
             if (this.disabled) return;
-
+            
             this.open = !this.open;
             if (this.open) {
                 this.search();

@@ -260,3 +260,123 @@ Route::middleware('web')->post('/taxes', function (Request $request) {
         'display_name' => $tax->name . ' (' . $tax->value . '%)',
     ]);
 });
+
+// Categories API
+Route::middleware('web')->get('/categories/search', function (Request $request) {
+    $query = $request->get('query', '');
+    $limit = $request->get('limit', 10);
+
+    if (strlen($query) < 2) {
+        return response()->json([]);
+    }
+
+    $categories = \Modules\Product\Entities\Category::where('category_name', 'like', '%' . $query . '%')
+        ->limit($limit)
+        ->get(['id', 'category_name']);
+
+    $formattedCategories = $categories->map(function ($category) {
+        return [
+            'id' => $category->id,
+            'category_name' => $category->category_name,
+            'display_name' => $category->category_name,
+        ];
+    });
+
+    return response()->json($formattedCategories);
+});
+
+Route::middleware('web')->post('/categories', function (Request $request) {
+    $request->validate([
+        'category_name' => 'required|string|max:255|unique:categories,category_name',
+    ]);
+
+    $category = \Modules\Product\Entities\Category::create([
+        'category_name' => $request->category_name,
+    ]);
+
+    return response()->json([
+        'id' => $category->id,
+        'category_name' => $category->category_name,
+        'display_name' => $category->category_name,
+    ]);
+});
+
+// Brands API
+Route::middleware('web')->get('/brands/search', function (Request $request) {
+    $query = $request->get('query', '');
+    $limit = $request->get('limit', 10);
+
+    if (strlen($query) < 2) {
+        return response()->json([]);
+    }
+
+    $brands = \Modules\Product\Entities\Brand::where('name', 'like', '%' . $query . '%')
+        ->limit($limit)
+        ->get(['id', 'name']);
+
+    $formattedBrands = $brands->map(function ($brand) {
+        return [
+            'id' => $brand->id,
+            'name' => $brand->name,
+            'display_name' => $brand->name,
+        ];
+    });
+
+    return response()->json($formattedBrands);
+});
+
+Route::middleware('web')->post('/brands', function (Request $request) {
+    $request->validate([
+        'name' => 'required|string|max:255|unique:brands,name',
+    ]);
+
+    $brand = \Modules\Product\Entities\Brand::create([
+        'name' => $request->name,
+    ]);
+
+    return response()->json([
+        'id' => $brand->id,
+        'name' => $brand->name,
+        'display_name' => $brand->name,
+    ]);
+});
+
+// Units API
+Route::middleware('web')->get('/units/search', function (Request $request) {
+    $query = $request->get('query', '');
+    $limit = $request->get('limit', 10);
+
+    if (strlen($query) < 2) {
+        return response()->json([]);
+    }
+
+    $units = \Modules\Setting\Entities\Unit::where('name', 'like', '%' . $query . '%')
+        ->limit($limit)
+        ->get(['id', 'name']);
+
+    $formattedUnits = $units->map(function ($unit) {
+        return [
+            'id' => $unit->id,
+            'name' => $unit->name,
+            'display_name' => $unit->name,
+        ];
+    });
+
+    return response()->json($formattedUnits);
+});
+
+Route::middleware('web')->post('/units', function (Request $request) {
+    $request->validate([
+        'name' => 'required|string|max:255|unique:units,name',
+    ]);
+
+    $unit = \Modules\Setting\Entities\Unit::create([
+        'name' => $request->name,
+    ]);
+
+    return response()->json([
+        'id' => $unit->id,
+        'name' => $unit->name,
+        'display_name' => $unit->name,
+    ]);
+});

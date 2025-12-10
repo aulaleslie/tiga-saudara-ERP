@@ -15,7 +15,13 @@
             @endforeach
         </select>
         @if($quickAddButton)
-            {!! $quickAddButton !!}
+            <x-quick-add-button
+                entity="{{ $quickAddButton['entity'] ?? '' }}"
+                permission="{{ $quickAddButton['permission'] ?? '' }}"
+                modal-event="{{ $quickAddButton['modal-event'] ?? '' }}"
+                tooltip="{{ $quickAddButton['tooltip'] ?? '' }}"
+                size="{{ $quickAddButton['size'] ?? 'sm' }}"
+            />
         @endif
     </div>
 
