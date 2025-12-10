@@ -208,13 +208,12 @@
                                                 </div>
                                                 <div class="col-md-6">
                                                     <label for="purchase_tax_search">Pajak Beli</label>
-                                                    <div class="d-flex">
-                                                        <div class="flex-grow-1 position-relative"
-                                                             x-data="searchableDropdown()"
-                                                             x-init="
-                                                                 config = {
-                                                                     apiUrl: null, // Local filtering
-                                                                     entityType: 'tax',
+                                                    <div class="d-flex"
+                                                         x-data="searchableDropdown()"
+                                                         x-init="
+                                                             config = {
+                                                                 apiUrl: null, // Local filtering
+                                                                 entityType: 'tax',
                                                                  placeholder: 'Cari pajak...',
                                                                  displayField: 'name',
                                                                  valueField: 'id',
@@ -228,13 +227,14 @@
                                                              allTerms = @js($taxes ?? []);
                                                              init();
 
-                                                                 // Lock when purchase unchecked
-                                                                 disabled = !document.getElementById('is_purchased').checked;
-                                                                 document.getElementById('is_purchased').addEventListener('change', (e) => {
-                                                                     disabled = !e.target.checked;
-                                                                 });
-                                                             "
-                                                        >
+                                                             // Lock when purchase unchecked
+                                                             disabled = !document.getElementById('is_purchased').checked;
+                                                             document.getElementById('is_purchased').addEventListener('change', (e) => {
+                                                                 disabled = !e.target.checked;
+                                                             });
+                                                         "
+                                                    >
+                                                        <div class="flex-grow-1 position-relative">
                                                             <div class="form-control d-flex justify-content-between align-items-center"
                                                                  :class="{ 'bg-light text-muted': disabled }"
                                                                  :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
@@ -277,7 +277,9 @@
                                                             <input type="hidden" name="purchase_tax_id" x-model="selectedId">
                                                         </div>
                                                         <button type="button" class="btn btn-outline-primary btn-sm ms-1"
-                                                                @click="$dispatch('open-tax-modal')"
+                                                                :disabled="disabled"
+                                                                :class="{ 'disabled': disabled }"
+                                                                @click="!disabled && $dispatch('open-tax-modal')"
                                                                 data-bs-toggle="tooltip" title="Tambah pajak baru">
                                                             <i class="bi bi-plus-circle"></i>
                                                         </button>
@@ -306,8 +308,7 @@
                                                 </div>
                                                 <div class="col-md-6">
                                                     <label for="sale_tax_search">Pajak Jual</label>
-                                                    <div class="d-flex">
-                                                        <div class="flex-grow-1 position-relative"
+                                                    <div class="d-flex"
                                                          x-data="searchableDropdown()"
                                                          x-init="
                                                              config = {
@@ -333,6 +334,7 @@
                                                              });
                                                          "
                                                     >
+                                                        <div class="flex-grow-1 position-relative">
                                                         <div class="form-control d-flex justify-content-between align-items-center"
                                                              :class="{ 'bg-light text-muted': disabled }"
                                                              :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
@@ -375,7 +377,9 @@
                                                             <input type="hidden" name="sale_tax_id" x-model="selectedId">
                                                         </div>
                                                         <button type="button" class="btn btn-outline-primary btn-sm ms-1"
-                                                                @click="$dispatch('open-tax-modal')"
+                                                                :disabled="disabled"
+                                                                :class="{ 'disabled': disabled }"
+                                                                @click="!disabled && $dispatch('open-tax-modal')"
                                                                 data-bs-toggle="tooltip" title="Tambah pajak baru">
                                                             <i class="bi bi-plus-circle"></i>
                                                         </button>
@@ -444,14 +448,13 @@
                                 <div class="form-row mt-4">
                                     <div class="col-md-6">
                                         <label for="unit_search">Unit Utama</label>
-                                        <div class="d-flex">
-                                            <div class="flex-grow-1 position-relative"
-                                                 x-data="searchableDropdown()"
+                                        <div class="d-flex"
+                                             x-data="searchableDropdown()"
                                                  x-init="
                                                      config = {
                                                          apiUrl: null, // Local filtering
                                                          entityType: 'unit',
-                                                     placeholder: 'Cari unit...',
+                                                         placeholder: 'Cari unit...',
                                                      displayField: 'name',
                                                      valueField: 'id',
                                                      minQueryLength: 1,
@@ -472,7 +475,8 @@
                                                          disabled = !e.target.checked;
                                                      });
                                                  "
-                                                 >
+                                        >
+                                            <div class="flex-grow-1 position-relative">
                                                 <div class="form-control d-flex justify-content-between align-items-center"
                                                      :class="{ 'bg-light text-muted': disabled }"
                                                      :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
@@ -515,7 +519,9 @@
                                                 <input type="hidden" name="base_unit_id" x-model="selectedId">
                                             </div>
                                             <button type="button" class="btn btn-outline-primary btn-sm ms-1"
-                                                    @click="$dispatch('open-unit-modal')"
+                                                    :disabled="disabled"
+                                                    :class="{ 'disabled': disabled }"
+                                                    @click="!disabled && $dispatch('open-unit-modal')"
                                                     data-bs-toggle="tooltip" title="Tambah unit baru">
                                                 <i class="bi bi-plus-circle"></i>
                                             </button>
