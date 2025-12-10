@@ -60,24 +60,6 @@ class PurchaseController extends Controller
     }
 
 
-    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
-    {
-        abort_if(Gate::denies('purchases.create'), 403);
-
-        // Clear the purchase cart
-        Cart::instance('purchase')->destroy();
-
-        // Retrieve the current setting_id from the session
-
-        // Filter PaymentTerms by the setting_id
-        $paymentTerms = PaymentTerm::all();
-        $suppliers = Supplier::all();
-        $idempotencyToken = (string) Str::uuid();
-
-        // Pass the filtered terms to the view
-        return view('purchase::create', compact('paymentTerms','suppliers', 'idempotencyToken'));
-    }
-
     public function createAlpine(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('purchases.create'), 403);
@@ -102,7 +84,7 @@ class PurchaseController extends Controller
         ));
     }
 
-    public function createNew(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('purchases.create'), 403);
 
@@ -114,7 +96,7 @@ class PurchaseController extends Controller
         $units = \Modules\Setting\Entities\Unit::all();
         $idempotencyToken = (string) Str::uuid();
 
-        return view('purchase::create-new', compact(
+        return view('purchase::create', compact(
             'paymentTerms',
             'taxes',
             'categories',

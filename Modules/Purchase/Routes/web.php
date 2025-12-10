@@ -58,7 +58,6 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/purchases/{purchase}/receive', [PurchaseController::class, 'receive'])->name('purchases.receive');
     Route::patch('purchases/{purchase}/status', [PurchaseController::class, 'updateStatus'])->name('purchases.updateStatus');
     Route::get('/purchases/create-alpine', [PurchaseController::class, 'createAlpine'])->name('purchases.create-alpine');
-    Route::get('/purchases/create-new', [PurchaseController::class, 'createNew'])->name('purchases.create-new');
     Route::resource('purchases', 'PurchaseController')->middleware('idempotency');
 
     //Payments
