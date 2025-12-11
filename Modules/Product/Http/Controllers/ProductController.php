@@ -62,11 +62,21 @@ class ProductController extends Controller
         abort_if(Gate::denies('products.create'), 403);
 
         // Filter units, brands, and categories by setting_id
-        $units = Unit::all();
-        $brands = Brand::all();
-        $categories = Category::with('parent')->get();
+        $units = Unit::all()->unique('id')->values();
+        $brands = Brand::all()->unique('id')->values();
+        $categories = Category::with('parent')->distinct()->get();
+
+        $settingId = session('setting_id');
+        $parentCategories = Category::query()
+            ->whereNull('parent_id')
+            ->when($settingId, function ($query) use ($settingId) {
+                $query->where('setting_id', $settingId);
+            })
+            ->orderBy('category_name')
+            ->distinct()
+            ->get();
         $locations = Location::all();
-        $taxes = Tax::all();
+        $taxes = Tax::all()->unique('id')->values();
 
         // Format categories with parent category
         $formattedCategories = $categories->mapWithKeys(function ($category) {
@@ -76,7 +86,7 @@ class ProductController extends Controller
 
         $idempotencyToken = (string) Str::uuid();
 
-        return view('product::products.create', compact('units', 'brands', 'formattedCategories', 'locations', 'taxes', 'idempotencyToken'));
+        return view('product::products.create', compact('units', 'brands', 'formattedCategories', 'locations', 'taxes', 'idempotencyToken', 'parentCategories'));
     }
 
 

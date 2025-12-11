@@ -35,5 +35,6 @@ class AppServiceProvider extends ServiceProvider
         \Livewire\Livewire::component('modules.setting.modals.unit-quick-add-modal', \Modules\Setting\Livewire\Modals\UnitQuickAddModal::class);
         \Livewire\Livewire::component('modules.product.modals.category-quick-add-modal', \Modules\Product\Livewire\Modals\CategoryQuickAddModal::class);
         \Livewire\Livewire::component('modules.product.modals.brand-quick-add-modal', \Modules\Product\Livewire\Modals\BrandQuickAddModal::class);
+        \Livewire\Livewire::component('modules.product.category-search-dropdown', \Modules\Product\Livewire\CategorySearchDropdown::class);
     }
 }

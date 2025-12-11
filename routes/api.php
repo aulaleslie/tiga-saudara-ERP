@@ -286,18 +286,44 @@ Route::middleware('web')->get('/categories/search', function (Request $request) 
 });
 
 Route::middleware('web')->post('/categories', function (Request $request) {
+    $settingId = session('setting_id');
+
     $request->validate([
-        'category_name' => 'required|string|max:255|unique:categories,category_name',
+        'category_name'  => 'required|string|max:255|unique:categories,category_name,NULL,id,setting_id,' . $settingId,
+        'category_code'  => 'nullable|string|max:255|unique:categories,category_code',
+        'parent_id'      => 'nullable|exists:categories,id',
     ]);
+
+    $code = $request->category_code;
+    if (!$code) {
+        $categoryMaxId = \Modules\Product\Entities\Category::max('id') + 1;
+        $code = 'CA_' . str_pad($categoryMaxId, 2, '0', STR_PAD_LEFT);
+    }
+
+    $parent = null;
+    if ($request->parent_id) {
+        $parent = \Modules\Product\Entities\Category::find($request->parent_id);
+    }
 
     $category = \Modules\Product\Entities\Category::create([
+        'category_code' => $code,
         'category_name' => $request->category_name,
+        'parent_id'     => $request->parent_id,
+        'created_by'    => auth()->id(),
+        'setting_id'    => $settingId,
     ]);
 
+    $displayName = $parent
+        ? $parent->category_name . ' | ' . $category->category_name
+        : $category->category_name;
+
     return response()->json([
-        'id' => $category->id,
-        'category_name' => $category->category_name,
-        'display_name' => $category->category_name,
+        'id'           => $category->id,
+        'category_name'=> $category->category_name,
+        'category_code'=> $category->category_code,
+        'parent_id'    => $category->parent_id,
+        'display_name' => $displayName,
+        'name'         => $displayName,
     ]);
 });
 

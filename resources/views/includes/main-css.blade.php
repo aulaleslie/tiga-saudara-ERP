@@ -14,6 +14,8 @@
 @livewireStyles
 
 <style>
+    [x-cloak] { display: none !important; }
+
     div.dataTables_wrapper div.dataTables_length select {
         width: 65px;
         display: inline-block;

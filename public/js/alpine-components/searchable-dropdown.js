@@ -14,6 +14,7 @@ function searchableDropdown() {
         disabled: false,
         abortController: null,
         staticResults: [],
+        allTerms: [],
 
         // Configuration passed via x-data attributes
         config: {
@@ -31,26 +32,103 @@ function searchableDropdown() {
             staticOptions: [],
         },
 
+        safeArray(value = []) {
+            return Array.isArray(value) ? value : [];
+        },
+
+        normalizeItem(item = {}) {
+            const valueKey = this.config.valueField;
+            const displayKey = this.config.displayField;
+
+            const normalizedId = (item && item[valueKey]) ?? (item ? item.id : null);
+            const normalizedName =
+                (item && item[displayKey]) ??
+                (item && item.name) ??
+                (item && item.display_name) ??
+                (item && item.category_name) ??
+                '';
+
+            return { ...item, [valueKey]: normalizedId, [displayKey]: normalizedName };
+        },
+
+        upsertItem(item) {
+            const normalized = this.normalizeItem(item);
+            const valueKey = this.config.valueField;
+
+            this.staticResults = this.safeArray(this.staticResults);
+            this.allTerms = this.safeArray(this.allTerms);
+
+            const existingIndex = this.staticResults.findIndex(entry =>
+                entry && normalized && entry[valueKey] == normalized[valueKey]
+            );
+
+            if (existingIndex >= 0) {
+                this.staticResults.splice(existingIndex, 1, { ...this.staticResults[existingIndex], ...normalized });
+            } else {
+                this.staticResults.unshift(normalized);
+            }
+
+            this.staticResults = this.safeArray(this.staticResults);
+            this.allTerms = this.safeArray([...this.staticResults]);
+            this.results = this.safeArray([...this.staticResults]);
+
+            return normalized;
+        },
+
+        initOnce() {
+            // Use DOM data attribute to track if already initialized
+            const componentId = this.$el?.getAttribute('data-component-id');
+            if (!componentId) {
+                // Fallback if no ID attribute
+                return this.init();
+            }
+
+            const initKey = `__initialized_${componentId}`;
+            if (window[initKey]) {
+                // Already initialized for this component instance
+                return;
+            }
+
+            // Mark as initialized
+            window[initKey] = true;
+            this.init();
+        },
+
         init() {
+            // Check if already initialized using DOM attribute
+            if (this.$el?.getAttribute('data-initialized') === 'true') {
+                return;
+            }
+            
+            // Mark as initialized immediately to prevent re-runs
+            this.$el?.setAttribute('data-initialized', 'true');
+
             // Initialize from config
             this.selectedId = this.config.initialSelectedId;
             this.selectedName = this.config.initialSelectedName;
             this.disabled = this.config.initialDisabled;
             this.inputValue = '';
-            this.staticResults = this.config.staticOptions || [];
+            this.staticResults = this.safeArray(this.config.staticOptions);
+            this.results = this.safeArray(this.results);
+            this.allTerms = this.safeArray(this.allTerms);
 
             // Seed local cache if provided outside config
-            if (!this.staticResults.length && this.allTerms) {
-                this.staticResults = this.allTerms;
-            } else if (!this.staticResults.length && this.results.length) {
-                this.staticResults = this.results;
+            if (!this.staticResults.length) {
+                const seeded = this.safeArray(
+                    this.allTerms.length ? this.allTerms : this.results
+                );
+                this.staticResults = this.safeArray(seeded);
             }
 
             // Set initial selected name if we have an ID but no name
-            if (this.selectedId && !this.selectedName && this.results.length > 0) {
-                const item = this.results.find(r => r[this.config.valueField] == this.selectedId);
+            if (this.selectedId && !this.selectedName) {
+                const candidates = this.safeArray(
+                    this.staticResults.length ? this.staticResults : this.results
+                );
+                const item = candidates.find(r => r[this.config.valueField] == this.selectedId);
                 if (item) {
-                    this.selectedName = item[this.config.displayField];
+                    const normalized = this.normalizeItem(item);
+                    this.selectedName = normalized[this.config.displayField];
                 }
             }
 
@@ -85,9 +163,12 @@ function searchableDropdown() {
             if (!this.query || this.query.length < minLength) {
                 // For local datasets, show all options when there is no query
                 if (!this.config.apiUrl) {
-                    this.results = this.staticResults.length
-                        ? this.staticResults
-                        : (this.allTerms || this.results || []);
+                    const base = this.safeArray(
+                        this.staticResults.length
+                            ? this.staticResults
+                            : (this.allTerms.length ? this.allTerms : this.results)
+                    );
+                    this.results = base;
                     this.open = true;
                     this.loading = false;
                     return;
@@ -100,7 +181,9 @@ function searchableDropdown() {
 
             // Local filtering mode (no API)
             if (!this.config.apiUrl) {
-                const haystack = this.staticResults.length ? this.staticResults : (this.allTerms || this.results || []);
+                const haystack = this.safeArray(
+                    this.staticResults.length ? this.staticResults : (this.allTerms.length ? this.allTerms : this.results)
+                );
                 const keyword = this.query.toLowerCase();
                 this.results = haystack.filter(item =>
                     (item[this.config.displayField] || '').toLowerCase().includes(keyword)
@@ -141,7 +224,7 @@ function searchableDropdown() {
                 }
 
                 const data = await response.json();
-                this.results = data;
+                this.results = this.safeArray(data);
             } catch (error) {
                 if (error.name !== 'AbortError') {
                     console.error('Search error:', error);
@@ -153,22 +236,23 @@ function searchableDropdown() {
         },
 
         selectItem(item) {
-            if (this.disabled) return;
-            
-            this.selectedId = item[this.config.valueField];
-            this.selectedName = item[this.config.displayField];
+            if (this.disabled || !item) return;
+
+            const normalized = this.upsertItem(item);
+            this.selectedId = normalized[this.config.valueField];
+            this.selectedName = normalized[this.config.displayField];
             this.inputValue = '';
             this.query = '';
-            this.results = [];
+            this.results = this.safeArray(this.results);
             this.open = false;
 
             // Dispatch selection event
-            this.dispatchSelectionEvents(item);
+            this.dispatchSelectionEvents(normalized);
         },
 
         toggleDropdown() {
             if (this.disabled) return;
-            
+
             this.open = !this.open;
             if (this.open) {
                 this.search();
@@ -178,12 +262,14 @@ function searchableDropdown() {
         // Watch for selectedId changes and update display
         updateSelectedName() {
             if (this.selectedId) {
-                const searchArray =
+                const searchArray = this.safeArray(
                     (this.staticResults && this.staticResults.length) ? this.staticResults :
-                    (this.allTerms || this.results);
+                        (this.allTerms.length ? this.allTerms : this.results)
+                );
                 const item = searchArray.find(r => r[this.config.valueField] == this.selectedId);
                 if (item) {
-                    this.selectedName = item[this.config.displayField];
+                    const normalized = this.normalizeItem(item);
+                    this.selectedName = normalized[this.config.displayField];
                 } else {
                     // Fallback: keep current name or set to ID
                     this.selectedName = this.selectedName || `ID: ${this.selectedId}`;
@@ -198,7 +284,7 @@ function searchableDropdown() {
             this.selectedName = '';
             this.inputValue = '';
             this.query = '';
-            this.results = [];
+            this.results = this.safeArray(this.results);
             this.open = false;
 
             // Dispatch clear event
@@ -228,14 +314,15 @@ function searchableDropdown() {
 
         handleEntityCreated(data) {
             // Auto-select the newly created entity
-            this.selectedId = data.id;
-            this.selectedName = data.name || data[this.config.displayField];
+            const normalized = this.upsertItem(data);
+            this.selectedId = normalized[this.config.valueField];
+            this.selectedName = normalized[this.config.displayField];
             this.query = '';
-            this.results = [];
+            this.results = this.safeArray(this.results);
             this.open = false;
 
             // Dispatch selection event
-            this.dispatchSelectionEvents(data);
+            this.dispatchSelectionEvents(normalized);
         },
 
         handlePaymentTermUpdate(data) {
@@ -310,3 +397,4 @@ function searchableDropdown() {
 
 // Register as global Alpine data function
 window.searchableDropdown = searchableDropdown;
+window.categoryDropdown = searchableDropdown;

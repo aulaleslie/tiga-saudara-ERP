@@ -4,6 +4,26 @@
 
 @section('content')
     <div class="container-fluid">
+        @php
+            $categoryOptions = collect($formattedCategories ?? [])
+                ->map(fn($name, $id) => ['id' => $id, 'name' => $name])
+                ->values()
+                ->all();
+
+            $brandOptions = $brands->map(fn($brand) => ['id' => $brand->id, 'name' => $brand->name])
+                ->values()
+                ->all();
+
+            $taxOptions = collect($taxes ?? [])->map(fn($tax) => [
+                'id' => $tax->id,
+                'name' => $tax->name,
+                'value' => $tax->value,
+            ])->values()->all();
+
+            $unitOptions = $units->map(fn($unit) => ['id' => $unit->id, 'name' => $unit->name])
+                ->values()
+                ->all();
+        @endphp
         <form id="product-form" action="{{ route('products.store') }}" method="POST" enctype="multipart/form-data">
             @csrf
             <input type="hidden" name="idempotency_token" value="{{ $idempotencyToken }}">
@@ -57,93 +77,25 @@
                             <div class="form-row">
                                 <div class="col-md-6">
                                     <label for="category_search">Kategori</label>
-                                    <div class="d-flex">
-                                        <div class="flex-grow-1 position-relative"
-                                             x-data="searchableDropdown()"
-                                             x-init="
-                                                 config = {
-                                                     apiUrl: null, // Local filtering
-                                                     entityType: 'category',
-                                                     placeholder: 'Cari kategori...',
-                                                     displayField: 'name',
-                                                     valueField: 'id',
-                                                     minQueryLength: 1,
-                                                     staticOptions: @js(collect($formattedCategories ?? [])->map(function($name, $id) { return ['id' => $id, 'name' => $name]; })->values()->all()),
-                                                     additionalParams: {},
-                                                     initialSelectedId: {{ old('category_id') ? (int) old('category_id') : 'null' }},
-                                                     initialSelectedName: @js(collect($formattedCategories ?? [])->get(old('category_id')) ?? '')
-                                                 };
-                                                 results = @js(collect($formattedCategories ?? [])->map(function($name, $id) { return ['id' => $id, 'name' => $name]; })->values()->all());
-                                                 allTerms = @js(collect($formattedCategories ?? [])->map(function($name, $id) { return ['id' => $id, 'name' => $name]; })->values()->all());
-                                                 init();
-                                             "
-                                        >
-                                            <div class="form-control d-flex justify-content-between align-items-center"
-                                                 style="cursor: pointer;"
-                                                 @click="open = !open; if(open){ search(); }">
-                                                <span x-text="selectedName || 'Pilih kategori...'"></span>
-                                                <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
-                                            </div>
-
-                                            <div class="dropdown-menu w-100 shadow show p-2"
-                                                 x-show="open"
-                                                 x-cloak
-                                                 style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
-                                                <input
-                                                    type="text"
-                                                    class="form-control form-control-sm mb-2"
-                                                    x-model="inputValue"
-                                                    @input.debounce.300ms="search()"
-                                                    placeholder="Cari kategori..."
-                                                    autocomplete="off"
-                                                >
-                                                <template x-if="results.length > 0">
-                                                    <div>
-                                                        <template x-for="category in results" :key="category.id">
-                                                            <button
-                                                                type="button"
-                                                                @mousedown.prevent="selectItem(category); open = false;"
-                                                                class="dropdown-item"
-                                                                x-text="category.name"
-                                                            ></button>
-                                                        </template>
-                                                    </div>
-                                                </template>
-                                                <template x-if="results.length === 0">
-                                                    <div class="dropdown-item disabled">Tidak ada hasil</div>
-                                                </template>
-                                            </div>
-                                            <input type="hidden" name="category_id" x-model="selectedId">
-                                        </div>
-                                        <button type="button" class="btn btn-outline-primary btn-sm ms-1"
-                                                @click="$dispatch('open-category-modal')"
-                                                data-bs-toggle="tooltip" title="Tambah kategori baru">
-                                            <i class="bi bi-plus-circle"></i>
-                                        </button>
-                                    </div>
+                                    <livewire:modules.product.category-search-dropdown
+                                        name="category_id"
+                                        placeholder="Pilih kategori..."
+                                        :options="$categoryOptions"
+                                        :selected="old('category_id')"
+                                        :allow-create="true"
+                                        :error="$errors->first('category_id')"
+                                    />
                                 </div>
                                 <div class="col-md-6">
                                     <label for="brand_search">Merek</label>
-                                    <div class="d-flex">
+                                    <div class="d-flex" wire:ignore>
                                         <div class="flex-grow-1 position-relative"
-                                             x-data="searchableDropdown()"
-                                             x-init="
-                                                 config = {
-                                                     apiUrl: null, // Local filtering
-                                                     entityType: 'brand',
-                                                     placeholder: 'Cari merek...',
-                                                     displayField: 'name',
-                                                     valueField: 'id',
-                                                     minQueryLength: 1,
-                                                     staticOptions: @js($brands->map(function($brand) { return ['id' => $brand->id, 'name' => $brand->name]; })->all()),
-                                                     additionalParams: {},
-                                                     initialSelectedId: {{ old('brand_id') ? (int) old('brand_id') : 'null' }},
-                                                     initialSelectedName: @js(optional($brands->firstWhere('id', old('brand_id')))->name ?? '')
-                                                 };
-                                                 results = @js($brands->map(function($brand) { return ['id' => $brand->id, 'name' => $brand->name]; })->all());
-                                                 allTerms = @js($brands->map(function($brand) { return ['id' => $brand->id, 'name' => $brand->name]; })->all());
-                                                 init();
-                                             "
+                                             x-data="brandDropdown(
+                                                 @js($brandOptions),
+                                                 {{ old('brand_id') ? (int) old('brand_id') : 'null' }},
+                                                 @js(optional($brands->firstWhere('id', old('brand_id')))->name ?? '')
+                                             )"
+                                             x-init="init()"
                                         >
                                             <div class="form-control d-flex justify-content-between align-items-center"
                                                  style="cursor: pointer;"
@@ -164,7 +116,7 @@
                                                     placeholder="Cari merek..."
                                                     autocomplete="off"
                                                 >
-                                                <template x-if="results.length > 0">
+                                                <template x-if="Array.isArray(results) && results.length > 0">
                                                     <div>
                                                         <template x-for="brand in results" :key="brand.id">
                                                             <button
@@ -176,14 +128,14 @@
                                                         </template>
                                                     </div>
                                                 </template>
-                                                <template x-if="results.length === 0">
+                                                <template x-if="!Array.isArray(results) || results.length === 0">
                                                     <div class="dropdown-item disabled">Tidak ada hasil</div>
                                                 </template>
                                             </div>
                                             <input type="hidden" name="brand_id" x-model="selectedId">
                                         </div>
                                         <button type="button" class="btn btn-outline-primary btn-sm ms-1"
-                                                @click="$dispatch('open-brand-modal')"
+                                                @click="window.dispatchEvent(new CustomEvent('open-brand-modal'))"
                                                 data-bs-toggle="tooltip" title="Tambah merek baru">
                                             <i class="bi bi-plus-circle"></i>
                                         </button>
@@ -208,30 +160,16 @@
                                                 </div>
                                                 <div class="col-md-6">
                                                     <label for="purchase_tax_search">Pajak Beli</label>
-                                                    <div class="d-flex"
-                                                         x-data="searchableDropdown()"
+                                                    <div class="d-flex" wire:ignore
+                                                         x-data="taxDropdown(
+                                                             @js($taxOptions),
+                                                             {{ old('purchase_tax_id') ? (int) old('purchase_tax_id') : 'null' }},
+                                                             @js(data_get(collect($taxes ?? [])->firstWhere('id', old('purchase_tax_id')), 'name', '')),
+                                                             {{ old('is_purchased') ? 'false' : 'true' }}
+                                                         )"
                                                          x-init="
-                                                             config = {
-                                                                 apiUrl: null, // Local filtering
-                                                                 entityType: 'tax',
-                                                                 placeholder: 'Cari pajak...',
-                                                                 displayField: 'name',
-                                                                 valueField: 'id',
-                                                                 minQueryLength: 1,
-                                                                 staticOptions: @js($taxes ?? []),
-                                                                 additionalParams: {},
-                                                                 initialSelectedId: {{ old('purchase_tax_id') ? (int) old('purchase_tax_id') : 'null' }},
-                                                                 initialSelectedName: @js(data_get(collect($taxes ?? [])->firstWhere('id', old('purchase_tax_id')), 'name', ''))
-                                                             };
-                                                             results = @js($taxes ?? []);
-                                                             allTerms = @js($taxes ?? []);
                                                              init();
-
-                                                             // Lock when purchase unchecked
-                                                             disabled = !document.getElementById('is_purchased').checked;
-                                                             document.getElementById('is_purchased').addEventListener('change', (e) => {
-                                                                 disabled = !e.target.checked;
-                                                             });
+                                                             bindDisabledToCheckbox('is_purchased', $data);
                                                          "
                                                     >
                                                         <div class="flex-grow-1 position-relative">
@@ -257,7 +195,7 @@
                                                                     placeholder="Cari pajak..."
                                                                     autocomplete="off"
                                                                 >
-                                                                <template x-if="results.length > 0">
+                                                                <template x-if="Array.isArray(results) && results.length > 0">
                                                                     <div>
                                                                         <template x-for="tax in results" :key="tax.id">
                                                                             <button
@@ -270,7 +208,7 @@
                                                                         </template>
                                                                     </div>
                                                                 </template>
-                                                                <template x-if="results.length === 0">
+                                                                <template x-if="!Array.isArray(results) || results.length === 0">
                                                                     <div class="dropdown-item disabled">Tidak ada hasil</div>
                                                                 </template>
                                                             </div>
@@ -279,7 +217,7 @@
                                                         <button type="button" class="btn btn-outline-primary btn-sm ms-1"
                                                                 :disabled="disabled"
                                                                 :class="{ 'disabled': disabled }"
-                                                                @click="!disabled && $dispatch('open-tax-modal')"
+                                                                @click="!disabled && window.dispatchEvent(new CustomEvent('open-tax-modal'))"
                                                                 data-bs-toggle="tooltip" title="Tambah pajak baru">
                                                             <i class="bi bi-plus-circle"></i>
                                                         </button>
@@ -308,30 +246,16 @@
                                                 </div>
                                                 <div class="col-md-6">
                                                     <label for="sale_tax_search">Pajak Jual</label>
-                                                    <div class="d-flex"
-                                                         x-data="searchableDropdown()"
+                                                    <div class="d-flex" wire:ignore
+                                                         x-data="taxDropdown(
+                                                             @js($taxOptions),
+                                                             {{ old('sale_tax_id') ? (int) old('sale_tax_id') : 'null' }},
+                                                             @js(data_get(collect($taxes ?? [])->firstWhere('id', old('sale_tax_id')), 'name', '')),
+                                                             {{ old('is_sold') ? 'false' : 'true' }}
+                                                         )"
                                                          x-init="
-                                                             config = {
-                                                                 apiUrl: null, // Local filtering
-                                                                 entityType: 'tax',
-                                                                placeholder: 'Cari pajak...',
-                                                                displayField: 'name',
-                                                                valueField: 'id',
-                                                                minQueryLength: 1,
-                                                                staticOptions: @js($taxes ?? []),
-                                                                 additionalParams: {},
-                                                                 initialSelectedId: {{ old('sale_tax_id') ? (int) old('sale_tax_id') : 'null' }},
-                                                                 initialSelectedName: @js(data_get(collect($taxes ?? [])->firstWhere('id', old('sale_tax_id')), 'name', ''))
-                                                             };
-                                                             results = @js($taxes ?? []);
-                                                             allTerms = @js($taxes ?? []);
                                                              init();
-
-                                                             // Lock when sale unchecked
-                                                             disabled = !document.getElementById('is_sold').checked;
-                                                             document.getElementById('is_sold').addEventListener('change', (e) => {
-                                                                 disabled = !e.target.checked;
-                                                             });
+                                                             bindDisabledToCheckbox('is_sold', $data);
                                                          "
                                                     >
                                                         <div class="flex-grow-1 position-relative">
@@ -357,7 +281,7 @@
                                                                 placeholder="Cari pajak..."
                                                                 autocomplete="off"
                                                             >
-                                                                <template x-if="results.length > 0">
+                                                                <template x-if="Array.isArray(results) && results.length > 0">
                                                                 <div>
                                                                     <template x-for="tax in results" :key="tax.id">
                                                                         <button
@@ -370,7 +294,7 @@
                                                                     </template>
                                                                 </div>
                                                                 </template>
-                                                                <template x-if="results.length === 0">
+                                                                <template x-if="!Array.isArray(results) || results.length === 0">
                                                                     <div class="dropdown-item disabled">Tidak ada hasil</div>
                                                                 </template>
                                                             </div>
@@ -379,7 +303,7 @@
                                                         <button type="button" class="btn btn-outline-primary btn-sm ms-1"
                                                                 :disabled="disabled"
                                                                 :class="{ 'disabled': disabled }"
-                                                                @click="!disabled && $dispatch('open-tax-modal')"
+                                                                @click="!disabled && window.dispatchEvent(new CustomEvent('open-tax-modal'))"
                                                                 data-bs-toggle="tooltip" title="Tambah pajak baru">
                                                             <i class="bi bi-plus-circle"></i>
                                                         </button>
@@ -448,33 +372,17 @@
                                 <div class="form-row mt-4">
                                     <div class="col-md-6">
                                         <label for="unit_search">Unit Utama</label>
-                                        <div class="d-flex"
-                                             x-data="searchableDropdown()"
-                                                 x-init="
-                                                     config = {
-                                                         apiUrl: null, // Local filtering
-                                                         entityType: 'unit',
-                                                         placeholder: 'Cari unit...',
-                                                     displayField: 'name',
-                                                     valueField: 'id',
-                                                     minQueryLength: 1,
-                                                     staticOptions: @js($units->map(function($unit) { return ['id' => $unit->id, 'name' => $unit->name]; })->all()),
-                                                     additionalParams: {},
-                                                     initialSelectedId: {{ old('base_unit_id') ? (int) old('base_unit_id') : 'null' }},
-                                                     initialSelectedName: @js(optional($units->firstWhere('id', old('base_unit_id')))->name ?? '')
-                                                 };
-                                                 results = @js($units->map(function($unit) { return ['id' => $unit->id, 'name' => $unit->name]; })->all());
-                                                 allTerms = @js($units->map(function($unit) { return ['id' => $unit->id, 'name' => $unit->name]; })->all());
+                                        <div class="d-flex" wire:ignore
+                                             x-data="unitDropdown(
+                                                 @js($unitOptions),
+                                                 {{ old('base_unit_id') ? (int) old('base_unit_id') : 'null' }},
+                                                 @js(optional($units->firstWhere('id', old('base_unit_id')))->name ?? ''),
+                                                 {{ old('stock_managed') ? 'false' : 'true' }}
+                                             )"
+                                             x-init="
                                                  init();
-
-                                                     // Initialize disabled state based on checkbox
-                                                     disabled = !document.getElementById('stock_managed').checked;
-
-                                                     // Watch for checkbox changes
-                                                     document.getElementById('stock_managed').addEventListener('change', (e) => {
-                                                         disabled = !e.target.checked;
-                                                     });
-                                                 "
+                                                 bindDisabledToCheckbox('stock_managed', $data);
+                                             "
                                         >
                                             <div class="flex-grow-1 position-relative">
                                                 <div class="form-control d-flex justify-content-between align-items-center"
@@ -499,7 +407,7 @@
                                                         placeholder="Cari unit..."
                                                         autocomplete="off"
                                                     >
-                                                    <template x-if="results.length > 0">
+                                                    <template x-if="Array.isArray(results) && results.length > 0">
                                                         <div>
                                                             <template x-for="unit in results" :key="unit.id">
                                                                 <button
@@ -512,7 +420,7 @@
                                                             </template>
                                                         </div>
                                                     </template>
-                                                    <template x-if="results.length === 0">
+                                                    <template x-if="!Array.isArray(results) || results.length === 0">
                                                         <div class="dropdown-item disabled">Tidak ada hasil</div>
                                                     </template>
                                                 </div>
@@ -521,7 +429,7 @@
                                             <button type="button" class="btn btn-outline-primary btn-sm ms-1"
                                                     :disabled="disabled"
                                                     :class="{ 'disabled': disabled }"
-                                                    @click="!disabled && $dispatch('open-unit-modal')"
+                                                    @click="!disabled && window.dispatchEvent(new CustomEvent('open-unit-modal'))"
                                                     data-bs-toggle="tooltip" title="Tambah unit baru">
                                                 <i class="bi bi-plus-circle"></i>
                                             </button>
@@ -579,12 +487,12 @@
                 </div>
             </div>
         </form>
+        <livewire:modules.product.modals.category-quick-add-modal />
     </div>
 @endsection
 
 @section('third_party_scripts')
     <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
-    <script src="{{ asset('js/alpine-components/searchable-dropdown.js') }}"></script>
     <script>
         $(function () {
             // Event listeners for Alpine modals are now handled by the searchable dropdown components
@@ -799,7 +707,6 @@
                 }
 
                 if (window.Livewire && typeof Livewire.dispatch === 'function') {
-                    console.log(on)
                     Livewire.dispatch('stock:lock', {'locked': !on}); // true = lock, false = unlock
                 }
 
@@ -900,7 +807,6 @@
     </script>
 
     <!-- Modals -->
-    @include('components.alpine.category-quick-add-modal')
     @include('components.alpine.brand-quick-add-modal')
     @include('components.alpine.tax-quick-add-modal')
     @include('components.alpine.unit-quick-add-modal')

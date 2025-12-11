@@ -11,14 +11,13 @@
                 <div class="modal-body">
                     <form wire:submit.prevent="save">
                         <div class="mb-3">
-                            <label for="category_code" class="form-label">Kode Kategori <span class="text-danger">*</span></label>
+                            <label for="category_code" class="form-label">Kode Kategori</label>
                             <input
                                 type="text"
                                 class="form-control @error('category_code') is-invalid @enderror"
                                 id="category_code"
                                 wire:model="category_code"
-                                placeholder="Masukkan kode kategori"
-                                required
+                                placeholder="Masukkan kode kategori (kosongkan untuk auto-generate)"
                             >
                             @error('category_code')
                                 <div class="invalid-feedback">{{ $message }}</div>
@@ -42,19 +41,18 @@
 
                         <div class="mb-3">
                             <label for="parent_id" class="form-label">Kategori Induk</label>
-                            <select
-                                class="form-control @error('parent_id') is-invalid @enderror"
-                                id="parent_id"
-                                wire:model="parent_id"
-                            >
-                                <option value="">Pilih kategori induk (opsional)</option>
-                                @foreach($this->parentCategories as $parent)
-                                    <option value="{{ $parent->id }}">{{ $parent->category_name }}</option>
-                                @endforeach
-                            </select>
+                            <livewire:modules.product.category-search-dropdown
+                                wire:key="category-parent-dropdown"
+                                name="parent_id"
+                                :options="$this->parentCategoryOptions"
+                                :selected="$parent_id"
+                                dispatch-to="modules.product.modals.category-quick-add-modal"
+                                :root-only="true"
+                                placeholder="Pilih kategori induk (opsional)"
+                            />
                             <small class="form-text text-muted">Biarkan kosong jika ini adalah kategori utama</small>
                             @error('parent_id')
-                                <div class="invalid-feedback">{{ $message }}</div>
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
                             @enderror
                         </div>
                     </form>
