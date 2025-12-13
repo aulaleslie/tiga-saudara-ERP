@@ -59,18 +59,17 @@
                     <td>
                         {{-- numeric copy → this is what your form really submits --}}
                         <input type="hidden"
+                               id="conv-price-{{ $rowKey }}"
                                name="conversions[{{ $index }}][price]"
                                wire:model="conversions.{{ $index }}.price"
                                value="{{ $conversion['price'] }}"/>
 
                         {{-- pretty input --}}
                         <input type="text"
-                               class="form-control {{ isset($errors['conversions.' . $index . '.price']) ? 'is-invalid' : '' }}"
+                               class="form-control conversion-price-input {{ isset($errors['conversions.' . $index . '.price']) ? 'is-invalid' : '' }}"
                                placeholder="0,00"
-
-                               wire:model="displayPrices.{{ $index }}"      {{-- ⬅ removed “.lazy” --}}
-                               wire:focus="showRawPrice({{ $index }})"
-                               wire:blur="syncPrice({{ $index }})"          {{-- ⬅ no extra arg needed --}}
+                               data-hidden="#conv-price-{{ $rowKey }}"
+                               wire:model="displayPrices.{{ $index }}"
                         />
                         @if(isset($errors['conversions.' . $index . '.price']))
                             <span class="invalid-feedback" role="alert">

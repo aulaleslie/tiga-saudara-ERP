@@ -332,7 +332,7 @@
 
             // === Mask helpers ===
             function applyMask() {
-                $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price').maskMoney({
+                $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price, .conversion-price-input').maskMoney({
                     prefix: '{{ settings()->currency->symbol }}',
                     thousands: '{{ settings()->currency->thousand_separator }}',
                     decimal: '{{ settings()->currency->decimal_separator }}',
@@ -419,6 +419,82 @@
             togglePurchaseFields(true);
             toggleSaleFields(true);
 
+            // === Conversion price fields ===
+            function bindConversionPriceInputs() {
+                $('.conversion-price-input').each(function () {
+                    const $input = $(this);
+                    if ($input.data('bound') === 1) return;
+                    $input.data('bound', 1);
+
+                    const hiddenSelector = $input.data('hidden');
+                    const $hidden = hiddenSelector ? $(hiddenSelector) : null;
+                    const updateHidden = (num) => {
+                        if (!$hidden || !$hidden.length) return;
+                        $hidden.val(num);
+                        $hidden.trigger('input');
+                    };
+
+                    // initial mask
+                    $input.maskMoney({
+                        prefix: '{{ settings()->currency->symbol }}',
+                        thousands: '{{ settings()->currency->thousand_separator }}',
+                        decimal: '{{ settings()->currency->decimal_separator }}',
+                        precision: 2,
+                        allowZero: true,
+                        allowNegative: false
+                    });
+                    $input.maskMoney('mask');
+
+                    $input.on('focus', function () {
+                        $input.maskMoney('destroy');
+                        $input.val($input.val().replace(/[^0-9.-]/g, ''));
+                        setTimeout(() => this.select(), 0);
+                    });
+
+                    $input.on('blur', function () {
+                        let v = parseFloat($input.val().replace(/[^0-9.-]/g, ''));
+                        if (isNaN(v)) v = 0;
+                        updateHidden(v);
+                        $input.val(v.toFixed(2));
+                        $input.maskMoney({
+                            prefix: '{{ settings()->currency->symbol }}',
+                            thousands: '{{ settings()->currency->thousand_separator }}',
+                            decimal: '{{ settings()->currency->decimal_separator }}',
+                            precision: 2,
+                            allowZero: true,
+                            allowNegative: false
+                        });
+                        $input.maskMoney('mask');
+                    });
+
+                    $input.on('keyup change', function () {
+                        let v = $input.maskMoney('unmasked')[0] ?? 0;
+                        if (isNaN(v)) v = 0;
+                        updateHidden(v);
+                    });
+                });
+            }
+
+            bindConversionPriceInputs();
+            if (window.Livewire) {
+                document.addEventListener('livewire:load', function () {
+                    Livewire.hook('message.processed', bindConversionPriceInputs);
+                });
+            }
+
+            // Observer for dynamically added conversion rows from Livewire
+            const conversionTableObserver = new MutationObserver(() => {
+                bindConversionPriceInputs();
+            });
+            const conversionTable = document.querySelector('.unit-conversion-table');
+            if (conversionTable) {
+                conversionTableObserver.observe(conversionTable, {
+                    childList: true,
+                    subtree: true,
+                    attributes: false,
+                });
+            }
+
             // === Submit: unmask to raw numbers ===
             $('#product-form').on('submit', function (event) {
                 if (this.dataset.submitting === 'true') {
@@ -434,6 +510,18 @@
                 $('#sale_price').val(un('#sale_price'));
                 $('#tier_1_price').val(un('#tier_1_price'));
                 $('#tier_2_price').val(un('#tier_2_price'));
+
+                $('.conversion-price-input').each(function () {
+                    const $input = $(this);
+                    const hiddenSelector = $input.data('hidden');
+                    const $hidden = hiddenSelector ? $(hiddenSelector) : null;
+                    const v = $input.maskMoney('unmasked')[0] ?? 0;
+                    $input.val(v);
+                    if ($hidden && $hidden.length) {
+                        $hidden.val(v);
+                        $hidden.trigger('input');
+                    }
+                });
             });
 
             window.addEventListener('product:submit-error', () => {

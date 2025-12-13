@@ -112,8 +112,12 @@ class UnitConversionTable extends Component
 
     private function formatCurrency(float $amount): string
     {
-        // “Rp 1.234,56”
-        return 'Rp '.number_format($amount, 2, ',', '.');
+        $currency = settings()->currency ?? null;
+        $symbol   = $currency->symbol ?? '';
+        $decimal  = $currency->decimal_separator ?? '.';
+        $thousand = $currency->thousand_separator ?? ',';
+
+        return $symbol.number_format($amount, 2, $decimal, $thousand);
     }
 
     public function submitForm(): void
