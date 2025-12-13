@@ -13,7 +13,7 @@
     @keydown.escape.window="closeModal()"
 >
     <!-- Backdrop -->
-    <div class="fixed inset-0 bg-black bg-opacity-50" @click="closeModal()"></div>
+    <div class="fixed inset-0 bg-black bg-opacity-20" @click="closeModal()"></div>
 
     <!-- Modal Content -->
     <div class="relative min-h-screen flex items-center justify-center p-4">
@@ -131,6 +131,9 @@ function taxQuickAddModal() {
 
                 // Dispatch success event
                 window.dispatchEvent(new CustomEvent('taxCreated', { detail: data }));
+                if (window.Livewire && typeof window.Livewire.dispatch === 'function') {
+                    window.Livewire.dispatch('taxCreated', data);
+                }
 
                 this.closeModal();
 

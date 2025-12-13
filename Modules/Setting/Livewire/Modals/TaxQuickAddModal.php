@@ -60,7 +60,8 @@ class TaxQuickAddModal extends Component
 
         $this->dispatch('taxCreated', [
             'id' => $tax->id,
-            'name' => $tax->name
+            'name' => $tax->name,
+            'value' => $tax->value
         ]);
 
         session()->flash('success', 'Pajak berhasil ditambahkan.');

@@ -88,246 +88,52 @@
                                 </div>
                                 <div class="col-md-6">
                                     <label for="brand_search">Merek</label>
-                                    <div class="d-flex" wire:ignore>
-                                        <div class="flex-grow-1 position-relative"
-                                             x-data="brandDropdown(
-                                                 @js($brandOptions),
-                                                 {{ old('brand_id') ? (int) old('brand_id') : 'null' }},
-                                                 @js(optional($brands->firstWhere('id', old('brand_id')))->name ?? '')
-                                             )"
-                                             x-init="init()"
-                                        >
-                                            <div class="form-control d-flex justify-content-between align-items-center"
-                                                 style="cursor: pointer;"
-                                                 @click="open = !open; if(open){ search(); }">
-                                                <span x-text="selectedName || 'Pilih merek...'"></span>
-                                                <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
-                                            </div>
-
-                                            <div class="dropdown-menu w-100 shadow show p-2"
-                                                 x-show="open"
-                                                 x-cloak
-                                                 style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
-                                                <input
-                                                    type="text"
-                                                    class="form-control form-control-sm mb-2"
-                                                    x-model="inputValue"
-                                                    @input.debounce.300ms="search()"
-                                                    placeholder="Cari merek..."
-                                                    autocomplete="off"
-                                                >
-                                                <template x-if="Array.isArray(results) && results.length > 0">
-                                                    <div>
-                                                        <template x-for="brand in results" :key="brand.id">
-                                                            <button
-                                                                type="button"
-                                                                @mousedown.prevent="selectItem(brand); open = false;"
-                                                                class="dropdown-item"
-                                                                x-text="brand.name"
-                                                            ></button>
-                                                        </template>
-                                                    </div>
-                                                </template>
-                                                <template x-if="!Array.isArray(results) || results.length === 0">
-                                                    <div class="dropdown-item disabled">Tidak ada hasil</div>
-                                                </template>
-                                            </div>
-                                            <input type="hidden" name="brand_id" x-model="selectedId">
-                                        </div>
-                                        <button type="button" class="btn btn-outline-primary btn-sm ms-1"
-                                                @click="window.dispatchEvent(new CustomEvent('open-brand-modal'))"
-                                                data-bs-toggle="tooltip" title="Tambah merek baru">
-                                            <i class="bi bi-plus-circle"></i>
-                                        </button>
-                                    </div>
+                                    <livewire:modules.product.brand-search-dropdown
+                                        name="brand_id"
+                                        placeholder="Pilih merek..."
+                                        :options="$brandOptions"
+                                        :selected="old('brand_id')"
+                                        :allow-create="true"
+                                        :error="$errors->first('brand_id')"
+                                    />
                                 </div>
                             </div>
 
                             <!-- Purchase Section -->
                             <div class="form-row mt-4">
                                 <div class="col-md-12">
-                                    <div class="border p-3 mb-3">
-                                        <div class="form-group">
-                                            <input type="checkbox" name="is_purchased" id="is_purchased" value="1"
-                                                {{ old('is_purchased') ? 'checked' : '' }}>
-                                            <label for="is_purchased"><strong>Saya Beli Barang Ini</strong></label>
-
-                                            <div class="row mt-3">
-                                                <div class="col-md-6">
-                                                    <x-input label="Harga Beli" name="purchase_price"
-                                                             step="0.01" :disabled="!old('is_purchased')"
-                                                             value="{{ old('purchase_price', $purchase_price ?? '') }}"/>
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <label for="purchase_tax_search">Pajak Beli</label>
-                                                    <div class="d-flex" wire:ignore
-                                                         x-data="taxDropdown(
-                                                             @js($taxOptions),
-                                                             {{ old('purchase_tax_id') ? (int) old('purchase_tax_id') : 'null' }},
-                                                             @js(data_get(collect($taxes ?? [])->firstWhere('id', old('purchase_tax_id')), 'name', '')),
-                                                             {{ old('is_purchased') ? 'false' : 'true' }}
-                                                         )"
-                                                         x-init="
-                                                             init();
-                                                             bindDisabledToCheckbox('is_purchased', $data);
-                                                         "
-                                                    >
-                                                        <div class="flex-grow-1 position-relative">
-                                                            <div class="form-control d-flex justify-content-between align-items-center"
-                                                                 :class="{ 'bg-light text-muted': disabled }"
-                                                                 :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
-                                                                 @click="!disabled && toggleDropdown()">
-                                                                <span x-text="selectedName || 'Pilih pajak...'"></span>
-                                                                <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
-                                                            </div>
-
-                                                            <div class="dropdown-menu w-100 shadow show p-2"
-                                                                 x-show="open"
-                                                                 x-cloak
-                                                                 style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
-                                                                <input
-                                                                    type="text"
-                                                                    class="form-control form-control-sm mb-2"
-                                                                    :class="{ 'bg-light': disabled }"
-                                                                    :disabled="disabled"
-                                                                    x-model="inputValue"
-                                                                    @input.debounce.300ms="search()"
-                                                                    placeholder="Cari pajak..."
-                                                                    autocomplete="off"
-                                                                >
-                                                                <template x-if="Array.isArray(results) && results.length > 0">
-                                                                    <div>
-                                                                        <template x-for="tax in results" :key="tax.id">
-                                                                            <button
-                                                                                type="button"
-                                                                                :disabled="disabled"
-                                                                                @mousedown.prevent="selectItem(tax); open = false;"
-                                                                                class="dropdown-item"
-                                                                                x-text="tax.name + ' (' + tax.value + '%)'"
-                                                                            ></button>
-                                                                        </template>
-                                                                    </div>
-                                                                </template>
-                                                                <template x-if="!Array.isArray(results) || results.length === 0">
-                                                                    <div class="dropdown-item disabled">Tidak ada hasil</div>
-                                                                </template>
-                                                            </div>
-                                                            <input type="hidden" name="purchase_tax_id" x-model="selectedId">
-                                                        </div>
-                                                        <button type="button" class="btn btn-outline-primary btn-sm ms-1"
-                                                                :disabled="disabled"
-                                                                :class="{ 'disabled': disabled }"
-                                                                @click="!disabled && window.dispatchEvent(new CustomEvent('open-tax-modal'))"
-                                                                data-bs-toggle="tooltip" title="Tambah pajak baru">
-                                                            <i class="bi bi-plus-circle"></i>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <livewire:modules.product.product-price-setup
+                                        type="purchase"
+                                        :isActive="(bool) old('is_purchased')"
+                                        :price="old('purchase_price', $purchase_price ?? '')"
+                                        :taxId="old('purchase_tax_id')"
+                                        priceLabel="Harga Beli"
+                                        checkboxLabel="Saya Beli Barang Ini"
+                                        taxLabel="Pajak Beli"
+                                        fieldPrefix="purchase"
+                                        :taxOptions="$taxOptions"
+                                        :priceError="$errors->first('purchase_price')"
+                                        :taxError="$errors->first('purchase_tax_id')"
+                                    />
                                 </div>
                             </div>
 
                             <!-- Sale Section -->
                             <div class="form-row mt-4">
                                 <div class="col-md-12">
-                                    <div class="border p-3 mb-3">
-                                        <div class="form-group">
-                                            <input type="checkbox" name="is_sold" id="is_sold" value="1"
-                                                {{ old('is_sold') ? 'checked' : '' }}>
-                                            <label for="is_sold"><strong>Saya Jual Barang Ini</strong></label>
-
-                                            <div class="row mt-3">
-                                                <div class="col-md-6">
-                                                    <x-input label="Harga Jual" name="sale_price"
-                                                             step="0.01" :disabled="!old('is_sold')"
-                                                             value="{{ old('sale_price', $sale_price ?? '') }}"/>
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <label for="sale_tax_search">Pajak Jual</label>
-                                                    <div class="d-flex" wire:ignore
-                                                         x-data="taxDropdown(
-                                                             @js($taxOptions),
-                                                             {{ old('sale_tax_id') ? (int) old('sale_tax_id') : 'null' }},
-                                                             @js(data_get(collect($taxes ?? [])->firstWhere('id', old('sale_tax_id')), 'name', '')),
-                                                             {{ old('is_sold') ? 'false' : 'true' }}
-                                                         )"
-                                                         x-init="
-                                                             init();
-                                                             bindDisabledToCheckbox('is_sold', $data);
-                                                         "
-                                                    >
-                                                        <div class="flex-grow-1 position-relative">
-                                                        <div class="form-control d-flex justify-content-between align-items-center"
-                                                             :class="{ 'bg-light text-muted': disabled }"
-                                                             :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
-                                                             @click="!disabled && toggleDropdown()">
-                                                            <span x-text="selectedName || 'Pilih pajak...'"></span>
-                                                            <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
-                                                        </div>
-
-                                                        <div class="dropdown-menu w-100 shadow show p-2"
-                                                                 x-show="open"
-                                                                 x-cloak
-                                                                 style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
-                                                            <input
-                                                                type="text"
-                                                                class="form-control form-control-sm mb-2"
-                                                                :class="{ 'bg-light': disabled }"
-                                                                :disabled="disabled"
-                                                                x-model="inputValue"
-                                                                @input.debounce.300ms="search()"
-                                                                placeholder="Cari pajak..."
-                                                                autocomplete="off"
-                                                            >
-                                                                <template x-if="Array.isArray(results) && results.length > 0">
-                                                                <div>
-                                                                    <template x-for="tax in results" :key="tax.id">
-                                                                        <button
-                                                                            type="button"
-                                                                            :disabled="disabled"
-                                                                            @mousedown.prevent="selectItem(tax); open = false;"
-                                                                            class="dropdown-item"
-                                                                            x-text="tax.name + ' (' + tax.value + '%)'"
-                                                                        ></button>
-                                                                    </template>
-                                                                </div>
-                                                                </template>
-                                                                <template x-if="!Array.isArray(results) || results.length === 0">
-                                                                    <div class="dropdown-item disabled">Tidak ada hasil</div>
-                                                                </template>
-                                                            </div>
-                                                            <input type="hidden" name="sale_tax_id" x-model="selectedId">
-                                                        </div>
-                                                        <button type="button" class="btn btn-outline-primary btn-sm ms-1"
-                                                                :disabled="disabled"
-                                                                :class="{ 'disabled': disabled }"
-                                                                @click="!disabled && window.dispatchEvent(new CustomEvent('open-tax-modal'))"
-                                                                data-bs-toggle="tooltip" title="Tambah pajak baru">
-                                                            <i class="bi bi-plus-circle"></i>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <div class="row">
-                                                <div class="col-md-6">
-                                                    <x-input label="Harga Jual Partai Besar" name="tier_1_price"
-                                                             step="0.01" :disabled="!old('is_sold')"
-                                                             value="{{ old('tier_1_price', $tier_1_price ?? '') }}"/>
-                                                </div>
-                                            </div>
-
-                                            <div class="row">
-                                                <div class="col-md-6">
-                                                    <x-input label="Harga Jual Reseller" name="tier_2_price"
-                                                             step="0.01" :disabled="!old('is_sold')"
-                                                             value="{{ old('tier_2_price', $tier_2_price ?? '') }}"/>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <livewire:modules.product.sale-price-setup
+                                        :isActive="(bool) old('is_sold')"
+                                        :price="old('sale_price', $sale_price ?? '')"
+                                        :tier1Price="old('tier_1_price', $tier_1_price ?? '')"
+                                        :tier2Price="old('tier_2_price', $tier_2_price ?? '')"
+                                        :taxId="old('sale_tax_id')"
+                                        checkboxLabel="Saya Jual Barang Ini"
+                                        :taxOptions="$taxOptions"
+                                        :priceError="$errors->first('sale_price')"
+                                        :taxError="$errors->first('sale_tax_id')"
+                                        :tier1Error="$errors->first('tier_1_price')"
+                                        :tier2Error="$errors->first('tier_2_price')"
+                                    />
                                 </div>
                             </div>
 
@@ -488,6 +294,8 @@
             </div>
         </form>
         <livewire:modules.product.modals.category-quick-add-modal />
+        <livewire:modules.product.modals.brand-quick-add-modal />
+        <livewire:modules.setting.modals.tax-quick-add-modal />
     </div>
 @endsection
 
@@ -577,22 +385,16 @@
                 });
             })();
 
-            // === Toggling with correct defaults ===
+
             function togglePurchaseFields(initial = false) {
                 const checked = $('#is_purchased').is(':checked');
                 const $price = $('#purchase_price');
-                const $tax   = $('#purchase_tax_id');
 
                 $price.prop('disabled', !checked);
-                $tax.prop('disabled',   !checked);
 
                 if (!checked) {
-                    // off -> show Rp0.00 + placeholder
                     setMaskedZero($price);
-                    $tax.val('');            // Option A: empty value selects "Pilih Pajak ..."
-                    $tax.trigger('change');
                 } else if (initial && !$price.val().trim()) {
-                    // checked on initial load but empty -> show 0.00 to avoid blank
                     setMaskedZero($price);
                 }
             }
@@ -600,25 +402,13 @@
             function toggleSaleFields(initial = false) {
                 const checked = $('#is_sold').is(':checked');
                 const $sale  = $('#sale_price');
-                const $tier1 = $('#tier_1_price');
-                const $tier2 = $('#tier_2_price');
-                const $tax   = $('#sale_tax_id');
 
-                [$sale, $tier1, $tier2].forEach($i => $i.prop('disabled', !checked));
-                $tax.prop('disabled', !checked);
+                $sale.prop('disabled', !checked);
 
                 if (!checked) {
-                    // off -> show Rp0.00 + placeholder
                     setMaskedZero($sale);
-                    setMaskedZero($tier1);
-                    setMaskedZero($tier2);
-                    $tax.val('');            // Option A: empty value selects placeholder
-                    $tax.trigger('change');
                 } else if (initial) {
-                    // checked on initial load but any empty -> seed 0.00 for clarity
-                    if (!$sale.val().trim())  setMaskedZero($sale);
-                    if (!$tier1.val().trim()) setMaskedZero($tier1);
-                    if (!$tier2.val().trim()) setMaskedZero($tier2);
+                    if (!$sale.val().trim()) setMaskedZero($sale);
                 }
             }
 
@@ -807,7 +597,6 @@
     </script>
 
     <!-- Modals -->
-    @include('components.alpine.brand-quick-add-modal')
-    @include('components.alpine.tax-quick-add-modal')
+    {{-- Brand and tax quick-add handled via Livewire components --}}
     @include('components.alpine.unit-quick-add-modal')
 @endsection
