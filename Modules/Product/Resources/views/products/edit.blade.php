@@ -205,8 +205,8 @@
                                 <!-- Livewire component for Unit Conversion Table -->
                                 <div class="form-row">
                                     <div class="col-lg-12">
-                                        <div class="card">
-                                            <div class="card-body">
+                                        <div class="card" style="overflow: visible;">
+                                            <div class="card-body" style="overflow: visible;">
                                                 <livewire:product.unit-conversion-table
                                                     :conversions="old('conversions', $conversionFormData)"
                                                     :errors="$errors->toArray()"/>

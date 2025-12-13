@@ -249,8 +249,8 @@
                                 <!-- Livewire component for Unit Conversion Table -->
                                 <div class="form-row mt-4">
                                     <div class="col-lg-12">
-                                        <div class="card">
-                                            <div class="card-body">
+                                        <div class="card" style="overflow: visible;">
+                                            <div class="card-body" style="overflow: visible;">
                                                 <livewire:product.unit-conversion-table
                                                     :conversions="old('conversions', [])"
                                                     :errors="$errors->toArray()"
@@ -296,6 +296,7 @@
         <livewire:modules.product.modals.category-quick-add-modal />
         <livewire:modules.product.modals.brand-quick-add-modal />
         <livewire:modules.setting.modals.tax-quick-add-modal />
+        <livewire:modules.setting.modals.unit-quick-add-modal />
     </div>
 @endsection
 

@@ -16,6 +16,7 @@ class UnitConversionTable extends Component
     public array $errors = [];
     public array $units = [];
     public bool  $locked = false;
+    public array $rowKeys = [];
 
     protected $listeners = [
         'unitConversion:reset' => 'resetRows',
@@ -34,6 +35,7 @@ class UnitConversionTable extends Component
     {
         $this->conversions   = [];
         $this->displayPrices = [];
+        $this->rowKeys       = [];
     }
 
     public function mount(array $conversions = []): void
@@ -46,6 +48,7 @@ class UnitConversionTable extends Component
             $this->displayPrices[$i] = $conv['price'] && $conv['price'] !== ''
                 ? $this->formatCurrency($conv['price'])
                 : '';
+            $this->rowKeys[$i] = $conv['id'] ?? uniqid('conv_', true);
         }
 
         $this->errors = session('errors')
@@ -65,13 +68,20 @@ class UnitConversionTable extends Component
             'price'             => '',  // still empty raw
         ];
         $this->displayPrices[] = '';
+        $this->rowKeys[] = uniqid('conv_', true);
     }
 
-    public function removeConversionRow(int $i): void
+    public function removeConversionRow(string $key): void
     {
-        unset($this->conversions[$i], $this->displayPrices[$i]);
+        $index = array_search($key, $this->rowKeys, true);
+        if ($index === false) {
+            return;
+        }
+
+        unset($this->conversions[$index], $this->displayPrices[$index], $this->rowKeys[$index]);
         $this->conversions   = array_values($this->conversions);
         $this->displayPrices = array_values($this->displayPrices);
+        $this->rowKeys       = array_values($this->rowKeys);
     }
 
     public function updated($propertyName): void

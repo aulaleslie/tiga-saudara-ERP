@@ -86,6 +86,7 @@ class ProductServiceProvider extends ServiceProvider
         \Livewire\Livewire::component('modules.product.category-search-dropdown', \Modules\Product\Livewire\CategorySearchDropdown::class);
         \Livewire\Livewire::component('modules.product.brand-search-dropdown', \Modules\Product\Livewire\BrandSearchDropdown::class);
         \Livewire\Livewire::component('modules.product.tax-search-dropdown', \Modules\Product\Livewire\TaxSearchDropdown::class);
+        \Livewire\Livewire::component('modules.product.unit-search-dropdown', \Modules\Product\Livewire\UnitSearchDropdown::class);
         \Livewire\Livewire::component('modules.product.product-price-setup', \Modules\Product\Livewire\ProductPriceSetup::class);
         \Livewire\Livewire::component('modules.product.sale-price-setup', \Modules\Product\Livewire\SalePriceSetup::class);
     }
