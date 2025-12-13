@@ -13,6 +13,7 @@ class ProductPriceSetup extends Component
     public string $priceLabel = 'Harga Beli';
     public string $checkboxLabel = 'Saya Beli Barang Ini';
     public string $taxLabel = 'Pajak Beli';
+    public string $checkboxName = 'is_purchased';
     public string $fieldPrefix = 'purchase';
 
     /** @var array<int, array{id:int|string,name:string,value:int|float|null}> */
@@ -28,6 +29,7 @@ class ProductPriceSetup extends Component
         string $priceLabel = 'Harga Beli',
         string $checkboxLabel = 'Saya Beli Barang Ini',
         string $taxLabel = 'Pajak Beli',
+        string $checkboxName = 'is_purchased',
         string $fieldPrefix = 'purchase',
         array $taxOptions = [],
         ?string $priceError = null,
@@ -40,6 +42,7 @@ class ProductPriceSetup extends Component
         $this->priceLabel = $priceLabel;
         $this->checkboxLabel = $checkboxLabel;
         $this->taxLabel = $taxLabel;
+        $this->checkboxName = $checkboxName;
         $this->fieldPrefix = $fieldPrefix;
         $this->taxOptions = $taxOptions;
         $this->priceError = $priceError;

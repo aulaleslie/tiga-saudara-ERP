@@ -3,14 +3,14 @@
 <div class="border p-3 mb-3">
     <div class="form-group">
         <input type="checkbox" 
-            name="{{ $fieldPrefix }}_active" 
-            id="{{ $fieldPrefix }}_active" 
+            name="{{ $checkboxName }}" 
+            id="{{ $checkboxName }}" 
             value="1"
             wire:model.live="isActive"
             {{ $isActive ? 'checked' : '' }}
             wire:key="{{ $fieldPrefix }}-checkbox"
         >
-        <label for="{{ $fieldPrefix }}_active"><strong>{{ $checkboxLabel }}</strong></label>
+        <label for="{{ $checkboxName }}"><strong>{{ $checkboxLabel }}</strong></label>
 
         <div class="row mt-3">
             <div class="col-md-6">
