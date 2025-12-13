@@ -9,6 +9,17 @@
             @csrf
             @method('PUT')
             <input type="hidden" name="idempotency_token" value="{{ $idempotencyToken }}">
+
+            @if($errors->any())
+                <div class="alert alert-danger">
+                    <strong>Periksa kembali data yang Anda masukkan.</strong>
+                    <ul class="mb-0 mt-2">
+                        @foreach($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
             <div class="row">
                 <div class="col-lg-12">
                     <div class="form-group">
@@ -41,83 +52,64 @@
                             <!-- Kategori and Merek -->
                             <div class="form-row">
                                 <div class="col-md-6">
-                                    <x-select label="Kategori" name="category_id"
-                                              :options="$formattedCategories"
-                                              selected="{{ old('category_id', $product->category_id) }}"/>
+                                    <label for="category_search">Kategori</label>
+                                    <livewire:modules.product.category-search-dropdown
+                                        name="category_id"
+                                        placeholder="Pilih kategori..."
+                                        :options="$categoryOptions"
+                                        :selected="old('category_id', $product->category_id)"
+                                        :allow-create="true"
+                                        :error="$errors->first('category_id')"
+                                    />
                                 </div>
                                 <div class="col-md-6">
-                                    <x-select label="Merek" name="brand_id"
-                                              :options="$brands->pluck('name', 'id')"
-                                              selected="{{ old('brand_id', $product->brand_id) }}"/>
+                                    <label for="brand_search">Merek</label>
+                                    <livewire:modules.product.brand-search-dropdown
+                                        name="brand_id"
+                                        placeholder="Pilih merek..."
+                                        :options="$brandOptions"
+                                        :selected="old('brand_id', $product->brand_id)"
+                                        :allow-create="true"
+                                        :error="$errors->first('brand_id')"
+                                    />
                                 </div>
                             </div>
 
+                            <!-- Purchase Section -->
                             <div class="form-row">
                                 <div class="col-md-12">
-                                    <div class="border p-3 mb-3">
-                                        <div class="form-group">
-                                            <input type="checkbox" name="is_purchased" id="is_purchased" value="1"
-                                                {{ old('is_purchased', $product->is_purchased) ? 'checked' : '' }}>
-                                            <label for="is_purchased"><strong>Saya Beli Barang Ini</strong></label>
-
-                                            <div class="row mt-3">
-                                                <div class="col-md-6">
-                                                    <x-input label="Harga Beli" name="purchase_price" step="0.01"
-                                                             :disabled="!old('is_purchased', $product->is_purchased)"
-                                                             value="{{ old('purchase_price', $price->purchase_price ?? '') }}"/>
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <x-select label="Pajak Beli" name="purchase_tax_id"
-                                                              :options="$taxes->pluck('name','id')"
-                                                              :disabled="!old('is_purchased', $product->is_purchased)"
-                                                              selected="{{ old('purchase_tax_id', $price->purchase_tax_id) }}"/>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <livewire:modules.product.product-price-setup
+                                        type="purchase"
+                                        :isActive="(bool) old('is_purchased', $product->is_purchased)"
+                                        :price="old('purchase_price', $price->purchase_price ?? '')"
+                                        :taxId="old('purchase_tax_id', $price->purchase_tax_id)"
+                                        priceLabel="Harga Beli"
+                                        checkboxLabel="Saya Beli Barang Ini"
+                                        taxLabel="Pajak Beli"
+                                        fieldPrefix="purchase"
+                                        :taxOptions="$taxOptions"
+                                        :priceError="$errors->first('purchase_price')"
+                                        :taxError="$errors->first('purchase_tax_id')"
+                                    />
                                 </div>
                             </div>
 
-                            <!-- Bordered Group for "Saya Jual Barang Ini" -->
+                            <!-- Sale Section -->
                             <div class="form-row">
                                 <div class="col-md-12">
-                                    <div class="border p-3 mb-3">
-                                        <div class="form-group">
-                                            <input type="checkbox" name="is_sold" id="is_sold" value="1"
-                                                {{ old('is_sold', $product->is_sold) ? 'checked' : '' }}>
-                                            <label for="is_sold"><strong>Saya Jual Barang Ini</strong></label>
-
-                                            <div class="row mt-3">
-                                                <div class="col-md-6">
-                                                    <x-input label="Harga Jual" name="sale_price" step="0.01"
-                                                             :disabled="!old('is_sold', $product->is_sold)"
-                                                             value="{{ old('sale_price', $price->sale_price ?? '') }}"/>
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <x-select label="Pajak Jual" name="sale_tax_id"
-                                                              :options="$taxes->pluck('name','id')"
-                                                              :disabled="!old('is_sold', $product->is_sold)"
-                                                              selected="{{ old('sale_tax_id', $price->sale_tax_id) }}"/>
-                                                </div>
-                                            </div>
-
-                                            <div class="row">
-                                                <div class="col-md-6">
-                                                    <x-input label="Harga Jual Partai Besar" name="tier_1_price" step="0.01"
-                                                             :disabled="!old('is_sold', $product->is_sold)"
-                                                             value="{{ old('tier_1_price', $price->tier_1_price ?? '') }}"/>
-                                                </div>
-                                            </div>
-
-                                            <div class="row">
-                                                <div class="col-md-6">
-                                                    <x-input label="Harga Jual Reseller" name="tier_2_price" step="0.01"
-                                                             :disabled="!old('is_sold', $product->is_sold)"
-                                                             value="{{ old('tier_2_price', $price->tier_2_price ?? '') }}"/>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <livewire:modules.product.sale-price-setup
+                                        :isActive="(bool) old('is_sold', $product->is_sold)"
+                                        :price="old('sale_price', $price->sale_price ?? '')"
+                                        :tier1Price="old('tier_1_price', $price->tier_1_price ?? '')"
+                                        :tier2Price="old('tier_2_price', $price->tier_2_price ?? '')"
+                                        :taxId="old('sale_tax_id', $price->sale_tax_id)"
+                                        checkboxLabel="Saya Jual Barang Ini"
+                                        :taxOptions="$taxOptions"
+                                        :priceError="$errors->first('sale_price')"
+                                        :taxError="$errors->first('sale_tax_id')"
+                                        :tier1Error="$errors->first('tier_1_price')"
+                                        :tier2Error="$errors->first('tier_2_price')"
+                                    />
                                 </div>
                             </div>
 
@@ -128,8 +120,8 @@
                                 <div class="col-md-4">
                                     <div class="form-group">
                                         <label>
-                                            @if($product->product_quantity > 0)
-                                                <!-- If quantity > 0, checkbox is disabled so output current value -->
+                                            @if($hasStock)
+                                                <!-- If has stock, checkbox is disabled so output current value -->
                                                 <input type="hidden" name="stock_managed" value="{{ $product->stock_managed }}" />
                                             @else
                                                 <!-- Otherwise, use 0 as the default hidden value -->
@@ -138,7 +130,7 @@
                                             <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
                                                    class="input-icheck"
                                                 {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }}
-                                                {{ $product->product_quantity > 0 ? 'disabled' : '' }} />
+                                                {{ $hasStock ? 'disabled' : '' }} />
                                             <strong>Manajemen Stok</strong>
                                         </label>
                                         <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
@@ -153,8 +145,8 @@
                                 <div class="form-row">
                                     <div class="col-md-4">
                                         <div class="form-group">
-                                            @if($product->product_quantity > 0)
-                                                <!-- If quantity > 0, checkbox is disabled so output current value -->
+                                            @if($hasStock)
+                                                <!-- If has stock, checkbox is disabled so output current value -->
                                                 <input type="hidden" name="serial_number_required" value="{{ $product->serial_number_required }}" />
                                             @else
                                                 <!-- Otherwise, use 0 as the default hidden value -->
@@ -162,7 +154,7 @@
                                             @endif
                                             <input type="checkbox" name="serial_number_required" id="serial_number_required" value="1"
                                                 {{ old('serial_number_required', $product->serial_number_required) ? 'checked' : '' }}
-                                                {{ $product->product_quantity > 0 ? 'disabled' : '' }}>
+                                                {{ $hasStock ? 'disabled' : '' }}>
                                             <label for="serial_number_required"><strong>Serial Number Diperlukan</strong></label>
                                         </div>
                                     </div>
@@ -185,19 +177,84 @@
                                 <!-- Unit and Barcode -->
                                 <div class="form-row">
                                     <div class="col-md-6">
-                                        <x-select
-                                            label="Unit Utama"
-                                            name="base_unit_id"
-                                            :options="$units->pluck('name', 'id')"
-                                            selected="{{ old('base_unit_id', $product->base_unit_id) }}"
-                                            :disabled="$product->stock_managed"
-                                        />
+                                        <label for="unit_search">Unit Utama</label>
+                                        <div class="d-flex" wire:ignore
+                                             x-data="unitDropdown(
+                                                 @js($unitOptions),
+                                                 {{ old('base_unit_id', $product->base_unit_id) ? (int) old('base_unit_id', $product->base_unit_id) : 'null' }},
+                                                 @js(optional($units->firstWhere('id', old('base_unit_id', $product->base_unit_id)))->name ?? optional($units->firstWhere('id', $product->base_unit_id))->name ?? ''),
+                                                 {{ $hasStock ? 'true' : 'false' }}
+                                             )"
+                                             x-init="
+                                                 init();
+                                                 bindDisabledToCheckbox('stock_managed', $data);
+                                                 // Add click-outside handler
+                                                 document.addEventListener('click', (e) => {
+                                                     if (!open) return;
+                                                     const container = $el;
+                                                     if (!container.contains(e.target)) {
+                                                         open = false;
+                                                     }
+                                                 });
+                                             "
+                                        >
+                                            <div class="flex-grow-1 position-relative">
+                                                <div class="form-control d-flex justify-content-between align-items-center"
+                                                     :class="{ 'bg-light text-muted': disabled }"
+                                                     :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
+                                                     @click="!disabled && toggleDropdown()">
+                                                    <span x-text="selectedName || 'Pilih unit...'"></span>
+                                                    <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                                </div>
+
+                                                <div class="dropdown-menu w-100 shadow show p-2"
+                                                     x-show="open"
+                                                     x-cloak
+                                                     style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
+                                                    <input
+                                                        type="text"
+                                                        class="form-control form-control-sm mb-2"
+                                                        :class="{ 'bg-light': disabled }"
+                                                        :disabled="disabled"
+                                                        x-model="inputValue"
+                                                        @input.debounce.300ms="search()"
+                                                        placeholder="Cari unit..."
+                                                        autocomplete="off"
+                                                    >
+                                                    <template x-if="Array.isArray(results) && results.length > 0">
+                                                        <div>
+                                                            <template x-for="unit in results" :key="unit.id">
+                                                                <button
+                                                                    type="button"
+                                                                    :disabled="disabled"
+                                                                    @mousedown.prevent="selectItem(unit); open = false;"
+                                                                    class="dropdown-item"
+                                                                    x-text="unit.name"
+                                                                ></button>
+                                                            </template>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="!Array.isArray(results) || results.length === 0">
+                                                        <div class="dropdown-item disabled">Tidak ada hasil</div>
+                                                    </template>
+                                                </div>
+                                                <input type="hidden" name="base_unit_id" x-model="selectedId">
+                                            </div>
+                                            <button type="button" class="btn btn-outline-primary btn-sm ms-1"
+                                                    :disabled="disabled"
+                                                    :class="{ 'disabled': disabled }"
+                                                    @click="!disabled && window.dispatchEvent(new CustomEvent('open-unit-modal'))"
+                                                    data-bs-toggle="tooltip" title="Tambah unit baru">
+                                                <i class="bi bi-plus-circle"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                     <div class="col-md-6">
                                         <x-input
                                             label="Barcode Unit Utama"
                                             name="barcode"
                                             value="{{ old('barcode', $product->barcode) }}"
+                                            :disabled="$hasStock"
                                         />
                                     </div>
                                 </div>
@@ -209,7 +266,9 @@
                                             <div class="card-body" style="overflow: visible;">
                                                 <livewire:product.unit-conversion-table
                                                     :conversions="old('conversions', $conversionFormData)"
-                                                    :errors="$errors->toArray()"/>
+                                                    :errors="$errors->toArray()"
+                                                    :locked="$hasStock"
+                                                />
                                             </div>
                                         </div>
                                     </div>
@@ -248,6 +307,10 @@
                 </div>
             </div>
         </form>
+        <livewire:modules.product.modals.category-quick-add-modal />
+        <livewire:modules.product.modals.brand-quick-add-modal />
+        <livewire:modules.setting.modals.tax-quick-add-modal />
+        <livewire:modules.setting.modals.unit-quick-add-modal />
     </div>
 @endsection
 
@@ -292,12 +355,6 @@
                 { sel: '#serial_number_required',   val: $el => ($el.is(':checked') ? '1' : '0') },
                 { sel: '[name="barcode"]',          val: $el => $el.val() },
                 { sel: '[name="product_quantity"]', val: $el => $el.val() },
-
-                // price fields → mirror raw numbers when disabled
-                { sel: '#purchase_price',           val: $el => unmaskNumber($el).toFixed(2) },
-                { sel: '#sale_price',               val: $el => unmaskNumber($el).toFixed(2) },
-                { sel: '#tier_1_price',             val: $el => unmaskNumber($el).toFixed(2) },
-                { sel: '#tier_2_price',             val: $el => unmaskNumber($el).toFixed(2) },
             ];
             function cssEscape(s){ return (s+'').replace(/(["'\\])/g,'\\$1'); }
             function mirrorSel(name){ return 'input[type="hidden"][data-mirror-of="'+cssEscape(name)+'"]'; }
@@ -333,9 +390,8 @@
             const $qtyInput = $('input[name="product_quantity"]');
             $qtyInput.prop('disabled', true).attr('readonly', true).attr('tabindex','-1');
 
-            // Qty-based locks
-            const qtyVal = parseFloat($qtyInput.val() || '0') || 0;
-            const lockByQty = qtyVal > 0;
+            // Qty-based locks (now using hasStock from PHP)
+            const lockByQty = {{ $hasStock ? 'true' : 'false' }};
 
             function applyQtyLocks() {
                 const $base   = $('[name="base_unit_id"]');
@@ -376,35 +432,6 @@
                     applyMask();
                     $(this).maskMoney('mask');
                 });
-
-            // Toggles
-            function setMaskedIfEmpty($el){ if(!$el.val().trim()) setMaskedZero($el); }
-            function togglePurchaseFields(initial=false){
-                const checked = $('#is_purchased').is(':checked');
-                const $price = $('#purchase_price');
-                const $tax   = $('#purchase_tax_id');
-                $price.prop('disabled', !checked);
-                $tax.prop('disabled',   !checked);
-                if (!checked) { setMaskedZero($price); $tax.val('').trigger('change'); }
-                else if (initial) { setMaskedIfEmpty($price); }
-                refreshMirrorsForDisabledTargets();
-            }
-            function toggleSaleFields(initial=false){
-                const checked = $('#is_sold').is(':checked');
-                const $sale  = $('#sale_price');
-                const $tier1 = $('#tier_1_price');
-                const $tier2 = $('#tier_2_price');
-                const $tax   = $('#sale_tax_id');
-                [$sale,$tier1,$tier2].forEach($i => $i.prop('disabled', !checked));
-                $tax.prop('disabled', !checked);
-                if (!checked) { setMaskedZero($sale); setMaskedZero($tier1); setMaskedZero($tier2); $tax.val('').trigger('change'); }
-                else if (initial) { setMaskedIfEmpty($sale); setMaskedIfEmpty($tier1); setMaskedIfEmpty($tier2); }
-                refreshMirrorsForDisabledTargets();
-            }
-            $('#is_purchased').on('change', () => togglePurchaseFields(false));
-            $('#is_sold').on('change',      () => toggleSaleFields(false));
-            togglePurchaseFields(true);
-            toggleSaleFields(true);
 
             // Conversion price fields
             function bindConversionPriceInputs() {
@@ -519,14 +546,7 @@
 
             // --- FINAL: before submit, force all money inputs to raw numbers and mirror disabled ones ---
             $('#product-form').on('submit', function () {
-                // Set visible (enabled) money inputs to numeric strings
-                ['#purchase_price','#sale_price','#tier_1_price','#tier_2_price'].forEach(function(sel){
-                    const $el = $(sel);
-                    if(!$el.length) return;
-                    const n = unmaskNumber($el);
-                    try { $el.maskMoney('destroy'); } catch(e){}
-                    $el.val(n.toFixed(2));
-                });
+                // Handle conversion price inputs
                 $('.conversion-price-input').each(function(){
                     const $input = $(this);
                     const hiddenSelector = $input.data('hidden');
@@ -539,7 +559,7 @@
                         $hidden.trigger('input');
                     }
                 });
-                // Ensure mirrors exist/are numeric for any price fields currently disabled
+                // Ensure mirrors exist for any disabled targets
                 refreshMirrorsForDisabledTargets();
             });
         });
@@ -654,4 +674,8 @@
             new Dropzone('#document-dropzone', config);
         })();
     </script>
+
+    <!-- Modals -->
+    {{-- Brand and tax quick-add handled via Livewire components --}}
+    @include('components.alpine.unit-quick-add-modal')
 @endsection

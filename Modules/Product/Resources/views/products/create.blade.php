@@ -188,6 +188,14 @@
                                              x-init="
                                                  init();
                                                  bindDisabledToCheckbox('stock_managed', $data);
+                                                 // Add click-outside handler
+                                                 document.addEventListener('click', (e) => {
+                                                     if (!open) return;
+                                                     const container = $el;
+                                                     if (!container.contains(e.target)) {
+                                                         open = false;
+                                                     }
+                                                 });
                                              "
                                         >
                                             <div class="flex-grow-1 position-relative">

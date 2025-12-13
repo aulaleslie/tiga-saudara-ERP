@@ -440,9 +440,35 @@ class ProductController extends Controller
             ];
         })->values();
 
+        // Check if product has existing stock globally (across all tenants)
+        $hasStock = ProductStock::where('product_id', $product->id)
+            ->where('quantity', '>', 0)
+            ->exists();
+
+        // Format data like create.blade.php
+        $categoryOptions = collect($formattedCategories ?? [])
+            ->map(fn($name, $id) => ['id' => $id, 'name' => $name])
+            ->values()
+            ->all();
+
+        $brandOptions = $brands->map(fn($brand) => ['id' => $brand->id, 'name' => $brand->name])
+            ->values()
+            ->all();
+
+        $taxOptions = collect($taxes ?? [])->map(fn($tax) => [
+            'id' => $tax->id,
+            'name' => $tax->name,
+            'value' => $tax->value,
+        ])->values()->all();
+
+        $unitOptions = $units->map(fn($unit) => ['id' => $unit->id, 'name' => $unit->name])
+            ->values()
+            ->all();
+
         return view('product::products.edit', compact(
             'product', 'units', 'taxes', 'brands', 'formattedCategories',
-            'locations', 'existingMedia', 'price', 'settingId', 'conversionFormData', 'idempotencyToken'
+            'locations', 'existingMedia', 'price', 'settingId', 'conversionFormData', 'idempotencyToken',
+            'hasStock', 'categoryOptions', 'brandOptions', 'taxOptions', 'unitOptions'
         ));
     }
 
