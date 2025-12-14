@@ -16,6 +16,7 @@ class UnitSearchDropdown extends Component
     public ?string $error = null;
     public string $width = '220px';
     public bool $awaitingCreated = false;
+    public bool $disabled = false;
 
     /** @var array<int, array{id:int|string,name:string}> */
     public array $options = [];
@@ -32,13 +33,15 @@ class UnitSearchDropdown extends Component
         string $placeholder = 'Pilih unit...',
         bool $allowCreate = false,
         ?string $error = null,
-        string $width = '220px'
+        string $width = '220px',
+        bool $disabled = false,
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
         $this->allowCreate = $allowCreate;
         $this->error = $error;
         $this->width = $width;
+        $this->disabled = $disabled;
 
         $this->options = $this->prepareOptions($options);
         if (!count($this->options)) {

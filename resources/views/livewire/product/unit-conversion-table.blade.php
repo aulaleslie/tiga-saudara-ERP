@@ -1,4 +1,4 @@
-<div class="unit-conversion-wrapper" style="overflow: visible;">
+<div class="unit-conversion-wrapper" style="overflow: visible;" x-data="unitConversionFormatter()">
     <div class="table-responsive unit-conversion-table" style="overflow-x: auto; overflow-y: visible;">
         <table class="table table-bordered">
             <thead>
@@ -57,19 +57,14 @@
                         @endif
                     </td>
                     <td>
-                        {{-- numeric copy → this is what your form really submits --}}
-                        <input type="hidden"
-                               id="conv-price-{{ $rowKey }}"
+                        <input type="text" 
                                name="conversions[{{ $index }}][price]"
-                               wire:model="conversions.{{ $index }}.price"
-                               value="{{ $conversion['price'] }}"/>
-
-                        {{-- pretty input --}}
-                        <input type="text"
-                               class="form-control conversion-price-input {{ isset($errors['conversions.' . $index . '.price']) ? 'is-invalid' : '' }}"
-                               placeholder="0,00"
-                               data-hidden="#conv-price-{{ $rowKey }}"
-                               wire:model="displayPrices.{{ $index }}"
+                               class="form-control price-input {{ isset($errors['conversions.' . $index . '.price']) ? 'is-invalid' : '' }}"
+                               value="{{ formatRupiah($conversion['price'] ?? 0) }}"
+                               @focus="$el.value = toPlainNumber($el.value)"
+                               @blur="formatPriceField($el)"
+                               inputmode="decimal"
+                               wire:change="updateConversionPrice({{ $index }}, $event.target.value)"
                         />
                         @if(isset($errors['conversions.' . $index . '.price']))
                             <span class="invalid-feedback" role="alert">
@@ -97,3 +92,39 @@
         overflow: visible !important;
     }
 </style>
+
+<script>
+function formatRupiah(amount) {
+    const numeric = parseFloat(amount) || 0;
+    return 'RP' + new Intl.NumberFormat('id-ID', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(numeric);
+}
+
+function unitConversionFormatter() {
+    return {
+        formatPriceField(element) {
+            const rawValue = element.value;
+            const numericValue = this.parseCurrencyInput(rawValue);
+            element.value = formatRupiah(numericValue);
+        },
+
+        toPlainNumber(value) {
+            const num = parseFloat(value);
+            return Number.isFinite(num) ? num.toString() : '0';
+        },
+
+        parseCurrencyInput(value) {
+            if (value === null || value === undefined) return 0;
+            const cleaned = value
+                .toString()
+                .replace(/[^0-9,.-]/g, '');
+            const withoutThousands = cleaned.replace(/\./g, '');
+            const normalized = withoutThousands.replace(',', '.');
+            const parsed = parseFloat(normalized);
+            return isNaN(parsed) ? 0 : parsed;
+        }
+    };
+}
+</script>

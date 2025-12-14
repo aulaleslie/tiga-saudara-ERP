@@ -12,7 +12,6 @@ use Modules\Setting\Entities\Unit;
 class UnitConversionTable extends Component
 {
     public array $conversions = [];
-    public array $displayPrices  = [];
     public array $errors = [];
     public array $units = [];
     public bool  $locked = false;
@@ -34,7 +33,6 @@ class UnitConversionTable extends Component
     public function resetRows(): void
     {
         $this->conversions   = [];
-        $this->displayPrices = [];
         $this->rowKeys       = [];
     }
 
@@ -45,9 +43,6 @@ class UnitConversionTable extends Component
             : old('conversions', []);
 
         foreach ($this->conversions as $i => $conv) {
-            $this->displayPrices[$i] = $conv['price'] && $conv['price'] !== ''
-                ? $this->formatCurrency($conv['price'])
-                : '';
             $this->rowKeys[$i] = $conv['id'] ?? uniqid('conv_', true);
         }
 
@@ -67,7 +62,6 @@ class UnitConversionTable extends Component
             'barcode'           => '',
             'price'             => '',  // still empty raw
         ];
-        $this->displayPrices[] = '';
         $this->rowKeys[] = uniqid('conv_', true);
     }
 
@@ -78,10 +72,16 @@ class UnitConversionTable extends Component
             return;
         }
 
-        unset($this->conversions[$index], $this->displayPrices[$index], $this->rowKeys[$index]);
+        unset($this->conversions[$index], $this->rowKeys[$index]);
         $this->conversions   = array_values($this->conversions);
-        $this->displayPrices = array_values($this->displayPrices);
         $this->rowKeys       = array_values($this->rowKeys);
+    }
+
+    public function updateConversionPrice(int $index, string $rawValue): void
+    {
+        // Parse the currency input to extract numeric value
+        $numericValue = (float) str_replace([',', ' '], ['', ''], $rawValue);
+        $this->conversions[$index]['price'] = $numericValue;
     }
 
     public function updated($propertyName): void
@@ -90,54 +90,21 @@ class UnitConversionTable extends Component
         $this->validateOnly($propertyName, [
             'conversions.*.unit_id'           => ['required_with:conversions.*.conversion_factor', 'integer', 'not_in:0'],
             'conversions.*.conversion_factor' => ['required_with:conversions.*.unit_id', 'numeric', 'min:0.0001'],
+            'conversions.*.price'             => ['nullable', 'numeric', 'min:0'],
         ]);
-    }
-
-    public function showRawPrice(int $i): void
-    {
-        $this->displayPrices[$i] = $this->conversions[$i]['price'] !== ''
-            ? rtrim(rtrim($this->conversions[$i]['price'], '0'), '.')  // 1234.00 → 1234
-            : '';
-    }
-
-    public function syncPrice(int $i): void  // stays the same
-    {
-        $raw   = $this->displayPrices[$i] ?? '';
-        $clean = str_replace(',', '.', preg_replace('/[^\d,\.]/', '', $raw));
-        $num   = $clean === '' ? null : (float) $clean;
-
-        $this->conversions[$i]['price'] = $num ?? '';
-        $this->displayPrices[$i]        = $num === null ? '' : $this->formatCurrency($num);
-    }
-
-    private function formatCurrency(float $amount): string
-    {
-        $currency = settings()->currency ?? null;
-        $symbol   = $currency->symbol ?? '';
-        $decimal  = $currency->decimal_separator ?? '.';
-        $thousand = $currency->thousand_separator ?? ',';
-
-        return $symbol.number_format($amount, 2, $decimal, $thousand);
     }
 
     public function submitForm(): void
     {
-        // before emitting, normalize all prices back to numeric:
-        $normalized = collect($this->conversions)->map(function($c) {
-            $n = floatval(str_replace([',', 'Rp', ' '], '', $c['price'] ?? '0'));
-            $c['price'] = $n;
-            return $c;
-        })->toArray();
-
         // include price in your validation if you want:
         $validated = $this->validate([
             'conversions.*.unit_id'           => ['required', 'integer', 'not_in:0'],
             'conversions.*.conversion_factor' => ['required', 'numeric', 'min:0.0001'],
             'conversions.*.price'             => ['required', 'numeric', 'min:0'],
-        ], [], [], $normalized);
+        ]);
 
         // emit with the clean numbers
-        $this->emit('storeProduct', $normalized);
+        $this->emit('storeProduct', $validated['conversions']);
     }
 
     public function render(): Factory|Application|View|\Illuminate\View\View|\Illuminate\Contracts\Foundation\Application

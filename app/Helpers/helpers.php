@@ -67,6 +67,13 @@ if (!function_exists('format_currency')) {
     }
 }
 
+if (!function_exists('formatRupiah')) {
+    function formatRupiah($value) {
+        $numeric = (float) $value;
+        return 'RP' . number_format($numeric, 2, '.', ',');
+    }
+}
+
 if (!function_exists('make_reference_id')) {
     function make_reference_id($prefix, $year, $month, $number): string
     {

@@ -115,165 +115,18 @@
 
 
 
-                            <!-- Stock Management -->
-                            <div class="form-row">
-                                <div class="col-md-4">
-                                    <div class="form-group">
-                                        <label>
-                                            @if($hasStock)
-                                                <!-- If has stock, checkbox is disabled so output current value -->
-                                                <input type="hidden" name="stock_managed" value="{{ $product->stock_managed }}" />
-                                            @else
-                                                <!-- Otherwise, use 0 as the default hidden value -->
-                                                <input type="hidden" name="stock_managed" value="0" />
-                                            @endif
-                                            <input type="checkbox" name="stock_managed" id="stock_managed" value="1"
-                                                   class="input-icheck"
-                                                {{ old('stock_managed', $product->stock_managed) ? 'checked' : '' }}
-                                                {{ $hasStock ? 'disabled' : '' }} />
-                                            <strong>Manajemen Stok</strong>
-                                        </label>
-                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Serial Number Requirement -->
-                            <fieldset id="stock-dependent">
-
-                                <!-- Serial Number Requirement -->
-                                <div class="form-row">
-                                    <div class="col-md-4">
-                                        <div class="form-group">
-                                            @if($hasStock)
-                                                <!-- If has stock, checkbox is disabled so output current value -->
-                                                <input type="hidden" name="serial_number_required" value="{{ $product->serial_number_required }}" />
-                                            @else
-                                                <!-- Otherwise, use 0 as the default hidden value -->
-                                                <input type="hidden" name="serial_number_required" value="0" />
-                                            @endif
-                                            <input type="checkbox" name="serial_number_required" id="serial_number_required" value="1"
-                                                {{ old('serial_number_required', $product->serial_number_required) ? 'checked' : '' }}
-                                                {{ $hasStock ? 'disabled' : '' }}>
-                                            <label for="serial_number_required"><strong>Serial Number Diperlukan</strong></label>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Product Quantity and Stock Alert -->
-                                <div class="form-row">
-                                    <div class="col-md-6">
-                                        <x-input label="Stok" name="product_quantity" type="number" step="1"
-                                                 value="{{ old('product_quantity', $product->product_quantity) }}"
-                                                 disabled/>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number"
-                                                 step="1"
-                                                 value="{{ old('product_stock_alert', $product->product_stock_alert) }}"/>
-                                    </div>
-                                </div>
-
-                                <!-- Unit and Barcode -->
-                                <div class="form-row">
-                                    <div class="col-md-6">
-                                        <label for="unit_search">Unit Utama</label>
-                                        <div class="d-flex" wire:ignore
-                                             x-data="unitDropdown(
-                                                 @js($unitOptions),
-                                                 {{ old('base_unit_id', $product->base_unit_id) ? (int) old('base_unit_id', $product->base_unit_id) : 'null' }},
-                                                 @js(optional($units->firstWhere('id', old('base_unit_id', $product->base_unit_id)))->name ?? optional($units->firstWhere('id', $product->base_unit_id))->name ?? ''),
-                                                 {{ $hasStock ? 'true' : 'false' }}
-                                             )"
-                                             x-init="
-                                                 init();
-                                                 bindDisabledToCheckbox('stock_managed', $data);
-                                                 // Add click-outside handler
-                                                 document.addEventListener('click', (e) => {
-                                                     if (!open) return;
-                                                     const container = $el;
-                                                     if (!container.contains(e.target)) {
-                                                         open = false;
-                                                     }
-                                                 });
-                                             "
-                                        >
-                                            <div class="flex-grow-1 position-relative">
-                                                <div class="form-control d-flex justify-content-between align-items-center"
-                                                     :class="{ 'bg-light text-muted': disabled }"
-                                                     :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
-                                                     @click="!disabled && toggleDropdown()">
-                                                    <span x-text="selectedName || 'Pilih unit...'"></span>
-                                                    <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
-                                                </div>
-
-                                                <div class="dropdown-menu w-100 shadow show p-2"
-                                                     x-show="open"
-                                                     x-cloak
-                                                     style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
-                                                    <input
-                                                        type="text"
-                                                        class="form-control form-control-sm mb-2"
-                                                        :class="{ 'bg-light': disabled }"
-                                                        :disabled="disabled"
-                                                        x-model="inputValue"
-                                                        @input.debounce.300ms="search()"
-                                                        placeholder="Cari unit..."
-                                                        autocomplete="off"
-                                                    >
-                                                    <template x-if="Array.isArray(results) && results.length > 0">
-                                                        <div>
-                                                            <template x-for="unit in results" :key="unit.id">
-                                                                <button
-                                                                    type="button"
-                                                                    :disabled="disabled"
-                                                                    @mousedown.prevent="selectItem(unit); open = false;"
-                                                                    class="dropdown-item"
-                                                                    x-text="unit.name"
-                                                                ></button>
-                                                            </template>
-                                                        </div>
-                                                    </template>
-                                                    <template x-if="!Array.isArray(results) || results.length === 0">
-                                                        <div class="dropdown-item disabled">Tidak ada hasil</div>
-                                                    </template>
-                                                </div>
-                                                <input type="hidden" name="base_unit_id" x-model="selectedId">
-                                            </div>
-                                            <button type="button" class="btn btn-outline-primary btn-sm ms-1"
-                                                    :disabled="disabled"
-                                                    :class="{ 'disabled': disabled }"
-                                                    @click="!disabled && window.dispatchEvent(new CustomEvent('open-unit-modal'))"
-                                                    data-bs-toggle="tooltip" title="Tambah unit baru">
-                                                <i class="bi bi-plus-circle"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <x-input
-                                            label="Barcode Unit Utama"
-                                            name="barcode"
-                                            value="{{ old('barcode', $product->barcode) }}"
-                                            :disabled="$hasStock"
-                                        />
-                                    </div>
-                                </div>
-
-                                <!-- Livewire component for Unit Conversion Table -->
-                                <div class="form-row">
-                                    <div class="col-lg-12">
-                                        <div class="card" style="overflow: visible;">
-                                            <div class="card-body" style="overflow: visible;">
-                                                <livewire:product.unit-conversion-table
-                                                    :conversions="old('conversions', $conversionFormData)"
-                                                    :errors="$errors->toArray()"
-                                                    :locked="$hasStock"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </fieldset>
+                            <livewire:product.unit-configuration
+                                :locked="$hasStock"
+                                :unit-options="$unitOptions"
+                                :initial-stock-managed="(bool) old('stock_managed', $product->stock_managed)"
+                                :initial-serial-required="(bool) old('serial_number_required', $product->serial_number_required)"
+                                :initial-base-unit-id="old('base_unit_id', $product->base_unit_id) ? (int) old('base_unit_id', $product->base_unit_id) : null"
+                                :initial-barcode="(string) old('barcode', $product->barcode ?? '')"
+                                :initial-product-quantity="(int) old('product_quantity', $product->product_quantity)"
+                                :initial-stock-alert="old('product_stock_alert', $product->product_stock_alert)"
+                                :initial-conversions="old('conversions', $conversionFormData)"
+                                :errors="$errors->toArray()"
+                            />
 
                             <div class="form-row">
                                 <div class="col-lg-12">
@@ -507,45 +360,14 @@
                 });
             }
 
-            // Stock managed toggle
-            function toggleStockManagedFields() {
-                const on = $('#stock_managed').is(':checked');
-                const $section = $('#stock-dependent');
-
-                if (!on) {
-                    const protect = lockByQty
-                        ? '[name="product_quantity"],[name="base_unit_id"],#serial_number_required,[name="barcode"]'
-                        : '[name="product_quantity"]';
-                    $section.find('input[type="text"], input[type="number"], input[type="tel"], input[type="email"], input[type="search"], input[type="url"]')
-                        .not(protect).val('');
-                    $section.find('input[type="checkbox"], input[type="radio"]').not(protect).prop('checked', false);
-                    $section.find('select').not(protect).val('').trigger('change');
-                    $section.find('textarea').not(protect).val('');
-                    if (window.Livewire && typeof Livewire.dispatch === 'function') {
-                        Livewire.dispatch('unitConversion:reset');
-                    }
-                }
-
-                if (window.Livewire && typeof Livewire.dispatch === 'function') {
-                    Livewire.dispatch('stock:lock', { locked: !on });
-                }
-
-                const protect = lockByQty
-                    ? '[name="product_quantity"],[name="base_unit_id"],#serial_number_required,[name="barcode"]'
-                    : '[name="product_quantity"]';
-                $section.find('input, select, textarea, button').not(protect).prop('disabled', !on);
-
-                $qtyInput.prop('disabled', true).attr('readonly', true);
-                refreshMirrorsForDisabledTargets();
-
-                if (!on) $('#serial_number_required').prop('checked', false);
-                $section.find('select').trigger('change');
-            }
-            $('#stock_managed').on('change keyup', toggleStockManagedFields);
-            toggleStockManagedFields();
-
             // --- FINAL: before submit, force all money inputs to raw numbers and mirror disabled ones ---
             $('#product-form').on('submit', function () {
+                const un = (sel) => $(sel).maskMoney('unmasked')[0] ?? 0;
+                $('#purchase_price').val(un('#purchase_price'));
+                $('#sale_price').val(un('#sale_price'));
+                $('#tier_1_price').val(un('#tier_1_price'));
+                $('#tier_2_price').val(un('#tier_2_price'));
+
                 // Handle conversion price inputs
                 $('.conversion-price-input').each(function(){
                     const $input = $(this);

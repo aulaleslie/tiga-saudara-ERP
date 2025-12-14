@@ -139,135 +139,16 @@
 
 
 
-                            <!-- Stock Management Section -->
-                            <div class="form-row mt-4">
-                                <div class="col-md-4">
-                                    <div class="form-group">
-                                        <label>
-                                            <input type="checkbox" name="stock_managed" id="stock_managed"
-                                                   value="1" {{ old('stock_managed') ? 'checked' : '' }}>
-                                            <strong>Manajemen Stok</strong>
-                                        </label>
-                                        <p class="help-block"><i>Aktifkan opsi ini jika Anda ingin mengelola stok untuk produk ini.</i></p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Serial Number Requirement -->
-                            <fieldset id="stock-dependent">
-
-                                <!-- Serial Number Requirement -->
-                                <div class="form-row mt-4">
-                                    <div class="col-md-4">
-                                        <div class="form-group">
-                                            <input type="checkbox" name="serial_number_required" id="serial_number_required"
-                                                   value="1" {{ old('serial_number_required') ? 'checked' : '' }}>
-                                            <label for="serial_number_required"><strong>Serial Number Diperlukan</strong></label>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Product Quantity and Stock Alert -->
-                                <div class="form-row mt-4">
-                                    <div class="col-md-6">
-                                        <x-input label="Peringatan Jumlah Stok" name="product_stock_alert" type="number" step="1"/>
-                                    </div>
-                                </div>
-
-                                <!-- Unit and Barcode -->
-                                <div class="form-row mt-4">
-                                    <div class="col-md-6">
-                                        <label for="unit_search">Unit Utama</label>
-                                        <div class="d-flex" wire:ignore
-                                             x-data="unitDropdown(
-                                                 @js($unitOptions),
-                                                 {{ old('base_unit_id') ? (int) old('base_unit_id') : 'null' }},
-                                                 @js(optional($units->firstWhere('id', old('base_unit_id')))->name ?? ''),
-                                                 {{ old('stock_managed') ? 'false' : 'true' }}
-                                             )"
-                                             x-init="
-                                                 init();
-                                                 bindDisabledToCheckbox('stock_managed', $data);
-                                                 // Add click-outside handler
-                                                 document.addEventListener('click', (e) => {
-                                                     if (!open) return;
-                                                     const container = $el;
-                                                     if (!container.contains(e.target)) {
-                                                         open = false;
-                                                     }
-                                                 });
-                                             "
-                                        >
-                                            <div class="flex-grow-1 position-relative">
-                                                <div class="form-control d-flex justify-content-between align-items-center"
-                                                     :class="{ 'bg-light text-muted': disabled }"
-                                                     :style="{ cursor: disabled ? 'not-allowed' : 'pointer' }"
-                                                     @click="!disabled && toggleDropdown()">
-                                                    <span x-text="selectedName || 'Pilih unit...'"></span>
-                                                    <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
-                                                </div>
-
-                                                <div class="dropdown-menu w-100 shadow show p-2"
-                                                     x-show="open"
-                                                     x-cloak
-                                                     style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
-                                                    <input
-                                                        type="text"
-                                                        class="form-control form-control-sm mb-2"
-                                                        :class="{ 'bg-light': disabled }"
-                                                        :disabled="disabled"
-                                                        x-model="inputValue"
-                                                        @input.debounce.300ms="search()"
-                                                        placeholder="Cari unit..."
-                                                        autocomplete="off"
-                                                    >
-                                                    <template x-if="Array.isArray(results) && results.length > 0">
-                                                        <div>
-                                                            <template x-for="unit in results" :key="unit.id">
-                                                                <button
-                                                                    type="button"
-                                                                    :disabled="disabled"
-                                                                    @mousedown.prevent="selectItem(unit); open = false;"
-                                                                    class="dropdown-item"
-                                                                    x-text="unit.name"
-                                                                ></button>
-                                                            </template>
-                                                        </div>
-                                                    </template>
-                                                    <template x-if="!Array.isArray(results) || results.length === 0">
-                                                        <div class="dropdown-item disabled">Tidak ada hasil</div>
-                                                    </template>
-                                                </div>
-                                                <input type="hidden" name="base_unit_id" x-model="selectedId">
-                                            </div>
-                                            <button type="button" class="btn btn-outline-primary btn-sm ms-1"
-                                                    :disabled="disabled"
-                                                    :class="{ 'disabled': disabled }"
-                                                    @click="!disabled && window.dispatchEvent(new CustomEvent('open-unit-modal'))"
-                                                    data-bs-toggle="tooltip" title="Tambah unit baru">
-                                                <i class="bi bi-plus-circle"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <x-input label="Barcode Unit Utama" name="barcode"/>
-                                    </div>
-                                </div>
-
-                                <!-- Livewire component for Unit Conversion Table -->
-                                <div class="form-row mt-4">
-                                    <div class="col-lg-12">
-                                        <div class="card" style="overflow: visible;">
-                                            <div class="card-body" style="overflow: visible;">
-                                                <livewire:product.unit-conversion-table
-                                                    :conversions="old('conversions', [])"
-                                                    :errors="$errors->toArray()"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </fieldset>
+                            <livewire:product.unit-configuration
+                                :unit-options="$unitOptions"
+                                :initial-stock-managed="(bool) old('stock_managed')"
+                                :initial-serial-required="(bool) old('serial_number_required')"
+                                :initial-base-unit-id="old('base_unit_id') ? (int) old('base_unit_id') : null"
+                                :initial-barcode="(string) old('barcode', '')"
+                                :initial-stock-alert="old('product_stock_alert') ? (int) old('product_stock_alert') : null"
+                                :initial-conversions="old('conversions', [])"
+                                :errors="$errors->toArray()"
+                            />
 
                             <div class="form-row mt-4">
                                 <div class="col-lg-12">
@@ -313,6 +194,13 @@
     <script>
         $(function () {
             // Event listeners for Alpine modals are now handled by the searchable dropdown components
+
+            window.addEventListener('unit-config:stock-toggle', function (event) {
+                const on = !!(event.detail && event.detail.stockManaged);
+                $('#stock-initiate-btn').toggle(on);
+            });
+            const initialStockManaged = $('input[name="stock_managed"]').val() === '1';
+            $('#stock-initiate-btn').toggle(initialStockManaged);
 
             function toggleFormSubmissionLock(form, processing = false) {
                 $(form).find('.submit-lock-btn').each(function () {
@@ -567,6 +455,13 @@
 
                 // Tell Alpine unit dropdown to clear itself
                 window.dispatchEvent(new CustomEvent('unit-cleared'));
+                // Reset Livewire-based base unit label to placeholder
+                const $baseUnitDropdown = $section.find('[data-unit-dropdown="base_unit_id"]');
+                if ($baseUnitDropdown.length) {
+                    const $label = $baseUnitDropdown.find('[data-role="unit-dropdown-label"]');
+                    const placeholder = $label.data('placeholder') || 'Pilih unit...';
+                    $label.addClass('text-muted').text(placeholder);
+                }
 
                 // If your Livewire component renders inputs for conversions, clear them too
                 // (this already catches them because they’re inputs/selects inside the section).
@@ -576,51 +471,6 @@
                     Livewire.dispatch('unitConversion:reset');
                 }
             }
-
-            // === Stock managed behaviour (unchanged) ===
-            function toggleStockManagedFields() {
-                const on = $('#stock_managed').is(':checked');
-
-                // Show/hide the "Lanjut Inisiasi Stock" button as before
-                $('#stock-initiate-btn').toggle(on);
-
-                // Enable/disable every input/select/textarea inside #stock-dependent
-                const $section = $('#stock-dependent');
-
-                if (!on) {
-                    resetStockDependentValues();
-                } else {
-                    // Unit dropdown will enable itself by checking the checkbox state directly
-                }
-
-                if (window.Livewire && typeof Livewire.dispatch === 'function') {
-                    Livewire.dispatch('stock:lock', {'locked': !on}); // true = lock, false = unlock
-                }
-
-                // Disable form fields but NOT Alpine dropdowns (they manage their own disabled state)
-                // We exclude: elements with x-data, their parents with x-data, and buttons inside those containers
-                const $dropdownContainers = $section.find('[x-data*="searchableDropdown"]');
-                $section.find('input, select, textarea, button').each(function() {
-                    const $this = $(this);
-                    // Skip if this element or any parent is an Alpine dropdown
-                    const isInDropdown = $this.closest('[x-data*="searchableDropdown"]').length > 0;
-                    if (!isInDropdown) {
-                        $this.prop('disabled', !on);
-                    }
-                });
-
-                // Optional: if turning OFF, clear “Serial Number Required” check visually
-                if (!on) {
-                    $('#serial_number_required').prop('checked', false);
-                }
-
-                // If you're using any Select2 inside #stock-dependent, trigger change:
-                $section.find('select').trigger('change');
-            }
-
-            // Bind and run once
-            $('#stock_managed').on('change keyup', toggleStockManagedFields);
-            toggleStockManagedFields();
         });
     </script>
 
