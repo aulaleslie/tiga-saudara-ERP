@@ -76,7 +76,7 @@
                             </div>
 
                             <!-- Purchase Section -->
-                            <div class="form-row">
+                            <div class="form-row mt-4">
                                 <div class="col-md-12">
                                     <livewire:modules.product.product-price-setup
                                         type="purchase"
