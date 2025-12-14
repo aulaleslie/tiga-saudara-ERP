@@ -43,7 +43,7 @@
                                     <td>{{ $product->product_code }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Barcode Symbology</th>
+                                    <th>Simbologi Barcode</th>
                                     <td>{{ $product->product_barcode_symbology }}</td>
                                 </tr>
                                 <tr>
@@ -119,10 +119,90 @@
             </div>
         </div>
 
+        <!-- Unit and Conversion Information -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5>Informasi Unit & Konversi</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped">
+                        <thead>
+                        <tr>
+                            <th>Unit Dasar</th>
+                            <th>Unit Utama</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr>
+                            <td>
+                                @if($product->baseUnit)
+                                    {{ $product->baseUnit->name }} ({{ $product->baseUnit->short_name }})
+                                @else
+                                    N/A
+                                @endif
+                            </td>
+                            <td>
+                                @if($product->unit)
+                                    {{ $product->unit->name }} ({{ $product->unit->short_name }})
+                                @else
+                                    N/A
+                                @endif
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                @if($product->conversions->count())
+                    <div class="mt-4">
+                        <h6>Konversi Unit</h6>
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-striped">
+                                <thead>
+                                <tr>
+                                    <th>Unit</th>
+                                    <th>Unit Dasar</th>
+                                    <th>Faktor Konversi</th>
+                                    <th>Barcode</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                @foreach($product->conversions as $conversion)
+                                    <tr>
+                                        <td>
+                                            {{ $conversion->unit->name ?? 'N/A' }}
+                                            @if($conversion->unit)
+                                                <span class="text-muted">({{ $conversion->unit->short_name }})</span>
+                                            @endif
+                                        </td>
+                                        <td>
+                                            {{ $conversion->baseUnit->name ?? 'N/A' }}
+                                            @if($conversion->baseUnit)
+                                                <span class="text-muted">({{ $conversion->baseUnit->short_name }})</span>
+                                            @endif
+                                        </td>
+                                        <td>1 {{ $conversion->unit->short_name ?? '' }} = {{ $conversion->conversion_factor }} {{ $conversion->baseUnit->short_name ?? '' }}</td>
+                                        <td>{{ $conversion->barcode ?? 'N/A' }}</td>
+                                    </tr>
+                                @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                @else
+                    <div class="alert alert-info mt-3">
+                        Tidak ada konversi unit yang didefinisikan untuk produk ini.
+                    </div>
+                @endif
+            </div>
+        </div>
+        <!-- End Unit and Conversion Information -->
+
         <!-- Transaction History -->
         <div class="card mt-4">
             <div class="card-header">
-                <h5>Transaction History</h5>
+                <h5>Riwayat Transaksi</h5>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
@@ -149,7 +229,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="text-center">No transactions found.</td>
+                                <td colspan="6" class="text-center">Tidak ada transaksi yang ditemukan.</td>
                             </tr>
                         @endforelse
                         </tbody>
@@ -162,7 +242,7 @@
         <!-- Product Stocks -->
         <div class="card mt-4">
             <div class="card-header">
-                <h5>Product Stocks</h5>
+                <h5>Stok Produk</h5>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
@@ -191,7 +271,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="text-center">No product stocks found.</td>
+                                <td colspan="6" class="text-center">Tidak ada stok produk yang ditemukan.</td>
                             </tr>
                         @endforelse
                         </tbody>
@@ -245,7 +325,7 @@
                                     @csrf
                                     @method('delete')
                                     <button type="submit" class="btn btn-danger btn-sm"
-                                            onclick="return confirm('Are you sure?');">
+                                            onclick="return confirm('Yakin ingin menghapus?');">
                                         Hapus Paket
                                     </button>
                                 </form>
@@ -263,14 +343,14 @@
         @if ($product->serial_number_required)
             <div class="card mt-4">
                 <div class="card-header">
-                    <h5>Serial Numbers</h5>
+                    <h5>Nomor Seri</h5>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table table-bordered table-striped">
                             <thead>
                             <tr>
-                                <th>Serial Number</th>
+                                <th>Nomor Seri</th>
                                 <th>Lokasi</th>
                                 <th>Pajak</th>
                             </tr>
@@ -284,7 +364,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="3" class="text-center">No serial numbers found.</td>
+                                    <td colspan="3" class="text-center">Tidak ada nomor seri yang ditemukan.</td>
                                 </tr>
                             @endforelse
                             </tbody>
