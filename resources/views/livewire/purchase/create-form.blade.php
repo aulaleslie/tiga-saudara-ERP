@@ -1,5 +1,3 @@
-{{-- @deprecated - Replaced by Alpine.js implementation in create-alpine.blade.php --}}
-{{-- This file is kept for reference but should not be used for new development --}}
 <div class="card-body">
     <form wire:submit.prevent="submit">
         <input type="hidden" wire:model="idempotencyToken">
@@ -357,16 +355,20 @@ function paymentTermSearch($wire, selectedId, initialName) {
         },
 
         search() {
-            if (this.query.length < 1) {
+            const query = (this.query || '').toLowerCase();
+
+            if (!query.length) {
                 this.results = this.allTerms;
                 this.open = false;
                 return;
             }
 
             this.open = true;
-            this.results = this.allTerms.filter(term => 
-                term.display_name.toLowerCase().includes(this.query.toLowerCase())
-            );
+            this.results = this.allTerms.filter((term) => {
+                const label = term && (term.display_name || term.name) ? (term.display_name || term.name) : '';
+                const name = label.toLowerCase();
+                return name && name.includes(query);
+            });
         },
 
         selectTerm(term) {

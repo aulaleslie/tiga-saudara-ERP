@@ -1,5 +1,3 @@
-{{-- @deprecated - Replaced by Alpine.js implementation in product-search-alpine.blade.php --}}
-{{-- This file is kept for reference but should not be used for new development --}}
 <div class="position-relative">
     <div class="card mb-0 border-0 shadow-sm">
         <div class="card-body">

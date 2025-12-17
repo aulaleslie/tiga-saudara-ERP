@@ -1,6 +1,4 @@
 <?php
-/* @deprecated - Replaced by Alpine.js implementation in create-alpine.blade.php */
-/* This file is kept for reference but should not be used for new development */
 
 namespace App\Livewire\Purchase;
 
@@ -56,6 +54,8 @@ class CreateForm extends Component
         $this->due_date = now()->format('Y-m-d');
         $this->paymentTerms = PaymentTerm::all();
         $this->supplier_purchase_number = null;
+        // Ensure a fresh cart when starting a new purchase
+        Cart::instance('purchase')->destroy();
     }
 
     public function handleTagsUpdated(array $tags): void

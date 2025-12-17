@@ -28,6 +28,8 @@ class TaxSearchDropdown extends Component
         'taxDropdownToggle' => 'handleToggle',
     ];
 
+    public ?string $dispatchTo = null;
+
     public function mount(
         array $options = [],
         int|string|null $selected = null,
@@ -36,7 +38,8 @@ class TaxSearchDropdown extends Component
         bool $allowCreate = false,
         ?string $error = null,
         bool $disabled = false,
-        ?string $inputId = null
+        ?string $inputId = null,
+        ?string $dispatchTo = null
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
@@ -44,6 +47,7 @@ class TaxSearchDropdown extends Component
         $this->error = $error;
         $this->disabled = $disabled;
         $this->inputId = $inputId;
+        $this->dispatchTo = $dispatchTo;
 
         $this->options = $this->prepareOptions($options);
         if (!count($this->options)) {
@@ -86,6 +90,8 @@ class TaxSearchDropdown extends Component
         $this->selectedLabel = $this->resolveLabel($id);
         $this->open = false;
         $this->search = '';
+
+        $this->dispatchSelection();
     }
 
     public function updatedSelected($value): void
@@ -289,6 +295,18 @@ class TaxSearchDropdown extends Component
         }
 
         return $deduped;
+    }
+
+    private function dispatchSelection(): void
+    {
+        if (!$this->dispatchTo) {
+            return;
+        }
+
+        $event = $this->dispatch('taxDropdownSelected', name: $this->name, value: $this->selected);
+        if (method_exists($event, 'to')) {
+            $event->to($this->dispatchTo);
+        }
     }
 
     /**

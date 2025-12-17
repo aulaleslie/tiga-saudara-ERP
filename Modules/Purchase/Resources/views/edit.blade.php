@@ -84,8 +84,3 @@
         });
     </script>
 @endpush
-                });
-            }
-        });
-    </script>
-@endpush

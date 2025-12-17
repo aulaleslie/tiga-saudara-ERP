@@ -23,18 +23,22 @@ class BrandSearchDropdown extends Component
         'brandCreated' => 'handleBrandCreated',
     ];
 
+    public ?string $dispatchTo = null;
+
     public function mount(
         array $options = [],
         int|string|null $selected = null,
         string $name = 'brand_id',
         string $placeholder = 'Pilih merek...',
         bool $allowCreate = false,
-        ?string $error = null
+        ?string $error = null,
+        ?string $dispatchTo = null
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
         $this->allowCreate = $allowCreate;
         $this->error = $error;
+        $this->dispatchTo = $dispatchTo;
 
         $this->options = $this->prepareOptions($options);
         if (!count($this->options)) {
@@ -69,6 +73,8 @@ class BrandSearchDropdown extends Component
         $this->selectedLabel = $this->resolveLabel($id);
         $this->open = false;
         $this->search = '';
+
+        $this->dispatchSelection();
     }
 
     public function updatedSelected($value): void
@@ -239,5 +245,17 @@ class BrandSearchDropdown extends Component
         }
 
         return $deduped;
+    }
+
+    private function dispatchSelection(): void
+    {
+        if (!$this->dispatchTo) {
+            return;
+        }
+
+        $event = $this->dispatch('brandDropdownSelected', name: $this->name, value: $this->selected);
+        if (method_exists($event, 'to')) {
+            $event->to($this->dispatchTo);
+        }
     }
 }

@@ -15,7 +15,7 @@
         data-bs-toggle="tooltip"
         data-bs-placement="top"
         title="{{ $tooltip }}"
-        @click="$dispatch('{{ $modalEvent }}')"
+        onclick="if (window.Livewire) { Livewire.dispatch('{{ $modalEvent }}'); }"
     >
         <i class="bi bi-plus-circle"></i>
     </button>

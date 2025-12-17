@@ -1,6 +1,4 @@
 <?php
-/* @deprecated - Replaced by Alpine.js implementation in product-cart-alpine.blade.php */
-/* This file is kept for reference but should not be used for new development */
 
 namespace App\Livewire\Purchase;
 
@@ -10,6 +8,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Setting\Entities\Tax;
@@ -95,6 +94,15 @@ class ProductCart extends Component
             $this->discount_type = [];
             $this->item_discount = [];
             $this->product_tax = [];
+
+            // If there are existing cart items (e.g., from session), initialize their attributes
+            foreach ($cart_items as $cart_item) {
+                $this->initializeCartItemAttributes($cart_item);
+                $qty = $this->quantity[$cart_item->id] ?? $cart_item->qty;
+                $this->quantityBreakdowns[$cart_item->id] = $this->calculateConversionBreakdown($cart_item->id, $qty);
+                // Default discount type to fixed to match legacy behavior
+                $this->discount_type[$cart_item->id] = $this->discount_type[$cart_item->id] ?? 'fixed';
+            }
         }
     }
 
@@ -114,11 +122,22 @@ class ProductCart extends Component
             return '';
         }
 
+        $productModel = Product::with('baseUnit', 'unit')->find($productId);
+        $baseUnitId   = $productModel?->base_unit_id;
+        $baseUnitName = $productModel?->baseUnit?->name
+            ?? $productModel?->unit?->name
+            ?? 'pc';
+
         // 1) get all conversions for this product, biggest first
         $conversions = ProductUnitConversion::with(['unit', 'baseUnit'])
             ->where('product_id', $productId)
             ->orderByDesc('conversion_factor')
             ->get();
+
+        // If no conversions, just return the quantity in base unit
+        if ($conversions->isEmpty()) {
+            return "{$quantity} {$baseUnitName}(s)";
+        }
 
         $parts = [];
         $remaining = $quantity;
@@ -140,9 +159,9 @@ class ProductCart extends Component
         // 2) whatever is left is in the base unit:
         if ($remaining > 0) {
             // you can grab the base unit name however your schema defines it:
-            $baseUnitId = $conversions->first()->base_unit_id ?? null;
-            $baseName   = optional(Unit::find($baseUnitId))->name ?? "pc";
-            $parts[]    = "{$remaining} {$baseName}(s)";
+            $fallbackBaseUnitId = $conversions->first()->base_unit_id ?? $baseUnitId;
+            $baseName = optional(Unit::find($fallbackBaseUnitId))->name ?? $baseUnitName;
+            $parts[]  = "{$remaining} {$baseName}(s)";
         }
 
         return implode(', ', $parts);

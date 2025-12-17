@@ -60,7 +60,9 @@ class PaymentTermQuickAddModal extends Component
 
         $this->dispatch('paymentTermCreated', [
             'id' => $paymentTerm->id,
-            'name' => $paymentTerm->name
+            'name' => $paymentTerm->name,
+            'display_name' => $paymentTerm->name,
+            'longevity' => $paymentTerm->longevity,
         ]);
 
         session()->flash('success', 'Term pembayaran berhasil ditambahkan.');

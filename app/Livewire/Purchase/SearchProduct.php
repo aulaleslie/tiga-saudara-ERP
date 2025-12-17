@@ -1,6 +1,4 @@
 <?php
-/* @deprecated - Replaced by Alpine.js implementation in product-search-alpine.blade.php */
-/* This file is kept for reference but should not be used for new development */
 
 namespace App\Livewire\Purchase;
 
