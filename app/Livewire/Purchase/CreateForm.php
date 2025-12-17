@@ -15,6 +15,7 @@ use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 use Throwable;
 
 class CreateForm extends Component
@@ -43,7 +44,6 @@ class CreateForm extends Component
     public $global_discount = 0;
     public $is_tax_included = false;
     public string $idempotencyToken;
-    private const PAYMENT_TERM_FIELD = 'payment_term';
 
     public function mount(string $idempotencyToken): void
     {
@@ -61,24 +61,40 @@ class CreateForm extends Component
         $this->tags = $tags;
     }
 
+    private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
+    {
+        $this->payment_term = $paymentTermId ?: null;
+        $this->updateDueDateFromPaymentTerm();
+
+        if ($syncDropdown) {
+            // Keep the dropdown in sync when we change the value server-side
+            $this->dispatch('setPaymentTerm', $this->payment_term)
+                ->to(PaymentTermSearchDropdown::class);
+        }
+    }
+
     public function updatedPaymentTerm($value): void
     {
-        $this->payment_term = (int) $value;
-        $this->updateDueDateFromPaymentTerm();
+        $this->syncPaymentTermAndDueDate($value ? (int) $value : null);
     }
 
     private function updateDueDateFromPaymentTerm(): void
     {
-        // Always start from the currently selected date
         $this->due_date = $this->date;
-        $termId = (int) $this->payment_term;
-        if ($termId) {
-            $term = PaymentTerm::find($termId);
-            if ($term) {
-                $date = Carbon::parse($this->date);
-                $this->due_date = $date->addDays($term->longevity)->format('Y-m-d');
-            }
+
+        $termId = $this->payment_term ? (int) $this->payment_term : null;
+        if (! $termId || ! $this->date) {
+            return;
         }
+
+        $term = PaymentTerm::find($termId);
+        if (! $term) {
+            return;
+        }
+
+        $this->due_date = Carbon::parse($this->date)
+            ->addDays($term->longevity)
+            ->format('Y-m-d');
     }
 
     public function updatedDate($value): void
@@ -88,21 +104,17 @@ class CreateForm extends Component
 
     public function updatedSupplierId($value): void
     {
-        if ($value) {
-            $supplier = Supplier::find($value);
-            if ($supplier && $supplier->payment_term_id) {
-                $this->payment_term = $supplier->payment_term_id;
-                $this->updateDueDateFromPaymentTerm();
-            } else {
-                $this->payment_term = null;
-                $this->due_date = $this->date;
-            }
-        } else {
-            $this->supplier_id = null;
-            $this->payment_term = null;
-            $this->due_date = $this->date;
+        $supplierId = $value ?: null;
+        $this->supplier_id = $supplierId;
+
+        $paymentTermId = null;
+        if ($supplierId) {
+            $supplier = Supplier::find($supplierId);
+            $paymentTermId = $supplier?->payment_term_id ? (int) $supplier->payment_term_id : null;
         }
-        $this->dispatch('supplierSelected', $value);
+
+        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+        $this->dispatch('supplierSelected', $supplierId);
     }
 
     public function handleShippingUpdated($shipping)
@@ -132,16 +144,10 @@ class CreateForm extends Component
     {
         // Supplier was just created, the dropdown will auto-select it
         // We need to set the payment term from the newly created supplier
-        $paymentTermId = $supplier['payment_term_id'] ?? null;
         $this->supplier_id = $supplier['id'] ?? null;
-        
-        if ($paymentTermId) {
-            $this->payment_term = $paymentTermId;
-            $this->updateDueDateFromPaymentTerm();
-        } else {
-            $this->payment_term = null;
-            $this->due_date = $this->date;
-        }
+        $paymentTermId = isset($supplier['payment_term_id']) ? (int) $supplier['payment_term_id'] : null;
+
+        $this->syncPaymentTermAndDueDate($paymentTermId, true);
     }
 
     /**

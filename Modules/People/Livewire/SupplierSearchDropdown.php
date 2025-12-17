@@ -5,6 +5,7 @@ namespace Modules\People\Livewire;
 use Livewire\Component;
 use Livewire\Attributes\Modelable;
 use Modules\People\Entities\Supplier;
+use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 
 class SupplierSearchDropdown extends Component
 {
@@ -81,6 +82,10 @@ class SupplierSearchDropdown extends Component
         $paymentTermId = $supplier?->payment_term_id;
 
         $this->dispatchSelection($paymentTermId);
+
+        // Keep the payment term dropdown in sync when supplier changes
+        $this->dispatch('setPaymentTerm', $paymentTermId)
+            ->to(PaymentTermSearchDropdown::class);
     }
 
     public function updatedSelected($value): void
