@@ -31,7 +31,7 @@
             <!-- Tanggal -->
             <div class="col-lg-6 mb-3">
                 <label for="date">Tanggal <span class="text-danger">*</span></label>
-                <input type="date" class="form-control" id="date" wire:model="date">
+                <input type="date" class="form-control" id="date" wire:model.live="date">
                 @error('date')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
@@ -39,7 +39,7 @@
             <!-- Jatuh Tempo -->
             <div class="col-lg-6 mb-3">
                 <label for="due_date">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
-                <input type="date" class="form-control" id="due_date" wire:model="due_date">
+                <input type="date" class="form-control" id="due_date" wire:model.live="due_date">
                 @error('due_date')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
@@ -96,5 +96,3 @@
     <livewire:modules.product.modals.product-quick-add-modal wire:key="purchase-product-modal" />
     <livewire:modules.setting.modals.tax-quick-add-modal wire:key="purchase-tax-modal" />
 </div>
-
-

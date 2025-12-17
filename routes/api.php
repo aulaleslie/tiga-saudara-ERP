@@ -142,6 +142,15 @@ Route::middleware('web')->get('/payment-terms', function (Request $request) {
     return response()->json($paymentTerms);
 });
 
+// Get single payment term by ID
+Route::middleware('web')->get('/payment-terms/{id}', function (Request $request, $id) {
+    $paymentTerm = \Modules\Purchase\Entities\PaymentTerm::find($id, ['id', 'name', 'longevity']);
+    if (!$paymentTerm) {
+        return response()->json(['error' => 'Payment term not found'], 404);
+    }
+    return response()->json($paymentTerm);
+});
+
 // Taxes API
 Route::middleware('web')->get('/taxes', function (Request $request) {
     $taxes = \Modules\Setting\Entities\Tax::all(['id', 'name', 'value']);

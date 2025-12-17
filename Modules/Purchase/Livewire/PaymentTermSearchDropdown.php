@@ -79,11 +79,13 @@ class PaymentTermSearchDropdown extends Component
         $this->selectedLabel = $this->resolveLabel($id);
         $this->open = false;
         $this->search = '';
+
+        // Dispatch browser event for JavaScript to handle due date calculation
+        $this->dispatch('payment-term-changed', paymentTermId: $this->selected);
     }
 
     public function updatedSelected($value): void
     {
-        // Mirror reactive prop changes from parent into local state
         $this->selected = $value ?: null;
         $this->selectedLabel = $this->resolveLabel($this->selected);
     }

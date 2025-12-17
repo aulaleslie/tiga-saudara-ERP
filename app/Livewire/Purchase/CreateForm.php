@@ -67,7 +67,6 @@ class CreateForm extends Component
         $this->updateDueDateFromPaymentTerm();
 
         if ($syncDropdown) {
-            // Keep the dropdown in sync when we change the value server-side
             $this->dispatch('setPaymentTerm', $this->payment_term)
                 ->to(PaymentTermSearchDropdown::class);
         }
