@@ -67,8 +67,12 @@ class CreateForm extends Component
         $this->updateDueDateFromPaymentTerm();
 
         if ($syncDropdown) {
+            // Sync the payment term dropdown UI
             $this->dispatch('setPaymentTerm', $this->payment_term)
                 ->to(PaymentTermSearchDropdown::class);
+            
+            // Dispatch browser event to update due_date input in UI
+            $this->dispatch('update-due-date', dueDate: $this->due_date);
         }
     }
 

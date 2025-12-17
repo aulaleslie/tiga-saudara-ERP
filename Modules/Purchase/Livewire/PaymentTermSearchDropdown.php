@@ -30,6 +30,12 @@ class PaymentTermSearchDropdown extends Component
     {
         $this->selected = $id;
         $this->selectedLabel = $this->resolveLabel($id);
+        
+        // Dispatch browser event for JavaScript to update due_date
+        // This is triggered when supplier selection changes the payment term
+        if ($id) {
+            $this->dispatch('payment-term-changed', paymentTermId: $id);
+        }
     }
 
     public function mount(
