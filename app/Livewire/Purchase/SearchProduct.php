@@ -96,6 +96,7 @@ class SearchProduct extends Component
         Log::info('product', [
             'product' => $product,
         ]);
-        $this->dispatch('productSelected', $product);
+        // Target the purchase product cart directly so the item gets added
+        $this->dispatch('productSelected', $product)->to(ProductCart::class);
     }
 }

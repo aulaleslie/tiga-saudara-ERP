@@ -10,7 +10,6 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
@@ -34,11 +33,11 @@ class CreateForm extends Component
         'shippingUpdated'        => 'handleShippingUpdated',
         'globalDiscountUpdated'  => 'handleGlobalDiscountUpdated',
         'taxIncludedUpdated'    => 'handleTaxIncludedUpdated',
-        'paymentTermCreated' => 'handlePaymentTermCreated',
+
         'taxCreated' => 'handleTaxCreated',
+        'supplierCreated' => 'handleSupplierCreated',
     ];
 
-    public $paymentTerms = [];
 
     public $shipping = 0;
     public $global_discount = 0;
@@ -52,7 +51,6 @@ class CreateForm extends Component
         $this->reference = 'PR'; // This can be dynamic if needed
         $this->date = now()->format('Y-m-d');
         $this->due_date = now()->format('Y-m-d');
-        $this->paymentTerms = PaymentTerm::all();
         $this->supplier_purchase_number = null;
         // Ensure a fresh cart when starting a new purchase
         Cart::instance('purchase')->destroy();
@@ -71,6 +69,8 @@ class CreateForm extends Component
 
     private function updateDueDateFromPaymentTerm(): void
     {
+        // Always start from the currently selected date
+        $this->due_date = $this->date;
         $termId = (int) $this->payment_term;
         if ($termId) {
             $term = PaymentTerm::find($termId);
@@ -78,8 +78,6 @@ class CreateForm extends Component
                 $date = Carbon::parse($this->date);
                 $this->due_date = $date->addDays($term->longevity)->format('Y-m-d');
             }
-        } else {
-            $this->due_date = $this->date;
         }
     }
 
@@ -122,17 +120,28 @@ class CreateForm extends Component
         $this->is_tax_included = $included;
     }
 
-    public function handlePaymentTermCreated($data): void
-    {
-        $this->paymentTerms = PaymentTerm::all(); // Refresh the list
-        $this->payment_term = $data['id']; // Auto-select the new payment term
-        $this->updateDueDateFromPaymentTerm();
-    }
+
 
     public function handleTaxCreated($data): void
     {
         // This will be handled by the product cart component
         $this->dispatch('taxCreated', $data);
+    }
+
+    public function handleSupplierCreated(array $supplier): void
+    {
+        // Supplier was just created, the dropdown will auto-select it
+        // We need to set the payment term from the newly created supplier
+        $paymentTermId = $supplier['payment_term_id'] ?? null;
+        $this->supplier_id = $supplier['id'] ?? null;
+        
+        if ($paymentTermId) {
+            $this->payment_term = $paymentTermId;
+            $this->updateDueDateFromPaymentTerm();
+        } else {
+            $this->payment_term = null;
+            $this->due_date = $this->date;
+        }
     }
 
     /**

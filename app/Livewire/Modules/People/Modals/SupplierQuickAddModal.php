@@ -99,13 +99,19 @@ class SupplierQuickAddModal extends Component
             $email = $this->supplier_email ?: "noemail-{$uniqueId}@placeholder.local";
             $phone = $this->supplier_phone ?: "nophone-{$uniqueId}";
 
+            // Normalize optional identity fields so empty values do not collide with unique index
+            $identity = is_string($this->identity) ? trim($this->identity) : $this->identity;
+            $identityNumber = is_string($this->identity_number) ? trim($this->identity_number) : $this->identity_number;
+            $identity = $identity === '' ? null : $identity;
+            $identityNumber = $identityNumber === '' ? null : $identityNumber;
+
             $supplier = Supplier::create([
                 'supplier_name' => $this->supplier_name,
                 'contact_name' => $this->contact_name,
                 'supplier_email' => $email,
                 'supplier_phone' => $phone,
-                'identity' => $this->identity,
-                'identity_number' => $this->identity_number,
+                'identity' => $identity,
+                'identity_number' => $identityNumber,
                 'npwp' => $this->npwp,
                 'billing_address' => $this->billing_address,
                 'shipping_address' => $this->shipping_address,
