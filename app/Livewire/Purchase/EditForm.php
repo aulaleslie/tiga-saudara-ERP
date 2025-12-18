@@ -9,10 +9,12 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 use Throwable;
 
 class EditForm extends Component
@@ -20,7 +22,6 @@ class EditForm extends Component
     public $purchaseId;
     public $reference;
     public $supplier_id;
-    public $supplier_name;
     public $supplier_purchase_number;
     public $date;
     public $due_date;
@@ -28,16 +29,14 @@ class EditForm extends Component
     public $note;
     public $purchase;
 
-    public $paymentTerms = [];
     public array $tags = [];
 
-    protected $listeners = [
-        'supplierSelected' => 'handleSupplierSelected',
-        'confirmSubmit' => 'submit',
+    public $listeners = [
         'tagsUpdated' => 'handleTagsUpdated',
-        'shippingUpdated'        => 'handleShippingUpdated',
-        'globalDiscountUpdated'  => 'handleGlobalDiscountUpdated',
-        'taxIncludedUpdated'    => 'handleTaxIncludedUpdated',
+        'shippingUpdated' => 'handleShippingUpdated',
+        'globalDiscountUpdated' => 'handleGlobalDiscountUpdated',
+        'taxIncludedUpdated' => 'handleTaxIncludedUpdated',
+        'supplierCreated' => 'handleSupplierCreated',
     ];
 
     public $shipping = 0;
@@ -56,16 +55,71 @@ class EditForm extends Component
         $this->due_date = $this->purchase->due_date;
         $this->payment_term = $this->purchase->payment_term_id;
         $this->note = $this->purchase->note;
-        $this->paymentTerms = PaymentTerm::all();
 
         $this->tags = $this->purchase->tags->pluck('name')->toArray();
 
         $this->restoreCart();
     }
 
-    public function handleTagsUpdated(array $tags)
+    public function handleTagsUpdated(array $tags): void
     {
         $this->tags = $tags;
+    }
+
+    private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
+    {
+        $this->payment_term = $paymentTermId ?: null;
+        $this->updateDueDateFromPaymentTerm();
+
+        if ($syncDropdown) {
+            // Sync the payment term dropdown UI
+            $this->dispatch('setPaymentTerm', $this->payment_term)
+                ->to(PaymentTermSearchDropdown::class);
+        }
+    }
+
+    public function updatedPaymentTerm($value): void
+    {
+        $this->syncPaymentTermAndDueDate($value ? (int) $value : null);
+    }
+
+    private function updateDueDateFromPaymentTerm(): void
+    {
+        $this->due_date = $this->date;
+
+        $termId = $this->payment_term ? (int) $this->payment_term : null;
+        if (! $termId || ! $this->date) {
+            return;
+        }
+
+        $term = PaymentTerm::find($termId);
+        if (! $term) {
+            return;
+        }
+
+        $this->due_date = Carbon::parse($this->date)
+            ->addDays($term->longevity)
+            ->format('Y-m-d');
+    }
+
+    public function updatedDate($value): void
+    {
+        $this->updateDueDateFromPaymentTerm();
+    }
+
+    public function updatedSupplierId($value): void
+    {
+        $supplierId = $value ?: null;
+        $this->supplier_id = $supplierId;
+
+        $paymentTermId = null;
+        if ($supplierId) {
+            $supplier = Supplier::find($supplierId);
+            $paymentTermId = $supplier?->payment_term_id ? (int) $supplier->payment_term_id : null;
+        }
+
+        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+        $this->dispatch('supplierSelected', $supplierId);
     }
 
     public function restoreCart(): void
@@ -109,9 +163,37 @@ class EditForm extends Component
         $this->is_tax_included = $included;
     }
 
-    public function submit()
+    public function handleSupplierCreated(array $supplier): void
     {
-        $this->dispatch('purchase:submit-start');
+        // Supplier was just created, the dropdown will auto-select it
+        // We need to set the payment term from the newly created supplier
+        $this->supplier_id = $supplier['id'] ?? null;
+        $paymentTermId = isset($supplier['payment_term_id']) ? (int) $supplier['payment_term_id'] : null;
+
+        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+    }
+
+    /**
+     * @throws Throwable
+     */
+    public function submit(?string $supplierId = null, ?string $paymentTermId = null)
+    {
+        // Use passed values from hidden inputs if available (bypasses broken wire:model binding)
+        if ($supplierId !== null && $supplierId !== '') {
+            $this->supplier_id = $supplierId;
+        }
+        if ($paymentTermId !== null && $paymentTermId !== '') {
+            $this->payment_term = $paymentTermId;
+        }
+
+        // Fallback: Re-sync payment_term from supplier if still not set
+        if ($this->supplier_id && !$this->payment_term) {
+            $supplier = Supplier::find($this->supplier_id);
+            if ($supplier && $supplier->payment_term_id) {
+                $this->payment_term = $supplier->payment_term_id;
+                $this->updateDueDateFromPaymentTerm();
+            }
+        }
 
         try {
             $this->validate([
@@ -121,14 +203,16 @@ class EditForm extends Component
                 'due_date' => 'required|date|after_or_equal:date',
                 'payment_term' => 'required|exists:payment_terms,id',
                 'note' => 'nullable|string|max:1000',
-                'tags' => 'nullable|array',
-                'tags.*' => 'string|max:50',
             ], [
                 'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
                 'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
                 'date.required' => 'Tanggal pembelian wajib diisi.',
+                'date.date' => 'Format tanggal tidak valid.',
                 'due_date.required' => 'Tanggal jatuh tempo wajib diisi.',
-                'payment_term.required' => 'Term pembayaran harus dipilih.',
+                'due_date.date' => 'Format tanggal tidak valid.',
+                'due_date.after_or_equal' => 'Tanggal jatuh tempo harus lebih besar dari atau sama dengan tanggal pembelian.',
+                'payment_term.required' => 'Pilih jatuh tempo terlebih dahulu.',
+                'payment_term.exists' => 'Jatuh tempo yang dipilih tidak valid.',
             ]);
 
             if (Cart::instance('purchase')->count() === 0) {
@@ -136,125 +220,92 @@ class EditForm extends Component
                 return;
             }
 
-            DB::transaction(function () {
-                $purchase = $this->purchase; // already loaded in mount()
+            DB::beginTransaction();
 
-                $cartItems = Cart::instance('purchase')->content();
+            $purchase = $this->purchase; // already loaded in mount()
 
-                $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
-                $shipping = $this->shipping;
-                $discount_amount = $this->global_discount > 100 ? $this->global_discount : 0;
-                $discount_percentage = $this->global_discount > 100 ? 0 : $this->global_discount;
-                $tax_amount = 0;
+            $cartItems = Cart::instance('purchase')->content();
 
-                foreach ($cartItems as $item) {
-                    $sub_total = $item->options['sub_total'] ?? 0;
-                    $sub_total_before_tax = $item->options['sub_total_before_tax'] ?? 0;
-                    $tax_amount += ($sub_total - $sub_total_before_tax);
-                }
+            $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
+            $shipping = $this->shipping;
+            $discount_amount = $this->global_discount > 100 ? $this->global_discount : 0;
+            $discount_percentage = $this->global_discount > 100 ? 0 : $this->global_discount;
+            $tax_amount = 0;
 
-                if ($discount_percentage > 0) {
-                    $global_discount_amount = $total_sub_total * ($discount_percentage/100);
-                } else {
-                    $global_discount_amount = $discount_amount;
-                }
+            foreach ($cartItems as $item) {
+                $sub_total = $item->options['sub_total'] ?? 0;
+                $sub_total_before_tax = $item->options['sub_total_before_tax'] ?? 0;
+                $tax_amount += ($sub_total - $sub_total_before_tax);
+            }
 
-                $total_amount = $total_sub_total - $global_discount_amount + $shipping;
+            if ($discount_percentage > 0) {
+                $global_discount_amount = $total_sub_total * ($discount_percentage/100);
+            } else {
+                $global_discount_amount = $discount_amount;
+            }
 
-                $supplierPurchaseNumber = $this->supplier_purchase_number ?: null;
+            $total_amount = $total_sub_total - $global_discount_amount + $shipping;
 
-                $updateData = array_filter([
-                    'date' => $this->date !== $purchase->date ? $this->date : null,
-                    'due_date' => $this->due_date !== $purchase->due_date ? $this->due_date : null,
-                    'discount_percentage' => $discount_percentage,
-                    'discount_amount' => $discount_amount,
-                    'shipping_amount' => $shipping,
-                    'tax_amount' => $tax_amount,
-                    'total_amount' => $total_amount,
-                    'due_amount' => $total_amount,
-                    'is_tax_included' => $this->is_tax_included,
-                    'supplier_id' => $this->supplier_id !== $purchase->supplier_id ? $this->supplier_id : null,
-                    'supplier_purchase_number' => $supplierPurchaseNumber !== $purchase->supplier_purchase_number ? $supplierPurchaseNumber : null,
-                    'note' => $this->note !== $purchase->note ? $this->note : null,
-                    'payment_term_id' => $this->payment_term !== $purchase->payment_term_id ? $this->payment_term : null,
-                ], fn($value) => !is_null($value));
+            $supplierPurchaseNumber = $this->supplier_purchase_number ?: null;
 
-                if (!empty($updateData)) {
-                    $purchase->update($updateData);
-                }
+            $purchase->update([
+                'date' => $this->date,
+                'due_date' => $this->due_date,
+                'discount_percentage' => $discount_percentage,
+                'discount_amount' => $discount_amount,
+                'shipping_amount' => $shipping,
+                'tax_amount' => $tax_amount,
+                'total_amount' => $total_amount,
+                'due_amount' => $total_amount,
+                'is_tax_included' => $this->is_tax_included,
+                'supplier_id' => $this->supplier_id,
+                'supplier_purchase_number' => $supplierPurchaseNumber,
+                'note' => $this->note,
+                'payment_term_id' => $this->payment_term,
+            ]);
 
-                $this->purchase->syncTags($this->tags);
+            Log::info('Purchase Edit Submit', [
+                'tags' => $this->tags,
+            ]);
+            $this->purchase->syncTags($this->tags);
 
-                // Remove old details
-                $purchase->purchaseDetails()->delete();
+            // Remove old details
+            $purchase->purchaseDetails()->delete();
 
-                // Re-add from cart
-                foreach ($cartItems as $item) {
-                    $product_tax_amount = $item->options['sub_total'] - ($item->options['sub_total_before_tax'] ?? 0);
+            // Re-add from cart
+            foreach ($cartItems as $item) {
+                $product_tax_amount = $item->options['sub_total'] - ($item->options['sub_total_before_tax'] ?? 0);
 
-                    $purchase->purchaseDetails()->create([
-                        'product_id' => $item->id,
-                        'product_name' => $item->name,
-                        'product_code' => $item->options['code'],
-                        'quantity' => $item->qty,
-                        'unit_price' => $item->options['unit_price'],
-                        'price' => $item->price,
-                        'product_discount_type' => $item->options['product_discount_type'],
-                        'product_discount_amount' => $item->options['product_discount'],
-                        'sub_total' => $item->options['sub_total'],
-                        'product_tax_amount' => $product_tax_amount,
-                        'tax_id' => $item->options['product_tax'],
-                    ]);
-                }
+                $purchase->purchaseDetails()->create([
+                    'product_id' => $item->id,
+                    'product_name' => $item->name,
+                    'product_code' => $item->options['code'],
+                    'quantity' => $item->qty,
+                    'unit_price' => $item->options['unit_price'],
+                    'price' => $item->price,
+                    'product_discount_type' => $item->options['product_discount_type'],
+                    'product_discount_amount' => $item->options['product_discount'],
+                    'sub_total' => $item->options['sub_total'],
+                    'product_tax_amount' => $product_tax_amount,
+                    'tax_id' => $item->options['product_tax'],
+                ]);
+            }
 
-                Cart::instance('purchase')->destroy();
-            });
+            DB::commit();
+            Cart::instance('purchase')->destroy();
 
             session()->flash('success', 'Pembelian berhasil diperbarui.');
             return redirect()->route('purchases.index');
-        } catch (Throwable $e) {
-            Log::error('Edit Purchase Failed', ['error' => $e->getMessage()]);
-            $this->dispatch('notify', ['type' => 'error', 'message' => 'Terjadi kesalahan saat memperbarui pembelian.']);
-            $this->restoreCart(); // Rehydrate cart for UX
-        } finally {
-            $this->dispatch('purchase:submit-finish');
-        }
-    }
 
-    public function updatedSupplierId($supplier)
-    {
-        $this->supplier_id = $supplier['id'];
-        $this->supplier_name = $supplier['supplier_name'];
-    }
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Edit Purchase Failed: ' . $e->getMessage());
 
-    public function updatedPaymentTerm()
-    {
-        $this->updateDueDateFromPaymentTerm();
-    }
-
-    public function updatedDate()
-    {
-        $this->updateDueDateFromPaymentTerm();
-    }
-
-    private function updateDueDateFromPaymentTerm(): void
-    {
-        $term = PaymentTerm::find($this->payment_term);
-        if ($term) {
-            $this->due_date = Carbon::parse($this->date)->addDays($term->longevity)->format('Y-m-d');
-        }
-    }
-
-    public function handleSupplierSelected($supplier): void
-    {
-        Log::info('Updated supplier id: ', ['$supplier' => $supplier]);
-        if (is_null($supplier)) {
-            $this->supplier_id = null;
-            $this->supplier_name = '';
+            session()->flash('error', 'Gagal memperbarui pembelian. Silakan coba lagi.');
             return;
         }
-
-        $this->updatedSupplierId($supplier);
     }
 
     public function render(): Factory|Application|View|\Illuminate\View\View|\Illuminate\Contracts\Foundation\Application
