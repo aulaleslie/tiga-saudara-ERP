@@ -39,15 +39,8 @@
 @push('page_scripts')
 <script>
     document.addEventListener('livewire:init', () => {
-        // Listen for update-due-date event from CreateForm (for supplier selection)
-        Livewire.on('update-due-date', (event) => {
-            const dueDateInput = document.getElementById('due_date');
-            if (dueDateInput && event.dueDate) {
-                dueDateInput.value = event.dueDate;
-            }
-        });
-
         // Listen for payment-term-changed event from PaymentTermSearchDropdown
+        // This updates the due_date field when payment term changes
         Livewire.on('payment-term-changed', (event) => {
             const paymentTermId = event.paymentTermId;
             if (!paymentTermId) return;
@@ -64,6 +57,9 @@
                         date.setDate(date.getDate() + parseInt(data.longevity));
                         const newDueDate = date.toISOString().split('T')[0];
                         dueDateInput.value = newDueDate;
+                        
+                        // Also update Livewire property
+                        dueDateInput.dispatchEvent(new Event('input', { bubbles: true }));
                     }
                 })
                 .catch(error => {
@@ -73,4 +69,3 @@
     });
 </script>
 @endpush
-

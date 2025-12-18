@@ -20,12 +20,12 @@
             <table class="table table-bordered">
                 <thead class="thead-dark">
                 <tr>
-                    <th class="align-middle">Produk</th>
+                    <th class="align-middle" style="width: 15%;">Produk</th>
                     <th class="align-middle text-center">Harga Beli</th>
                     <th class="align-middle text-center">Stok</th>
                     <th class="align-middle text-center">Jumlah</th>
-                    <th class="align-middle text-center">Diskon</th>
-                    <th class="align-middle text-center">Pajak</th>
+                    <th class="align-middle text-center" style="width: 18%;">Diskon</th>
+                    <th class="align-middle text-center" style="width: 18%;">Pajak</th>
                     <th class="align-middle text-center">Sub Total Sebelum Pajak</th>
                     <th class="align-middle text-center">Sub Total</th>
                     <th class="align-middle text-center">Aksi</th>
@@ -81,11 +81,11 @@
                             </td>
 
                             <td class="align-middle text-center position-relative">
-                                <div class="input-group input-group-sm" style="max-width: 180px;">
+                                <div class="input-group input-group-sm" style="max-width: 100%;">
                                     <!-- Discount Type Dropdown Inside Input Box -->
-                                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle px-3" type="button"
+                                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle px-2" type="button"
                                             data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false"
-                                            style="font-size: 0.875rem; min-width: 50px;">
+                                            style="font-size: 0.875rem; min-width: 35px;">
                                         {{ $discount_type[$cart_item->id] == 'percentage' ? '%' : 'Rp' }}
                                     </button>
 
@@ -145,6 +145,7 @@
                                         entity="pajak"
                                         permission="settings.access"
                                         modal-event="openTaxModal"
+                                        :modal-params="[$cart_item->id]"
                                         size="sm"
                                         tooltip="Tambah pajak baru"
                                     />

@@ -11,6 +11,7 @@ class TaxQuickAddModal extends Component
     public $showModal = false;
     public $name = '';
     public $value = 0;
+    public $product_id = null; // Track which product row is requesting the tax
 
     protected $listeners = [
         'openTaxModal' => 'openModal'
@@ -37,9 +38,10 @@ class TaxQuickAddModal extends Component
         ];
     }
 
-    public function openModal()
+    public function openModal($productId = null)
     {
         $this->resetForm();
+        $this->product_id = $productId;
         $this->showModal = true;
     }
 
@@ -58,13 +60,13 @@ class TaxQuickAddModal extends Component
             'value' => $this->value
         ]);
 
-        $this->dispatch('taxCreated', [
-            'id' => $tax->id,
-            'name' => $tax->name,
-            'value' => $tax->value
-        ]);
-
-        session()->flash('success', 'Pajak berhasil ditambahkan.');
+        // Dispatch event with structured data for ProductCart to handle
+        $this->dispatch('taxCreated', 
+            id: $tax->id,
+            name: $tax->name,
+            value: $tax->value,
+            product_id: $this->product_id
+        );
 
         $this->closeModal();
     }
@@ -73,6 +75,7 @@ class TaxQuickAddModal extends Component
     {
         $this->name = '';
         $this->value = 0;
+        $this->product_id = null;
         $this->resetValidation();
     }
 

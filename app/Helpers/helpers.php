@@ -51,26 +51,15 @@ if (!function_exists('format_currency')) {
             return $value;
         }
 
-        $settings = settings();
-        $position = $settings->default_currency_position;
-        $symbol = $settings->currency->symbol;
-        $decimal_separator = $settings->currency->decimal_separator;
-        $thousand_separator = $settings->currency->thousand_separator;
-
-        if ($position == 'prefix') {
-            $formatted_value = $symbol . number_format((float) $value, 2, $decimal_separator, $thousand_separator);
-        } else {
-            $formatted_value = number_format((float) $value, 2, $decimal_separator, $thousand_separator) . $symbol;
-        }
-
-        return $formatted_value;
+        $numeric = (float) $value;
+        return 'IDR ' . number_format($numeric, 2, '.', ',');
     }
 }
 
 if (!function_exists('formatRupiah')) {
     function formatRupiah($value) {
         $numeric = (float) $value;
-        return 'RP' . number_format($numeric, 2, '.', ',');
+        return 'IDR ' . number_format($numeric, 2, '.', ',');
     }
 }
 

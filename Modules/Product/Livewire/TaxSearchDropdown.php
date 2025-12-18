@@ -143,12 +143,12 @@ class TaxSearchDropdown extends Component
         }));
     }
 
-    public function handleTaxCreated(array $tax): void
+    public function handleTaxCreated(int $id, string $name, $value): void
     {
         $option = [
-            'id' => $tax['id'] ?? null,
-            'name' => $tax['name'] ?? '',
-            'value' => $tax['value'] ?? null,
+            'id' => $id,
+            'name' => $name,
+            'value' => $value,
         ];
 
         $this->upsertOption($option);

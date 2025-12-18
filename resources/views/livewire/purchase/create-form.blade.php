@@ -14,7 +14,6 @@
                 <livewire:modules.people.supplier-search-dropdown
                     name="supplier_id"
                     placeholder="Pilih pemasok..."
-                    wire:model.live="supplier_id"
                     :allow-create="true"
                     :error="$errors->first('supplier_id')"
                     wire:key="purchase-supplier-dropdown"
@@ -50,7 +49,6 @@
                 <livewire:modules.purchase.payment-term-search-dropdown
                     name="payment_term"
                     placeholder="Pilih term pembayaran..."
-                    wire:model.live="payment_term"
                     :allow-create="true"
                     :error="$errors->first('payment_term')"
                     wire:key="purchase-payment-term-dropdown"

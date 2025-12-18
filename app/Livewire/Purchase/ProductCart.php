@@ -167,9 +167,24 @@ class ProductCart extends Component
         return implode(', ', $parts);
     }
 
-    public function handleTaxCreated($data): void
+    public function handleTaxCreated($id, $name, $value, $product_id = null): void
     {
         $this->taxes = Tax::all(); // Refresh the taxes list
+        
+        // Auto-select the new tax for the product that requested it
+        if ($product_id) {
+            $this->product_tax[$product_id] = $id;
+            
+            // Find the cart item with this product_id and update tax
+            $cart_items = Cart::instance($this->cart_instance)->content();
+            foreach ($cart_items as $cart_item) {
+                if ($cart_item->id == $product_id) {
+                    // Trigger tax update for this cart item
+                    $this->updateTax($cart_item->rowId, $product_id);
+                    break;
+                }
+            }
+        }
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application

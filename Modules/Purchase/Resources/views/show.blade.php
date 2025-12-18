@@ -55,6 +55,7 @@
                                 <h5 class="mb-2 border-bottom pb-2">Info Faktur:</h5>
                                 <div>Faktur: <strong>INV/{{ $purchase->reference }}</strong></div>
                                 <div>Tanggal: {{ \Carbon\Carbon::parse($purchase->date)->format('d M, Y') }}</div>
+                                <div>Tanggal Jatuh Tempo: {{ \Carbon\Carbon::parse($purchase->due_date)->format('d M, Y') }}</div>
                                 <div class="mt-2">
                                     <livewire:purchase.supplier-purchase-number-editor
                                         :purchaseId="$purchase->id"
@@ -75,11 +76,14 @@
                             <table class="table table-striped">
                                 <thead>
                                 <tr>
-                                    <th class="align-middle">Produk</th>
+                                    <th class="align-middle" style="width: 15%;">Produk</th>
                                     <th class="align-middle">Harga Satuan</th>
                                     <th class="align-middle">Kuantitas</th>
                                     <th class="align-middle">Diskon</th>
-                                    <th class="align-middle">Pajak</th>
+                                    @if($purchase->purchaseDetails->sum('product_tax_amount') > 0)
+                                        <th class="align-middle">DPP</th>
+                                        <th class="align-middle">Tax %</th>
+                                    @endif
                                     <th class="align-middle">Jumlah Total</th>
                                 </tr>
                                 </thead>
@@ -93,22 +97,27 @@
                                             </span>
                                         </td>
 
-                                        <td class="align-middle">{{ format_currency($item->price) }}</td>
+                                        <td class="align-middle">{{ formatRupiah($item->price) }}</td>
 
                                         <td class="align-middle">
                                             {{ $item->quantity }}
                                         </td>
 
                                         <td class="align-middle">
-                                            {{ format_currency($item->product_discount_amount) }}
+                                            {{ formatRupiah($item->product_discount_amount) }}
                                         </td>
 
-                                        <td class="align-middle">
-                                            {{ format_currency($item->product_tax_amount) }}
-                                        </td>
+                                        @if($purchase->purchaseDetails->sum('product_tax_amount') > 0)
+                                            <td class="align-middle">
+                                                {{ formatRupiah($item->sub_total - $item->product_tax_amount - $item->product_discount_amount) }}
+                                            </td>
+                                            <td class="align-middle">
+                                                {{ $item->tax ? $item->tax->value . '%' : '-' }}
+                                            </td>
+                                        @endif
 
                                         <td class="align-middle">
-                                            {{ format_currency($item->sub_total) }}
+                                            {{ formatRupiah($item->sub_total) }}
                                         </td>
                                     </tr>
                                 @endforeach
@@ -120,22 +129,22 @@
                                 <table class="table">
                                     <tbody>
                                     <tr>
+                                        <td class="left"><strong>DPP (Dasar Pengenaan Pajak)</strong></td>
+                                        <td class="right">{{ formatRupiah($purchase->purchaseDetails->sum('sub_total') - $purchase->purchaseDetails->sum('product_tax_amount') - $purchase->discount_amount) }}</td>
+                                    </tr>
+                                    <tr>
                                         <td class="left"><strong>Diskon ({{ $purchase->discount_percentage }}
                                                 %)</strong></td>
-                                        <td class="right">{{ format_currency($purchase->discount_amount) }}</td>
+                                        <td class="right">{{ formatRupiah($purchase->discount_amount) }}</td>
                                     </tr>
                                     <tr>
-                                        <td class="left"><strong>Pajak ({{ $purchase->tax_percentage }}%)</strong></td>
-                                        <td class="right">{{ format_currency($purchase->tax_amount) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="left"><strong>Pengiriman)</strong></td>
-                                        <td class="right">{{ format_currency($purchase->shipping_amount) }}</td>
+                                        <td class="left"><strong>Pengiriman</strong></td>
+                                        <td class="right">{{ formatRupiah($purchase->shipping_amount) }}</td>
                                     </tr>
                                     <tr>
                                         <td class="left"><strong>Total Keseluruhan</strong></td>
                                         <td class="right">
-                                            <strong>{{ format_currency($purchase->total_amount) }}</strong></td>
+                                            <strong>{{ formatRupiah($purchase->total_amount) }}</strong></td>
                                     </tr>
                                     </tbody>
                                 </table>

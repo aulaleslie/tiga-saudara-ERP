@@ -35,7 +35,6 @@ class CreateForm extends Component
         'globalDiscountUpdated'  => 'handleGlobalDiscountUpdated',
         'taxIncludedUpdated'    => 'handleTaxIncludedUpdated',
 
-        'taxCreated' => 'handleTaxCreated',
         'supplierCreated' => 'handleSupplierCreated',
     ];
 
@@ -70,9 +69,6 @@ class CreateForm extends Component
             // Sync the payment term dropdown UI
             $this->dispatch('setPaymentTerm', $this->payment_term)
                 ->to(PaymentTermSearchDropdown::class);
-            
-            // Dispatch browser event to update due_date input in UI
-            $this->dispatch('update-due-date', dueDate: $this->due_date);
         }
     }
 
@@ -136,12 +132,6 @@ class CreateForm extends Component
     }
 
 
-
-    public function handleTaxCreated($data): void
-    {
-        // This will be handled by the product cart component
-        $this->dispatch('taxCreated', $data);
-    }
 
     public function handleSupplierCreated(array $supplier): void
     {

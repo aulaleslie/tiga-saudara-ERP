@@ -3,10 +3,19 @@
     'entity' => '', // e.g., 'supplier', 'customer', 'payment-term'
     'permission' => '', // e.g., 'suppliers.create'
     'modalEvent' => '', // e.g., 'openSupplierModal'
+    'modalParams' => [], // Optional parameters to pass to the modal
     'tooltip' => 'Tambah baru',
     'size' => 'sm',
     'class' => ''
 ])
+
+@php
+    $onClickHandler = 'if (window.Livewire) { Livewire.dispatch(\'' . $modalEvent . '\'';
+    if (!empty($modalParams)) {
+        $onClickHandler .= ', ' . json_encode($modalParams);
+    }
+    $onClickHandler .= '); }';
+@endphp
 
 @if($permission && auth()->user()->can($permission) || !$permission)
     <button
@@ -15,7 +24,7 @@
         data-bs-toggle="tooltip"
         data-bs-placement="top"
         title="{{ $tooltip }}"
-        onclick="if (window.Livewire) { Livewire.dispatch('{{ $modalEvent }}'); }"
+        onclick="{{ $onClickHandler }}"
     >
         <i class="bi bi-plus-circle"></i>
     </button>
