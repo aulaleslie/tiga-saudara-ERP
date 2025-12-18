@@ -63,6 +63,61 @@ if (!function_exists('formatRupiah')) {
     }
 }
 
+if (!function_exists('calculateQuantityBreakdown')) {
+    function calculateQuantityBreakdown(int $productId, int $quantity): string
+    {
+        if ($quantity < 1) {
+            return '';
+        }
+
+        $Product = \Modules\Product\Entities\Product::class;
+        $ProductUnitConversion = \Modules\Product\Entities\ProductUnitConversion::class;
+        $Unit = \Modules\Setting\Entities\Unit::class;
+
+        $productModel = $Product::with('baseUnit', 'unit')->find($productId);
+        $baseUnitId   = $productModel?->base_unit_id;
+        $baseUnitName = $productModel?->baseUnit?->name
+            ?? $productModel?->unit?->name
+            ?? 'pc';
+
+        // get all conversions for this product, biggest first
+        $conversions = $ProductUnitConversion::with(['unit', 'baseUnit'])
+            ->where('product_id', $productId)
+            ->orderByDesc('conversion_factor')
+            ->get();
+
+        // If no conversions, just return the quantity in base unit
+        if ($conversions->isEmpty()) {
+            return "{$quantity} {$baseUnitName}(s)";
+        }
+
+        $parts = [];
+        $remaining = $quantity;
+
+        foreach ($conversions as $conv) {
+            $factor = (int) $conv->conversion_factor;
+            if ($factor < 1) {
+                continue;
+            }
+            $count = intdiv($remaining, $factor);
+            if ($count > 0) {
+                $unitName = optional($conv->unit)->name ?? "unit";
+                $parts[] = "{$count} {$unitName}(s)";
+                $remaining -= $count * $factor;
+            }
+        }
+
+        // whatever is left is in the base unit
+        if ($remaining > 0) {
+            $fallbackBaseUnitId = $conversions->first()->base_unit_id ?? $baseUnitId;
+            $baseName = optional($Unit::find($fallbackBaseUnitId))->name ?? $baseUnitName;
+            $parts[]  = "{$remaining} {$baseName}(s)";
+        }
+
+        return implode(', ', $parts);
+    }
+}
+
 if (!function_exists('make_reference_id')) {
     function make_reference_id($prefix, $year, $month, $number): string
     {

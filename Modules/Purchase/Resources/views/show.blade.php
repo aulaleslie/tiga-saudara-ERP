@@ -101,6 +101,14 @@
 
                                         <td class="align-middle">
                                             {{ $item->quantity }}
+                                            @php
+                                                $breakdown = calculateQuantityBreakdown($item->product_id, $item->quantity);
+                                            @endphp
+                                            @if($breakdown)
+                                                <div class="text-muted small mt-1">
+                                                    {{ $breakdown }}
+                                                </div>
+                                            @endif
                                         </td>
 
                                         <td class="align-middle">
