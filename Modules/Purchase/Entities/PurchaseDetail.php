@@ -25,7 +25,7 @@ class PurchaseDetail extends BaseModel
         'product_tax_amount',
     ];
 
-    protected $with = ['product'];
+    protected $with = ['product', 'tax'];
 
     public function product(): BelongsTo
     {

@@ -60,7 +60,7 @@ class PurchaseTable extends Component
     public function render()
     {
         $query = Purchase::query()
-            ->with(['supplier', 'tags'])
+            ->with(['supplier', 'tags', 'purchaseDetails'])
             ->where('setting_id', $this->settingId)
             ->when(! empty($this->statusFilter), function ($q) {
                 $q->whereIn('status', (array) $this->statusFilter);
@@ -81,6 +81,9 @@ class PurchaseTable extends Component
                                 "LOWER(JSON_UNQUOTE(JSON_EXTRACT(name, '$.en'))) LIKE ?",
                                 ['%' . strtolower($search) . '%']
                             );
+                        })
+                        ->orWhereHas('purchaseDetails.product', function ($q2) use ($search) {
+                            $q2->where('product_name', 'like', "%{$search}%");
                         });
                 });
             })

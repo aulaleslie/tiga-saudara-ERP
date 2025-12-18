@@ -6,7 +6,7 @@
         <form class="d-flex" wire:submit.prevent="searchSubmit" style="gap: 0.5rem;">
             <input type="text"
                    class="form-control"
-                   placeholder="Cari referensi, nomor pembelian supplier, pemasok, tag..."
+                   placeholder="Cari referensi, nomor pembelian supplier, pemasok, produk, tag..."
                    wire:model.defer="searchText"
                    style="width: 220px;"
                    autocomplete="off"
@@ -48,8 +48,18 @@
         @forelse ($purchases as $purchase)
             <tr>
                 <td>
+                    @php
+                        $productsTooltip = $purchase->purchaseDetails->map(function($detail) {
+                            return ($detail->product->product_name ?? $detail->product_name) . ' (Qty: ' . $detail->quantity . ')';
+                        })->implode("\n");
+                    @endphp
                     <a href="{{ route('purchases.show', $purchase->id) }}"
-                       target="_blank" rel="noopener noreferrer">
+                       target="_blank" 
+                       rel="noopener noreferrer"
+                       class="purchase-ref-tooltip"
+                       data-bs-toggle="tooltip"
+                       data-bs-placement="top"
+                       title="{{ $productsTooltip }}">
                         {{ $purchase->reference }}
                     </a>
                 </td>
@@ -105,3 +115,24 @@
         </div>
     </div>
 </div>
+@push('scripts')
+<script>
+    document.addEventListener('livewire:updated', () => {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.forEach((tooltipTriggerEl) => {
+            const existingTooltip = bootstrap.Tooltip.getInstance(tooltipTriggerEl);
+            if (existingTooltip) {
+                existingTooltip.dispose();
+            }
+            new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.forEach((tooltipTriggerEl) => {
+            new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    });
+</script>
+@endpush
