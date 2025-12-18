@@ -135,7 +135,7 @@
                                                         <input
                                                             type="text"
                                                             class="form-control conversion-price-input price-mask"
-                                                            x-data="currencyField($wire, 'displayPrices.{{ $index }}', @js($displayPrices[$index] ?? 0), productCurrency, (raw) => $wire.call('syncPrice', {{ $index }}))"
+                                                            x-data="currencyField('displayPrices.{{ $index }}', @js($displayPrices[$index] ?? 0), productCurrency, (raw, wire) => wire && wire.call('syncPrice', {{ $index }}))"
                                                             x-model="display"
                                                             x-on:focus="onFocus($event)"
                                                             x-on:input="onInput($event)"
@@ -170,7 +170,7 @@
                                 <input
                                     type="text"
                                     class="form-control price-mask"
-                                    x-data="currencyField($wire, 'purchase_price', @js($purchase_price ?? 0), productCurrency)"
+                                    x-data="currencyField('purchase_price', @js($purchase_price ?? 0), productCurrency)"
                                     x-model="display"
                                     x-on:focus="onFocus($event)"
                                     x-on:input="onInput($event)"
@@ -204,7 +204,7 @@
                                 <input
                                     type="text"
                                     class="form-control price-mask"
-                                    x-data="currencyField($wire, 'sale_price', @js($sale_price ?? 0), productCurrency)"
+                                    x-data="currencyField('sale_price', @js($sale_price ?? 0), productCurrency)"
                                     x-model="display"
                                     x-on:focus="onFocus($event)"
                                     x-on:input="onInput($event)"
@@ -219,7 +219,7 @@
                                 <input
                                     type="text"
                                     class="form-control price-mask"
-                                    x-data="currencyField($wire, 'tier_1_price', @js($tier_1_price ?? 0), productCurrency)"
+                                    x-data="currencyField('tier_1_price', @js($tier_1_price ?? 0), productCurrency)"
                                     x-model="display"
                                     x-on:focus="onFocus($event)"
                                     x-on:input="onInput($event)"
@@ -233,7 +233,7 @@
                                 <input
                                     type="text"
                                     class="form-control price-mask"
-                                    x-data="currencyField($wire, 'tier_2_price', @js($tier_2_price ?? 0), productCurrency)"
+                                    x-data="currencyField('tier_2_price', @js($tier_2_price ?? 0), productCurrency)"
                                     x-model="display"
                                     x-on:focus="onFocus($event)"
                                     x-on:input="onInput($event)"
@@ -303,7 +303,7 @@
     ], JSON_THROW_ON_ERROR) !!};
 
     document.addEventListener('alpine:init', () => {
-        window.currencyField = function ($wire, field, initial = 0, cfg = productCurrency, afterBlur = null) {
+        window.currencyField = function (field, initial = 0, cfg = productCurrency, afterBlur = null) {
             const formatCurrency = (num) => {
                 const prefix = cfg.prefix ?? '';
                 const thousands = cfg.thousands ?? ',';
@@ -340,8 +340,8 @@
                     this.display = formatCurrency(raw);
                 },
                 updateWire(raw) {
-                    if (!field) return;
-                    $wire.set(field, raw);
+                    if (!field || !this.$wire) return;
+                    this.$wire.set(field, raw);
                 },
                 onFocus(event) {
                     const raw = parseCurrency(event.target.value);
@@ -358,7 +358,7 @@
                     this.display = formatCurrency(raw);
                     this.updateWire(raw);
                     if (typeof afterBlur === 'function') {
-                        afterBlur(raw);
+                        afterBlur(raw, this.$wire);
                     }
                 }
             };

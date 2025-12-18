@@ -111,7 +111,7 @@ class EditForm extends Component
 
     public function submit()
     {
-        $this->dispatchBrowserEvent('purchase:submit-start');
+        $this->dispatch('purchase:submit-start');
 
         try {
             $this->validate([
@@ -217,7 +217,7 @@ class EditForm extends Component
             $this->dispatch('notify', ['type' => 'error', 'message' => 'Terjadi kesalahan saat memperbarui pembelian.']);
             $this->restoreCart(); // Rehydrate cart for UX
         } finally {
-            $this->dispatchBrowserEvent('purchase:submit-finish');
+            $this->dispatch('purchase:submit-finish');
         }
     }
 

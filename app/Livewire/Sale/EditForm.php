@@ -139,7 +139,7 @@ class EditForm extends Component
         ]);
 
         if (Cart::instance('sale')->count() === 0) {
-            $this->dispatchBrowserEvent('notify', [
+            $this->dispatch('notify', [
                 'type'    => 'error',
                 'message' => 'Produk harus dipilih.',
             ]);

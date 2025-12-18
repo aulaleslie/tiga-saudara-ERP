@@ -36,16 +36,64 @@
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const submitButton = document.getElementById('submitWithConfirmation');
+            const submitMethod = 'update';
+
+            const resolveLivewireComponent = () => {
+                if (!submitButton || typeof Livewire === 'undefined' || typeof Livewire.find !== 'function') {
+                    return null;
+                }
+
+                const componentRoot = submitButton.closest('[wire\\:id]');
+                if (!componentRoot) {
+                    return null;
+                }
+
+                const wireId = componentRoot.getAttribute('wire:id');
+                if (!wireId) {
+                    return null;
+                }
+
+                try {
+                    return Livewire.find(wireId);
+                } catch (error) {
+                    console.warn('Livewire component lookup failed.', error);
+                    return null;
+                }
+            };
+
+            const submitViaComponent = () => {
+                const wire = resolveLivewireComponent();
+                if (!wire) {
+                    return false;
+                }
+
+                if (typeof wire.$call === 'function') {
+                    wire.$call(submitMethod);
+                    return true;
+                }
+
+                if (typeof wire.call === 'function') {
+                    wire.call(submitMethod);
+                    return true;
+                }
+
+                if (typeof wire[submitMethod] === 'function') {
+                    wire[submitMethod]();
+                    return true;
+                }
+
+                return false;
+            };
 
             if (submitButton) {
                 submitButton.addEventListener('click', function () {
                     console.log("submitWithConfirmation clicked")
                     showConfirmationModal(() => {
-                        if (typeof Livewire !== 'undefined' && Livewire.dispatch) {
-                            Livewire.dispatch('confirmSubmit');
-                        } else {
-                            console.warn('Livewire is not ready yet.');
+                        if (submitViaComponent()) {
+                            return;
                         }
+
+                        console.warn('Livewire submit handler is not available.');
                     }, 'Apakah Anda yakin ingin menyimpan penjualan ini?');
                 });
             }

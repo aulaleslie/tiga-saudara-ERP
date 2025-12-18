@@ -29,7 +29,11 @@
         </div>
     </div>
 
-    @include('components.confirmation-modal')
+    <!-- Modals - placed outside component tree to prevent orphaning during re-renders -->
+    <livewire:modules.purchase.modals.payment-term-quick-add-modal wire:key="page-payment-term-modal" />
+    <livewire:modules.people.modals.supplier-quick-add-modal wire:key="page-supplier-modal" />
+    <livewire:modules.product.modals.product-quick-add-modal wire:key="page-product-modal" />
+    <livewire:modules.setting.modals.tax-quick-add-modal wire:key="page-tax-modal" />
 @endsection
 
 @push('page_scripts')
@@ -69,3 +73,4 @@
     });
 </script>
 @endpush
+

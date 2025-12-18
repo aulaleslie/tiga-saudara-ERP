@@ -38,6 +38,53 @@
             const submitButton = document.getElementById('submitWithConfirmation');
             let isProcessing = false;
 
+            const resolveLivewireComponent = () => {
+                if (!submitButton || typeof Livewire === 'undefined' || typeof Livewire.find !== 'function') {
+                    return null;
+                }
+
+                const componentRoot = submitButton.closest('[wire\\:id]');
+                if (!componentRoot) {
+                    return null;
+                }
+
+                const wireId = componentRoot.getAttribute('wire:id');
+                if (!wireId) {
+                    return null;
+                }
+
+                try {
+                    return Livewire.find(wireId);
+                } catch (error) {
+                    console.warn('Livewire component lookup failed.', error);
+                    return null;
+                }
+            };
+
+            const submitViaComponent = () => {
+                const wire = resolveLivewireComponent();
+                if (!wire) {
+                    return false;
+                }
+
+                if (typeof wire.$call === 'function') {
+                    wire.$call('submit');
+                    return true;
+                }
+
+                if (typeof wire.call === 'function') {
+                    wire.call('submit');
+                    return true;
+                }
+
+                if (typeof wire.submit === 'function') {
+                    wire.submit();
+                    return true;
+                }
+
+                return false;
+            };
+
             const setButtonProcessing = (processing = false) => {
                 if (!submitButton) return;
 
@@ -68,12 +115,12 @@
                     showConfirmationModal(() => {
                         setButtonProcessing(true);
 
-                        if (typeof Livewire !== 'undefined' && Livewire.dispatch) {
-                            Livewire.dispatch('confirmSubmit');
-                        } else {
-                            console.warn('Livewire is not ready yet.');
-                            setButtonProcessing(false);
+                        if (submitViaComponent()) {
+                            return;
                         }
+
+                        console.warn('Livewire submit handler is not available.');
+                        setButtonProcessing(false);
                     }, 'Apakah Anda yakin ingin membuat penjualan ini?');
                 });
             }

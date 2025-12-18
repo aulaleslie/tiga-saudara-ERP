@@ -102,7 +102,7 @@ class ExpenseForm extends Component
 
     public function save()
     {
-        $this->dispatchBrowserEvent('expense:submit-start');
+        $this->dispatch('expense:submit-start');
 
         try {
             $this->validate([
@@ -132,7 +132,7 @@ class ExpenseForm extends Component
 
             return redirect()->route('expenses.index');
         } finally {
-            $this->dispatchBrowserEvent('expense:submit-finish');
+            $this->dispatch('expense:submit-finish');
         }
     }
 

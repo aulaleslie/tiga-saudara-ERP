@@ -1,18 +1,22 @@
 @php($options = $this->filteredOptions)
 
 <div class="d-flex">
-    <div class="flex-grow-1 position-relative" wire:click.away="closeDropdown">
+    <div class="flex-grow-1 position-relative"
+         x-data="{ open: @entangle('open').live }"
+         @click.away="if (open) open = false">
         <button type="button"
                 class="form-control d-flex justify-content-between align-items-center text-start"
-                wire:click="toggleDropdown">
+                @click="open = !open">
             <span class="{{ $selectedLabel ? '' : 'text-muted' }}">
                 {{ $selectedLabel ?? $placeholder }}
             </span>
-            <i class="bi {{ $open ? 'bi-chevron-up' : 'bi-chevron-down' }}"></i>
+            <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
         </button>
 
-        <div class="dropdown-menu w-100 shadow p-2 {{ $open ? 'show' : '' }}"
-             style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0; {{ $open ? '' : 'display: none;' }}">
+        <div class="dropdown-menu w-100 shadow p-2 show"
+             x-cloak
+             x-show="open"
+             style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
             <input
                 type="text"
                 class="form-control form-control-sm mb-2"
@@ -27,6 +31,7 @@
                         type="button"
                         class="dropdown-item"
                         wire:click="select('{{ $option['id'] }}')"
+                        @click="open = false"
                         wire:key="payment-term-option-{{ $option['id'] }}"
                     >
                         {{ $option['name'] }}

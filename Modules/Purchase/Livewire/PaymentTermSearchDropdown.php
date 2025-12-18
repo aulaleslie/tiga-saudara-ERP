@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Livewire;
 
 use Livewire\Attributes\Modelable;
+use Livewire\Attributes\Reactive;
 use Livewire\Component;
 use Modules\Purchase\Entities\PaymentTerm;
 
@@ -15,6 +16,7 @@ class PaymentTermSearchDropdown extends Component
     public string $search = '';
     public bool $open = false;
     public bool $allowCreate = false;
+    #[Reactive]
     public ?string $error = null;
 
     /** @var array<int, array{id:int|string,name:string}> */

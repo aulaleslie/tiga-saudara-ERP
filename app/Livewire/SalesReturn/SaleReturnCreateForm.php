@@ -146,7 +146,7 @@ class SaleReturnCreateForm extends Component
 
     public function submit()
     {
-        $this->dispatchBrowserEvent('sale-return:submit-start');
+        $this->dispatch('sale-return:submit-start');
 
         try {
             $prepared = $this->validateAndPrepare();
@@ -235,7 +235,7 @@ class SaleReturnCreateForm extends Component
             Log::error('Gagal menyimpan retur penjualan', ['message' => $e->getMessage()]);
             session()->flash('error', 'Terjadi kesalahan saat menyimpan retur penjualan.');
         } finally {
-            $this->dispatchBrowserEvent('sale-return:submit-finish');
+            $this->dispatch('sale-return:submit-finish');
         }
 
         return null;

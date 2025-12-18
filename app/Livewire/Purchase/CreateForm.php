@@ -11,6 +11,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Illuminate\Validation\ValidationException;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
@@ -29,7 +30,6 @@ class CreateForm extends Component
     public $note;
     public array $tags = [];
     public $listeners = [
-        'confirmSubmit' => 'submit',
         'tagsUpdated' => 'handleTagsUpdated',
         'shippingUpdated'        => 'handleShippingUpdated',
         'globalDiscountUpdated'  => 'handleGlobalDiscountUpdated',
@@ -156,9 +156,24 @@ class CreateForm extends Component
     /**
      * @throws Throwable
      */
-    public function submit()
+    public function submit(?string $supplierId = null, ?string $paymentTermId = null)
     {
-        $this->dispatchBrowserEvent('purchase:submit-start');
+        // Use passed values from hidden inputs if available (bypasses broken wire:model binding)
+        if ($supplierId !== null && $supplierId !== '') {
+            $this->supplier_id = $supplierId;
+        }
+        if ($paymentTermId !== null && $paymentTermId !== '') {
+            $this->payment_term = $paymentTermId;
+        }
+        
+        // Fallback: Re-sync payment_term from supplier if still not set
+        if ($this->supplier_id && !$this->payment_term) {
+            $supplier = Supplier::find($this->supplier_id);
+            if ($supplier && $supplier->payment_term_id) {
+                $this->payment_term = $supplier->payment_term_id;
+                $this->updateDueDateFromPaymentTerm();
+            }
+        }
 
         try {
             $this->validate([
@@ -271,14 +286,14 @@ class CreateForm extends Component
             session()->flash('success', 'Pembelian Ditambahkan!');
             return redirect()->route('purchases.index');
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Livewire Purchase Store Failed: ' . $e->getMessage());
 
             session()->flash('error', 'Gagal menyimpan pembelian. Silakan coba lagi.');
             return;
-        } finally {
-            $this->dispatchBrowserEvent('purchase:submit-finish');
         }
     }
 

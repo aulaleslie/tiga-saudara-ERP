@@ -241,7 +241,7 @@ class SessionMonitor extends Component
                 $problems[] = 'kas melebihi ambang';
             }
 
-            $this->dispatchBrowserEvent('pos-session-alert', [
+            $this->dispatch('pos-session-alert', [
                 'message' => sprintf(
                     'Sesi %s di %s %s.',
                     $session['cashier'] ?: 'Tanpa kasir',

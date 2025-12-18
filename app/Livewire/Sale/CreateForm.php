@@ -117,7 +117,7 @@ class CreateForm extends Component
 
     public function submit()
     {
-        $this->dispatchBrowserEvent('sale:submit-start');
+        $this->dispatch('sale:submit-start');
 
         try {
             $this->validate([
@@ -133,7 +133,7 @@ class CreateForm extends Component
             ]);
 
             if (Cart::instance('sale')->count() === 0) {
-                $this->dispatchBrowserEvent('notify', [
+                $this->dispatch('notify', [
                     'type'    => 'error',
                     'message' => 'Produk harus dipilih.'
                 ]);
@@ -226,7 +226,7 @@ class CreateForm extends Component
                 session()->flash('error', 'Gagal menyimpan penjualan. Silakan coba lagi.');
             }
         } finally {
-            $this->dispatchBrowserEvent('sale:submit-finish');
+            $this->dispatch('sale:submit-finish');
         }
     }
 

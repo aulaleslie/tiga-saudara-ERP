@@ -73,7 +73,7 @@ class TransferStockForm extends Component
 
     public function submit()
     {
-        $this->dispatchBrowserEvent('transfer:submit-start');
+        $this->dispatch('transfer:submit-start');
 
         // reset location errors
         $this->selfManagedValidationErrors = [];
@@ -208,7 +208,7 @@ class TransferStockForm extends Component
             Log::error('Transfer submit error', ['error' => $e->getMessage()]);
             session()->flash('message', 'Terjadi kesalahan saat mengajukan transfer.');
         } finally {
-            $this->dispatchBrowserEvent('transfer:submit-finish');
+            $this->dispatch('transfer:submit-finish');
         }
     }
 

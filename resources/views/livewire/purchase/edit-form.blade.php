@@ -1,4 +1,4 @@
-<div class="card-body">
+<div class="card-body" x-data id="purchase-edit-form-container">
     <form wire:submit.prevent="submit">
         <div class="form-row">
             <div class="col-lg-6 mb-3">
@@ -64,15 +64,25 @@
         </div>
 
         <div class="mt-3">
-            <button type="button" class="btn btn-primary" id="submitWithConfirmation"
-                data-processing-text="Memproses…"
-                data-default-text="Perbarui Pembelian"
+            <button type="button" class="btn btn-primary"
+                @click="
+                    showConfirmationModal(() => {
+                        $wire.$call('submit');
+                    }, 'Apakah Anda yakin ingin mengubah pembelian ini?')
+                "
+                wire:loading.attr="disabled"
+                wire:loading.class="disabled"
+                wire:target="submit"
             >
-                <span class="spinner-border spinner-border-sm mr-2 d-none button-spinner" role="status" aria-hidden="true"></span>
-                <span class="button-text">Perbarui Pembelian</span>
-                <i class="bi bi-check ml-1"></i>
+                <span wire:loading wire:target="submit" class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>
+                <span wire:loading wire:target="submit">Memproses…</span>
+                
+                <span wire:loading.remove wire:target="submit">
+                    Perbarui Pembelian <i class="bi bi-check ml-1"></i>
+                </span>
             </button>
             <a href="{{ route('purchases.index') }}" class="btn btn-secondary">Kembali</a>
         </div>
     </form>
+
 </div>

@@ -1,5 +1,5 @@
 <div class="card-body">
-    <form wire:submit.prevent="submit">
+    <div>
         <input type="hidden" wire:model="idempotencyToken">
         <div class="form-row">
             <!-- Referensi -->
@@ -78,21 +78,25 @@
 
         <!-- Submit -->
         <div class="mt-3">
-            <button type="button" class="btn btn-primary" id="submitWithConfirmation"
-                data-processing-text="Memproses…"
-                data-default-text="Buat Pembelian"
-            >
-                <span class="spinner-border spinner-border-sm mr-2 d-none button-spinner" role="status" aria-hidden="true"></span>
-                <span class="button-text">Buat Pembelian</span>
-                <i class="bi bi-check ml-1"></i>
+            <button type="button" class="btn btn-primary" 
+                wire:loading.attr="disabled"
+                x-data
+                @click="
+                    const supplierId = document.querySelector('input[name=supplier_id]')?.value || null;
+                    const paymentTerm = document.querySelector('input[name=payment_term]')?.value || null;
+                    $wire.submit(supplierId, paymentTerm);
+                ">
+                <span wire:loading wire:target="submit" class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>
+                <span wire:loading wire:target="submit">Memproses…</span>
+                <span wire:loading.remove wire:target="submit">
+                    Buat Pembelian <i class="bi bi-check ml-1"></i>
+                </span>
             </button>
             <a href="{{ route('purchases.index') }}" class="btn btn-secondary">Kembali</a>
         </div>
-    </form>
-
-    <!-- Modals -->
-    <livewire:modules.purchase.modals.payment-term-quick-add-modal wire:key="purchase-payment-term-modal" />
-    <livewire:modules.people.modals.supplier-quick-add-modal wire:key="purchase-supplier-modal" />
-    <livewire:modules.product.modals.product-quick-add-modal wire:key="purchase-product-modal" />
-    <livewire:modules.setting.modals.tax-quick-add-modal wire:key="purchase-tax-modal" />
+    </div>
 </div>
+
+
+
+

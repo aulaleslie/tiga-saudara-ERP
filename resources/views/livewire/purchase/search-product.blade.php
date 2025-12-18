@@ -9,7 +9,7 @@
                         </div>
                     </div>
                     <div class="flex-grow-1 position-relative"
-                         x-data="productSearch($wire, @entangle('supplier_id').live)"
+                         x-data="productSearch(@entangle('supplier_id').live)"
                          x-init="init()">
 
                         <!-- Product Search Input -->
@@ -77,7 +77,7 @@
 </div>
 
 <script>
-function productSearch($wire, supplierId) {
+function productSearch(supplierId) {
     return {
         query: '',
         results: [],
@@ -89,7 +89,12 @@ function productSearch($wire, supplierId) {
 
         init() {
             // Listen for supplier changes
-            $wire.on('supplierSelected', (supplierId) => {
+            if (!this.$wire) {
+                console.warn('Livewire is not available for product search.');
+                return;
+            }
+
+            this.$wire.on('supplierSelected', (supplierId) => {
                 this.supplierId = supplierId;
                 this.query = '';
                 this.results = [];
@@ -148,7 +153,13 @@ function productSearch($wire, supplierId) {
             this.query = '';
             this.results = [];
             this.open = false;
-            $wire.call('selectProduct', product);
+
+            if (!this.$wire) {
+                console.warn('Livewire is not available for product selection.');
+                return;
+            }
+
+            this.$wire.call('selectProduct', product);
         },
 
         loadMore() {

@@ -275,8 +275,10 @@
                     </tr>
                     <tr>
                         <th>Biaya Ongkir</th>
-                        <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
-                        <td>(+) {{ format_currency($shipping) }}</td>
+                        <td>
+                            <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
+                            (+) {{ format_currency($shipping) }}
+                        </td>
                     </tr>
                     <tr>
                         <th>Grand Total</th>

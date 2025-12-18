@@ -4,6 +4,7 @@ namespace Modules\People\Livewire;
 
 use Livewire\Component;
 use Livewire\Attributes\Modelable;
+use Livewire\Attributes\Reactive;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 
@@ -16,6 +17,7 @@ class SupplierSearchDropdown extends Component
     public string $search = '';
     public bool $open = false;
     public bool $allowCreate = false;
+    #[Reactive]
     public ?string $error = null;
 
     /** @var array<int, array{id:int|string,name:string}> */
