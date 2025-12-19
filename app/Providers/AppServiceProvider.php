@@ -39,5 +39,7 @@ class AppServiceProvider extends ServiceProvider
         \Livewire\Livewire::component('modules.product.brand-search-dropdown', \Modules\Product\Livewire\BrandSearchDropdown::class);
         \Livewire\Livewire::component('modules.product.tax-search-dropdown', \Modules\Product\Livewire\TaxSearchDropdown::class);
         \Livewire\Livewire::component('modules.people.supplier-search-dropdown', \Modules\People\Livewire\SupplierSearchDropdown::class);
+        \Livewire\Livewire::component('modules.setting.location-search-dropdown', \Modules\Setting\Livewire\LocationSearchDropdown::class);
+        \Livewire\Livewire::component('modules.setting.modals.location-quick-add-modal', \Modules\Setting\Livewire\Modals\LocationQuickAddModal::class);
     }
 }

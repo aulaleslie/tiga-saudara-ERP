@@ -420,7 +420,7 @@ class PurchaseController extends Controller
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $currentSettingId = session('setting_id');
-        $locations = Location::where('setting_id', $currentSettingId)->get();
+
 
         // Calculate quantity_received for each purchase detail
         foreach ($purchase->purchaseDetails as $detail) {
@@ -428,7 +428,7 @@ class PurchaseController extends Controller
                 ->sum('quantity_received');
         }
 
-        return view('purchase::receive', compact('purchase', 'locations'));
+        return view('purchase::receive', compact('purchase'));
     }
 
     public function storeReceive(Request $request, Purchase $purchase): RedirectResponse

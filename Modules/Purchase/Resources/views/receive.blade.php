@@ -45,14 +45,13 @@
                             <div class="row mb-3">
                                 <div class="col-sm-6">
                                     <label for="location_id">Lokasi</label>
-                                    <select name="location_id" id="location_id" class="form-control" required>
-                                        <option value="" disabled {{ old('location_id') === null ? 'selected' : '' }}>Pilih Lokasi</option>
-                                        @foreach ($locations as $location)
-                                            <option value="{{ $location->id }}" {{ old('location_id') == $location->id ? 'selected' : '' }}>
-                                                {{ $location->name }}
-                                            </option>
-                                        @endforeach
-                                    </select>
+                                    @livewire('modules.setting.location-search-dropdown', [
+                                        'selected' => old('location_id'),
+                                        'name' => 'location_id',
+                                        'placeholder' => 'Pilih lokasi...',
+                                        'allowCreate' => true,
+                                    ])
+                                    @livewire('modules.setting.modals.location-quick-add-modal')
                                 </div>
                                 <div class="col-sm-6">
                                     <label for="external_delivery_number">Nomor Surat Jalan Supplier</label>
