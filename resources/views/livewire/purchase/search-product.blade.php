@@ -1,3 +1,4 @@
+<div>
 <div class="position-relative">
     <div class="card mb-0 border-0 shadow-sm">
         <div class="card-body">
@@ -169,3 +170,4 @@ function productSearch(supplierId) {
     }
 }
 </script>
+</div>

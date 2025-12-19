@@ -1,3 +1,4 @@
+<div>
 <fieldset id="stock-dependent" class="mt-4">
     <div class="form-row">
         <div class="col-md-4">
@@ -200,3 +201,4 @@
         z-index: 5000;
     }
 </style>
+</div>
