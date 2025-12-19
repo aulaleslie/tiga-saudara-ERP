@@ -5,6 +5,7 @@ namespace Modules\Purchase\Entities;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\Setting\Entities\Location;
 
 class ReceivedNote extends BaseModel
 {
@@ -14,6 +15,7 @@ class ReceivedNote extends BaseModel
         'external_delivery_number',
         'internal_invoice_number',
         'date',
+        'location_id',
     ];
 
     /**
@@ -23,6 +25,15 @@ class ReceivedNote extends BaseModel
     public function purchase(): BelongsTo
     {
         return $this->belongsTo(Purchase::class, 'po_id');
+    }
+
+    /**
+     * Relationship with Location
+     * A ReceivedNote belongs to a Location.
+     */
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function receivedNoteDetails(): HasMany

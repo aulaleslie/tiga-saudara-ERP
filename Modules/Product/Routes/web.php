@@ -5,8 +5,12 @@ use Modules\Product\Http\Controllers\ProductBundleController;
 use Modules\Product\Http\Controllers\ProductController;
 use Modules\Product\Http\Controllers\ProductUploadController;   // ⟵ NEW
 use Modules\Product\Http\Controllers\ProductImportController;   // ⟵ NEW
+use Modules\Product\Http\Controllers\SerialNumberController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
+    // Serial number validation (AJAX)
+    Route::post('/serial-numbers/validate', [SerialNumberController::class, 'validateSerial'])
+        ->name('serial-numbers.validate');
     Route::get('/products/print-barcode', 'BarcodeController@printBarcode')->name('barcode.print');
 
     // ⟵ keep these URLs & names exactly, just point to the new controller

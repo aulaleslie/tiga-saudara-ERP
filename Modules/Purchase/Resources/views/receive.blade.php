@@ -50,16 +50,27 @@
                                         'name' => 'location_id',
                                         'placeholder' => 'Pilih lokasi...',
                                         'allowCreate' => true,
+                                        'error' => $errors->first('location_id')
                                     ])
                                     @livewire('modules.setting.modals.location-quick-add-modal')
                                 </div>
                                 <div class="col-sm-6">
                                     <label for="external_delivery_number">Nomor Surat Jalan Supplier</label>
                                     <input type="text" name="external_delivery_number" id="external_delivery_number"
-                                           class="form-control" placeholder="Masukkan Nomor Surat Jalan"
+                                           class="form-control @error('external_delivery_number') is-invalid @enderror" 
+                                           placeholder="Masukkan Nomor Surat Jalan"
                                            value="{{ old('external_delivery_number') }}">
+                                    @error('external_delivery_number')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
                                 </div>
                             </div>
+                            
+                            @if ($errors->has('received'))
+                                <div class="alert alert-danger">
+                                    {{ $errors->first('received') }}
+                                </div>
+                            @endif
 
                             <!-- Receive Items -->
                             <div class="table-responsive">
@@ -91,34 +102,54 @@
                                                        max="{{ $detail->quantity - ($detail->quantity_received ?? 0) }}"
                                                        value="{{ old("received.$detail->id", 0) }}"
                                                        data-require-serial="{{ $detail->product->serial_number_required ? 'true' : 'false' }}"
-                                                       data-detail-id="{{ $detail->id }}">
+                                                       data-detail-id="{{ $detail->id }}"
+                                                       id="received-{{ $detail->id }}"
+                                                       {{ $detail->product->serial_number_required ? 'readonly' : '' }}>
                                             </td>
                                             <td>
                                                 @if ($detail->product->serial_number_required)
-                                                    <div class="serial-number-container" id="serial-number-container-{{ $detail->id }}">
+                                                    <div class="serial-number-wrapper" data-detail-id="{{ $detail->id }}" data-product-id="{{ $detail->product_id }}">
+                                                        <div class="input-group mb-2">
+                                                            <input type="text"
+                                                                   class="form-control serial-input"
+                                                                   id="serial-input-{{ $detail->id }}"
+                                                                   placeholder="Scan/Type Serial Number..."
+                                                                   onkeydown="handleSerialKeydown(event, {{ $detail->id }}, {{ $detail->product_id }})">
+                                                            <div class="input-group-append">
+                                                                <button class="btn btn-primary" type="button" onclick="addSerialFromInput({{ $detail->id }}, {{ $detail->product_id }})">
+                                                                    <i class="bi bi-plus"></i> Tambah
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                        <div id="serial-error-{{ $detail->id }}" class="text-danger small mb-2 d-none"></div>
+                                                        <small class="text-muted d-block mb-2">Tekan Enter untuk menambahkan setelah scan.</small>
+
+                                                        <div id="serial-pills-container-{{ $detail->id }}" class="d-flex flex-wrap">
+                                                             @php
+                                                                $oldSerials = old("serial_numbers.{$detail->id}", []);
+                                                             @endphp
+                                                             @if(is_array($oldSerials))
+                                                                 @foreach ($oldSerials as $serial)
+                                                                    <span class="badge badge-primary mr-1 mb-1 p-2 d-flex align-items-center">
+                                                                        {{ $serial }}
+                                                                        <input type="hidden" name="serial_numbers[{{ $detail->id }}][]" value="{{ $serial }}">
+                                                                        <button type="button" class="btn btn-sm btn-link text-white p-0 ml-2" onclick="removeSerialPill(this, {{ $detail->id }})">
+                                                                            <i class="bi bi-x"></i>
+                                                                        </button>
+                                                                    </span>
+                                                                 @endforeach
+                                                             @endif
+                                                        </div>
+                                                        @if ($errors->has("serial_numbers.$detail->id"))
+                                                            <div class="text-danger mt-1">
+                                                                {{ $errors->first("serial_numbers.$detail->id") }}
+                                                            </div>
+                                                        @endif
                                                         @if ($errors->has('serial_numbers'))
-                                                            <div class="text-danger">
+                                                            <div class="text-danger mt-1">
                                                                 {{ $errors->first('serial_numbers') }}
                                                             </div>
                                                         @endif
-                                                        <button type="button" class="btn btn-sm btn-secondary mb-2"
-                                                                onclick="toggleSerialFields({{ $detail->id }})">
-                                                            <i class="bi bi-chevron-down"></i> Toggle Serial Number Fields
-                                                        </button>
-                                                        <div class="serial-fields {{ old("serial_numbers.$detail->id") ? '' : 'd-none' }}"
-                                                             id="serial-fields-{{ $detail->id }}">
-                                                            @foreach (old("serial_numbers.$detail->id", []) as $serialNumber)
-                                                                <input type="text" name="serial_numbers[{{ $detail->id }}][]"
-                                                                       class="form-control mb-2"
-                                                                       placeholder="Serial Number"
-                                                                       value="{{ $serialNumber }}">
-                                                            @endforeach
-                                                            @if ($errors->has("serial_numbers.$detail->id"))
-                                                                <div class="text-danger">
-                                                                    {{ $errors->first("serial_numbers.$detail->id") }}
-                                                                </div>
-                                                            @endif
-                                                        </div>
                                                     </div>
                                                 @else
                                                     <span class="text-muted">Not Required</span>
@@ -136,7 +167,7 @@
 
                             <!-- Submit Button -->
                             <div class="text-right mt-3">
-                                <button type="submit" class="btn btn-primary">Konfirmasi Penerimaan</button>
+                                <button type="submit" class="btn btn-primary" onclick="this.disabled=true; this.form.submit();">Konfirmasi Penerimaan</button>
                             </div>
                         </form>
                     </div>
@@ -147,40 +178,144 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            // Monitor input for quantity received
-            document.querySelectorAll('input[name^="received"]').forEach(input => {
-                input.addEventListener('input', function () {
-                    const detailId = this.dataset.detailId;
-                    const requireSerial = this.dataset.requireSerial === 'true';
-                    const quantity = parseInt(this.value) || 0;
+            // Initial check to disable manual input for quantity if serials are required (redundant with HTML read-only but good for safety)
+            document.querySelectorAll('input[data-require-serial="true"]').forEach(input => {
+                input.setAttribute('readonly', true);
+            });
 
-                    if (requireSerial) {
-                        const container = document.getElementById(`serial-fields-${detailId}`);
-                        container.innerHTML = ''; // Clear existing fields
-
-                        for (let i = 0; i < quantity; i++) {
-                            const field = document.createElement('input');
-                            field.type = 'text';
-                            field.name = `serial_numbers[${detailId}][]`;
-                            field.className = 'form-control mb-2';
-                            field.placeholder = `Serial Number ${i + 1}`;
-                            container.appendChild(field);
-                        }
-                    }
-                });
-
-                input.addEventListener('blur', function () {
-                    if (this.value !== '') {
-                        this.value = parseInt(this.value || 0, 10);
-                    }
-                });
+            // Initialize quantity from old values if any
+            document.querySelectorAll('.serial-number-wrapper').forEach(wrapper => {
+                const detailId = wrapper.dataset.detailId;
+                updateDerivedQuantity(detailId);
             });
         });
 
-        // Toggle serial number fields visibility
-        function toggleSerialFields(detailId) {
-            const container = document.getElementById(`serial-fields-${detailId}`);
-            container.classList.toggle('d-none');
+        function handleSerialKeydown(event, detailId, productId) {
+            if (event.key === 'Enter') {
+                event.preventDefault(); // Prevent form submission
+                addSerialFromInput(detailId, productId);
+            }
+        }
+
+        function showError(detailId, message) {
+            const errorContainer = document.getElementById(`serial-error-${detailId}`);
+            if (errorContainer) {
+                errorContainer.textContent = message;
+                errorContainer.classList.remove('d-none');
+            }
+        }
+
+        function clearError(detailId) {
+            const errorContainer = document.getElementById(`serial-error-${detailId}`);
+            if (errorContainer) {
+                errorContainer.textContent = '';
+                errorContainer.classList.add('d-none');
+            }
+        }
+
+        async function addSerialFromInput(detailId, productId) {
+            const input = document.getElementById(`serial-input-${detailId}`);
+            const serial = input.value.trim();
+
+            // Clear previous error
+            clearError(detailId);
+
+            if (!serial) return;
+
+            // Check duplicate in current list (client-side)
+            const container = document.getElementById(`serial-pills-container-${detailId}`);
+            let existsLocally = false;
+            container.querySelectorAll('input[type="hidden"]').forEach(hidden => {
+               if (hidden.value === serial) existsLocally = true;
+            });
+
+            if (existsLocally) {
+                showError(detailId, 'Serial number sudah ditambahkan di baris ini.');
+                input.select();
+                return;
+            }
+
+            // Disable input during validation
+            input.disabled = true;
+
+            try {
+                // Server-side validation via AJAX
+                const response = await fetch('/serial-numbers/validate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        product_id: productId, 
+                        serial_number: serial 
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!data.valid) {
+                    showError(detailId, data.message);
+                    input.disabled = false;
+                    input.select();
+                    return;
+                }
+
+                // Success - add pill
+                addSerialPill(detailId, serial);
+                input.value = '';
+                input.disabled = false;
+                input.focus();
+                updateDerivedQuantity(detailId);
+                
+            } catch (error) {
+                console.error('Serial validation error:', error);
+                showError(detailId, 'Error validating serial number. Please try again.');
+                input.disabled = false;
+                input.focus();
+            }
+        }
+
+        function addSerialPill(detailId, serial) {
+            const container = document.getElementById(`serial-pills-container-${detailId}`);
+            const pill = document.createElement('span');
+            pill.className = 'badge badge-primary mr-1 mb-1 p-2 d-flex align-items-center';
+            // Use textContent for safety against XSS for viewing, but we need HTML structure for the button
+            // So we build it carefully
+            pill.innerText = serial + ' '; // text part
+
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = `serial_numbers[${detailId}][]`;
+            hiddenInput.value = serial;
+            pill.appendChild(hiddenInput);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn btn-sm btn-link text-white p-0 ml-2';
+            removeBtn.onclick = function() { removeSerialPill(removeBtn, detailId); };
+            removeBtn.innerHTML = '<i class="bi bi-x"></i>';
+            pill.appendChild(removeBtn);
+
+            container.appendChild(pill);
+        }
+
+        function removeSerialPill(btn, detailId) {
+            const pill = btn.parentElement; // The span.badge
+            pill.remove();
+            updateDerivedQuantity(detailId);
+        }
+
+        function updateDerivedQuantity(detailId) {
+            const container = document.getElementById(`serial-pills-container-${detailId}`);
+            const count = container.querySelectorAll('input[type="hidden"]').length;
+            const qtyInput = document.getElementById(`received-${detailId}`);
+            if (qtyInput) {
+                qtyInput.value = count;
+                // Dispatch input event in case other listeners are watching it
+                qtyInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
         }
     </script>
 @endsection

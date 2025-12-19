@@ -233,6 +233,7 @@ class PurchaseController extends Controller
         $receivedNotes = ReceivedNote::where('po_id', $purchase->id)
             ->with([
                 'purchase',
+                'location',
                 'receivedNoteDetails.purchaseDetail',
                 'receivedNoteDetails.productSerialNumbers'
             ])
@@ -437,7 +438,16 @@ class PurchaseController extends Controller
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        $data = $request->validate([
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'received' => [
+                'array',
+                function ($attribute, $value, $fail) {
+                    $total = collect($value)->sum();
+                    if ($total <= 0) {
+                        $fail('Minimal satu produk harus memiliki jumlah diterima lebih dari 0.');
+                    }
+                }
+            ],
             'received.*' => 'nullable|integer|min:0',
             'notes.*' => 'nullable|string|max:255',
             'serial_numbers.*.*' => ['nullable', 'string', 'max:255'],
@@ -457,7 +467,16 @@ class PurchaseController extends Controller
                 }
             ],
             'location_id' => 'required|integer|exists:locations,id',
+        ], [], [
+            'location_id' => 'Lokasi',
+            'external_delivery_number' => 'Nomor Surat Jalan Supplier'
         ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()->withErrors($validator)->withInput();
+        }
+
+        $data = $validator->validated();
 
         // Collect all serial numbers submitted by the user
         $inputtedSerialNumbers = collect($data['serial_numbers'] ?? [])
@@ -500,8 +519,9 @@ class PurchaseController extends Controller
             // Create a ReceivedNote
             $receivedNote = ReceivedNote::create([
                 'po_id' => $purchase->id,
-                'external_delivery_number' => $data['external_delivery_number'] ?? '',
+                'external_delivery_number' => $data['external_delivery_number'] ?? null,
                 'date' => now(),
+                'location_id' => $data['location_id'],
             ]);
 
             // Track the newly received quantities for this transaction

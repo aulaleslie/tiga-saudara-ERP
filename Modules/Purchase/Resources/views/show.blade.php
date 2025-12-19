@@ -179,6 +179,7 @@
                                                     <th>No. Delivery</th>
                                                     <th>No. Invoice</th>
                                                     <th>Tanggal</th>
+                                                    <th>Lokasi</th>
                                                     <th>Total Diterima</th>
                                                 </tr>
                                                 </thead>
@@ -197,12 +198,13 @@
                                                         <td>{{ $receivedNote->external_delivery_number ?? '-' }}</td>
                                                         <td>{{ $receivedNote->purchase->reference ?? '-' }}</td>
                                                         <td>{{ optional($receivedNote->created_at)->format('Y-m-d') }}</td>
+                                                        <td>{{ $receivedNote->location->name ?? '-' }}</td>
                                                         <td>{{ $receivedNote->receivedNoteDetails->sum('quantity_received') }}</td>
                                                     </tr>
 
                                                     <!-- Expandable Details Row -->
                                                     <tr id="details-{{ $receivedNote->id }}" class="receiving-details-row d-none">
-                                                        <td colspan="5">
+                                                        <td colspan="6">
                                                             @include('purchase::receivings.receiving-details', ['data' => $receivedNote])
                                                         </td>
                                                     </tr>
