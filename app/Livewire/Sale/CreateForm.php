@@ -8,6 +8,7 @@ use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Livewire\Component;
 use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
@@ -142,6 +143,13 @@ class CreateForm extends Component
 
     public function submit(?string $customerId = null, ?string $paymentTermId = null)
     {
+        Log::info('Sale create submit called', [
+            'customerId_param' => $customerId,
+            'paymentTermId_param' => $paymentTermId,
+            'customerId_state' => $this->customerId,
+            'paymentTermId_state' => $this->paymentTermId,
+        ]);
+
         $this->dispatch('sale:submit-start');
 
         // Use passed values from hidden inputs if available
@@ -162,6 +170,13 @@ class CreateForm extends Component
         }
 
         try {
+            Log::info('Sale create validating', [
+                'customerId' => $this->customerId,
+                'paymentTermId' => $this->paymentTermId,
+                'date' => $this->date,
+                'dueDate' => $this->dueDate,
+            ]);
+
             $this->validate([
                 'customerId'     => 'required|exists:customers,id',
                 'date'           => 'required|date',
@@ -177,14 +192,23 @@ class CreateForm extends Component
             ]);
 
             if (Cart::instance('sale')->count() === 0) {
+                Log::warning('Sale create aborted: empty cart');
                 $this->dispatch('notify', [
                     'type'    => 'error',
                     'message' => 'Produk harus dipilih.'
                 ]);
+                // Generate new idempotency token so next attempt is fresh
+                $this->idempotencyToken = (string) Str::uuid();
                 return;
             }
 
             if (! IdempotencyService::claim($this->idempotencyToken, 'sales.store', auth()->id())) {
+                Log::warning('Sale create idempotency claim failed', [
+                    'token' => $this->idempotencyToken,
+                    'user' => auth()->id(),
+                ]);
+                // Refresh token so user can retry
+                $this->idempotencyToken = (string) Str::uuid();
                 session()->flash('error', 'Permintaan penjualan sudah diproses. Silakan tunggu sebelum mencoba lagi.');
                 return;
             }
@@ -192,6 +216,12 @@ class CreateForm extends Component
             DB::beginTransaction();
 
             try {
+                Log::info('Sale create persisting', [
+                    'cart_count' => Cart::instance('sale')->count(),
+                    'customerId' => $this->customerId,
+                    'paymentTermId' => $this->paymentTermId,
+                ]);
+
                 $settingId = session('setting_id');
                 $cartItems = Cart::instance('sale')->content();
                 $aggregatedItems = SaleCartAggregator::aggregate($cartItems);
@@ -226,6 +256,8 @@ class CreateForm extends Component
                     'is_tax_included'    => false,
                     'payment_method'     => '',
                 ]);
+
+                Log::info('Sale created', ['sale_id' => $sale->id, 'reference' => $sale->reference]);
 
                 // Details & Bundles
                 foreach ($aggregatedItems as $item) {
@@ -263,6 +295,7 @@ class CreateForm extends Component
 
                 Cart::instance('sale')->destroy();
                 session()->flash('success', 'Penjualan Ditambahkan!');
+                Log::info('Sale create completed', ['sale_id' => $sale->id]);
                 return redirect()->route('sales.index');
             } catch (Exception $e) {
                 DB::rollBack();

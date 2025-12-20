@@ -97,24 +97,31 @@
             }
         };
 
+        const readDropdownValue = (name) => {
+            return document.querySelector(`input[name=\"${name}\"]`)?.value || null;
+        };
+
         const submitViaComponent = () => {
             const wire = resolveLivewireComponent();
             if (!wire) {
                 return false;
             }
 
+            const customerId = readDropdownValue('customer_id');
+            const paymentTermId = readDropdownValue('payment_term');
+
             if (typeof wire.$call === 'function') {
-                wire.$call('submit');
+                wire.$call('submit', customerId, paymentTermId);
                 return true;
             }
 
             if (typeof wire.call === 'function') {
-                wire.call('submit');
+                wire.call('submit', customerId, paymentTermId);
                 return true;
             }
 
             if (typeof wire.submit === 'function') {
-                wire.submit();
+                wire.submit(customerId, paymentTermId);
                 return true;
             }
 

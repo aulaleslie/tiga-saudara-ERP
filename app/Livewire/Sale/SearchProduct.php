@@ -64,6 +64,9 @@ class SearchProduct extends Component
 
     public function selectProduct($product): void
     {
+        // Clear the current query/results so the input empties after selection
+        $this->resetQuery();
+        $this->dispatch('saleProductSearchCleared');
         $this->dispatch('productSelected', $product);
     }
 

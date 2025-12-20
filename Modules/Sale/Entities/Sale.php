@@ -108,7 +108,18 @@ class Sale extends BaseModel
                 $nextNumber = $lastNumber + 1;
             }
 
-            $model->reference = make_reference_id($prefix, $year, $month, $nextNumber);
+            // Ensure uniqueness even if historical data exists with the same reference
+            do {
+                $candidate = make_reference_id($prefix, $year, $month, $nextNumber);
+                $exists = Sale::where('setting_id', $model->setting_id)
+                    ->where('reference', $candidate)
+                    ->exists();
+                if ($exists) {
+                    $nextNumber++;
+                }
+            } while ($exists);
+
+            $model->reference = $candidate;
         });
     }
 

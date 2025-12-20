@@ -8,7 +8,62 @@
                             <i class="bi bi-search text-primary"></i>
                         </div>
                     </div>
-                    <input wire:keydown.escape="resetQuery" wire:model.live.debounce.500ms="query" type="text" class="form-control" placeholder="Tipe nama atau kode produk....">
+                    <div class="flex-grow-1 position-relative"
+                         x-data="saleProductSearch()"
+                         x-init="init()">
+
+                        <!-- Product Search Input -->
+                        <input
+                            type="text"
+                            class="form-control"
+                            x-model="query"
+                            @input.debounce.500ms="search()"
+                            @focus="open = true"
+                            @blur="setTimeout(() => open = false, 150)"
+                            placeholder="Ketik nama atau kode produk...."
+                            autocomplete="off"
+                        >
+
+                        <!-- Dropdown Results -->
+                        <div class="dropdown-menu w-100 shadow show"
+                             x-show="open && results.length > 0"
+                             x-cloak
+                             style="position: absolute; z-index: 1050; max-height: 250px; overflow-y: auto; top: 100%; left: 0; right: 0;">
+                            <template x-for="product in results" :key="product.id">
+                                <button
+                                    type="button"
+                                    @mousedown.prevent="selectProduct(product)"
+                                    class="dropdown-item"
+                                    x-text="product.display_name"
+                                ></button>
+                            </template>
+                            <template x-if="results.length >= howMany">
+                                <button
+                                    type="button"
+                                    @mousedown.prevent="loadMore()"
+                                    class="dropdown-item text-center"
+                                >
+                                    Load More <i class="bi bi-arrow-down-circle"></i>
+                                </button>
+                            </template>
+                        </div>
+
+                        <!-- No Results -->
+                        <div class="dropdown-menu w-100 show"
+                             x-show="open && query.length >= 2 && results.length === 0 && !loading"
+                             x-cloak
+                             style="position: absolute; z-index: 1050; top: 100%; left: 0; right: 0;">
+                            <div class="dropdown-item disabled">Produk tidak ditemukan....</div>
+                        </div>
+
+                        <!-- Loading -->
+                        <div class="dropdown-menu w-100 show"
+                             x-show="open && loading"
+                             x-cloak
+                             style="position: absolute; z-index: 1050; top: 100%; left: 0; right: 0;">
+                            <div class="dropdown-item disabled">Mencari...</div>
+                        </div>
+                    </div>
                     <x-quick-add-button
                         entity="produk"
                         permission="products.create"
@@ -19,48 +74,88 @@
             </div>
         </div>
     </div>
-
-    <div wire:loading class="card position-absolute mt-1 border-0" style="z-index: 1;left: 0;right: 0;">
-        <div class="card-body shadow">
-            <div class="d-flex justify-content-center">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="sr-only">Loading...</span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    @if(!empty($query))
-        <div wire:click="resetQuery" class="position-fixed w-100 h-100" style="left: 0; top: 0; right: 0; bottom: 0;z-index: 1;"></div>
-        @if($search_results->isNotEmpty())
-            <div class="card position-absolute mt-1" style="z-index: 2;left: 0;right: 0;border: 0;">
-                <div class="card-body shadow">
-                    <ul class="list-group list-group-flush">
-                        @foreach($search_results as $result)
-                            <li class="list-group-item list-group-item-action">
-                                <a wire:click="resetQuery" wire:click.prevent="selectProduct({{ $result }})" href="#">
-                                    {{ $result->product_name }} | {{ $result->product_code }}
-                                </a>
-                            </li>
-                        @endforeach
-                        @if($search_results->count() >= $how_many)
-                            <li class="list-group-item list-group-item-action text-center">
-                                <a wire:click.prevent="loadMore" class="btn btn-primary btn-sm" href="#">
-                                    Load More <i class="bi bi-arrow-down-circle"></i>
-                                </a>
-                            </li>
-                        @endif
-                    </ul>
-                </div>
-            </div>
-        @else
-            <div class="card position-absolute mt-1 border-0" style="z-index: 1;left: 0;right: 0;">
-                <div class="card-body shadow">
-                    <div class="alert alert-warning mb-0">
-                        Produk tidak ditemukan....
-                    </div>
-                </div>
-            </div>
-        @endif
-    @endif
 </div>
+
+@push('page_scripts')
+<script>
+function saleProductSearch() {
+    return {
+        query: '',
+        results: [],
+        open: false,
+        loading: false,
+        howMany: 5,
+        abortController: null,
+
+        init() {
+            if (!this.$wire) {
+                console.warn('Livewire is not available for sale product search.');
+            }
+        },
+
+        async search() {
+            if (this.query.length < 2) {
+                this.results = [];
+                this.open = false;
+                return;
+            }
+
+            this.loading = true;
+            this.open = true;
+
+            if (this.abortController) {
+                this.abortController.abort();
+            }
+
+            this.abortController = new AbortController();
+
+            try {
+                const params = new URLSearchParams({
+                    query: this.query,
+                    limit: this.howMany
+                });
+                const response = await fetch(`/api/products/search?${params}`, {
+                    signal: this.abortController.signal,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+
+                const data = await response.json();
+                this.results = data;
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    console.error('Search error:', error);
+                    this.results = [];
+                }
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        selectProduct(product) {
+            this.query = '';
+            this.results = [];
+            this.open = false;
+
+            if (!this.$wire) {
+                console.warn('Livewire is not available for product selection.');
+                return;
+            }
+
+            this.$wire.call('selectProduct', product);
+        },
+
+        loadMore() {
+            this.howMany += 5;
+            this.search();
+        }
+    }
+}
+</script>
+@endpush
