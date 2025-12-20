@@ -59,6 +59,17 @@ class CreateForm extends Component
 
     public function handleCustomerSelected($customer): void
     {
+        if (is_object($customer) && method_exists($customer, 'toArray')) {
+            $customer = $customer->toArray();
+        } elseif (!is_array($customer)) {
+            $customerModel = Customer::find(is_numeric($customer) ? (int) $customer : null);
+            $customer = $customerModel?->toArray();
+        }
+
+        if (! $customer || ! isset($customer['id'])) {
+            return;
+        }
+
         // Handle the customer selection from CustomerSearchDropdown
         $this->customerId = $customer['id'] ?? null;
         $this->customerName = $customer['customer_name'] ?? $customer['contact_name'] ?? null;

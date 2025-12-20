@@ -5,6 +5,7 @@ namespace App\Livewire\Sale;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
 
 class FormHeader extends Component
@@ -46,6 +47,18 @@ class FormHeader extends Component
     // This method will be triggered when a customer is selected
     public function handleCustomerSelected($customer)
     {
+        if (is_object($customer) && method_exists($customer, 'toArray')) {
+            $customer = $customer->toArray();
+        } elseif (!is_array($customer)) {
+            $customerModel = Customer::find(is_numeric($customer) ? (int) $customer : null);
+            $customer = $customerModel?->toArray();
+        }
+
+        if (! $customer || ! isset($customer['id'])) {
+            Log::warning('customerSelected payload missing or invalid', ['customer' => $customer]);
+            return;
+        }
+
         Log::info('customer selected: ', [
             'customer' => $customer,
         ]);

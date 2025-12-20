@@ -9,6 +9,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Livewire\Component;
+use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductBundle;
@@ -173,6 +174,30 @@ class ProductCart extends Component
 
     public function customerSelected($customer): void
     {
+        if (is_object($customer) && method_exists($customer, 'toArray')) {
+            $customer = $customer->toArray();
+        } elseif (!is_array($customer)) {
+            $customerModel = Customer::find(is_numeric($customer) ? (int) $customer : null);
+
+            if (! $customerModel) {
+                Log::warning('customerSelected received invalid payload', ['customer' => $customer]);
+                return;
+            }
+
+            $customer = [
+                'id' => $customerModel->id,
+                'tier' => $customerModel->tier,
+                'payment_term_id' => $customerModel->payment_term_id,
+                'contact_name' => $customerModel->contact_name,
+                'customer_name' => $customerModel->customer_name,
+            ];
+        }
+
+        if (! isset($customer['id'])) {
+            Log::warning('customerSelected payload missing id', ['customer' => $customer]);
+            return;
+        }
+
         $this->customer = $customer;
         $this->customerId = $customer['id'];
 

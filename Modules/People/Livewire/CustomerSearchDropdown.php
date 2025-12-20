@@ -20,8 +20,7 @@ class CustomerSearchDropdown extends Component
     #[Reactive]
     public ?string $error = null;
 
-    /** @var array<int, array{id:int|string,name:string}> */
-    public array $options = [];
+    public int $perPage = 20;
     public ?string $selectedLabel = null;
 
     protected $listeners = [
@@ -44,11 +43,6 @@ class CustomerSearchDropdown extends Component
         $this->allowCreate = $allowCreate;
         $this->error = $error;
         $this->dispatchTo = $dispatchTo;
-
-        $this->options = $this->prepareOptions($options);
-        if (!count($this->options)) {
-            $this->options = $this->fetchCustomers();
-        }
 
         $this->selected = $selected ?: null;
         $this->selectedLabel = $this->resolveLabel($this->selected);
@@ -79,15 +73,8 @@ class CustomerSearchDropdown extends Component
         $this->open = false;
         $this->search = '';
 
-        // Fetch customer to get payment_term_id
-        $customer = Customer::find($id);
-        $paymentTermId = $customer?->payment_term_id;
-
-        $this->dispatchSelection($paymentTermId);
-
-        // Keep the payment term dropdown in sync when customer changes
-        $this->dispatch('setPaymentTerm', $paymentTermId)
-            ->to(PaymentTermSearchDropdown::class);
+        // Notify other components about the selected customer (includes payment term)
+        $this->dispatchSelection();
     }
 
     public function updatedSelected($value): void
@@ -95,20 +82,36 @@ class CustomerSearchDropdown extends Component
         $this->selectedLabel = $this->resolveLabel($value);
     }
 
+    public function getOptionsProperty(): array
+    {
+        $options = $this->fetchCustomers($this->search);
+
+        if ($this->selected) {
+            $alreadyIncluded = collect($options)->first(function ($opt) {
+                return (string) $opt['id'] === (string) $this->selected;
+            });
+
+            if (! $alreadyIncluded) {
+                $label = $this->resolveLabel($this->selected);
+                if ($label) {
+                    array_unshift($options, [
+                        'id' => is_numeric($this->selected) ? (int) $this->selected : $this->selected,
+                        'name' => $label,
+                    ]);
+                    $options = $this->dedupeById($options);
+                }
+            }
+        }
+
+        return array_slice($options, 0, $this->perPage);
+    }
+
     /**
      * @return array<int, array{id:int|string,name:string}>
      */
     public function getFilteredOptionsProperty(): array
     {
-        if ($this->search === '') {
-            return $this->options;
-        }
-
-        $keyword = mb_strtolower($this->search);
-
-        return array_values(array_filter($this->options, function ($option) use ($keyword) {
-            return mb_stripos($option['name'], $keyword) !== false;
-        }));
+        return $this->options;
     }
 
     public function handleCustomerCreated(array $customer): void
@@ -127,33 +130,23 @@ class CustomerSearchDropdown extends Component
                 : $customer['customer_name'];
         }
 
-        $this->upsertOption($option);
-        if ($option['id'] !== null) {
-            $this->selected = $option['id'];
-            $this->selectedLabel = $option['name'];
-            $this->open = false;
-            $this->search = '';
-            
-            // Dispatch with the payment term ID from the created customer array
-            $paymentTermId = $customer['payment_term_id'] ?? null;
-            $this->dispatchSelection($paymentTermId);
-
-            // Sync payment term dropdown
-            $this->dispatch('setPaymentTerm', $paymentTermId)
-                ->to(PaymentTermSearchDropdown::class);
+        if (($option['id'] ?? null) === null || ($option['name'] ?? null) === null) {
+            return;
         }
+
+        $this->selected = $option['id'];
+        $this->selectedLabel = $option['name'];
+        $this->open = false;
+        $this->search = '';
+        
+        // Dispatch with the payment term ID from the created customer array
+        $this->dispatchSelection();
     }
 
     private function resolveLabel(int|string|null $id): ?string
     {
         if (!$id) {
             return null;
-        }
-
-        foreach ($this->options as $option) {
-            if ((string) $option['id'] === (string) $id) {
-                return $option['name'];
-            }
         }
 
         $customer = Customer::query()->find($id);
@@ -166,33 +159,25 @@ class CustomerSearchDropdown extends Component
             ? "{$customer->contact_name} - {$customer->customer_name}" 
             : $customer->customer_name;
 
-        $option = [
-            'id' => $customer->id,
-            'name' => $name,
-        ];
-
-        $this->upsertOption($option);
-
-        return $option['name'];
-    }
-
-    /**
-     * @param  array<int, mixed>  $options
-     * @return array<int, array{id:int|string,name:string}>
-     */
-    private function prepareOptions(array $options): array
-    {
-        $normalized = $this->normalizeOptions($options);
-        return $this->dedupeById($normalized);
+        return $name;
     }
 
     /**
      * @return array<int, array{id:int|string,name:string}>
      */
-    private function fetchCustomers(): array
+    private function fetchCustomers(string $keyword = ''): array
     {
-        return Customer::query()
-            ->orderBy('customer_name')
+        $query = Customer::query();
+
+        if ($keyword !== '') {
+            $query->where(function ($q) use ($keyword) {
+                $q->where('contact_name', 'like', '%' . $keyword . '%')
+                    ->orWhere('customer_name', 'like', '%' . $keyword . '%');
+            });
+        }
+
+        return $query->orderBy('customer_name')
+            ->limit($this->perPage)
             ->get()
             ->map(fn (Customer $customer) => [
                 'id' => $customer->id,
@@ -203,66 +188,6 @@ class CustomerSearchDropdown extends Component
             ->all();
     }
 
-    /**
-     * @param  array<int, mixed>  $options
-     * @return array<int, array{id:int|string,name:string}>
-     */
-    private function normalizeOptions(array $options): array
-    {
-        $normalized = [];
-
-        foreach ($options as $key => $value) {
-            $id = null;
-            $label = null;
-
-            if (is_array($value)) {
-                $id = $value['id'] ?? $key;
-                $label = $value['name'] ?? $value['display_name'] ?? null;
-            } else {
-                $id = $key;
-                $label = (string) $value;
-            }
-
-            if ($id === null || $label === null) {
-                continue;
-            }
-
-            $normalized[] = [
-                'id' => is_numeric($id) ? (int) $id : $id,
-                'name' => $label,
-            ];
-        }
-
-        return $normalized;
-    }
-
-    private function upsertOption(array $option): void
-    {
-        if (($option['id'] ?? null) === null || ($option['name'] ?? null) === null) {
-            return;
-        }
-
-        $foundIndex = null;
-        foreach ($this->options as $index => $item) {
-            if ((string) $item['id'] === (string) $option['id']) {
-                $foundIndex = $index;
-                break;
-            }
-        }
-
-        if ($foundIndex !== null) {
-            $this->options[$foundIndex] = array_merge($this->options[$foundIndex], $option);
-        } else {
-            $this->options[] = $option;
-        }
-
-        $this->options = $this->dedupeById($this->options);
-    }
-
-    /**
-     * @param  array<int, array{id:int|string,name:string}>  $options
-     * @return array<int, array{id:int|string,name:string}>
-     */
     private function dedupeById(array $options): array
     {
         $seen = [];
@@ -280,7 +205,7 @@ class CustomerSearchDropdown extends Component
         return $deduped;
     }
 
-    private function dispatchSelection(?int $paymentTermId = null): void
+    private function dispatchSelection(): void
     {
         // Fetch full customer data for the event
         $customer = Customer::find($this->selected);
