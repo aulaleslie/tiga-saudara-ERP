@@ -16,6 +16,10 @@ class SearchProduct extends Component
     public int $how_many = 5;
     public $settingId;
 
+    protected $listeners = [
+        'productCreated' => 'handleProductCreated',
+    ];
+
     public function mount(): void
     {
         $this->settingId = session('setting_id');
@@ -61,5 +65,15 @@ class SearchProduct extends Component
     public function selectProduct($product): void
     {
         $this->dispatch('productSelected', $product);
+    }
+
+    public function handleProductCreated(array $data): void
+    {
+        // Only refresh suggestions if the user currently has a query typed
+        if (trim($this->query) === '') {
+            return;
+        }
+
+        $this->updatedQuery();
     }
 }

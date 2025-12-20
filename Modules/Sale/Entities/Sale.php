@@ -67,27 +67,6 @@ class Sale extends BaseModel
             // Determine if this is a POS sale
             $isPosSale = !empty($model->pos_receipt_id);
 
-            // Fetch the latest reference for the current year and month, filtered by setting_id and POS status
-            $latestReferenceQuery = Sale::whereYear('created_at', $year)
-                ->whereMonth('created_at', $month)
-                ->where('setting_id', $model->setting_id);
-
-            if ($isPosSale) {
-                $latestReferenceQuery->whereNotNull('pos_receipt_id');
-            } else {
-                $latestReferenceQuery->whereNull('pos_receipt_id');
-            }
-
-            $latestReference = $latestReferenceQuery->latest('id')->value('reference');
-
-            // Extract the number from the latest reference
-            $nextNumber = 1; // Default to 1 if no reference exists
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
-            }
-
             // Grab the setting for this sale's tenant
             $setting = Setting::find($model->setting_id);
 
@@ -102,6 +81,32 @@ class Sale extends BaseModel
             }
 
             $prefix = $documentPrefix . '-' . $salePrefix;
+            $referencePrefix = sprintf(
+                '%s-%s-%s-',
+                $prefix,
+                $year,
+                str_pad($month, 2, '0', STR_PAD_LEFT)
+            );
+
+            // Fetch latest matching reference by prefix (safer than relying on created_at window)
+            $latestReferenceQuery = Sale::where('setting_id', $model->setting_id)
+                ->where('reference', 'like', $referencePrefix . '%');
+
+            if ($isPosSale) {
+                $latestReferenceQuery->whereNotNull('pos_receipt_id');
+            } else {
+                $latestReferenceQuery->whereNull('pos_receipt_id');
+            }
+
+            $latestReference = $latestReferenceQuery->latest('id')->value('reference');
+
+            // Extract the number from the latest reference
+            $nextNumber = 1; // Default to 1 if no reference exists
+            if ($latestReference && str_starts_with($latestReference, $referencePrefix)) {
+                $numericPart = substr($latestReference, strlen($referencePrefix));
+                $lastNumber = (int) $numericPart;
+                $nextNumber = $lastNumber + 1;
+            }
 
             $model->reference = make_reference_id($prefix, $year, $month, $nextNumber);
         });

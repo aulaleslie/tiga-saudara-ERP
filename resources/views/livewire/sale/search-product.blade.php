@@ -9,6 +9,12 @@
                         </div>
                     </div>
                     <input wire:keydown.escape="resetQuery" wire:model.live.debounce.500ms="query" type="text" class="form-control" placeholder="Tipe nama atau kode produk....">
+                    <x-quick-add-button
+                        entity="produk"
+                        permission="products.create"
+                        modal-event="openProductModal"
+                        tooltip="Tambah produk baru"
+                    />
                 </div>
             </div>
         </div>
