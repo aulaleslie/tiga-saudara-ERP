@@ -15,57 +15,46 @@
 
             <!-- Pelanggan -->
             <div class="col-lg-6 mb-3">
-                <label for="customer">Pelanggan</label>
-                <div class="d-flex">
-                    <div class="flex-grow-1">
-                        <livewire:auto-complete.customer-loader :customerId="$customerId" />
-                    </div>
-                    <x-quick-add-button
-                        entity="pelanggan"
-                        permission="customers.create"
-                        modal-event="openCustomerModal"
-                        tooltip="Tambah pelanggan baru"
-                    />
-                </div>
-                @error('customerId') <div class="text-danger">{{ $message }}</div> @enderror
+                <label for="customer_search">Pelanggan <span class="text-danger">*</span></label>
+                <livewire:modules.people.customer-search-dropdown
+                    name="customer_id"
+                    placeholder="Pilih pelanggan..."
+                    :allow-create="true"
+                    :error="$errors->first('customerId')"
+                    wire:key="sale-customer-dropdown"
+                />
             </div>
 
             <!-- Tanggal -->
             <div class="col-lg-6 mb-3">
-                <label for="date">Tanggal</label>
+                <label for="date">Tanggal <span class="text-danger">*</span></label>
                 <input id="date"
                        type="date"
                        class="form-control @error('date') is-invalid @enderror"
-                       wire:model="date">
+                       wire:model.live="date">
                 @error('date') <div class="invalid-feedback">{{ $message }}</div> @enderror
             </div>
 
             <!-- Jatuh Tempo -->
             <div class="col-lg-6 mb-3">
-                <label for="dueDate">Tanggal Jatuh Tempo</label>
+                <label for="dueDate">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
                 <input id="dueDate"
                        type="date"
                        class="form-control @error('dueDate') is-invalid @enderror"
-                       wire:model="dueDate">
+                       wire:model.live="dueDate">
                 @error('dueDate') <div class="invalid-feedback">{{ $message }}</div> @enderror
             </div>
 
             <!-- Term Pembayaran -->
             <div class="col-lg-6 mb-3">
-                <livewire:components.searchable-select
-                    name="paymentTermId"
-                    label="Term Pembayaran"
-                    :model-class="'Modules\Purchase\Entities\PaymentTerm'"
-                    :selected="$paymentTermId"
-                    placeholder="Cari term pembayaran..."
-                    required="true"
-                    quickAddEntity="term pembayaran"
-                    quickAddPermission="purchases.create"
-                    quickAddModalEvent="openPaymentTermModal"
-                    quickAddTooltip="Tambah term pembayaran baru"
-                    listenForCreatedEvent="paymentTermCreated"
+                <label for="payment_term_search">Term Pembayaran <span class="text-danger">*</span></label>
+                <livewire:modules.purchase.payment-term-search-dropdown
+                    name="payment_term"
+                    placeholder="Pilih term pembayaran..."
+                    :allow-create="true"
+                    :error="$errors->first('paymentTermId')"
+                    wire:key="sale-payment-term-dropdown"
                 />
-                @error('paymentTermId') <div class="invalid-feedback">{{ $message }}</div> @enderror
             </div>
         </div>
 
@@ -82,10 +71,6 @@
             @error('note') <div class="invalid-feedback">{{ $message }}</div> @enderror
         </div>
 
-{{--        <button type="submit" class="btn btn-primary mt-2">--}}
-{{--            Simpan Penjualan--}}
-{{--        </button>--}}
-
         <div class="mt-3">
             <button
                 type="button"
@@ -101,9 +86,4 @@
             <a href="{{ route('sales.index') }}" class="btn btn-secondary">Kembali</a>
         </div>
     </form>
-
-    <!-- Modals -->
-    <livewire:modules.purchase.modals.payment-term-quick-add-modal />
-    <livewire:modules.people.modals.customer-quick-add-modal />
-    <livewire:modules.setting.modals.tax-quick-add-modal />
 </div>

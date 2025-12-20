@@ -29,74 +29,109 @@
         </div>
     </div>
 
+    <!-- Modals - placed outside component tree to prevent orphaning during re-renders -->
+    <livewire:modules.purchase.modals.payment-term-quick-add-modal wire:key="sale-edit-payment-term-modal" />
+    <livewire:modules.people.modals.customer-quick-add-modal wire:key="sale-edit-customer-modal" />
+    <livewire:modules.product.modals.product-quick-add-modal wire:key="sale-edit-product-modal" />
+    <livewire:modules.setting.modals.tax-quick-add-modal wire:key="sale-edit-tax-modal" />
+
     @include('components.confirmation-modal')
 @endsection
 
 @push('page_scripts')
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const submitButton = document.getElementById('submitWithConfirmation');
-            const submitMethod = 'update';
+<script>
+    document.addEventListener('livewire:init', () => {
+        // Listen for payment-term-changed event from PaymentTermSearchDropdown
+        // This updates the dueDate field when payment term changes
+        Livewire.on('payment-term-changed', (event) => {
+            const paymentTermId = event.paymentTermId;
+            if (!paymentTermId) return;
 
-            const resolveLivewireComponent = () => {
-                if (!submitButton || typeof Livewire === 'undefined' || typeof Livewire.find !== 'function') {
-                    return null;
-                }
-
-                const componentRoot = submitButton.closest('[wire\\:id]');
-                if (!componentRoot) {
-                    return null;
-                }
-
-                const wireId = componentRoot.getAttribute('wire:id');
-                if (!wireId) {
-                    return null;
-                }
-
-                try {
-                    return Livewire.find(wireId);
-                } catch (error) {
-                    console.warn('Livewire component lookup failed.', error);
-                    return null;
-                }
-            };
-
-            const submitViaComponent = () => {
-                const wire = resolveLivewireComponent();
-                if (!wire) {
-                    return false;
-                }
-
-                if (typeof wire.$call === 'function') {
-                    wire.$call(submitMethod);
-                    return true;
-                }
-
-                if (typeof wire.call === 'function') {
-                    wire.call(submitMethod);
-                    return true;
-                }
-
-                if (typeof wire[submitMethod] === 'function') {
-                    wire[submitMethod]();
-                    return true;
-                }
-
-                return false;
-            };
-
-            if (submitButton) {
-                submitButton.addEventListener('click', function () {
-                    console.log("submitWithConfirmation clicked")
-                    showConfirmationModal(() => {
-                        if (submitViaComponent()) {
-                            return;
-                        }
-
-                        console.warn('Livewire submit handler is not available.');
-                    }, 'Apakah Anda yakin ingin menyimpan penjualan ini?');
+            // Fetch payment term longevity and calculate due date
+            fetch(`/api/payment-terms/${paymentTermId}`)
+                .then(response => response.json())
+                .then(data => {
+                    const dateInput = document.getElementById('date');
+                    const dueDateInput = document.getElementById('dueDate');
+                    
+                    if (dateInput && dueDateInput && data.longevity !== undefined) {
+                        const date = new Date(dateInput.value);
+                        date.setDate(date.getDate() + parseInt(data.longevity));
+                        const newDueDate = date.toISOString().split('T')[0];
+                        dueDateInput.value = newDueDate;
+                        
+                        // Also update Livewire property
+                        dueDateInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching payment term:', error);
                 });
-            }
         });
-    </script>
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const submitButton = document.getElementById('submitWithConfirmation');
+        const submitMethod = 'update';
+
+        const resolveLivewireComponent = () => {
+            if (!submitButton || typeof Livewire === 'undefined' || typeof Livewire.find !== 'function') {
+                return null;
+            }
+
+            const componentRoot = submitButton.closest('[wire\\:id]');
+            if (!componentRoot) {
+                return null;
+            }
+
+            const wireId = componentRoot.getAttribute('wire:id');
+            if (!wireId) {
+                return null;
+            }
+
+            try {
+                return Livewire.find(wireId);
+            } catch (error) {
+                console.warn('Livewire component lookup failed.', error);
+                return null;
+            }
+        };
+
+        const submitViaComponent = () => {
+            const wire = resolveLivewireComponent();
+            if (!wire) {
+                return false;
+            }
+
+            if (typeof wire.$call === 'function') {
+                wire.$call(submitMethod);
+                return true;
+            }
+
+            if (typeof wire.call === 'function') {
+                wire.call(submitMethod);
+                return true;
+            }
+
+            if (typeof wire[submitMethod] === 'function') {
+                wire[submitMethod]();
+                return true;
+            }
+
+            return false;
+        };
+
+        if (submitButton) {
+            submitButton.addEventListener('click', function () {
+                showConfirmationModal(() => {
+                    if (submitViaComponent()) {
+                        return;
+                    }
+
+                    console.warn('Livewire submit handler is not available.');
+                }, 'Apakah Anda yakin ingin menyimpan penjualan ini?');
+            });
+        }
+    });
+</script>
 @endpush

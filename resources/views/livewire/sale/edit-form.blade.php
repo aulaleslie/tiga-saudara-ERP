@@ -13,47 +13,50 @@
 
             <!-- Pelanggan -->
             <div class="col-lg-6 mb-3">
-                <label for="customer">Pelanggan</label>
-                <livewire:auto-complete.customer-loader :customerId="$customerId"/>
-                @error('customerId')
-                <div class="text-danger">{{ $message }}</div> @enderror
+                <label for="customer_search">Pelanggan <span class="text-danger">*</span></label>
+                <livewire:modules.people.customer-search-dropdown
+                    name="customer_id"
+                    placeholder="Pilih pelanggan..."
+                    :selected="$customerId"
+                    :allow-create="true"
+                    :error="$errors->first('customerId')"
+                    wire:key="sale-edit-customer-dropdown"
+                />
             </div>
 
             <!-- Tanggal -->
             <div class="col-lg-6 mb-3">
-                <label for="date">Tanggal</label>
+                <label for="date">Tanggal <span class="text-danger">*</span></label>
                 <input id="date"
                        type="date"
                        class="form-control @error('date') is-invalid @enderror"
-                       wire:model="date">
+                       wire:model.live="date">
                 @error('date')
                 <div class="invalid-feedback">{{ $message }}</div> @enderror
             </div>
 
             <!-- Jatuh Tempo -->
             <div class="col-lg-6 mb-3">
-                <label for="dueDate">Tanggal Jatuh Tempo</label>
+                <label for="dueDate">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
                 <input id="dueDate"
                        type="date"
                        class="form-control @error('dueDate') is-invalid @enderror"
-                       wire:model="dueDate">
+                       wire:model.live="dueDate">
                 @error('dueDate')
                 <div class="invalid-feedback">{{ $message }}</div> @enderror
             </div>
 
             <!-- Term Pembayaran -->
             <div class="col-lg-6 mb-3">
-                <label for="paymentTermId">Term Pembayaran</label>
-                <select id="paymentTermId"
-                        class="form-control @error('paymentTermId') is-invalid @enderror"
-                        wire:model="paymentTermId">
-                    <option value="">Pilih Term Pembayaran</option>
-                    @foreach($paymentTerms as $term)
-                        <option value="{{ $term->id }}">{{ $term->name }}</option>
-                    @endforeach
-                </select>
-                @error('paymentTermId')
-                <div class="invalid-feedback">{{ $message }}</div> @enderror
+                <label for="payment_term_search">Term Pembayaran <span class="text-danger">*</span></label>
+                <livewire:modules.purchase.payment-term-search-dropdown
+                    name="payment_term"
+                    placeholder="Pilih term pembayaran..."
+                    :selected="$paymentTermId"
+                    :allow-create="true"
+                    :error="$errors->first('paymentTermId')"
+                    wire:key="sale-edit-payment-term-dropdown"
+                />
             </div>
         </div>
 

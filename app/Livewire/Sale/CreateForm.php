@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
@@ -30,83 +31,96 @@ class CreateForm extends Component
 
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
-        'confirmSubmit' => 'submit',
-        'paymentTermCreated' => 'handlePaymentTermCreated',
         'customerCreated' => 'handleCustomerCreated',
+        'confirmSubmit' => 'submit',
         'taxCreated' => 'handleTaxCreated',
     ];
 
     public function mount(string $idempotencyToken)
     {
         $this->idempotencyToken = $idempotencyToken;
-        // You can leave reference blank—Sale::boot() will generate it on save,
-        // or generate here if you prefer.
-        $this->reference = 'SL'; // This can be dynamic if needed
+        $this->reference = 'SL';
         $this->date = now()->format('Y-m-d');
         $this->dueDate = now()->format('Y-m-d');
         $this->paymentTerms = PaymentTerm::all();
     }
 
-    public function updatedCustomerId($value)
+    private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
     {
-        $customer = Customer::find($value);
-        if ($customer && $customer->payment_term_id) {
-            $this->paymentTermId = $customer->payment_term_id;
-            $this->updateDueDateFromPaymentTerm();
+        $this->paymentTermId = $paymentTermId ?: null;
+        $this->updateDueDateFromPaymentTerm();
+
+        if ($syncDropdown) {
+            // Sync the payment term dropdown UI
+            $this->dispatch('setPaymentTerm', $this->paymentTermId)
+                ->to(PaymentTermSearchDropdown::class);
         }
     }
 
-    public function handleCustomerSelected($customer)
+    public function handleCustomerSelected($customer): void
     {
-        $this->customerId = $customer['id'];
-        $this->customerName = $customer['contact_name'];
-        $this->updatedCustomerId($customer['id']);
+        // Handle the customer selection from CustomerSearchDropdown
+        $this->customerId = $customer['id'] ?? null;
+        $this->customerName = $customer['customer_name'] ?? $customer['contact_name'] ?? null;
+        
+        // Sync payment term from the selected customer
+        $paymentTermId = isset($customer['payment_term_id']) ? (int) $customer['payment_term_id'] : null;
+        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+    }
+
+    public function updatedCustomerId($value): void
+    {
+        $customerId = $value ?: null;
+        $this->customerId = $customerId;
+
+        $paymentTermId = null;
+        if ($customerId) {
+            $customer = Customer::find($customerId);
+            $this->customerName = $customer?->customer_name ?? $customer?->contact_name;
+            $paymentTermId = $customer?->payment_term_id ? (int) $customer->payment_term_id : null;
+        }
+
+        $this->syncPaymentTermAndDueDate($paymentTermId, true);
     }
 
     private function updateDueDateFromPaymentTerm(): void
     {
-        $term = PaymentTerm::find($this->paymentTermId);
-        if ($term) {
-            $date = Carbon::parse($this->date);
-            $this->dueDate = $date->addDays($term->longevity)->format('Y-m-d');
+        $this->dueDate = $this->date;
+
+        $termId = $this->paymentTermId ? (int) $this->paymentTermId : null;
+        if (! $termId || ! $this->date) {
+            return;
         }
+
+        $term = PaymentTerm::find($termId);
+        if (! $term) {
+            return;
+        }
+
+        $this->dueDate = Carbon::parse($this->date)
+            ->addDays($term->longevity)
+            ->format('Y-m-d');
     }
 
-    public function updatedPaymentTermId($value)
+    public function updatedPaymentTermId($value): void
     {
-        $term = PaymentTerm::find($value);
-        if ($term) {
-            $this->dueDate = Carbon::parse($this->date)
-                ->addDays($term->longevity)
-                ->format('Y-m-d');
-        } else {
-            $this->dueDate = $this->date;
-        }
+        $this->syncPaymentTermAndDueDate($value ? (int) $value : null);
     }
 
-    public function updatedDate($value)
+    public function updatedDate($value): void
     {
         $this->updateDueDateFromPaymentTerm();
     }
 
-    public function handlePaymentTermCreated($data): void
+    public function handleCustomerCreated(array $customer): void
     {
-        $this->paymentTerms = PaymentTerm::all(); // Refresh the list
-        $this->paymentTermId = $data['id']; // Auto-select the new payment term
-        $this->updateDueDateFromPaymentTerm();
-    }
+        // Customer was just created, the dropdown will auto-select it
+        // We need to set the payment term from the newly created customer
+        $this->customerId = $customer['id'] ?? null;
+        $this->customerName = $customer['customer_name'] ?? $customer['contact_name'] ?? null;
+        $paymentTermId = isset($customer['payment_term_id']) ? (int) $customer['payment_term_id'] : null;
 
-    public function handleCustomerCreated($data): void
-    {
-        $this->customerId = $data['id'];
-        $this->customerName = $data['customer_name'];
-        // Auto-populate payment term if customer has one
-        if (isset($data['payment_term_id']) && $data['payment_term_id']) {
-            $this->paymentTermId = $data['payment_term_id'];
-            $this->updateDueDateFromPaymentTerm();
-        }
-        // Dispatch event to update customer loader
-        $this->dispatch('customerSelected', $data);
+        $this->syncPaymentTermAndDueDate($paymentTermId, true);
     }
 
     public function handleTaxCreated($data): void
@@ -115,9 +129,26 @@ class CreateForm extends Component
         $this->dispatch('taxCreated', $data);
     }
 
-    public function submit()
+    public function submit(?string $customerId = null, ?string $paymentTermId = null)
     {
         $this->dispatch('sale:submit-start');
+
+        // Use passed values from hidden inputs if available
+        if ($customerId !== null && $customerId !== '') {
+            $this->customerId = $customerId;
+        }
+        if ($paymentTermId !== null && $paymentTermId !== '') {
+            $this->paymentTermId = $paymentTermId;
+        }
+        
+        // Fallback: Re-sync payment_term from customer if still not set
+        if ($this->customerId && !$this->paymentTermId) {
+            $customer = Customer::find($this->customerId);
+            if ($customer && $customer->payment_term_id) {
+                $this->paymentTermId = $customer->payment_term_id;
+                $this->updateDueDateFromPaymentTerm();
+            }
+        }
 
         try {
             $this->validate([
@@ -129,6 +160,8 @@ class CreateForm extends Component
             ], [
                 'customerId.required'   => 'Pilih pelanggan terlebih dahulu.',
                 'customerId.exists'     => 'Pelanggan tidak valid.',
+                'paymentTermId.required' => 'Pilih term pembayaran terlebih dahulu.',
+                'paymentTermId.exists'  => 'Term pembayaran yang dipilih tidak valid.',
                 'dueDate.after_or_equal'=> 'Tanggal jatuh tempo harus ≥ tanggal jual.',
             ]);
 
