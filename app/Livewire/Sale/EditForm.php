@@ -8,6 +8,7 @@ use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Livewire\Component;
+use Modules\Sale\Services\SaleCartAggregator;
 use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
@@ -121,6 +122,17 @@ class EditForm extends Component
 
     public function handleCustomerSelected($customer): void
     {
+        if (is_object($customer) && method_exists($customer, 'toArray')) {
+            $customer = $customer->toArray();
+        } elseif (!is_array($customer)) {
+            $customerModel = Customer::find(is_numeric($customer) ? (int) $customer : null);
+            $customer = $customerModel?->toArray();
+        }
+
+        if (! $customer || ! isset($customer['id'])) {
+            return;
+        }
+
         // Handle the customer selection from CustomerSearchDropdown
         $this->customerId = $customer['id'] ?? null;
         $this->customerName = $customer['customer_name'] ?? $customer['contact_name'] ?? null;
@@ -190,6 +202,16 @@ class EditForm extends Component
 
     public function update(?string $customerId = null, ?string $paymentTermId = null)
     {
+        Log::info('Sale update called', [
+            'sale_id' => $this->sale->id,
+            'customerId_param' => $customerId,
+            'paymentTermId_param' => $paymentTermId,
+            'customerId_state' => $this->customerId,
+            'paymentTermId_state' => $this->paymentTermId,
+        ]);
+
+        $this->dispatch('sale:submit-start');
+
         // Use passed values from hidden inputs if available
         if ($customerId !== null && $customerId !== '') {
             $this->customerId = $customerId;
@@ -198,102 +220,134 @@ class EditForm extends Component
             $this->paymentTermId = $paymentTermId;
         }
 
-        $this->validate([
-            'customerId'    => 'required|exists:customers,id',
-            'date'          => 'required|date',
-            'dueDate'       => 'required|date|after_or_equal:date',
-            'paymentTermId' => 'required|exists:payment_terms,id',
-            'note'          => 'nullable|string|max:1000',
-        ], [
-            'customerId.required'    => 'Pilih pelanggan terlebih dahulu.',
-            'customerId.exists'      => 'Pelanggan tidak valid.',
-            'paymentTermId.required' => 'Pilih term pembayaran terlebih dahulu.',
-            'paymentTermId.exists'   => 'Term pembayaran yang dipilih tidak valid.',
-            'dueDate.after_or_equal' => 'Tanggal jatuh tempo harus ≥ tanggal jual.',
-        ]);
-
-        if (Cart::instance('sale')->count() === 0) {
-            $this->dispatch('notify', [
-                'type'    => 'error',
-                'message' => 'Produk harus dipilih.',
-            ]);
-            return;
+        // Fallback: Re-sync payment_term from customer if still not set
+        if ($this->customerId && !$this->paymentTermId) {
+            $customer = Customer::find($this->customerId);
+            if ($customer && $customer->payment_term_id) {
+                $this->paymentTermId = $customer->payment_term_id;
+                $this->updateDueDateFromPaymentTerm();
+            }
         }
 
-        DB::beginTransaction();
-
         try {
-            $cartItems      = Cart::instance('sale')->content();
-            $totalSub       = $cartItems->sum(fn($i) => $i->options->sub_total);
-            $taxAmount      = $cartItems->sum(fn($i) => $i->options->sub_total - ($i->options->sub_total_before_tax ?? 0));
-            $globalDiscount = 0;
-            $shipping       = 0;
-            $grandTotal     = $totalSub - $globalDiscount + $shipping;
-
-            // Update sale header
-            $this->sale->update([
-                'date'               => $this->date,
-                'due_date'           => $this->dueDate,
-                'customer_id'        => $this->customerId,
-                'customer_name'      => Customer::findOrFail($this->customerId)->customer_name,
-                'tax_amount'         => $taxAmount,
-                'discount_percentage'=> 0,
-                'discount_amount'    => $globalDiscount,
-                'shipping_amount'    => $shipping,
-                'total_amount'       => $grandTotal,
-                'due_amount'         => $grandTotal,
-                'payment_term_id'    => $this->paymentTermId,
-                'note'               => $this->note,
+            Log::info('Sale update validating', [
+                'sale_id' => $this->sale->id,
+                'customerId' => $this->customerId,
+                'paymentTermId' => $this->paymentTermId,
+                'date' => $this->date,
+                'dueDate' => $this->dueDate,
             ]);
 
-            // Remove old details & bundles
-            SaleBundleItem::where('sale_id', $this->sale->id)->delete();
-            SaleDetails::where('sale_id', $this->sale->id)->delete();
+            $this->validate([
+                'customerId'    => 'required|exists:customers,id',
+                'date'          => 'required|date',
+                'dueDate'       => 'required|date|after_or_equal:date',
+                'paymentTermId' => 'required|exists:payment_terms,id',
+                'note'          => 'nullable|string|max:1000',
+            ], [
+                'customerId.required'    => 'Pilih pelanggan terlebih dahulu.',
+                'customerId.exists'      => 'Pelanggan tidak valid.',
+                'paymentTermId.required' => 'Pilih term pembayaran terlebih dahulu.',
+                'paymentTermId.exists'   => 'Term pembayaran yang dipilih tidak valid.',
+                'dueDate.after_or_equal' => 'Tanggal jatuh tempo harus ≥ tanggal jual.',
+            ]);
 
-            // Re-insert details & bundles
-            foreach ($cartItems as $item) {
-                $lineTax = $item->options->sub_total - ($item->options->sub_total_before_tax ?? 0);
-
-                $detail = SaleDetails::create([
-                    'sale_id'                 => $this->sale->id,
-                    'product_id'              => $item->options->product_id,
-                    'product_name'            => $item->name,
-                    'product_code'            => $item->options->code,
-                    'quantity'                => $item->qty,
-                    'unit_price'              => $item->options->unit_price,
-                    'price'                   => $item->price,
-                    'product_discount_type'   => $item->options->product_discount_type,
-                    'product_discount_amount' => $item->options->product_discount,
-                    'sub_total'               => $item->options->sub_total,
-                    'product_tax_amount'      => $lineTax,
-                    'tax_id'                  => $item->options->product_tax,
+            if (Cart::instance('sale')->count() === 0) {
+                Log::warning('Sale update aborted: empty cart', ['sale_id' => $this->sale->id]);
+                $this->dispatch('notify', [
+                    'type'    => 'error',
+                    'message' => 'Produk harus dipilih.',
                 ]);
-
-                foreach ($item->options->bundle_items ?? [] as $b) {
-                    SaleBundleItem::create([
-                        'sale_detail_id' => $detail->id,
-                        'sale_id'        => $this->sale->id,
-                        'bundle_id'      => $b['bundle_id']      ?? null,
-                        'bundle_item_id' => $b['bundle_item_id'] ?? null,
-                        'product_id'     => $b['product_id'],
-                        'name'           => $b['name'],
-                        'price'          => $b['price'],
-                        'quantity'       => $b['quantity'],
-                        'sub_total'      => $b['sub_total'],
-                    ]);
-                }
+                return;
             }
 
-            DB::commit();
+            DB::beginTransaction();
 
-            Cart::instance('sale')->destroy();
-            session()->flash('success', 'Penjualan Diperbaharui!');
-            return redirect()->route('sales.index');
+            try {
+                Log::info('Sale update persisting', [
+                    'sale_id' => $this->sale->id,
+                    'cart_count' => Cart::instance('sale')->count(),
+                    'customerId' => $this->customerId,
+                    'paymentTermId' => $this->paymentTermId,
+                ]);
 
-        } catch (Exception $e) {
-            DB::rollBack();
-            Log::error('Livewire Sale Update Failed: '.$e->getMessage());
-            session()->flash('error', 'Gagal memperbaharui penjualan. Silakan coba lagi.');
+                $cartItems = Cart::instance('sale')->content();
+                $aggregatedItems = SaleCartAggregator::aggregate($cartItems);
+
+                // Totals
+                $totalSub       = $cartItems->sum(fn($i) => $i->options['sub_total']);
+                $taxAmount      = $cartItems->sum(fn($i) => $i->options['sub_total'] - ($i->options['sub_total_before_tax'] ?? 0));
+                $globalDiscount = 0;
+                $shipping       = 0;
+                $grandTotal     = $totalSub - $globalDiscount + $shipping;
+
+                // Update sale header
+                $this->sale->update([
+                    'date'               => $this->date,
+                    'due_date'           => $this->dueDate,
+                    'customer_id'        => $this->customerId,
+                    'customer_name'      => Customer::findOrFail($this->customerId)->customer_name,
+                    'tax_amount'         => $taxAmount,
+                    'discount_percentage'=> 0,
+                    'discount_amount'    => $globalDiscount,
+                    'shipping_amount'    => $shipping,
+                    'total_amount'       => $grandTotal,
+                    'due_amount'         => $grandTotal,
+                    'payment_term_id'    => $this->paymentTermId,
+                    'note'               => $this->note,
+                ]);
+
+                Log::info('Sale header updated', ['sale_id' => $this->sale->id, 'reference' => $this->sale->reference]);
+
+                // Remove old details & bundles
+                SaleBundleItem::where('sale_id', $this->sale->id)->delete();
+                SaleDetails::where('sale_id', $this->sale->id)->delete();
+
+                // Re-insert details & bundles using aggregated items
+                foreach ($aggregatedItems as $item) {
+                    $detail = SaleDetails::create([
+                        'sale_id'                 => $this->sale->id,
+                        'product_id'              => $item['product_id'],
+                        'product_name'            => $item['product_name'],
+                        'product_code'            => $item['product_code'],
+                        'quantity'                => $item['quantity'],
+                        'unit_price'              => round((float) $item['unit_price'], 2),
+                        'price'                   => round((float) $item['price'], 2),
+                        'product_discount_type'   => $item['product_discount_type'],
+                        'product_discount_amount' => round((float) $item['product_discount_amount'], 2),
+                        'sub_total'               => round((float) $item['sub_total'], 2),
+                        'product_tax_amount'      => round((float) $item['product_tax_amount'], 2),
+                        'tax_id'                  => $item['tax_id'],
+                    ]);
+
+                    foreach ($item['bundle_items'] ?? [] as $b) {
+                        SaleBundleItem::create([
+                            'sale_detail_id' => $detail->id,
+                            'sale_id'        => $this->sale->id,
+                            'bundle_id'      => $b['bundle_id'] ?? null,
+                            'bundle_item_id' => $b['bundle_item_id'] ?? null,
+                            'product_id'     => $b['product_id'],
+                            'name'           => $b['name'],
+                            'price'          => round((float) ($b['price'] ?? 0), 2),
+                            'quantity'       => $b['quantity'],
+                            'sub_total'      => round((float) ($b['sub_total'] ?? 0), 2),
+                        ]);
+                    }
+                }
+
+                DB::commit();
+
+                Cart::instance('sale')->destroy();
+                session()->flash('success', 'Penjualan Diperbaharui!');
+                Log::info('Sale update completed', ['sale_id' => $this->sale->id]);
+                return redirect()->route('sales.index');
+            } catch (Exception $e) {
+                DB::rollBack();
+                Log::error('Livewire Sale Update Failed: ' . $e->getMessage());
+                session()->flash('error', 'Gagal memperbaharui penjualan. Silakan coba lagi.');
+            }
+        } finally {
+            $this->dispatch('sale:submit-finish');
         }
     }
 

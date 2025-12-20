@@ -73,6 +73,7 @@
     document.addEventListener('DOMContentLoaded', function () {
         const submitButton = document.getElementById('submitWithConfirmation');
         const submitMethod = 'update';
+        let isProcessing = false;
 
         const resolveLivewireComponent = () => {
             if (!submitButton || typeof Livewire === 'undefined' || typeof Livewire.find !== 'function') {
@@ -97,41 +98,79 @@
             }
         };
 
+        const readDropdownValue = (name) => {
+            return document.querySelector(`input[name="${name}"]`)?.value || null;
+        };
+
         const submitViaComponent = () => {
             const wire = resolveLivewireComponent();
             if (!wire) {
                 return false;
             }
 
+            const customerId = readDropdownValue('customer_id');
+            const paymentTermId = readDropdownValue('payment_term');
+
             if (typeof wire.$call === 'function') {
-                wire.$call(submitMethod);
+                wire.$call(submitMethod, customerId, paymentTermId);
                 return true;
             }
 
             if (typeof wire.call === 'function') {
-                wire.call(submitMethod);
+                wire.call(submitMethod, customerId, paymentTermId);
                 return true;
             }
 
             if (typeof wire[submitMethod] === 'function') {
-                wire[submitMethod]();
+                wire[submitMethod](customerId, paymentTermId);
                 return true;
             }
 
             return false;
         };
 
+        const setButtonProcessing = (processing = false) => {
+            if (!submitButton) return;
+
+            const spinner = submitButton.querySelector('.button-spinner');
+            const textEl = submitButton.querySelector('.button-text');
+            const defaultText = submitButton.dataset.defaultText || submitButton.textContent.trim();
+            const processingText = submitButton.dataset.processingText || 'Processing…';
+
+            if (processing) {
+                submitButton.disabled = true;
+                submitButton.classList.add('disabled');
+                if (spinner) spinner.classList.remove('d-none');
+                if (textEl) textEl.textContent = processingText;
+            } else {
+                submitButton.disabled = false;
+                submitButton.classList.remove('disabled');
+                if (spinner) spinner.classList.add('d-none');
+                if (textEl) textEl.textContent = defaultText;
+            }
+
+            isProcessing = processing;
+        };
+
         if (submitButton) {
             submitButton.addEventListener('click', function () {
+                if (isProcessing) return;
+
                 showConfirmationModal(() => {
+                    setButtonProcessing(true);
+
                     if (submitViaComponent()) {
                         return;
                     }
 
                     console.warn('Livewire submit handler is not available.');
+                    setButtonProcessing(false);
                 }, 'Apakah Anda yakin ingin menyimpan penjualan ini?');
             });
         }
+
+        window.addEventListener('sale:submit-start', () => setButtonProcessing(true));
+        window.addEventListener('sale:submit-finish', () => setButtonProcessing(false));
     });
 </script>
 @endpush
