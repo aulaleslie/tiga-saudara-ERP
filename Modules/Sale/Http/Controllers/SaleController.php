@@ -41,11 +41,11 @@ use Modules\Sale\Services\SaleCartAggregator;
 class SaleController extends Controller
 {
 
-    public function index(SalesDataTable $dataTable)
+    public function index()
     {
         abort_if(Gate::denies('sales.access'), 403);
 
-        return $dataTable->render('sale::index');
+        return view('sale::index');
     }
 
 

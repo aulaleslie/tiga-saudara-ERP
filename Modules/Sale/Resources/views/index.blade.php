@@ -2,10 +2,6 @@
 
 @section('title', 'Sales')
 
-@section('third_party_stylesheets')
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css">
-@endsection
-
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
@@ -28,7 +24,7 @@
                         <hr>
 
                         <div class="table-responsive">
-                            {!! $dataTable->table() !!}
+                            <livewire:sale.sale-table />
                         </div>
                     </div>
                 </div>
@@ -37,20 +33,3 @@
     </div>
 @endsection
 
-@push('page_scripts')
-    {!! $dataTable->scripts() !!}
-    <script>
-        document.addEventListener('visibilitychange', function () {
-            if (document.visibilityState !== 'visible') {
-                return;
-            }
-
-            const tables = window.LaravelDataTables || {};
-            const salesTable = tables['sales-table'];
-
-            if (salesTable) {
-                salesTable.ajax.reload(null, false);
-            }
-        });
-    </script>
-@endpush

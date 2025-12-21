@@ -16,37 +16,48 @@
                                     @error('customer_name') <div class="text-danger">{{ $message }}</div> @enderror
                                 </div>
                                 <div class="col-md-6 mb-3">
-                                    <label for="contact_name" class="form-label">Nama Kontak</label>
-                                    <input type="text" class="form-control" id="contact_name" wire:model="contact_name">
-                                    @error('contact_name') <div class="text-danger">{{ $message }}</div> @enderror
+                                    <label for="tier" class="form-label">Tier Pelanggan</label>
+                                    <select class="form-control" id="tier" wire:model="tier">
+                                        @foreach($tierOptions as $value => $label)
+                                            <option value="{{ $value }}">{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('tier') <div class="text-danger">{{ $message }}</div> @enderror
                                 </div>
                             </div>
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label for="email" class="form-label">Email</label>
-                                    <input type="email" class="form-control" id="email" wire:model="email">
-                                    @error('email') <div class="text-danger">{{ $message }}</div> @enderror
+                                    <label for="contact_name" class="form-label">Nama Kontak</label>
+                                    <input type="text" class="form-control" id="contact_name" wire:model="contact_name">
+                                    @error('contact_name') <div class="text-danger">{{ $message }}</div> @enderror
                                 </div>
                                 <div class="col-md-6 mb-3">
-                                    <label for="phone" class="form-label">Telepon</label>
-                                    <input type="text" class="form-control" id="phone" wire:model="phone">
-                                    @error('phone') <div class="text-danger">{{ $message }}</div> @enderror
+                                    <label for="customer_email" class="form-label">Email</label>
+                                    <input type="email" class="form-control" id="customer_email" wire:model="customer_email">
+                                    @error('customer_email') <div class="text-danger">{{ $message }}</div> @enderror
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="customer_phone" class="form-label">Telepon</label>
+                                    <input type="text" class="form-control" id="customer_phone" wire:model="customer_phone">
+                                    @error('customer_phone') <div class="text-danger">{{ $message }}</div> @enderror
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="payment_term_id" class="form-label">Syarat Pembayaran</label>
+                                    <select class="form-control" id="payment_term_id" wire:model="payment_term_id">
+                                        <option value="">Pilih syarat pembayaran</option>
+                                        @foreach($paymentTerms as $term)
+                                            <option value="{{ $term->id }}">{{ $term->name }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('payment_term_id') <div class="text-danger">{{ $message }}</div> @enderror
                                 </div>
                             </div>
                             <div class="mb-3">
                                 <label for="address" class="form-label">Alamat</label>
                                 <textarea class="form-control" id="address" rows="3" wire:model="address"></textarea>
                                 @error('address') <div class="text-danger">{{ $message }}</div> @enderror
-                            </div>
-                            <div class="mb-3">
-                                <label for="payment_term_id" class="form-label">Syarat Pembayaran</label>
-                                <select class="form-control" id="payment_term_id" wire:model="payment_term_id">
-                                    <option value="">Pilih syarat pembayaran</option>
-                                    @foreach($paymentTerms as $term)
-                                        <option value="{{ $term->id }}">{{ $term->name }}</option>
-                                    @endforeach
-                                </select>
-                                @error('payment_term_id') <div class="text-danger">{{ $message }}</div> @enderror
                             </div>
                         </form>
                     </div>

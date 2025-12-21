@@ -134,13 +134,16 @@ class CustomerSearchDropdown extends Component
             return;
         }
 
+        // Update the dropdown selection UI
         $this->selected = $option['id'];
         $this->selectedLabel = $option['name'];
         $this->open = false;
         $this->search = '';
         
-        // Dispatch with the payment term ID from the created customer array
-        $this->dispatchSelection();
+        // Note: We do NOT call dispatchSelection() here because CreateForm
+        // already listens for 'customerCreated' directly and handles the
+        // payment term sync. Dispatching 'customerSelected' would cause
+        // duplicate event handling and a 419 error.
     }
 
     private function resolveLabel(int|string|null $id): ?string
