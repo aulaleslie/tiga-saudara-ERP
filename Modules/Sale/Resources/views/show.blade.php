@@ -65,11 +65,14 @@
                     <table class="table table-striped">
                         <thead>
                         <tr>
-                            <th class="align-middle">Produk</th>
+                            <th class="align-middle" style="width: 15%;">Produk</th>
                             <th class="align-middle">Harga Satuan</th>
                             <th class="align-middle">Kuantitas</th>
                             <th class="align-middle">Diskon</th>
-                            <th class="align-middle">Pajak</th>
+                            @if($sale->saleDetails->sum('product_tax_amount') > 0)
+                                <th class="align-middle">DPP</th>
+                                <th class="align-middle">Tax %</th>
+                            @endif
                             <th class="align-middle">Jumlah Total</th>
                         </tr>
                         </thead>
@@ -83,14 +86,21 @@
                                 <td class="align-middle">{{ format_currency($detail->price) }}</td>
                                 <td class="align-middle">{{ $detail->quantity }}</td>
                                 <td class="align-middle">{{ format_currency($detail->product_discount_amount) }}</td>
-                                <td class="align-middle">{{ format_currency($detail->product_tax_amount) }}</td>
+                                @if($sale->saleDetails->sum('product_tax_amount') > 0)
+                                    <td class="align-middle">
+                                        {{ format_currency($detail->sub_total - $detail->product_tax_amount - $detail->product_discount_amount) }}
+                                    </td>
+                                    <td class="align-middle">
+                                        {{ $detail->tax ? $detail->tax->value . '%' : '-' }}
+                                    </td>
+                                @endif
                                 <td class="align-middle">{{ format_currency($detail->sub_total) }}</td>
                             </tr>
 
                             {{-- Tampilkan bundle items jika ada --}}
                             @if($detail->bundleItems->isNotEmpty())
                                 <tr>
-                                    <td colspan="6">
+                                    <td colspan="{{ $sale->saleDetails->sum('product_tax_amount') > 0 ? 7 : 5 }}">
                                         <div class="ms-4">
                                             <strong>Item Bundel:</strong>
                                             <table class="table table-sm table-bordered mt-2">
@@ -125,16 +135,28 @@
                 <!-- Ringkasan Total -->
                 <div class="row">
                     <div class="col-lg-4 col-sm-5 ml-md-auto">
+                        @php
+                            $totalSaleTax = $sale->saleDetails->sum('product_tax_amount');
+                            $dppAmount = $sale->saleDetails->sum('sub_total') - $totalSaleTax - $sale->discount_amount;
+                        @endphp
                         <table class="table">
                             <tbody>
+                            @if($totalSaleTax > 0)
+                                <tr>
+                                    <td class="left"><strong>DPP (Dasar Pengenaan Pajak)</strong></td>
+                                    <td class="right">{{ format_currency($dppAmount) }}</td>
+                                </tr>
+                            @endif
                             <tr>
                                 <td class="left"><strong>Diskon ({{ $sale->discount_percentage }}%)</strong></td>
                                 <td class="right">{{ format_currency($sale->discount_amount) }}</td>
                             </tr>
-                            <tr>
-                                <td class="left"><strong>Pajak ({{ $sale->tax_percentage }}%)</strong></td>
-                                <td class="right">{{ format_currency($sale->tax_amount) }}</td>
-                            </tr>
+                            @if($totalSaleTax > 0)
+                                <tr>
+                                    <td class="left"><strong>Pajak</strong></td>
+                                    <td class="right">{{ format_currency($totalSaleTax) }}</td>
+                                </tr>
+                            @endif
                             <tr>
                                 <td class="left"><strong>Pengiriman</strong></td>
                                 <td class="right">{{ format_currency($sale->shipping_amount) }}</td>

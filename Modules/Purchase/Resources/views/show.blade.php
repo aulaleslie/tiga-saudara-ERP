@@ -134,17 +134,28 @@
                         </div>
                         <div class="row">
                             <div class="col-lg-4 col-sm-5 ml-md-auto">
+                                @php
+                                    $totalPurchaseTax = $purchase->purchaseDetails->sum('product_tax_amount');
+                                    $dppAmount = $purchase->purchaseDetails->sum('sub_total') - $totalPurchaseTax - $purchase->discount_amount;
+                                @endphp
                                 <table class="table">
                                     <tbody>
+                                    @if($totalPurchaseTax > 0)
+                                        <tr>
+                                            <td class="left"><strong>DPP (Dasar Pengenaan Pajak)</strong></td>
+                                            <td class="right">{{ formatRupiah($dppAmount) }}</td>
+                                        </tr>
+                                    @endif
                                     <tr>
-                                        <td class="left"><strong>DPP (Dasar Pengenaan Pajak)</strong></td>
-                                        <td class="right">{{ formatRupiah($purchase->purchaseDetails->sum('sub_total') - $purchase->purchaseDetails->sum('product_tax_amount') - $purchase->discount_amount) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="left"><strong>Diskon ({{ $purchase->discount_percentage }}
-                                                %)</strong></td>
+                                        <td class="left"><strong>Diskon ({{ $purchase->discount_percentage }} %)</strong></td>
                                         <td class="right">{{ formatRupiah($purchase->discount_amount) }}</td>
                                     </tr>
+                                    @if($totalPurchaseTax > 0)
+                                        <tr>
+                                            <td class="left"><strong>Pajak</strong></td>
+                                            <td class="right">{{ formatRupiah($totalPurchaseTax) }}</td>
+                                        </tr>
+                                    @endif
                                     <tr>
                                         <td class="left"><strong>Pengiriman</strong></td>
                                         <td class="right">{{ formatRupiah($purchase->shipping_amount) }}</td>
