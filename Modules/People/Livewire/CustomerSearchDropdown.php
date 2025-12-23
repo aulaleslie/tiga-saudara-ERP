@@ -17,6 +17,7 @@ class CustomerSearchDropdown extends Component
     public string $search = '';
     public bool $open = false;
     public bool $allowCreate = false;
+    public bool $dispatchOnCreate = false;
     #[Reactive]
     public ?string $error = null;
 
@@ -35,12 +36,14 @@ class CustomerSearchDropdown extends Component
         string $name = 'customer_id',
         string $placeholder = 'Pilih pelanggan...',
         bool $allowCreate = false,
+        bool $dispatchOnCreate = false,
         ?string $error = null,
         ?string $dispatchTo = null
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
         $this->allowCreate = $allowCreate;
+        $this->dispatchOnCreate = $dispatchOnCreate;
         $this->error = $error;
         $this->dispatchTo = $dispatchTo;
 
@@ -140,10 +143,12 @@ class CustomerSearchDropdown extends Component
         $this->open = false;
         $this->search = '';
         
-        // Note: We do NOT call dispatchSelection() here because CreateForm
-        // already listens for 'customerCreated' directly and handles the
-        // payment term sync. Dispatching 'customerSelected' would cause
-        // duplicate event handling and a 419 error.
+        if ($this->dispatchOnCreate) {
+            // Optional dispatch for contexts (like POS) that rely solely on the event
+            $this->dispatchSelection();
+        }
+        // Note: Keep dispatchOnCreate false for forms (e.g., Sale Create) that handle
+        // 'customerCreated' directly to avoid duplicate event handling.
     }
 
     private function resolveLabel(int|string|null $id): ?string

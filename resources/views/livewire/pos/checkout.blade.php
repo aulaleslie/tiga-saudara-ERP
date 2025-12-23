@@ -80,17 +80,15 @@
             {{-- Customer Picker --}}
             <div class="form-group">
                 <label for="customer_id">Pelanggan <span class="text-danger">*</span></label>
-                <div class="input-group">
-                    <div class="input-group-prepend">
-                        <button type="button" class="btn btn-primary" wire:click="triggerCustomerModal"
-                                style="z-index: 1;">
-                            <i class="bi bi-person-plus"></i>
-                        </button>
-                    </div>
-                    <div class="flex-grow-1">
-                        <livewire:auto-complete.customer-loader/>
-                    </div>
-                </div>
+                <livewire:modules.people.customer-search-dropdown
+                    name="customer_id"
+                    placeholder="Pilih pelanggan..."
+                    :allow-create="true"
+                    :dispatch-on-create="true"
+                    :selected="$customer_id"
+                    :error="$errors->first('customer_id')"
+                    wire:key="pos-customer-dropdown"
+                />
             </div>
 
             {{-- Cart Items: Mobile --}}
@@ -333,6 +331,6 @@
     @include('livewire.pos.includes.checkout-modal')
     @include('livewire.pos.includes.change-modal')
     @include('livewire.sale.includes.bundle-confirmation-modal')
-    <livewire:customer.create-modal/>
+    <livewire:modules.people.modals.customer-quick-add-modal wire:key="pos-customer-modal"/>
     <livewire:pos.serial-number-picker />
 </div>
