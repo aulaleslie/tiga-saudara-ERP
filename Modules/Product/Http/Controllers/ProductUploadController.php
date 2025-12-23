@@ -9,6 +9,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use League\Csv\Exception;
@@ -21,6 +22,7 @@ use Modules\Product\Entities\ProductImportBatch;
 use Modules\Product\Entities\ProductImportRow;
 use Modules\Product\Jobs\ProcessProductImportBatch;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Setting;
 
 class ProductUploadController extends Controller
 {
@@ -44,23 +46,47 @@ class ProductUploadController extends Controller
         abort_if(Gate::denies('products.create'), 403);
 
         $request->validate([
-            'file'        => 'required|mimes:csv,txt',
-            'location_id' => 'required|exists:locations,id',
+            'file' => 'required|mimes:csv,txt',
+        ]);
+
+        $file = $request->file('file');
+        Log::info('[ProductImport] Upload request received', [
+            'user_id' => auth()->id(),
+            'file_name' => $file->getClientOriginalName(),
+            'file_size_kb' => round($file->getSize() / 1024, 2),
         ]);
 
         // 1) Save CSV
         $path = $request->file('file')->store('imports/products');
         $fullPath = Storage::path($path);
 
+        // Resolve setting & location automatically (location kept for schema compatibility only)
+        $settingId = $this->resolveSettingId();
+        if (!$settingId) {
+            return back()->withErrors(['file' => 'Setting belum dikonfigurasi. Tambahkan setting terlebih dahulu.']);
+        }
+        $locationId = $this->resolveLocationId($settingId);
+        if ($locationId === null) {
+            Log::warning('[ProductImport] Location resolution failed', ['setting_id' => $settingId]);
+            return back()->withErrors(['file' => 'Lokasi belum dikonfigurasi. Tambahkan lokasi terlebih dahulu.']);
+        }
+
+        Log::info('[ProductImport] Resolved context', [
+            'setting_id' => $settingId,
+            'location_id' => $locationId
+        ]);
+
         // 2) Create a batch
         $batch = ProductImportBatch::create([
             'user_id'         => auth()->id(),
-            'location_id'     => (int) $request->input('location_id'),
+            'location_id'     => $locationId,
             'source_csv_path' => $path,
             'file_sha256'     => hash_file('sha256', $fullPath),
             'status'          => 'queued',
             'undo_token'      => Str::random(40),
         ]);
+
+        Log::info('[ProductImport] Batch created', ['batch_id' => $batch->id]);
 
         // 3) Read & normalize headers (BOM/whitespace/case) + auto-detect delimiter
         $csv = Reader::createFromPath($fullPath);
@@ -88,59 +114,23 @@ class ProductUploadController extends Controller
             'product name'       => 'Nama Produk',
 
             'kode produk'        => 'Kode Produk',
+            'product code'       => 'Kode Produk',
             'sku'                => 'Kode Produk',
 
-            'barcode'            => 'Barcode',
+            'stok di tangan'     => 'Stok di tangan',
+            'stok'               => 'Stok di tangan',
 
-            'nama kategori'      => 'Nama Kategori',
-            'kategori'           => 'Nama Kategori',
+            'batas minimum'      => 'Batas Minimum',
+            'stok minimum'       => 'Batas Minimum',
 
-            'nama merek'         => 'Nama Merek',
-            'merek'              => 'Nama Merek',
-            'brand'              => 'Nama Merek',
+            'satuan'             => 'Satuan',
+            'unit'               => 'Satuan',
 
-            'kelola stok'        => 'Kelola Stok',
+            'harga rata-rata'    => 'Harga Rata-rata',
+            'harga rata rata'    => 'Harga Rata-rata',
+            'average price'      => 'Harga Rata-rata',
 
-            'wajib nomor seri'   => 'Wajib Nomor Seri',
-            'wajib no seri'      => 'Wajib Nomor Seri',
-
-            'nama unit dasar'    => 'Nama Unit Dasar',
-            'unit'               => 'Nama Unit Dasar',
-
-            'stok'               => 'Stok',
-            'stok minimum'       => 'Stok Minimum',
-
-            'dibeli'             => 'Dibeli',
-            'harga beli'         => 'Harga Beli',
-            'nama pajak beli'    => 'Nama Pajak Beli',
-
-            'dijual'             => 'Dijual',
-            'harga jual'         => 'Harga Jual',
-            'harga tier 1'       => 'Harga Tier 1',
-            'harga tier 2'       => 'Harga Tier 2',
-            'nama pajak jual'    => 'Nama Pajak Jual',
-
-            // optional conversion blocks
-            'konv1_namaunit'     => 'Konv1_NamaUnit',
-            'konv1_faktor'       => 'Konv1_Faktor',
-            'konv1_barcode'      => 'Konv1_Barcode',
-            'konv1_harga'        => 'Konv1_Harga',
-            'konv2_namaunit'     => 'Konv2_NamaUnit',
-            'konv2_faktor'       => 'Konv2_Faktor',
-            'konv2_barcode'      => 'Konv2_Barcode',
-            'konv2_harga'        => 'Konv2_Harga',
-            'konv3_namaunit'     => 'Konv3_NamaUnit',
-            'konv3_faktor'       => 'Konv3_Faktor',
-            'konv3_barcode'      => 'Konv3_Barcode',
-            'konv3_harga'        => 'Konv3_Harga',
-            'konv4_namaunit'     => 'Konv4_NamaUnit',
-            'konv4_faktor'       => 'Konv4_Faktor',
-            'konv4_barcode'      => 'Konv4_Barcode',
-            'konv4_harga'        => 'Konv4_Harga',
-            'konv5_namaunit'     => 'Konv5_NamaUnit',
-            'konv5_faktor'       => 'Konv5_Faktor',
-            'konv5_barcode'      => 'Konv5_Barcode',
-            'konv5_harga'        => 'Konv5_Harga',
+            'nilai'              => 'Nilai',
         ];
 
         // Build canonical => actual header map
@@ -152,12 +142,12 @@ class ProductUploadController extends Controller
         }
 
         // Required columns (adjust if you need more/less strict)
-        $required = ['Nama Produk', 'Nama Kategori', 'Nama Unit Dasar', 'Stok', 'Harga Jual', 'Harga Beli'];
+        $required = ['Nama Produk', 'Satuan', 'Harga Rata-rata'];
         $missing = array_values(array_diff($required, array_keys($headerMap)));
         if (!empty($missing)) {
             return back()->withErrors([
                 'file' => 'CSV header mismatch. Missing columns: ' . implode(', ', $missing)
-                    . '. Make sure your header matches the template (aliases are accepted).',
+                    . '. Pastikan header sesuai template product.csv.',
             ]);
         }
 
@@ -173,10 +163,14 @@ class ProductUploadController extends Controller
             ]);
         }
 
+        Log::info('[ProductImport] Rows staged', ['batch_id' => $batch->id, 'total_rows' => $rowNo]);
+
         $batch->update(['total_rows' => $rowNo, 'status' => 'validating']);
 
         // 5) Queue processing
         dispatch(new ProcessProductImportBatch($batch->id));
+
+        Log::info('[ProductImport] Batch processing job dispatched', ['batch_id' => $batch->id]);
 
         toast("Upload diterima. Batch #{$batch->id} sedang diproses.", 'success');
         return redirect()->route('products.imports.show', $batch);
@@ -196,58 +190,33 @@ class ProductUploadController extends Controller
             return array_key_exists($actual, $record) ? trim((string) $record[$actual]) : null;
         };
 
-        // Helpers
-        $toBool = function ($v): int {
-            return in_array(strtolower((string) $v), ['1','true','ya','yes','y'], true) ? 1 : 0;
-        };
-        $toInt = function ($v): int {
-            // keep digits, dot, minus; parse float; round to int (IDR)
-            $s = preg_replace('/[^\d.\-]/', '', (string) $v);
-            if ($s === '' || $s === '.' || $s === '-' || $s === '-.' ) {
-                return 0;
-            }
-            return (int) $s;
-        };
-
         $payload = [
             'product_name'      => $get('Nama Produk'),
             'product_code'      => $get('Kode Produk'),
-            'barcode'           => $get('Barcode'),
-            'category_name'     => $get('Nama Kategori'),
-            'brand_name'        => $get('Nama Merek'),
-
-            'stock_managed'     => $toBool($get('Kelola Stok')),        // if header absent → 0
-            'serial_required'   => $toBool($get('Wajib Nomor Seri')),
-            'base_unit_name'    => $get('Nama Unit Dasar'),
-            'stock_qty'         => $toInt($get('Stok')),
-            'min_stock'         => $toInt($get('Stok Minimum')),
-
-            'is_purchased'      => $toBool($get('Dibeli')),
-            'purchase_price'    => $toInt($get('Harga Beli')),
-            'purchase_tax_name' => $get('Nama Pajak Beli'),
-
-            'is_sold'           => $toBool($get('Dijual')),
-            'sale_price'        => $toInt($get('Harga Jual')),
-            'tier_1_price'      => $toInt($get('Harga Tier 1')),
-            'tier_2_price'      => $toInt($get('Harga Tier 2')),
-            'sale_tax_name'     => $get('Nama Pajak Jual'),
+            'unit_name'         => $get('Satuan'),
+            'average_price'     => $get('Harga Rata-rata'),
+            'stock_on_hand'     => $get('Stok di tangan'),
+            'minimum_stock'     => $get('Batas Minimum'),
+            'nilai'             => $get('Nilai'),
         ];
 
-        // Optional conversion blocks conv1..conv5
-        for ($i = 1; $i <= 5; $i++) {
-            $payload["conv{$i}"] = [
-                'unit_name' => $get("Konv{$i}_NamaUnit"),
-                'factor'    => $toInt($get("Konv{$i}_Faktor")),
-                'barcode'   => $get("Konv{$i}_Barcode"),
-                'price'     => $toInt($get("Konv{$i}_Harga")),
-            ];
-        }
-
-        // Sensible defaults if some optional columns are missing
-        if (!isset($headerMap['Kelola Stok'])) {
-            $payload['stock_managed'] = 1; // default manage stock if column not provided
-        }
-
         return $payload;
+    }
+
+    private function resolveSettingId(): ?int
+    {
+        $id = session('setting_id') ?? Setting::query()->min('id');
+        return $id ? (int) $id : null;
+    }
+
+    private function resolveLocationId(int $settingId): ?int
+    {
+        $locationId = Location::where('setting_id', $settingId)->value('id');
+        if ($locationId) {
+            return (int) $locationId;
+        }
+
+        $fallback = Location::query()->value('id');
+        return $fallback ? (int) $fallback : null;
     }
 }

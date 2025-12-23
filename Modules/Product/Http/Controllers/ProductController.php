@@ -1029,105 +1029,37 @@ class ProductController extends Controller
         abort_if(Gate::denies('products.create'), 403);
 
         $filename = 'template_upload_produk.csv';
-        $maxConversions = 5;
 
-        // Header berbahasa Indonesia (semua by NAMA, tidak ada kolom ID)
+        // Template mengikuti struktur kolom product.csv
         $headers = [
-            // Identitas produk
-            'Nama Produk',          // wajib
-            'Kode Produk',          // wajib & unik
-            'Barcode',              // opsional
-            'Nama Kategori',        // opsional (akan dibuat jika belum ada)
-            'Nama Merek',           // opsional (akan dibuat jika belum ada)
-
-            // Stok & unit
-            'Kelola Stok',          // 0|1
-            'Wajib Nomor Seri',     // 0|1
-            'Nama Unit Dasar',      // wajib jika Kelola Stok = 1 (akan dibuat jika belum ada)
-            'Stok',                 // integer
-            'Stok Minimum',         // integer
-
-            // Pembelian (pajak opsional)
-            'Dibeli',               // 0|1
-            'Harga Beli',           // wajib jika Dibeli = 1
-            'Nama Pajak Beli',      // opsional (cari by name; biarkan kosong jika tidak ada)
-
-            // Penjualan (pajak opsional)
-            'Dijual',               // 0|1
-            'Harga Jual',           // wajib jika Dijual = 1
-            'Harga Tier 1',         // wajib jika Dijual = 1
-            'Harga Tier 2',         // wajib jika Dijual = 1
-            'Nama Pajak Jual',      // opsional (cari by name; biarkan kosong jika tidak ada)
+            'Kode Produk',
+            'Nama Produk',
+            'Stok di tangan',
+            'Batas Minimum',
+            'Satuan',
+            'Harga Rata-rata',
+            'Nilai',
         ];
 
-        // Kolom konversi (maks 5 set) — semua by NAMA, tanpa ID
-        for ($i = 1; $i <= $maxConversions; $i++) {
-            $headers[] = "Konv{$i}_NamaUnit";   // prioritas nama (akan dibuat jika belum ada)
-            $headers[] = "Konv{$i}_Faktor";     // wajib jika unit diisi
-            $headers[] = "Konv{$i}_Barcode";    // opsional
-            $headers[] = "Konv{$i}_Harga";      // wajib jika unit diisi
-        }
-
-        // Contoh 1 baris (boleh dihapus oleh user)
+        // Contoh baris (boleh dihapus saat diisi pengguna)
         $example = [
-            // Identitas produk
-            'Produk Contoh A',    // Nama Produk
-            'SKU-001',            // Kode Produk
-            '8991234567890',      // Barcode
-            'Sembako',            // Nama Kategori
-            'Merek Umum',         // Nama Merek
-
-            // Stok & unit
-            1,                    // Kelola Stok
-            0,                    // Wajib Nomor Seri
-            'Pcs',                // Nama Unit Dasar
-            100,                  // Stok
-            10,                   // Stok Minimum
-
-            // Pembelian
-            1,                    // Dibeli
-            15000,                // Harga Beli
-            'PPN 11%',            // Nama Pajak Beli (opsional)
-
-            // Penjualan
-            1,                    // Dijual
-            20000,                // Harga Jual
-            19500,                // Harga Tier 1
-            19000,                // Harga Tier 2
-            'PPN 11%',            // Nama Pajak Jual (opsional)
+            'SKU-001',
+            'Produk Contoh',
+            0,
+            1,
+            'PCS',
+            '123,456.78',
+            '123,456.78',
         ];
-
-        // Contoh konversi
-        for ($i = 1; $i <= $maxConversions; $i++) {
-            if ($i === 1) {
-                // 1 Box = 12 Pcs
-                $example[] = 'Box';     // Konv1_NamaUnit
-                $example[] = 12;        // Konv1_Faktor
-                $example[] = '8991234567891';
-                $example[] = 220000;    // Konv1_Harga
-            } elseif ($i === 2) {
-                // 1 Pack = 6 Pcs
-                $example[] = 'Pack';    // Konv2_NamaUnit
-                $example[] = 6;         // Konv2_Faktor
-                $example[] = '';        // barcode kosong
-                $example[] = 110000;    // Konv2_Harga
-            } else {
-                // sisanya kosong
-                $example[] = ''; $example[] = ''; $example[] = ''; $example[] = '';
-            }
-        }
 
         return response()->streamDownload(function () use ($headers, $example) {
             $out = fopen('php://output', 'w');
-            // Jika perlu kompatibilitas Excel Windows: tulis BOM UTF-8
-            // fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
             fputcsv($out, $headers);
             fputcsv($out, $example);
             fclose($out);
         }, $filename, [
-            'Content-Type'        => 'text/csv; charset=UTF-8',
-            'Cache-Control'       => 'no-store, no-cache',
-            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Content-Type'  => 'text/csv; charset=UTF-8',
+            'Cache-Control' => 'no-store, no-cache',
         ]);
     }
 }

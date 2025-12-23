@@ -26,13 +26,28 @@ class ProductImportController extends Controller
         return view('product::products.imports.index', compact('batches'));
     }
 
-    public function show(ProductImportBatch $batch): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function show(Request $request, ProductImportBatch $batch): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('products.access'), 403);
 
-        $rows = ProductImportRow::where('batch_id', $batch->id)
-            ->orderBy('row_number')
-            ->paginate(25);
+        $query = ProductImportRow::where('batch_id', $batch->id);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('search')) {
+            $term = '%' . $request->search . '%';
+            $query->where(function($q) use ($term) {
+                $q->where('product_id', 'like', $term)
+                  ->orWhere('error_message', 'like', $term)
+                  ->orWhere('raw_json', 'like', $term);
+            });
+        }
+
+        $rows = $query->orderBy('row_number')
+            ->paginate(25)
+            ->withQueryString();
 
         return view('product::products.imports.show', compact('batch','rows'));
     }

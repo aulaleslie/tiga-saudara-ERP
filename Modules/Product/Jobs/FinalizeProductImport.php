@@ -9,6 +9,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 use League\Csv\Reader;
 use League\Csv\Writer;
 use Modules\Product\Entities\ProductImportBatch;
@@ -24,6 +25,8 @@ class FinalizeProductImport implements ShouldQueue
     {
         /** @var ProductImportBatch $batch */
         $batch = ProductImportBatch::findOrFail($this->batchId);
+
+        Log::info('[FinalizeProductImport] Job started', ['batch_id' => $this->batchId]);
 
         // --- open source CSV for reading (via stream) ---
         $readStream = Storage::readStream($batch->source_csv_path);
@@ -96,6 +99,11 @@ class FinalizeProductImport implements ShouldQueue
             'completed_at'         => now(),
             'undo_token'           => $hasNewer ? null : Str::uuid()->toString(),
             'undo_available_until' => $hasNewer ? null : now()->addHour(), // 1-hour window
+        ]);
+
+        Log::info('[FinalizeProductImport] Job completed', [
+            'batch_id' => $this->batchId,
+            'status' => $finalStatus
         ]);
     }
 }

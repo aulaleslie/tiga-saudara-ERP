@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Storage;
 use League\Csv\Exception;
 use League\Csv\Reader;
 use League\Csv\SyntaxError;
+use Illuminate\Support\Facades\Log;
 use Modules\Product\Entities\ProductImportBatch;
 use Modules\Product\Entities\ProductImportRow;
 use Modules\Setting\Entities\Location;
@@ -37,6 +38,8 @@ class PreflightProductImport implements ShouldQueue
      */
     public function handle(): void
     {
+        Log::info('[PreflightProductImport] Job started', ['batch_id' => $this->batchId, 'uploader_id' => $this->uploaderId]);
+
         /** @var ProductImportBatch $batch */
         $batch = ProductImportBatch::lockForUpdate()->findOrFail($this->batchId);
         $batch->update(['status' => 'validating', 'validated_rows' => 0]);
@@ -96,7 +99,9 @@ class PreflightProductImport implements ShouldQueue
         // quick header validation (required visible headers)
         foreach (['Nama Produk*','Unit Dasar*'] as $req) {
             if (!in_array($req, $headers, true)) {
-                $batch->update(['status' => 'failed', 'error_message' => "Missing header: {$req}"]);
+                $msg = "Missing header: {$req}";
+                Log::error('[PreflightProductImport] Header validation failed', ['batch_id' => $this->batchId, 'error' => $msg]);
+                $batch->update(['status' => 'failed', 'error_message' => $msg]);
                 return;
             }
         }
@@ -197,8 +202,10 @@ class PreflightProductImport implements ShouldQueue
 
             $pending->dispatch();
             $batch->update(['status' => 'processing', 'validated_rows' => count($validRowIds)]);
+            Log::info('[PreflightProductImport] Chunks dispatched', ['batch_id' => $this->batchId, 'chunks' => count($jobs), 'valid_rows' => count($validRowIds)]);
         } else {
             // Nothing to import; finalize immediately (only errors)
+            Log::warning('[PreflightProductImport] No valid rows to process', ['batch_id' => $this->batchId]);
             FinalizeProductImport::dispatch($batch->id);
         }
     }

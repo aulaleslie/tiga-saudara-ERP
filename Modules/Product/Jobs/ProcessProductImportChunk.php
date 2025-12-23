@@ -26,6 +26,7 @@ use Modules\Setting\Entities\Unit;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use Illuminate\Support\Facades\Log;
 
 class ProcessProductImportChunk implements ShouldQueue
 {
@@ -42,6 +43,11 @@ class ProcessProductImportChunk implements ShouldQueue
         $location = Location::with('setting')->findOrFail($batch->location_id);
         $settingIdForCreations = $location->setting_id;
         $uploaderId = (int) $batch->user_id;
+
+        Log::info('[ProductImportChunk] Job started', [
+            'batch_id' => $this->batchId, 
+            'rows_count' => count($this->rowIds)
+        ]);
 
         // Cache lookups by lowercase name (avoid repeated queries)
         $cacheUnit = $cacheBrand = $cacheCategory = $cacheTax = [];
@@ -344,6 +350,8 @@ class ProcessProductImportChunk implements ShouldQueue
                     $row->product_id    = $product->id;
                     $row->error_message = null;
                     $row->save();
+                    
+                    Log::info('[ProductImportChunk] Product created', ['row_id' => $row->id, 'product_id' => $product->id]);
                 });
 
                 // counters
@@ -353,6 +361,11 @@ class ProcessProductImportChunk implements ShouldQueue
                 ]);
 
             } catch (\Throwable $e) {
+                Log::error('[ProductImportChunk] Row failed', [
+                    'batch_id' => $this->batchId, 
+                    'row_id' => $row->id, 
+                    'error' => $e->getMessage()
+                ]);
                 $row->update(['status' => 'error', 'error_message' => $e->getMessage()]);
 
                 ProductImportBatch::whereKey($this->batchId)->update([

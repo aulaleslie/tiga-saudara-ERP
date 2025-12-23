@@ -4,7 +4,12 @@
 @section('content')
     <div class="container-fluid">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4>Batch #{{ $batch->id }}</h4>
+            <div>
+                <a href="{{ route('products.imports.index') }}" class="btn btn-secondary me-2">
+                    <i class="bi bi-arrow-left"></i> Kembali
+                </a>
+                <h4 class="d-inline-block align-middle mb-0">Batch #{{ $batch->id }}</h4>
+            </div>
             <div>
                 <span class="badge bg-secondary">{{ $batch->status }}</span>
                 <span class="ms-2">{{ $batch->progress }}% ({{ $batch->processed_rows }}/{{ $batch->total_rows }})</span>
@@ -18,8 +23,34 @@
         </div>
 
         <div class="card">
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0">
+            <div class="card-body">
+                <form action="{{ route('products.imports.show', $batch) }}" method="GET" class="mb-3">
+                    <div class="row g-2">
+                        <div class="col-md-3">
+                            <select name="status" class="form-select form-control">
+                                <option value="">Status: Semua</option>
+                                <option value="imported" {{ request('status') == 'imported' ? 'selected' : '' }}>Imported</option>
+                                <option value="error" {{ request('status') == 'error' ? 'selected' : '' }}>Error</option>
+                                <option value="skipped" {{ request('status') == 'skipped' ? 'selected' : '' }}>Skipped</option>
+                                <option value="pending" {{ request('status') == 'pending' ? 'selected' : '' }}>Pending</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <input type="text" name="search" class="form-control" placeholder="Cari Product ID, Error, atau Payload..." value="{{ request('search') }}">
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary w-100">Filter</button>
+                        </div>
+                        <div class="col-md-2">
+                            @if(request()->hasAny(['status', 'search']))
+                                <a href="{{ route('products.imports.show', $batch) }}" class="btn btn-outline-secondary w-100">Reset</a>
+                            @endif
+                        </div>
+                    </div>
+                </form>
+
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0 table-striped">
                     <thead>
                     <tr>
                         <th>#</th><th>Status</th><th>Error</th><th>Product ID</th><th>Payload</th>
@@ -45,6 +76,7 @@
                     @endforeach
                     </tbody>
                 </table>
+                </div>
             </div>
             <div class="card-footer">
                 {{ $rows->links() }}
