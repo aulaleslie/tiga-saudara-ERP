@@ -14,8 +14,7 @@ use Modules\Setting\Entities\Setting;
 */
 
 Route::get('/', function () {
-    $settings = Setting::orderBy('id')->get(['id','company_name']);
-    return view('auth.login', compact('settings'));
+    return view('auth.login');
 })->middleware('guest');
 
 Auth::routes(['register' => false]);
@@ -52,7 +51,10 @@ Route::middleware(['auth']) // tighten as you like (e.g. 'can:view-ws-monitor')
         ->name('global-purchase-and-sales-search.statistics');
 });
 
-Route::get('/price-points/{setting}', [PricePointController::class, 'index'])
-    ->whereNumber('setting')
-    ->name('price-points.index');
+Route::middleware(['auth', 'role.setting'])
+    ->group(function () {
+        Route::get('/price-points', [PricePointController::class, 'index'])
+            ->middleware('can:pricePoints.access')
+            ->name('price-points.index');
+    });
 

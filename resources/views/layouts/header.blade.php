@@ -7,6 +7,13 @@
 <ul class="c-header-nav ml-auto">
 </ul>
 <ul class="c-header-nav ml-auto mr-4">
+    @can('pricePoints.access')
+        <li class="c-header-nav-item mr-2">
+            <a class="btn btn-primary btn-pill" href="{{ route('price-points.index') }}" target="_blank">
+                <i class="bi bi-tags mr-1"></i> Terminal Harga
+            </a>
+        </li>
+    @endcan
     @can('pos.create')
         <li class="c-header-nav-item mr-3">
                     <a class="btn btn-primary btn-pill {{ request()->routeIs('app.pos.index') ? 'disabled' : '' }}" href="{{ route('app.pos.index') }}">

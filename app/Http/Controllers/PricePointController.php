@@ -6,10 +6,17 @@ use Modules\Setting\Entities\Setting;
 
 class PricePointController extends Controller
 {
-    // Public page; later we’ll plug in Livewire & pagination
-    public function index(Setting $setting)
+    /**
+     * Display the Terminal Harga page for the currently active business.
+     */
+    public function index()
     {
-        // simple stub view so the button works now
+        $settingId = session('setting_id');
+
+        abort_unless($settingId, 403, 'No active business selected.');
+
+        $setting = Setting::findOrFail($settingId);
+
         return view('price-point.index', compact('setting'));
     }
 }

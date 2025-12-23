@@ -1,4 +1,4 @@
-@extends('layouts.guest')
+@extends('layouts.price-point')
 
 @section('title', 'Terminal Harga')
 

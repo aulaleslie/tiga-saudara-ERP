@@ -110,6 +110,9 @@ class PermissionsTableSeeder extends Seeder
             'pos.create',
             'pos.transactions.access',
 
+            // Price Points (Terminal Harga)
+            'pricePoints.access',
+
             // Products & bundles
             'products.access',
             'products.create',

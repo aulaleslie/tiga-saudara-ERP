@@ -209,6 +209,7 @@
                                         'POS' => [
                                             'pos.access' => 'Akses POS',
                                             'pos.create' => 'Buat POS',
+                                            'pricePoints.access' => 'Akses Terminal Harga',
                                         ],
 
                                         'Bisnis' => [
