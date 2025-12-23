@@ -11,7 +11,7 @@
                         Scan / Ketik Serial Number
 {{--                        <small class="text-muted">#Produk {{ $productId }}</small>--}}
                     </h5>
-                    <button type="button" class="close" aria-label="Close" wire:click="close">
+                    <button type="button" class="close" aria-label="Close" onclick="this.blur();" wire:click="close">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
@@ -49,7 +49,7 @@
                 </div>
 
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-light" wire:click="close">Tutup</button>
+                    <button type="button" class="btn btn-light" onclick="this.blur();" wire:click="close">Tutup</button>
                 </div>
             </div>
         </div>
@@ -58,7 +58,7 @@
     {{-- Focus helper --}}
     <script>
         document.addEventListener('livewire:init', () => {
-            this.on('focusSerialScanInput', () => {
+            Livewire.on('focusSerialScanInput', () => {
                 const el = document.getElementById('serial-scan-input');
                 if (el) { el.focus(); el.select(); }
             })

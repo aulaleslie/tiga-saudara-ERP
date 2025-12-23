@@ -33,26 +33,31 @@ class CreateModal extends Component
     {
         $this->validate();
 
+        // Generate unique placeholder values for optional unique fields
+        $uniqId = uniqid();
+        $email = "noemail-{$uniqId}@placeholder.local";
+        $phone = "nophone-{$uniqId}";
+
         $customer = Customer::create([
             'setting_id'     => session('setting_id'),
             'contact_name'   => $this->contact_name,
-            'customer_name'  => '',
-            'customer_phone' => '',
-            'customer_email' => '',
-            'identity'       => '',
-            'identity_number'=> '',
-            'npwp'           => '',
-            'billing_address'=> '',
-            'shipping_address' => '',
+            'customer_name'  => $this->contact_name,
+            'customer_phone' => $phone,
+            'customer_email' => $email,
+            'identity'       => null,
+            'identity_number'=> null,
+            'npwp'           => null,
+            'billing_address'=> null,
+            'shipping_address' => null,
             'city'           => '',
             'country'        => '',
             'address'        => '',
-            'additional_info'=> '',
+            'additional_info'=> null,
             'payment_term_id'=> null,
-            'bank_name'      => '',
-            'bank_branch'    => '',
-            'account_number' => '',
-            'account_holder' => '',
+            'bank_name'      => null,
+            'bank_branch'    => null,
+            'account_number' => null,
+            'account_holder' => null,
             'tier'           => $this->tier,
         ]);
 

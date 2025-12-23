@@ -109,6 +109,16 @@ class Checkout extends Component
 
         $this->initializeChangeModalFromFlash();
 
+        // Trigger the thank you dialog if sale was just completed
+        if ($this->forceShowChangeModal) {
+            $this->syncChangeModalState();
+            $this->dispatch('show-change-modal',
+                amount: $this->forcedChangeAmount ? $this->formatChangeAmount($this->forcedChangeAmount) : null,
+                transactionId: $this->checkoutCompletionTransactionId,
+                explicit: false
+            );
+        }
+
         $this->refreshTotals(true);
     }
 

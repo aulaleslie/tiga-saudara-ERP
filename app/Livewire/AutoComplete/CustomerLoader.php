@@ -16,6 +16,7 @@ class CustomerLoader extends Component
     public $isFocused = false;
     public $query_count = 0;
     public $how_many = 10; // Limit for search results
+    public $selectedCustomerId = null; // Track selected customer to prevent query override
 
     protected $listeners = ['customerSelected' => 'handleCustomerSelected'];
 
@@ -26,11 +27,18 @@ class CustomerLoader extends Component
             $this->query = $customer->contact_name;
             $this->search_results = [$customer];
             $this->query_count = 1;
+            $this->selectedCustomerId = $customerId;
         }
     }
 
     public function updatedQuery(): void
     {
+        // If a customer was just selected, don't search again
+        if ($this->selectedCustomerId !== null) {
+            $this->selectedCustomerId = null;
+            return;
+        }
+        
         if ($this->isFocused) {
             $this->searchCustomers();
         } else {
@@ -63,13 +71,20 @@ class CustomerLoader extends Component
     {
         $customer = Customer::find($customerId);
         if ($customer) {
-            $this->search_results = array($customer);
-            $this->query = "$customer->contact_name";
-
-            // Dispatch event to update table row
-            $this->dispatch('customerSelected', $customer);
+            // Set selectedCustomerId BEFORE changing query to prevent updatedQuery from overwriting
+            $this->selectedCustomerId = $customer->id;
+            $this->query = $customer->contact_name;
+            $this->search_results = []; // Clear results to close dropdown
             $this->isFocused = false;
             $this->query_count = 0;
+
+            // Dispatch event with customer data as array for proper Livewire 3 serialization
+            $this->dispatch('customerSelected', [
+                'id' => $customer->id,
+                'customer_name' => $customer->customer_name,
+                'contact_name' => $customer->contact_name,
+                'tier' => $customer->tier ?? null,
+            ]);
         }
     }
 
@@ -79,8 +94,10 @@ class CustomerLoader extends Component
         if (is_array($customerData) && isset($customerData['id'])) {
             $customer = Customer::find($customerData['id']);
             if ($customer) {
-                $this->search_results = [$customer];
+                // Mark as selected before mutating query to prevent updatedQuery from clearing it
+                $this->selectedCustomerId = $customer->id;
                 $this->query = $customer->contact_name;
+                $this->search_results = [$customer];
                 $this->query_count = 1;
                 $this->isFocused = false;
             }

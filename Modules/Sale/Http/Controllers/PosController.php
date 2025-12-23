@@ -367,18 +367,8 @@ class PosController extends Controller
         session()->flash('pos_last_transaction_id', (string) $posReceipt->id);
         session()->flash('pos_sale_completed', true);
 
-        // Store print content for direct browser printing (kiosk mode)
-        try {
-            $printHtml = view('sale::print-pos', [
-                'receipt' => $posReceipt,
-            ])->render();
-            session()->flash('pos_print_content', $printHtml);
-        } catch (Throwable $e) {
-            Log::warning('Failed to generate print content for session', [
-                'receipt_id' => $posReceipt->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        // Store receipt ID for direct browser printing (iframe approach)
+        session()->flash('pos_receipt_id', $posReceipt->id);
 
         toast('POS Sale Created!', 'success');
 

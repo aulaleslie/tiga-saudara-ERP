@@ -118,6 +118,7 @@
 
 @push('page_scripts')
     <script src="{{ asset('js/pos-printer.js') }}"></script>
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
     <script>
         // Check printer configuration on page load
         document.addEventListener('DOMContentLoaded', function () {
@@ -136,21 +137,46 @@
 
         // Handle pending print from session (after successful POS sale)
         function handlePendingPrint() {
-            @if(session('pos_print_content'))
-            // Auto print receipt after successful sale
-            const printContent = @json(session('pos_print_content'));
-            if (printContent && window.PosPrinterManager && window.PosPrinterManager.isPrinterConfigured()) {
-                // Small delay to ensure page is fully loaded
-                setTimeout(function() {
-                    window.PosPrinterManager.print(printContent)
-                        .then(() => {
-                            console.log('Receipt printed successfully');
-                        })
-                        .catch((error) => {
-                            console.error('Failed to print receipt:', error);
-                            alert('Gagal mencetak struk: ' + error.message);
-                        });
-                }, 500);
+            @if(session('pos_receipt_id'))
+            // Auto print receipt after successful sale using iframe approach
+            const receiptId = @json(session('pos_receipt_id'));
+            if (receiptId) {
+                // Create hidden iframe
+                const printFrame = document.createElement('iframe');
+                printFrame.style.position = 'fixed';
+                printFrame.style.right = '0';
+                printFrame.style.bottom = '0';
+                printFrame.style.width = '0';
+                printFrame.style.height = '0';
+                printFrame.style.border = '0';
+                printFrame.style.overflow = 'hidden';
+                printFrame.src = '/pos-receipt/' + receiptId + '/print';
+                document.body.appendChild(printFrame);
+
+                // When iframe loads, trigger print
+                printFrame.onload = function() {
+                    setTimeout(function() {
+                        try {
+                            printFrame.contentWindow.focus();
+                            printFrame.contentWindow.print();
+                            // Clean up after print dialog closes
+                            setTimeout(function() {
+                                if (document.body.contains(printFrame)) {
+                                    document.body.removeChild(printFrame);
+                                }
+                            }, 1000);
+                        } catch (error) {
+                            console.error('Print error:', error);
+                        }
+                    }, 300);
+                };
+
+                printFrame.onerror = function() {
+                    console.error('Failed to load receipt for printing');
+                    if (document.body.contains(printFrame)) {
+                        document.body.removeChild(printFrame);
+                    }
+                };
             }
             @endif
         }
@@ -461,50 +487,69 @@
                 refreshPosCurrencyDisplays();
             };
 
-            window.addEventListener('showCheckoutModal', () => {
-                $('#checkoutModal').modal('show');
-                window.initPosCurrencyFormatter();
+            // Livewire 3: Listen for showCheckoutModal event
+            document.addEventListener('livewire:init', () => {
+                Livewire.on('showCheckoutModal', () => {
+                    $('#checkoutModal').modal('show');
+                    window.initPosCurrencyFormatter();
+                });
             });
 
             let lastChangeModalTransactionId = null;
 
-            window.addEventListener('show-change-modal', (event) => {
-                const modal = $('#posChangeModal');
-                const detail = event?.detail ?? {};
-                const amount = detail.amount ?? '';
-                const transactionId = detail.transactionId ?? null;
-                const explicit = detail.explicit ?? false;
+            // Livewire 3: Listen for show-change-modal event
+            document.addEventListener('livewire:init', () => {
+                Livewire.on('show-change-modal', (params) => {
+                    const modal = $('#posChangeModal');
+                    // Livewire 3 passes params as array, first element contains our named params
+                    const detail = params?.[0] ?? params ?? {};
+                    const amount = detail.amount ?? '';
+                    const transactionId = detail.transactionId ?? null;
+                    const explicit = detail.explicit ?? false;
 
-                if (transactionId && transactionId === lastChangeModalTransactionId && !explicit) {
-                    return;
-                }
+                    if (transactionId && transactionId === lastChangeModalTransactionId && !explicit) {
+                        return;
+                    }
 
-                lastChangeModalTransactionId = transactionId ?? lastChangeModalTransactionId;
+                    lastChangeModalTransactionId = transactionId ?? lastChangeModalTransactionId;
 
-                if (amount) {
-                    modal.attr('aria-label', `Kembalian Rp. ${amount}`);
-                } else {
-                    modal.removeAttr('aria-label');
-                }
+                    if (amount) {
+                        modal.attr('aria-label', `Kembalian Rp. ${amount}`);
+                    } else {
+                        modal.removeAttr('aria-label');
+                    }
 
-                modal.modal('show');
-            });
-
-            window.addEventListener('hide-change-modal', () => {
-                $('#posChangeModal').modal('hide');
-            });
-
-            window.addEventListener('pos-mask-money-init', () => {
-                window.initPosCurrencyFormatter();
-            });
-
-            if (window.Livewire && typeof window.Livewire.hook === 'function') {
-                window.Livewire.hook('message.processed', () => {
-                    refreshPosCurrencyDisplays();
+                    modal.modal('show');
                 });
-            }
+            });
+
+
+            // Livewire 3: Listen for hide-change-modal
+            document.addEventListener('livewire:init', () => {
+                Livewire.on('hide-change-modal', () => {
+                    $('#posChangeModal').modal('hide');
+                });
+            });
+
+            // Livewire 3: Listen for pos-mask-money-init
+            document.addEventListener('livewire:init', () => {
+                Livewire.on('pos-mask-money-init', () => {
+                    window.initPosCurrencyFormatter();
+                });
+            });
 
             window.initPosCurrencyFormatter();
+
+            // Fix aria-hidden warning: blur focused elements before modal is hidden
+            document.querySelectorAll('.modal').forEach(function(modal) {
+                modal.addEventListener('hide.bs.modal', function() {
+                    // Blur any focused element inside the modal before hiding
+                    const focusedElement = modal.querySelector(':focus');
+                    if (focusedElement) {
+                        focusedElement.blur();
+                    }
+                });
+            });
         });
 
         // Initialize form submission lock for reprint form

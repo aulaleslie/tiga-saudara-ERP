@@ -31,7 +31,12 @@
                     <ul class="list-group list-group-flush">
                         @foreach($search_results as $result)
                             <li class="list-group-item list-group-item-action">
-                                <a wire:click.prevent="selectCustomer({{ $result->id }})" href="#">
+                                <a href="#" 
+                                   onclick="event.preventDefault(); 
+                                            const input = this.closest('.position-relative').querySelector('input'); 
+                                            input.value = '{{ addslashes($result->contact_name) }}';
+                                            input.blur();
+                                            @this.selectCustomer({{ $result->id }});">
                                     {{ $result->contact_name }}
                                 </a>
                             </li>
