@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
 use Livewire\WithPagination;
-use App\Events\PrintJobEvent;
 use Illuminate\Support\Facades\Auth;
 
 class PosTransactions extends Component
@@ -86,10 +85,8 @@ class PosTransactions extends Component
                 'receipt' => $receipt,
             ])->render();
 
-            // Broadcast for legacy Echo listeners
-            event(new PrintJobEvent($htmlContent, 'pos-sale', Auth::id()));
-
-            // Dispatch browser event for direct printing (kiosk mode)
+            // Dispatch event for browser JavaScript to handle printing
+            // In Livewire 3, use dispatch() which can be listened via Livewire.on()
             $this->dispatch('pos-print-receipt', content: $htmlContent);
 
             session()->flash('success', 'Receipt reprint job sent successfully');
@@ -100,7 +97,8 @@ class PosTransactions extends Component
 
     public function getPosSessionsProperty()
     {
-        return PosSession::where('user_id', Auth::id())
+        return PosSession::with('location')
+            ->where('user_id', Auth::id())
             ->whereHas('location', function (Builder $query) {
                 $query->where('setting_id', session('setting_id'));
             })

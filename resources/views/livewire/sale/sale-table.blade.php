@@ -28,6 +28,9 @@
             <th wire:click="sortBy('reference')" style="cursor:pointer">
                 Ref {!! $this->sortIcon('reference') !!}
             </th>
+            <th>
+                No. POS
+            </th>
             <th wire:click="sortBy('date')" style="cursor:pointer">
                 Tanggal {!! $this->sortIcon('date') !!}
             </th>
@@ -66,6 +69,9 @@
                     @endif
                 </td>
                 <td>
+                    {{ $sale->posReceipt?->receipt_number ?? '-' }}
+                </td>
+                <td>
                     {{ Carbon::parse($sale->date)->format('d M Y') }}
                 </td>
                 <td>
@@ -83,7 +89,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="9">Tidak ada data yang ditemukan.</td>
+                <td colspan="10">Tidak ada data yang ditemukan.</td>
             </tr>
         @endforelse
         </tbody>

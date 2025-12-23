@@ -82,4 +82,28 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/pos-transactions', function () {
         return view('sale::pos.transactions');
     })->name('pos.transactions.index')->middleware('can:pos.transactions.access');
+
+    // POS Receipt Print (opens receipt page and auto-triggers browser print dialog)
+    Route::get('/pos-receipt/{receipt}/print', function (\App\Models\PosReceipt $receipt) {
+        // Load relationships needed for the receipt view
+        $receipt->load([
+            'sales.saleDetails.product.conversions.unit',
+            'sales.saleDetails.product.conversions.prices',
+            'sales.saleDetails.product.baseUnit',
+            'sales.saleDetails.product.prices',
+            'sales.tenantSetting',
+            'sales.customer'
+        ]);
+
+        // Verify tenant access
+        if ($receipt->sales->first()?->setting_id !== session('setting_id')) {
+            abort(403, 'Unauthorized access to receipt');
+        }
+
+        return view('sale::print-pos', [
+            'receipt' => $receipt,
+            'autoPrint' => true, // Flag to auto-trigger print dialog
+        ]);
+    })->name('pos.receipt.print')->middleware('can:pos.transactions.access');
+
 });

@@ -1340,4 +1340,5 @@ class PosController extends Controller
 
         return back()->with('success', 'Struk transaksi terakhir telah dikirim ke printer');
     }
+
 }

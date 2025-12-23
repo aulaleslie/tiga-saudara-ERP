@@ -108,9 +108,9 @@
                                             </small>
                                         </td>
                                         <td>
-                                            <button type="button" class="btn btn-sm btn-primary"
-                                                    wire:click="reprintReceipt({{ $receipt->id }})"
-                                                    wire:confirm="Apakah Anda yakin ingin mencetak ulang struk ini?">
+                                            <button type="button"
+                                                    class="btn btn-sm btn-primary"
+                                                    onclick="printReceipt('{{ route('pos.receipt.print', $receipt->id) }}')">
                                                 <i class="fas fa-print"></i> Cetak Ulang
                                             </button>
                                         </td>
@@ -148,28 +148,57 @@
 </div>
 
 @push('page_scripts')
-<script src="{{ asset('js/pos-printer.js') }}"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        // Listen for Livewire print event
-        Livewire.on('pos-print-receipt', function(event) {
-            const content = event.content || event[0]?.content;
-            if (content && window.PosPrinterManager) {
-                if (!window.PosPrinterManager.isPrinterConfigured()) {
-                    alert('Printer belum dikonfigurasi. Silakan konfigurasi printer di halaman Sesi POS.');
-                    return;
+    /**
+     * Print receipt using hidden iframe approach
+     * Opens print dialog immediately without navigating away from the page
+     * @param {string} url - URL of the receipt to print
+     */
+    function printReceipt(url) {
+        // Create a hidden iframe
+        const printFrame = document.createElement('iframe');
+        printFrame.style.position = 'fixed';
+        printFrame.style.right = '0';
+        printFrame.style.bottom = '0';
+        printFrame.style.width = '0';
+        printFrame.style.height = '0';
+        printFrame.style.border = '0';
+        printFrame.style.overflow = 'hidden';
+        printFrame.src = url;
+
+        document.body.appendChild(printFrame);
+
+        // When iframe loads, trigger print
+        printFrame.onload = function() {
+            setTimeout(function() {
+                try {
+                    printFrame.contentWindow.focus();
+                    printFrame.contentWindow.print();
+
+                    // Clean up after print dialog closes
+                    setTimeout(function() {
+                        if (document.body.contains(printFrame)) {
+                            document.body.removeChild(printFrame);
+                        }
+                    }, 1000);
+                } catch (error) {
+                    console.error('Print error:', error);
+                    alert('Gagal mencetak: ' + error.message);
+                    if (document.body.contains(printFrame)) {
+                        document.body.removeChild(printFrame);
+                    }
                 }
-                window.PosPrinterManager.print(content)
-                    .then(() => {
-                        console.log('Receipt printed successfully');
-                    })
-                    .catch((error) => {
-                        console.error('Failed to print receipt:', error);
-                        alert('Gagal mencetak struk: ' + error.message);
-                    });
+            }, 300);
+        };
+
+        printFrame.onerror = function(error) {
+            console.error('Failed to load receipt:', error);
+            alert('Gagal memuat struk untuk dicetak.');
+            if (document.body.contains(printFrame)) {
+                document.body.removeChild(printFrame);
             }
-        });
-    });
+        };
+    }
 </script>
 @endpush
 @endsection
