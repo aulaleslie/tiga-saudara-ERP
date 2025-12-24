@@ -1,0 +1,518 @@
+<?php
+
+namespace Modules\Purchase\Services;
+
+use Carbon\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Modules\People\Entities\Supplier;
+use Modules\Product\Entities\Product;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\PurchaseImportBatch;
+use Modules\Purchase\Entities\PurchaseImportRow;
+use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
+use Modules\Setting\Entities\Unit;
+use Modules\Setting\Entities\Location;
+use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\Transaction;
+use Modules\Purchase\Entities\PaymentTerm;
+
+class PurchaseImportService
+{
+    /**
+     * Tenant mapping based on product name markers.
+     */
+    protected array $tenantMapping = [
+        'asterisk' => 'CV Tiga Nusa',      // * prefix
+        'tp'       => 'CV Top IT',          // TP suffix
+        'default'  => 'CV White Knight',    // no marker
+    ];
+
+    /**
+     * Parse product name and extract marker type.
+     *
+     * @return array{clean_name: string, marker: string}
+     */
+    public function parseProductName(string $rawName): array
+    {
+        $name = trim($rawName);
+
+        // Check for asterisk prefix
+        if (str_starts_with($name, '*')) {
+            return [
+                'clean_name' => trim(ltrim($name, '* ')),
+                'marker' => 'asterisk',
+            ];
+        }
+
+        // Check for TP suffix
+        if (str_ends_with($name, ' TP')) {
+            return [
+                'clean_name' => trim(substr($name, 0, -3)),
+                'marker' => 'tp',
+            ];
+        }
+
+        // No marker
+        return [
+            'clean_name' => $name,
+            'marker' => 'default',
+        ];
+    }
+
+    /**
+     * Get the setting (tenant) for a given marker.
+     */
+    public function getSettingForMarker(string $marker): ?Setting
+    {
+        $companyName = $this->tenantMapping[$marker] ?? $this->tenantMapping['default'];
+
+        return Setting::where('company_name', 'LIKE', "%{$companyName}%")->first();
+    }
+
+    /**
+     * Calculate tax percentage from amounts.
+     */
+    public function calculateTaxPercentage(float $subtotal, float $taxAmount): int
+    {
+        if ($subtotal <= 0) {
+            return 0;
+        }
+
+        return (int) round(($taxAmount / $subtotal) * 100);
+    }
+
+    /**
+     * Find or create a tax with the given percentage.
+     */
+    public function findOrCreateTax(int $percentage): Tax
+    {
+        $tax = Tax::where('value', $percentage)->first();
+
+        if (!$tax) {
+            $tax = Tax::create([
+                'name' => "PPN {$percentage}%",
+                'value' => $percentage,
+            ]);
+
+            Log::info('[PurchaseImport] Created new tax', [
+                'tax_id' => $tax->id,
+                'percentage' => $percentage,
+            ]);
+        }
+
+        return $tax;
+    }
+
+    /**
+     * Find or create a supplier by name.
+     */
+    public function findOrCreateSupplier(string $name, int $settingId): Supplier
+    {
+        $supplier = Supplier::whereRaw('LOWER(supplier_name) = ?', [strtolower(trim($name))])->first();
+
+        if (!$supplier) {
+            $supplier = Supplier::create([
+                'supplier_name' => trim($name),
+                'supplier_email' => '',
+                'supplier_phone' => '',
+                'address' => '',
+                'city' => '',
+                'country' => '',
+                'setting_id' => $settingId,
+            ]);
+
+            Log::info('[PurchaseImport] Created new supplier', [
+                'supplier_id' => $supplier->id,
+                'name' => $name,
+            ]);
+        }
+
+        return $supplier;
+    }
+
+    /**
+     * Find or create a product by cleaned name.
+     */
+    public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId): Product
+    {
+        $product = Product::whereRaw('LOWER(product_name) = ?', [strtolower(trim($cleanName))])->first();
+
+        if (!$product) {
+            // Find or create unit
+            $unit = Unit::whereRaw('LOWER(short_name) = ?', [strtolower(trim($unitName))])->first();
+            if (!$unit) {
+                $unit = Unit::create([
+                    'name' => ucfirst(strtolower($unitName)),
+                    'short_name' => strtoupper($unitName),
+                ]);
+            }
+
+            $product = Product::create([
+                'product_name' => trim($cleanName),
+                'product_code' => 'IMP-' . strtoupper(substr(md5($cleanName), 0, 8)),
+                'unit_id' => $unit->id,
+                'setting_id' => $settingId,
+                'product_cost' => 0,
+                'product_price' => 0,
+            ]);
+
+            Log::info('[PurchaseImport] Created new product', [
+                'product_id' => $product->id,
+                'name' => $cleanName,
+            ]);
+        }
+
+        return $product;
+    }
+
+    /**
+     * Parse date from DD/MM/YYYY format.
+     */
+    public function parseDate(string $dateStr): Carbon
+    {
+        return Carbon::createFromFormat('d/m/Y', trim($dateStr));
+    }
+
+    /**
+     * Process a batch of import rows.
+     */
+    public function processBatch(PurchaseImportBatch $batch): void
+    {
+        $batch->update(['status' => PurchaseImportBatch::STATUS_PROCESSING]);
+
+        try {
+            // Load all pending rows
+            $rows = $batch->pendingRows()->orderBy('row_number')->get();
+
+            // Group rows by invoice number and marker (tenant)
+            $groups = $this->groupRowsByInvoiceAndTenant($rows);
+
+            foreach ($groups as $groupKey => $groupRows) {
+                DB::transaction(function () use ($groupRows, $batch) {
+                    $this->processInvoiceGroup($groupRows, $batch);
+                });
+            }
+
+            // Update batch status
+            $batch->refresh();
+            $batch->update([
+                'status' => PurchaseImportBatch::STATUS_COMPLETED,
+                'processed_rows' => $batch->rows()->whereIn('status', ['processed', 'invalid'])->count(),
+            ]);
+
+            Log::info('[PurchaseImport] Batch completed', [
+                'batch_id' => $batch->id,
+                'success_count' => $batch->success_count,
+                'error_count' => $batch->error_count,
+            ]);
+        } catch (\Exception $e) {
+            $batch->update(['status' => PurchaseImportBatch::STATUS_FAILED]);
+            Log::error('[PurchaseImport] Batch failed', [
+                'batch_id' => $batch->id,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Group rows by invoice number and tenant marker.
+     */
+    protected function groupRowsByInvoiceAndTenant(Collection $rows): array
+    {
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $data = $row->raw_json;
+            $invoiceNo = $data['no_faktur'] ?? '';
+            $parsed = $this->parseProductName($data['produk'] ?? '');
+            $marker = $parsed['marker'];
+
+            $key = "{$invoiceNo}|{$marker}";
+
+            if (!isset($groups[$key])) {
+                $groups[$key] = [];
+            }
+            $groups[$key][] = $row;
+        }
+
+        return $groups;
+    }
+
+    /**
+     * Process a group of rows belonging to the same invoice and tenant.
+     */
+    protected function processInvoiceGroup(array $rows, PurchaseImportBatch $batch): void
+    {
+        if (empty($rows)) {
+            return;
+        }
+
+        $firstRow = $rows[0];
+        $data = $firstRow->raw_json;
+
+        // Parse product name to get marker
+        $parsed = $this->parseProductName($data['produk'] ?? '');
+        $setting = $this->getSettingForMarker($parsed['marker']);
+
+        if (!$setting) {
+            foreach ($rows as $row) {
+                $row->update([
+                    'status' => PurchaseImportRow::STATUS_INVALID,
+                    'error_message' => "Tenant not found for marker: {$parsed['marker']}",
+                ]);
+                $batch->increment('error_count');
+            }
+            return;
+        }
+
+        try {
+            // Parse date
+            $purchaseDate = $this->parseDate($data['tanggal']);
+
+            // Find or create supplier
+            $supplier = $this->findOrCreateSupplier($data['supplier'], $setting->id);
+
+            // Calculate totals
+            $totalAmount = 0;
+            $totalTaxAmount = 0;
+            $details = [];
+
+            foreach ($rows as $row) {
+                $rowData = $row->raw_json;
+                $parsedProduct = $this->parseProductName($rowData['produk'] ?? '');
+
+                // Find or create product
+                $product = $this->findOrCreateProduct(
+                    $parsedProduct['clean_name'],
+                    $rowData['satuan'] ?? 'PCS',
+                    $setting->id
+                );
+
+                $quantity = (int) ($rowData['kuantitas'] ?? 1);
+                $unitPrice = (float) ($rowData['harga_satuan'] ?? 0);
+                $taxAmount = (float) ($rowData['pajak'] ?? 0);
+                $subtotal = $quantity * $unitPrice;
+
+                $totalAmount += $subtotal;
+                $totalTaxAmount += $taxAmount;
+
+                // Calculate tax percentage for this row
+                $taxPercentage = $this->calculateTaxPercentage($subtotal, $taxAmount);
+                $tax = $taxPercentage > 0 ? $this->findOrCreateTax($taxPercentage) : null;
+
+                $details[] = [
+                    'row' => $row,
+                    'product' => $product,
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'subtotal' => $subtotal,
+                    'tax_id' => $tax?->id,
+                    'tax_amount' => $taxAmount,
+                ];
+            }
+
+            // Generate reference number based on purchase date
+            $reference = $this->generateReference($setting, $purchaseDate);
+
+            // Find payment term with longevity = 0 (immediate payment)
+            $paymentTerm = PaymentTerm::where('longevity', 0)->first();
+
+            // Create purchase
+            $purchase = new Purchase();
+            $purchase->date = $purchaseDate;
+            $purchase->due_date = $purchaseDate; // Same as date for historical imports
+            $purchase->reference = $reference;
+            $purchase->supplier_id = $supplier->id;
+            $purchase->payment_term_id = $paymentTerm?->id;
+            $purchase->total_amount = $totalAmount + $totalTaxAmount;
+            $purchase->tax_amount = $totalTaxAmount;
+            $purchase->tax_percentage = $totalAmount > 0 ? round(($totalTaxAmount / $totalAmount) * 100) : 0;
+            $purchase->discount_percentage = 0;
+            $purchase->discount_amount = 0;
+            $purchase->shipping_amount = 0;
+            $purchase->paid_amount = $totalAmount + $totalTaxAmount;
+            $purchase->due_amount = 0;
+            $purchase->status = Purchase::STATUS_RECEIVED;
+            $purchase->payment_status = 'Paid';
+            $purchase->payment_method = 'Cash';
+            $purchase->setting_id = $setting->id;
+            $purchase->note = "Source Invoice: " . ($data['no_faktur'] ?? 'Unknown');
+            $purchase->save();
+
+            // Get first location for this setting
+            $location = Location::where('setting_id', $setting->id)->first();
+            if (!$location) {
+                throw new \Exception("No location found for setting: {$setting->company_name}");
+            }
+
+            // Create purchase details and update stock
+            foreach ($details as $detail) {
+                $purchaseDetail = PurchaseDetail::create([
+                    'purchase_id' => $purchase->id,
+                    'product_id' => $detail['product']->id,
+                    'product_name' => $detail['product']->product_name,
+                    'product_code' => $detail['product']->product_code,
+                    'quantity' => $detail['quantity'],
+                    'price' => $detail['unit_price'],
+                    'unit_price' => $detail['unit_price'],
+                    'sub_total' => $detail['subtotal'],
+                    'product_discount_amount' => 0,
+                    'product_discount_type' => 'fixed',
+                    'product_tax_amount' => $detail['tax_amount'],
+                    'tax_id' => $detail['tax_id'],
+                ]);
+
+                // Update product stock
+                $product = $detail['product'];
+                $quantity = $detail['quantity'];
+
+                // Get or create ProductStock for this product/location
+                $productStock = ProductStock::firstOrCreate(
+                    [
+                        'product_id' => $product->id,
+                        'location_id' => $location->id,
+                    ],
+                    [
+                        'quantity' => 0,
+                        'quantity_tax' => 0,
+                        'quantity_non_tax' => 0,
+                        'broken_quantity' => 0,
+                        'broken_quantity_tax' => 0,
+                        'broken_quantity_non_tax' => 0,
+                    ]
+                );
+
+                // Capture previous quantities
+                $previousQuantity = $product->product_quantity;
+                $previousQuantityAtLocation = $productStock->quantity;
+
+                // Increment stock
+                $productStock->increment('quantity', $quantity);
+                if ($detail['tax_id']) {
+                    $productStock->increment('quantity_tax', $quantity);
+                } else {
+                    $productStock->increment('quantity_non_tax', $quantity);
+                }
+
+                // Increment product global quantity
+                $product->increment('product_quantity', $quantity);
+
+                // Update ProductPrice table for this product/setting
+                $productPrice = ProductPrice::firstOrCreate(
+                    [
+                        'product_id' => $product->id,
+                        'setting_id' => $setting->id,
+                    ],
+                    [
+                        'sale_price' => 0,
+                        'last_purchase_price' => 0,
+                        'average_purchase_price' => 0,
+                    ]
+                );
+
+                // Calculate new average purchase price (weighted average)
+                $previousQty = $previousQuantity;
+                $currentAvgPrice = $productPrice->average_purchase_price ?? 0;
+                $currentTotalValue = $currentAvgPrice * $previousQty;
+                $newTotalValue = $detail['unit_price'] * $quantity;
+                $newTotalQuantity = $previousQty + $quantity;
+
+                if ($newTotalQuantity > 0) {
+                    $newAveragePrice = ($currentTotalValue + $newTotalValue) / $newTotalQuantity;
+                } else {
+                    $newAveragePrice = $detail['unit_price'];
+                }
+
+                $productPrice->update([
+                    'last_purchase_price' => $detail['unit_price'],
+                    'average_purchase_price' => $newAveragePrice,
+                ]);
+
+                // Create Transaction log
+                Transaction::create([
+                    'product_id' => $product->id,
+                    'setting_id' => $setting->id,
+                    'quantity' => $quantity,
+                    'current_quantity' => $product->product_quantity,
+                    'broken_quantity' => 0,
+                    'location_id' => $location->id,
+                    'user_id' => auth()->id() ?? 1,
+                    'reason' => 'Imported from Purchase #' . $purchase->reference,
+                    'type' => 'BUY',
+                    'previous_quantity' => $previousQuantity,
+                    'after_quantity' => $product->product_quantity,
+                    'previous_quantity_at_location' => $previousQuantityAtLocation,
+                    'after_quantity_at_location' => $productStock->quantity,
+                    'quantity_non_tax' => $detail['tax_id'] ? 0 : $quantity,
+                    'quantity_tax' => $detail['tax_id'] ? $quantity : 0,
+                    'broken_quantity_non_tax' => 0,
+                    'broken_quantity_tax' => 0,
+                ]);
+
+                // Update row status
+                $detail['row']->update([
+                    'status' => PurchaseImportRow::STATUS_PROCESSED,
+                    'purchase_id' => $purchase->id,
+                ]);
+
+                $batch->increment('success_count');
+            }
+
+            Log::info('[PurchaseImport] Created purchase', [
+                'purchase_id' => $purchase->id,
+                'reference' => $reference,
+                'setting_id' => $setting->id,
+                'location_id' => $location->id,
+                'details_count' => count($details),
+            ]);
+
+        } catch (\Exception $e) {
+            foreach ($rows as $row) {
+                $row->update([
+                    'status' => PurchaseImportRow::STATUS_INVALID,
+                    'error_message' => $e->getMessage(),
+                ]);
+                $batch->increment('error_count');
+            }
+
+            Log::error('[PurchaseImport] Failed to process invoice group', [
+                'invoice' => $data['no_faktur'] ?? 'Unknown',
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Generate reference number based on purchase date.
+     */
+    protected function generateReference(Setting $setting, Carbon $date): string
+    {
+        $year = $date->year;
+        $month = $date->month;
+
+        // Get latest reference for this setting, year, month
+        $latestRef = Purchase::where('setting_id', $setting->id)
+            ->whereYear('date', $year)
+            ->whereMonth('date', $month)
+            ->latest('id')
+            ->value('reference');
+
+        $nextNumber = 1;
+        if ($latestRef) {
+            $parts = explode('-', $latestRef);
+            $lastNumber = (int) end($parts);
+            $nextNumber = $lastNumber + 1;
+        }
+
+        $prefix = ($setting->document_prefix ?? '') . '-'
+            . ($setting->purchase_prefix_document ?? 'PR');
+
+        return make_reference_id($prefix, $year, $month, $nextNumber);
+    }
+}

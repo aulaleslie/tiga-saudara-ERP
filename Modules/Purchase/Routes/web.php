@@ -19,8 +19,16 @@ use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Http\Controllers\PurchaseController;
 use Modules\Purchase\Http\Controllers\PurchasePaymentsController;
+use Modules\Purchase\Http\Controllers\PurchaseUploadController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
+
+    // Purchase Upload Routes
+    Route::get('/purchases/imports', [PurchaseUploadController::class, 'index'])->name('purchases.imports.index');
+    Route::get('/purchases/upload', [PurchaseUploadController::class, 'uploadPage'])->name('purchases.upload.form');
+    Route::post('/purchases/upload', [PurchaseUploadController::class, 'upload'])->name('purchases.upload.store');
+    Route::get('/purchases/upload/template', [PurchaseUploadController::class, 'downloadTemplate'])->name('purchases.upload.template');
+    Route::get('/purchases/imports/{batch}', [PurchaseUploadController::class, 'show'])->name('purchases.imports.show');
 
     Route::get('/purchases/datatable', [PurchaseController::class, 'datatable'])->name('datatable.purchases');
     //Generate PDF
