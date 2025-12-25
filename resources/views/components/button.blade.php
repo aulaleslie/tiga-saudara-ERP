@@ -15,7 +15,7 @@
     data-default-text="{{ trim($label) }}"
 >
     <span class="spinner-border spinner-border-sm mr-2 d-none button-spinner" role="status" aria-hidden="true"></span>
-    <span class="button-text">{{ $label }}</span>
+    <span class="button-text">{{ $label }}{{ $slot }}</span>
     @if($icon)
         <i class="bi {{ $icon }} ml-1"></i>
     @endif
