@@ -125,6 +125,7 @@ class PurchaseUploadController extends Controller
                     'batch_id' => $batch->id,
                     'row_number' => ++$rowNo,
                     'raw_json' => $mapped,
+                    'status' => PurchaseImportRow::STATUS_PENDING,
                 ]);
             }
 
@@ -135,10 +136,10 @@ class PurchaseUploadController extends Controller
                 'total_rows' => $rowNo,
             ]);
 
-            // Process synchronously
-            $this->importService->processBatch($batch);
+            // Dispatch job for async processing
+            \Modules\Purchase\Jobs\ProcessPurchaseImportBatch::dispatch($batch->id);
 
-            toast("Upload selesai. Batch #{$batch->id} telah diproses.", 'success');
+            toast("Upload berhasil. Batch #{$batch->id} sedang diproses di background.", 'success');
             return redirect()->route('purchases.imports.show', $batch);
 
         } catch (\Exception $e) {
@@ -153,17 +154,31 @@ class PurchaseUploadController extends Controller
     }
 
     /**
-     * Show batch status.
+     * Show batch status with paginated rows, filtering, and search.
      */
-    public function show(PurchaseImportBatch $batch): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function show(Request $request, PurchaseImportBatch $batch): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('purchases.create'), 403);
 
-        $batch->load(['rows' => function ($q) {
-            $q->orderBy('row_number');
-        }]);
+        $query = PurchaseImportRow::where('batch_id', $batch->id);
 
-        return view('purchase::purchases.import-show', compact('batch'));
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('search')) {
+            $term = '%' . $request->search . '%';
+            $query->where(function($q) use ($term) {
+                $q->where('error_message', 'like', $term)
+                  ->orWhere('raw_json', 'like', $term);
+            });
+        }
+
+        $rows = $query->orderBy('row_number')
+            ->paginate(25)
+            ->withQueryString();
+
+        return view('purchase::purchases.import-show', compact('batch', 'rows'));
     }
 
     /**

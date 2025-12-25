@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Entities;
 
 use App\Models\BaseModel;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Modules\People\Entities\Supplier;
@@ -36,7 +37,8 @@ class Purchase extends BaseModel
         'note',
         'setting_id',
         'paid_amount',
-        'is_tax_included'
+        'is_tax_included',
+        'supplier_reference_no'
     ];
 
     const STATUS_DRAFTED = 'DRAFTED';
@@ -78,12 +80,15 @@ class Purchase extends BaseModel
         parent::boot();
 
         static::creating(function ($model) {
-            $year = now()->year;
-            $month = now()->month;
+            // Use the purchase date if available, otherwise fallback to now()
+            $purchaseDate = $model->date ? Carbon::parse($model->date) : now();
+            $year = $purchaseDate->year;
+            $month = $purchaseDate->month;
 
-            // Fetch the latest reference for the current year and month
-            $latestReference = Purchase::whereYear('created_at', $year)
-                ->whereMonth('created_at', $month)
+            // Fetch the latest reference for this setting, year, and month
+            $latestReference = Purchase::where('setting_id', $model->setting_id)
+                ->whereYear('date', $year)
+                ->whereMonth('date', $month)
                 ->latest('id')
                 ->value('reference');
 
@@ -95,8 +100,8 @@ class Purchase extends BaseModel
                 $nextNumber = $lastNumber + 1;
             }
 
-            // Grab the setting (find(null) simply returns null)
-            $setting = Setting::find(session('setting_id'));
+            // Grab the setting from model (works during queue processing)
+            $setting = Setting::find($model->setting_id);
 
             // Build prefix:
             // 1) take document_prefix if truthy, else empty string

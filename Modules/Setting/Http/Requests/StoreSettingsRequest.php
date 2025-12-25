@@ -15,8 +15,10 @@ class StoreSettingsRequest extends FormRequest
      */
     public function rules()
     {
+        $currentSettingId = session('setting_id');
+
         return [
-            'company_name' => 'required|string|max:255|unique:settings,company_name',
+            'company_name' => 'required|string|max:255|unique:settings,company_name,' . $currentSettingId,
             'company_email' => 'required|email|max:255',
             'company_phone' => 'required|string|max:255',
             'document_prefix' => 'required|string|max:255',
@@ -26,10 +28,11 @@ class StoreSettingsRequest extends FormRequest
                 'nullable',
                 'string',
                 'max:255',
-                function ($attribute, $value, $fail) {
+                function ($attribute, $value, $fail) use ($currentSettingId) {
                     if (!empty($value)) {
                         $exists = DB::table('settings')
                             ->where('pos_document_prefix', $value)
+                            ->where('id', '!=', $currentSettingId)
                             ->exists();
                         if ($exists) {
                             $fail('Prefix dokumen POS sudah digunakan.');

@@ -159,6 +159,10 @@ class PurchaseImportService
                 'setting_id' => $settingId,
                 'product_cost' => 0,
                 'product_price' => 0,
+                'product_quantity' => 0,
+                'stock_managed' => 1,
+                'is_purchased' => 1,
+                'is_sold' => 1,
             ]);
 
             Log::info('[PurchaseImport] Created new product', [
@@ -266,6 +270,13 @@ class PurchaseImportService
                     'status' => PurchaseImportRow::STATUS_INVALID,
                     'error_message' => "Tenant not found for marker: {$parsed['marker']}",
                 ]);
+                Log::warning('[PurchaseImport] Row error - tenant not found', [
+                    'batch_id' => $batch->id,
+                    'row_id' => $row->id,
+                    'row_number' => $row->row_number,
+                    'marker' => $parsed['marker'],
+                    'no_faktur' => $data['no_faktur'] ?? 'Unknown',
+                ]);
                 $batch->increment('error_count');
             }
             return;
@@ -342,7 +353,7 @@ class PurchaseImportService
             $purchase->payment_status = 'Paid';
             $purchase->payment_method = 'Cash';
             $purchase->setting_id = $setting->id;
-            $purchase->note = "Source Invoice: " . ($data['no_faktur'] ?? 'Unknown');
+            $purchase->supplier_purchase_number = $data['no_faktur'] ?? null;
             $purchase->save();
 
             // Get first location for this setting
@@ -388,9 +399,9 @@ class PurchaseImportService
                     ]
                 );
 
-                // Capture previous quantities
-                $previousQuantity = $product->product_quantity;
-                $previousQuantityAtLocation = $productStock->quantity;
+                // Capture previous quantities (default to 0 for new products)
+                $previousQuantity = $product->product_quantity ?? 0;
+                $previousQuantityAtLocation = $productStock->quantity ?? 0;
 
                 // Increment stock
                 $productStock->increment('quantity', $quantity);
@@ -477,6 +488,14 @@ class PurchaseImportService
                 $row->update([
                     'status' => PurchaseImportRow::STATUS_INVALID,
                     'error_message' => $e->getMessage(),
+                ]);
+                Log::warning('[PurchaseImport] Row error - exception', [
+                    'batch_id' => $batch->id,
+                    'row_id' => $row->id,
+                    'row_number' => $row->row_number,
+                    'no_faktur' => $data['no_faktur'] ?? 'Unknown',
+                    'error' => $e->getMessage(),
+                    'raw_data' => $row->raw_json,
                 ]);
                 $batch->increment('error_count');
             }

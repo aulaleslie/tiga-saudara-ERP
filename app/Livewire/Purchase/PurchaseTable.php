@@ -10,6 +10,8 @@ class PurchaseTable extends Component
 {
     use WithPagination;
 
+    protected $paginationTheme = 'bootstrap';
+
     public $searchText = '';
     public $search = '';
     public $perPage = 10;

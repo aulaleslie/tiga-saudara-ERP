@@ -143,15 +143,15 @@ class ProcessProductImportBatch implements ShouldQueue
                 'brand_id'                => null,
                 'base_unit_id'            => $unitId,
                 'unit_id'                 => $unitId,
-                'stock_managed'           => 0,
+                'stock_managed'           => 1,
                 'product_stock_alert'     => 0,
                 'product_quantity'        => 0,
                 'serial_number_required'  => 0,
                 'setting_id'              => $this->defaultSettingId,
-                'is_purchased'            => $isPriced ? 1 : 0,
+                'is_purchased'            => 1,
                 'purchase_price'          => 0,
                 'purchase_tax_id'         => null,
-                'is_sold'                 => $isPriced ? 1 : 0,
+                'is_sold'                 => 1,
                 'sale_price'              => 0,
                 'sale_tax_id'             => null,
                 'tier_1_price'            => 0,
@@ -211,6 +211,15 @@ class ProcessProductImportBatch implements ShouldQueue
 
     private function recordFailure(ProductImportRow $row, string $message, string $status = 'error'): void
     {
+        Log::warning('[ProductImportBatch] Row error', [
+            'batch_id' => $this->batchId,
+            'row_id' => $row->id,
+            'row_number' => $row->row_number ?? null,
+            'status' => $status,
+            'error' => $message,
+            'raw_data' => $row->raw_json,
+        ]);
+
         $row->forceFill([
             'status' => $status,
             'error_message' => $message,

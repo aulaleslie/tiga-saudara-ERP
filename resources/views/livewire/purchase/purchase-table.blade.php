@@ -99,7 +99,7 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <button class="btn btn-outline-secondary btn-sm"
-                    wire:click="$set('page', {{ $purchases->currentPage() - 1 }})"
+                    wire:click="gotoPage({{ $purchases->currentPage() - 1 }})"
                     @if($purchases->onFirstPage()) disabled @endif>
                 <i class="bi bi-chevron-left"></i> Prev
             </button>
@@ -108,7 +108,7 @@
             <span class="text-muted">/ {{ $purchases->lastPage() }}</span>
         </span>
             <button class="btn btn-outline-secondary btn-sm"
-                    wire:click="$set('page', {{ $purchases->currentPage() + 1 }})"
+                    wire:click="gotoPage({{ $purchases->currentPage() + 1 }})"
                     @if(!$purchases->hasMorePages()) disabled @endif>
                 Next <i class="bi bi-chevron-right"></i>
             </button>

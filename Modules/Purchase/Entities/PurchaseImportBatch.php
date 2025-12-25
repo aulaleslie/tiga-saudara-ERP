@@ -38,7 +38,10 @@ class PurchaseImportBatch extends BaseModel
 
     public function pendingRows(): HasMany
     {
-        return $this->rows()->where('status', 'pending');
+        return $this->rows()->where(function ($q) {
+            $q->whereNull('status')
+              ->orWhere('status', 'pending');
+        });
     }
 
     public function validRows(): HasMany
