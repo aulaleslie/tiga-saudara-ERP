@@ -54,7 +54,7 @@
                             </p>
                         </div>
 
-                        <form action="{{ route('purchases.upload.store') }}" method="POST" enctype="multipart/form-data">
+                        <form id="upload-form" action="{{ route('purchases.upload.store') }}" method="POST" enctype="multipart/form-data">
                             @csrf
 
                             <div class="mb-3">
@@ -91,3 +91,13 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        document.getElementById('upload-form').addEventListener('submit', function() {
+            let btn = this.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Memproses...';
+        });
+    </script>
+@endpush

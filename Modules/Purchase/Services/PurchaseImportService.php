@@ -483,6 +483,11 @@ class PurchaseImportService
             $purchase->tax_ref_no = $data['nomor_pajak'] ?? null;
             $purchase->save();
 
+            // Sync tag to purchase (matching CreateForm/EditForm pattern)
+            if (!empty($tag)) {
+                $purchase->syncTags([trim($tag)]);
+            }
+
             // Get first location for this setting
             $location = Location::where('setting_id', $setting->id)->first();
             if (!$location) {

@@ -18,33 +18,33 @@ class ProductDatabaseSeeder extends Seeder
      */
     public function run()
     {
-        Model::unguard();
+        // Model::unguard();
 
-        $superAdmin = User::where('email', 'super.admin@tiga-computer.com')->firstOrFail();
-        $setting = Setting::where('company_name', 'CV Tiga Computer')->firstOrFail();
+        // $superAdmin = User::where('email', 'super.admin@tiga-computer.com')->firstOrFail();
+        // $setting = Setting::where('company_name', 'CV Tiga Computer')->firstOrFail();
 
-        // Check if category already exists
-        $category = Category::where('category_code', 'CA_01')->first();
+        // // Check if category already exists
+        // $category = Category::where('category_code', 'CA_01')->first();
 
-        if (!$category) {
-            $category = Category::create([
-                'category_code' => 'CA_01',
-                'category_name' => 'Stationery',
-                'created_by' => $superAdmin->id,
-                'setting_id' => $setting->id
-            ]);
-        }
+        // if (!$category) {
+        //     $category = Category::create([
+        //         'category_code' => 'CA_01',
+        //         'category_name' => 'Stationery',
+        //         'created_by' => $superAdmin->id,
+        //         'setting_id' => $setting->id
+        //     ]);
+        // }
 
-        // Check if unit already exists
-        $unit = Unit::where('name', 'Piece')->first();
+        // // Check if unit already exists
+        // $unit = Unit::where('name', 'Piece')->first();
 
-        if (!$unit) {
-            $unit = Unit::create([
-                'name' => 'Piece',
-                'short_name' => 'PC(s)',
-                'operator' => '*',
-                'operation_value' => 1
-            ]);
-        }
+        // if (!$unit) {
+        //     $unit = Unit::create([
+        //         'name' => 'Piece',
+        //         'short_name' => 'PC(s)',
+        //         'operator' => '*',
+        //         'operation_value' => 1
+        //     ]);
+        // }
     }
 }
