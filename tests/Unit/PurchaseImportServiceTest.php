@@ -163,4 +163,58 @@ class PurchaseImportServiceTest extends TestCase
         $this->assertEquals('TP-Link Router', $result['clean_name']);
         $this->assertEquals('default', $result['marker']);
     }
+
+    /**
+     * Test parseTaxRate with valid percentage string.
+     */
+    public function test_parse_tax_rate_with_percentage(): void
+    {
+        $result = $this->service->parseTaxRate('10.0');
+        $this->assertEquals(10, $result);
+    }
+
+    /**
+     * Test parseTaxRate with percentage sign.
+     */
+    public function test_parse_tax_rate_with_percentage_sign(): void
+    {
+        $result = $this->service->parseTaxRate('10.0 %');
+        $this->assertEquals(10, $result);
+    }
+
+    /**
+     * Test parseTaxRate with empty string returns 0.
+     */
+    public function test_parse_tax_rate_empty_string(): void
+    {
+        $result = $this->service->parseTaxRate('');
+        $this->assertEquals(0, $result);
+    }
+
+    /**
+     * Test parseTaxRate with null returns 0.
+     */
+    public function test_parse_tax_rate_null(): void
+    {
+        $result = $this->service->parseTaxRate(null);
+        $this->assertEquals(0, $result);
+    }
+
+    /**
+     * Test parseTaxRate rounds correctly.
+     */
+    public function test_parse_tax_rate_rounds(): void
+    {
+        $result = $this->service->parseTaxRate('10.6');
+        $this->assertEquals(11, $result);
+    }
+
+    /**
+     * Test parseTaxRate with non-numeric returns 0.
+     */
+    public function test_parse_tax_rate_non_numeric(): void
+    {
+        $result = $this->service->parseTaxRate('abc');
+        $this->assertEquals(0, $result);
+    }
 }

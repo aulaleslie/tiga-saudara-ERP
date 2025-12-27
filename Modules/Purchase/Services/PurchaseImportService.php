@@ -24,12 +24,25 @@ use Modules\Purchase\Entities\PaymentTerm;
 class PurchaseImportService
 {
     /**
-     * Tenant mapping based on product name markers.
+     * Tag-based tenant mapping (Priority 1).
+     * Maps Tag column values to company names.
+     */
+    protected array $tagMapping = [
+        'cv tiga nusa' => 'CV TIGA NUSA COMPUTER',
+        'cv top it' => 'CV TOP IT INTERNUSA',
+        'aries' => 'TIGA COMPUTER',
+        'rahmat' => 'WHITE KNIGHT COMPUTER',
+        'agus' => 'DUNIA COMPUTER',
+        'perdana' => 'PERDANA',
+    ];
+
+    /**
+     * Tenant mapping based on product name markers (Priority 2 - fallback).
      */
     protected array $tenantMapping = [
-        'asterisk' => 'CV Tiga Nusa',      // * prefix
-        'tp'       => 'CV Top IT',          // TP suffix
-        'default'  => 'CV White Knight',    // no marker
+        'asterisk' => 'CV TIGA NUSA COMPUTER',   // * prefix
+        'tp'       => 'CV TOP IT INTERNUSA',     // TP suffix
+        'default'  => 'PERDANA',                 // no marker
     ];
 
     /**
@@ -75,6 +88,60 @@ class PurchaseImportService
     }
 
     /**
+     * Get the setting (tenant) for a given tag value (Priority 1).
+     */
+    public function getSettingForTag(?string $tag): ?Setting
+    {
+        if (empty($tag)) {
+            return null;
+        }
+
+        $normalizedTag = strtolower(trim($tag));
+        $companyName = $this->tagMapping[$normalizedTag] ?? null;
+
+        if (!$companyName) {
+            return null;
+        }
+
+        return Setting::where('company_name', 'LIKE', "%{$companyName}%")->first();
+    }
+
+    /**
+     * Resolve tenant using Tag (Priority 1) then product marker (Priority 2).
+     */
+    public function resolveTenant(?string $tag, string $productName): ?Setting
+    {
+        // Priority 1: Try Tag-based lookup
+        $setting = $this->getSettingForTag($tag);
+        if ($setting) {
+            return $setting;
+        }
+
+        // Priority 2: Fallback to product marker
+        $parsed = $this->parseProductName($productName);
+        return $this->getSettingForMarker($parsed['marker']);
+    }
+
+    /**
+     * Parse tax rate from CSV string (e.g., "10.0" or "10.0 %").
+     */
+    public function parseTaxRate(?string $taxRateStr): int
+    {
+        if (empty($taxRateStr)) {
+            return 0;
+        }
+
+        // Remove percentage sign and whitespace
+        $cleaned = trim(str_replace(['%', ' '], '', $taxRateStr));
+        
+        if (!is_numeric($cleaned)) {
+            return 0;
+        }
+
+        return (int) round((float) $cleaned);
+    }
+
+    /**
      * Calculate tax percentage from amounts.
      */
     public function calculateTaxPercentage(float $subtotal, float $taxAmount): int
@@ -111,7 +178,7 @@ class PurchaseImportService
     /**
      * Find or create a supplier by name.
      */
-    public function findOrCreateSupplier(string $name, int $settingId): Supplier
+    public function findOrCreateSupplier(string $name, int $settingId, ?string $contactName = null, ?string $phone = null): Supplier
     {
         $supplier = Supplier::whereRaw('LOWER(supplier_name) = ?', [strtolower(trim($name))])->first();
 
@@ -119,7 +186,8 @@ class PurchaseImportService
             $supplier = Supplier::create([
                 'supplier_name' => trim($name),
                 'supplier_email' => '',
-                'supplier_phone' => '',
+                'supplier_phone' => $phone ?? '',
+                'contact_name' => $contactName,
                 'address' => '',
                 'city' => '',
                 'country' => '',
@@ -138,7 +206,7 @@ class PurchaseImportService
     /**
      * Find or create a product by cleaned name.
      */
-    public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId): Product
+    public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId, ?string $description = null): Product
     {
         $product = Product::whereRaw('LOWER(product_name) = ?', [strtolower(trim($cleanName))])->first();
 
@@ -163,6 +231,7 @@ class PurchaseImportService
                 'stock_managed' => 1,
                 'is_purchased' => 1,
                 'is_sold' => 1,
+                'product_note' => $description,
             ]);
 
             Log::info('[PurchaseImport] Created new product', [
@@ -225,7 +294,7 @@ class PurchaseImportService
     }
 
     /**
-     * Group rows by invoice number and tenant marker.
+     * Group rows by invoice number and tenant (using Tag or marker).
      */
     protected function groupRowsByInvoiceAndTenant(Collection $rows): array
     {
@@ -234,10 +303,17 @@ class PurchaseImportService
         foreach ($rows as $row) {
             $data = $row->raw_json;
             $invoiceNo = $data['no_faktur'] ?? '';
-            $parsed = $this->parseProductName($data['produk'] ?? '');
-            $marker = $parsed['marker'];
+            $tag = $data['tag'] ?? '';
+            
+            // Use tag if present, otherwise fall back to product marker
+            if (!empty($tag)) {
+                $tenantKey = 'tag:' . strtolower(trim($tag));
+            } else {
+                $parsed = $this->parseProductName($data['produk'] ?? '');
+                $tenantKey = 'marker:' . $parsed['marker'];
+            }
 
-            $key = "{$invoiceNo}|{$marker}";
+            $key = "{$invoiceNo}|{$tenantKey}";
 
             if (!isset($groups[$key])) {
                 $groups[$key] = [];
@@ -260,21 +336,23 @@ class PurchaseImportService
         $firstRow = $rows[0];
         $data = $firstRow->raw_json;
 
-        // Parse product name to get marker
-        $parsed = $this->parseProductName($data['produk'] ?? '');
-        $setting = $this->getSettingForMarker($parsed['marker']);
+        // Resolve tenant using Tag (Priority 1) then product marker (Priority 2)
+        $tag = $data['tag'] ?? null;
+        $productName = $data['produk'] ?? '';
+        $setting = $this->resolveTenant($tag, $productName);
 
         if (!$setting) {
             foreach ($rows as $row) {
                 $row->update([
                     'status' => PurchaseImportRow::STATUS_INVALID,
-                    'error_message' => "Tenant not found for marker: {$parsed['marker']}",
+                    'error_message' => "Tenant not found for tag: '{$tag}' or product: '{$productName}'",
                 ]);
                 Log::warning('[PurchaseImport] Row error - tenant not found', [
                     'batch_id' => $batch->id,
                     'row_id' => $row->id,
                     'row_number' => $row->row_number,
-                    'marker' => $parsed['marker'],
+                    'tag' => $tag,
+                    'product' => $productName,
                     'no_faktur' => $data['no_faktur'] ?? 'Unknown',
                 ]);
                 $batch->increment('error_count');
@@ -282,12 +360,46 @@ class PurchaseImportService
             return;
         }
 
-        try {
-            // Parse date
-            $purchaseDate = $this->parseDate($data['tanggal']);
+        // Check for duplicate purchase (same supplier_purchase_number + setting_id)
+        $invoiceNo = $data['no_faktur'] ?? null;
+        if ($invoiceNo) {
+            $existingPurchase = Purchase::where('supplier_purchase_number', $invoiceNo)
+                ->where('setting_id', $setting->id)
+                ->first();
+            
+            if ($existingPurchase) {
+                foreach ($rows as $row) {
+                    $row->update([
+                        'status' => PurchaseImportRow::STATUS_SKIPPED,
+                        'error_message' => "Skipped: Purchase with invoice #{$invoiceNo} already exists (ID: {$existingPurchase->id})",
+                        'purchase_id' => $existingPurchase->id,
+                    ]);
+                }
+                Log::info('[PurchaseImport] Skipped duplicate purchase', [
+                    'batch_id' => $batch->id,
+                    'no_faktur' => $invoiceNo,
+                    'existing_purchase_id' => $existingPurchase->id,
+                    'setting_id' => $setting->id,
+                    'rows_skipped' => count($rows),
+                ]);
+                return;
+            }
+        }
 
-            // Find or create supplier
-            $supplier = $this->findOrCreateSupplier($data['supplier'], $setting->id);
+        try {
+            // Parse dates
+            $purchaseDate = $this->parseDate($data['tanggal']);
+            $dueDate = !empty($data['tanggal_jatuh_tempo']) 
+                ? $this->parseDate($data['tanggal_jatuh_tempo']) 
+                : $purchaseDate;
+
+            // Find or create supplier with additional fields
+            $supplier = $this->findOrCreateSupplier(
+                $data['supplier'],
+                $setting->id,
+                $data['nama_perusahaan'] ?? null,
+                $data['nomor_telepon'] ?? null
+            );
 
             // Calculate totals
             $totalAmount = 0;
@@ -298,11 +410,12 @@ class PurchaseImportService
                 $rowData = $row->raw_json;
                 $parsedProduct = $this->parseProductName($rowData['produk'] ?? '');
 
-                // Find or create product
+                // Find or create product with description
                 $product = $this->findOrCreateProduct(
                     $parsedProduct['clean_name'],
                     $rowData['satuan'] ?? 'PCS',
-                    $setting->id
+                    $setting->id,
+                    $rowData['deskripsi'] ?? null
                 );
 
                 $quantity = (int) ($rowData['kuantitas'] ?? 1);
@@ -313,9 +426,14 @@ class PurchaseImportService
                 $totalAmount += $subtotal;
                 $totalTaxAmount += $taxAmount;
 
-                // Calculate tax percentage for this row
-                $taxPercentage = $this->calculateTaxPercentage($subtotal, $taxAmount);
-                $tax = $taxPercentage > 0 ? $this->findOrCreateTax($taxPercentage) : null;
+                // Get tax: prefer tarif_pajak from CSV, fallback to calculated percentage
+                $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
+                if ($taxRateFromCsv > 0) {
+                    $tax = $this->findOrCreateTax($taxRateFromCsv);
+                } else {
+                    $taxPercentage = $this->calculateTaxPercentage($subtotal, $taxAmount);
+                    $tax = $taxPercentage > 0 ? $this->findOrCreateTax($taxPercentage) : null;
+                }
 
                 $details[] = [
                     'row' => $row,
@@ -334,26 +452,35 @@ class PurchaseImportService
             // Find payment term with longevity = 0 (immediate payment)
             $paymentTerm = PaymentTerm::where('longevity', 0)->first();
 
+            // Calculate payment status from sisa_tagihan (outstanding balance)
+            $totalWithTax = $totalAmount + $totalTaxAmount;
+            $sisaTagihan = (float) ($data['sisa_tagihan'] ?? 0);
+            $paymentStatus = $sisaTagihan > 0 ? 'UNPAID' : 'PAID';
+            $dueAmount = $sisaTagihan;
+            $paidAmount = $totalWithTax - $sisaTagihan;
+
             // Create purchase
             $purchase = new Purchase();
             $purchase->date = $purchaseDate;
-            $purchase->due_date = $purchaseDate; // Same as date for historical imports
+            $purchase->due_date = $dueDate;
             $purchase->reference = $reference;
             $purchase->supplier_id = $supplier->id;
             $purchase->payment_term_id = $paymentTerm?->id;
-            $purchase->total_amount = $totalAmount + $totalTaxAmount;
+            $purchase->total_amount = $totalWithTax;
             $purchase->tax_amount = $totalTaxAmount;
             $purchase->tax_percentage = $totalAmount > 0 ? round(($totalTaxAmount / $totalAmount) * 100) : 0;
             $purchase->discount_percentage = 0;
             $purchase->discount_amount = 0;
-            $purchase->shipping_amount = 0;
-            $purchase->paid_amount = $totalAmount + $totalTaxAmount;
-            $purchase->due_amount = 0;
+            $purchase->shipping_amount = (float) ($data['biaya_pengiriman'] ?? 0);
+            $purchase->paid_amount = $paidAmount;
+            $purchase->due_amount = $dueAmount;
             $purchase->status = Purchase::STATUS_RECEIVED;
-            $purchase->payment_status = 'Paid';
-            $purchase->payment_method = 'Cash';
+            $purchase->payment_status = $paymentStatus;
+            $purchase->payment_method = $paymentStatus === 'PAID' ? 'Cash' : '';
             $purchase->setting_id = $setting->id;
             $purchase->supplier_purchase_number = $data['no_faktur'] ?? null;
+            $purchase->note = $data['memo'] ?? null;
+            $purchase->tax_ref_no = $data['nomor_pajak'] ?? null;
             $purchase->save();
 
             // Get first location for this setting
@@ -445,7 +572,7 @@ class PurchaseImportService
                     'average_purchase_price' => $newAveragePrice,
                 ]);
 
-                // Create Transaction log
+                // Create Transaction log with purchase date
                 Transaction::create([
                     'product_id' => $product->id,
                     'setting_id' => $setting->id,
@@ -464,6 +591,8 @@ class PurchaseImportService
                     'quantity_tax' => $detail['tax_id'] ? $quantity : 0,
                     'broken_quantity_non_tax' => 0,
                     'broken_quantity_tax' => 0,
+                    'created_at' => $purchaseDate,
+                    'updated_at' => $purchaseDate,
                 ]);
 
                 // Update row status

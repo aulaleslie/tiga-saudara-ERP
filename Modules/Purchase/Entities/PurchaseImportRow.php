@@ -24,6 +24,7 @@ class PurchaseImportRow extends BaseModel
     const STATUS_VALID = 'valid';
     const STATUS_INVALID = 'invalid';
     const STATUS_PROCESSED = 'processed';
+    const STATUS_SKIPPED = 'skipped';
 
     public function batch(): BelongsTo
     {

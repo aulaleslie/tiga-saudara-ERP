@@ -202,28 +202,72 @@ class PurchaseUploadController extends Controller
     protected function normalizeHeaders(array $rawHeaders): array
     {
         $aliases = [
+            // Date
             'tanggal' => 'tanggal',
             'date' => 'tanggal',
+            // Supplier
             'supplier' => 'supplier',
             'supplier name' => 'supplier',
+            'nama panggilan' => 'supplier',
+            // Invoice number
             'no faktur' => 'no_faktur',
             'no. faktur' => 'no_faktur',
             'invoice' => 'no_faktur',
             'invoice no' => 'no_faktur',
+            'nomor transaksi' => 'no_faktur',
+            // Product
             'produk' => 'produk',
             'product' => 'produk',
             'product name' => 'produk',
+            'nama produk' => 'produk',
+            // Quantity
             'kuantitas' => 'kuantitas',
             'quantity' => 'kuantitas',
             'qty' => 'kuantitas',
+            // Unit
             'satuan' => 'satuan',
             'unit' => 'satuan',
+            // Unit price
             'harga satuan' => 'harga_satuan',
+            'harga per unit' => 'harga_satuan',
             'unit price' => 'harga_satuan',
             'price' => 'harga_satuan',
+            // Tax amount per line
             'pajak' => 'pajak',
             'tax' => 'pajak',
             'tax amount' => 'pajak',
+            'jumlah pajak' => 'pajak',
+            // Tax rate
+            'tarif pajak' => 'tarif_pajak',
+            'tax rate' => 'tarif_pajak',
+            // Product description
+            'deskripsi' => 'deskripsi',
+            'description' => 'deskripsi',
+            // Tag (for tenant selection)
+            'tag' => 'tag',
+            // Memo/notes
+            'memo' => 'memo',
+            // Due date
+            'tanggal jatuh tempo' => 'tanggal_jatuh_tempo',
+            'due date' => 'tanggal_jatuh_tempo',
+            // Outstanding balance
+            'sisa tagihan hari ini' => 'sisa_tagihan',
+            // Payment amount
+            'pembayaran' => 'pembayaran',
+            'payment' => 'pembayaran',
+            // Shipping
+            'biaya pengiriman' => 'biaya_pengiriman',
+            'shipping' => 'biaya_pengiriman',
+            // Supplier company name
+            'nama perusahaan' => 'nama_perusahaan',
+            'company name' => 'nama_perusahaan',
+            // Tax reference number
+            'nomor pajak' => 'nomor_pajak',
+            // Phone
+            'nomor telepon' => 'nomor_telepon',
+            'phone' => 'nomor_telepon',
+            // Discount
+            'diskon per baris %' => 'diskon_persen',
         ];
 
         $map = [];
@@ -259,6 +303,19 @@ class PurchaseUploadController extends Controller
             'satuan' => $get('satuan'),
             'harga_satuan' => $get('harga_satuan'),
             'pajak' => $get('pajak') ?: '0',
+            // New fields for updated template
+            'tag' => $get('tag'),
+            'tarif_pajak' => $get('tarif_pajak'),
+            'deskripsi' => $get('deskripsi'),
+            'memo' => $get('memo'),
+            'tanggal_jatuh_tempo' => $get('tanggal_jatuh_tempo'),
+            'sisa_tagihan' => $get('sisa_tagihan') ?: '0',
+            'pembayaran' => $get('pembayaran') ?: '0',
+            'biaya_pengiriman' => $get('biaya_pengiriman') ?: '0',
+            'nama_perusahaan' => $get('nama_perusahaan'),
+            'nomor_pajak' => $get('nomor_pajak'),
+            'nomor_telepon' => $get('nomor_telepon'),
+            'diskon_persen' => $get('diskon_persen') ?: '0',
         ];
     }
 }

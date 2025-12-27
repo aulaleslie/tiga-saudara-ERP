@@ -26,19 +26,31 @@
                             <p class="mb-2">Kolom yang diperlukan:</p>
                             <ul class="mb-2">
                                 <li><strong>Tanggal</strong> - Format: DD/MM/YYYY (contoh: 19/03/2020)</li>
-                                <li><strong>Supplier</strong> - Nama supplier</li>
-                                <li><strong>No Faktur</strong> - Nomor invoice/faktur asli</li>
-                                <li><strong>Produk</strong> - Nama produk (dapat menggunakan prefix * atau suffix TP)</li>
+                                <li><strong>Nama Panggilan</strong> - Nama supplier</li>
+                                <li><strong>Nomor Transaksi</strong> - Nomor invoice/faktur asli</li>
+                                <li><strong>Tag</strong> - Penanda tenant (prioritas utama)</li>
+                                <li><strong>Nama Produk</strong> - Nama produk</li>
                                 <li><strong>Kuantitas</strong> - Jumlah</li>
                                 <li><strong>Satuan</strong> - Unit (PCS, UNIT, SET, dll)</li>
-                                <li><strong>Harga Satuan</strong> - Harga per unit sebelum pajak</li>
-                                <li><strong>Pajak</strong> - Jumlah pajak (opsional)</li>
+                                <li><strong>Harga per Unit</strong> - Harga per unit sebelum pajak</li>
+                                <li><strong>Tarif Pajak</strong> - Persentase pajak (opsional)</li>
+                                <li><strong>Jumlah Pajak</strong> - Jumlah pajak per baris (opsional)</li>
+                                <li><strong>Sisa Tagihan Hari Ini</strong> - Saldo hutang (untuk status PAID/UNPAID)</li>
                             </ul>
+                            <p class="mb-1"><strong>Penanda Tenant (Prioritas 1 - Tag):</strong></p>
+                            <p class="mb-2">
+                                <code>CV Tiga Nusa</code> → CV Tiga Nusa Computer |
+                                <code>CV Top IT</code> → CV Top IT Internusa |
+                                <code>Aries</code> → Tiga Computer |
+                                <code>Rahmat</code> → White Knight Computer |
+                                <code>Agus</code> → Dunia Computer |
+                                <code>Perdana</code> → Perdana
+                            </p>
                             <p class="mb-0">
-                                <strong>Marker Produk:</strong>
-                                <code>* Produk</code> → CV Tiga Nusa |
-                                <code>Produk TP</code> → CV Top IT |
-                                <code>Produk</code> (tanpa marker) → CV White Knight
+                                <strong>Penanda Produk (Prioritas 2 - jika Tag kosong):</strong>
+                                <code>* Produk</code> → CV Tiga Nusa Computer |
+                                <code>Produk TP</code> → CV Top IT Internusa |
+                                <code>Produk</code> (tanpa marker) → Perdana
                             </p>
                         </div>
 
