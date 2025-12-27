@@ -54,6 +54,18 @@ class ProcessProductImportBatch implements ShouldQueue
         $this->batch = ProductImportBatch::with('location')->findOrFail($this->batchId);
         $this->batch->update(['status' => 'processing']);
 
+        // --- Stage rows from CSV if not already staged ---
+        $existingRowCount = ProductImportRow::where('batch_id', $this->batch->id)->count();
+        if ($existingRowCount === 0) {
+            Log::info('[ProductImportBatch] Staging rows from CSV', ['batch_id' => $this->batchId]);
+            $stagedCount = $this->stageRowsFromCsv();
+            if ($stagedCount === null) {
+                // stageRowsFromCsv already marked batch as failed
+                return;
+            }
+            Log::info('[ProductImportBatch] Rows staged', ['batch_id' => $this->batchId, 'total_rows' => $stagedCount]);
+        }
+
         $this->settingIds = Setting::query()->pluck('id')->map(fn($id) => (int) $id)->all();
         $this->defaultSettingId = $this->resolveDefaultSettingId($this->settingIds);
 
@@ -93,6 +105,132 @@ class ProcessProductImportBatch implements ShouldQueue
             'success_rows' => $this->batch->success_rows,
             'error_rows' => $this->batch->error_rows,
         ]);
+    }
+
+    /**
+     * Stage rows from CSV file into ProductImportRow table.
+     * Returns the number of rows staged, or null on failure.
+     */
+    private function stageRowsFromCsv(): ?int
+    {
+        $path = $this->batch->source_csv_path;
+        $fullPath = storage_path('app/' . $path);
+
+        if (!file_exists($fullPath)) {
+            Log::error('[ProductImportBatch] CSV file not found', ['batch_id' => $this->batchId, 'path' => $fullPath]);
+            $this->batch->update(['status' => 'failed', 'error_message' => 'CSV file not found']);
+            return null;
+        }
+
+        // Read & normalize headers (BOM/whitespace/case) + auto-detect delimiter
+        $csv = \League\Csv\Reader::createFromPath($fullPath);
+
+        $sample = @file_get_contents($fullPath, false, null, 0, 4096) ?: '';
+        $delimiter = (substr_count($sample, ';') > substr_count($sample, ',')) ? ';' : ',';
+        $csv->setDelimiter($delimiter);
+
+        $csv->setHeaderOffset(0);
+        $rawHeaders = $csv->getHeader();
+
+        $normalize = function (string $h): string {
+            $h = preg_replace('/^\xEF\xBB\xBF/', '', $h);
+            $h = trim(preg_replace('/\s+/', ' ', $h));
+            return mb_strtolower($h);
+        };
+
+        $normHeaders = array_map($normalize, $rawHeaders);
+
+        // Aliases: left = normalized incoming header, right = our canonical key
+        $aliases = [
+            'nama produk'        => 'Nama Produk',
+            'product name'       => 'Nama Produk',
+            'kode produk'        => 'Kode Produk',
+            'product code'       => 'Kode Produk',
+            'sku'                => 'Kode Produk',
+            'stok di tangan'     => 'Stok di tangan',
+            'stok'               => 'Stok di tangan',
+            'batas minimum'      => 'Batas Minimum',
+            'stok minimum'       => 'Batas Minimum',
+            'satuan'             => 'Satuan',
+            'unit'               => 'Satuan',
+            'harga rata-rata'    => 'Harga Rata-rata',
+            'harga rata rata'    => 'Harga Rata-rata',
+            'average price'      => 'Harga Rata-rata',
+            'nilai'              => 'Nilai',
+        ];
+
+        // Build canonical => actual header map
+        $headerMap = [];
+        foreach ($normHeaders as $i => $norm) {
+            if (isset($aliases[$norm])) {
+                $headerMap[$aliases[$norm]] = $rawHeaders[$i];
+            }
+        }
+
+        // Required columns validation
+        $required = ['Nama Produk', 'Satuan', 'Harga Rata-rata'];
+        $missing = array_values(array_diff($required, array_keys($headerMap)));
+        if (!empty($missing)) {
+            $msg = 'CSV header mismatch. Missing columns: ' . implode(', ', $missing);
+            Log::error('[ProductImportBatch] Header validation failed', ['batch_id' => $this->batchId, 'error' => $msg]);
+            $this->batch->update(['status' => 'failed', 'error_message' => $msg]);
+            return null;
+        }
+
+        // Stage rows using batch insert for better performance
+        $records = (new \League\Csv\Statement())->process($csv);
+        $rowNo = 0;
+        $insertBuffer = [];
+        $batchSize = 500;
+
+        foreach ($records as $record) {
+            $rowNo++;
+            $insertBuffer[] = [
+                'batch_id'   => $this->batch->id,
+                'row_number' => $rowNo,
+                'raw_json'   => json_encode($this->mapCsvRowToPayload((array) $record, $headerMap)),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+
+            if (count($insertBuffer) >= $batchSize) {
+                DB::table('product_import_rows')->insert($insertBuffer);
+                $insertBuffer = [];
+            }
+        }
+
+        // Insert remaining rows
+        if (!empty($insertBuffer)) {
+            DB::table('product_import_rows')->insert($insertBuffer);
+        }
+
+        $this->batch->update(['total_rows' => $rowNo, 'status' => 'processing']);
+
+        return $rowNo;
+    }
+
+    /**
+     * Map one CSV row into normalized payload using the header map.
+     */
+    private function mapCsvRowToPayload(array $record, array $headerMap): array
+    {
+        $get = function (string $canonical) use ($record, $headerMap) {
+            if (!isset($headerMap[$canonical])) {
+                return null;
+            }
+            $actual = $headerMap[$canonical];
+            return array_key_exists($actual, $record) ? trim((string) $record[$actual]) : null;
+        };
+
+        return [
+            'product_name'      => $get('Nama Produk'),
+            'product_code'      => $get('Kode Produk'),
+            'unit_name'         => $get('Satuan'),
+            'average_price'     => $get('Harga Rata-rata'),
+            'stock_on_hand'     => $get('Stok di tangan'),
+            'minimum_stock'     => $get('Batas Minimum'),
+            'nilai'             => $get('Nilai'),
+        ];
     }
 
     private function processRow(ProductImportRow $row): void
