@@ -30,7 +30,7 @@ class ProductTable extends Component
     {
         $this->product = $product;
         $this->quantity = 1;
-        $this->barcodes = [];
+        $this->barcodes = [q];
     }
 
     public function generateBarcodes(Product $product, $quantity)

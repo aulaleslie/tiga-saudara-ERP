@@ -22,6 +22,7 @@ class Purchase extends BaseModel
         'reference',
         'supplier_id',
         'supplier_purchase_number',
+        'tax_ref_no',
         'tax_id',
         'tax_percentage',
         'tax_amount',

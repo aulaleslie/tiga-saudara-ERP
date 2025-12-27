@@ -23,6 +23,7 @@ class EditForm extends Component
     public $reference;
     public $supplier_id;
     public $supplier_purchase_number;
+    public $tax_ref_no;
     public $date;
     public $due_date;
     public $payment_term;
@@ -51,6 +52,7 @@ class EditForm extends Component
         $this->reference = $this->purchase->reference;
         $this->supplier_id = $this->purchase->supplier_id;
         $this->supplier_purchase_number = $this->purchase->supplier_purchase_number;
+        $this->tax_ref_no = $this->purchase->tax_ref_no;
         $this->date = $this->purchase->date;
         $this->due_date = $this->purchase->due_date;
         $this->payment_term = $this->purchase->payment_term_id;
@@ -199,6 +201,7 @@ class EditForm extends Component
             $this->validate([
                 'supplier_id' => 'required|exists:suppliers,id',
                 'supplier_purchase_number' => 'nullable|string|max:255',
+                'tax_ref_no' => 'nullable|string|max:255',
                 'date' => 'required|date',
                 'due_date' => 'required|date|after_or_equal:date',
                 'payment_term' => 'required|exists:payment_terms,id',
@@ -247,6 +250,7 @@ class EditForm extends Component
             $total_amount = $total_sub_total - $global_discount_amount + $shipping;
 
             $supplierPurchaseNumber = $this->supplier_purchase_number ?: null;
+            $taxRefNo = $this->tax_ref_no ?: null;
 
             $purchase->update([
                 'date' => $this->date,
@@ -260,6 +264,7 @@ class EditForm extends Component
                 'is_tax_included' => $this->is_tax_included,
                 'supplier_id' => $this->supplier_id,
                 'supplier_purchase_number' => $supplierPurchaseNumber,
+                'tax_ref_no' => $taxRefNo,
                 'note' => $this->note,
                 'payment_term_id' => $this->payment_term,
             ]);

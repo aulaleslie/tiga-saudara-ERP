@@ -127,6 +127,7 @@ class PurchaseController extends Controller
                 'due_date' => $request->due_date,
                 'supplier_id' => $request->supplier_id,
                 'supplier_purchase_number' => $request->supplier_purchase_number,
+                'tax_ref_no' => $request->tax_ref_no,
                 'tax_id' => $request->tax_id,
                 'tax_percentage' => 0,
                 'tax_amount' => 0,
@@ -336,6 +337,10 @@ class PurchaseController extends Controller
 
             if ($request->has('supplier_purchase_number') && $request->supplier_purchase_number !== $purchase->supplier_purchase_number) {
                 $updateData['supplier_purchase_number'] = $request->supplier_purchase_number;
+            }
+
+            if ($request->has('tax_ref_no') && $request->tax_ref_no !== $purchase->tax_ref_no) {
+                $updateData['tax_ref_no'] = $request->tax_ref_no;
             }
 
             if (!empty($updateData)) {

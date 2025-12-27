@@ -62,6 +62,12 @@
                                         :key="'supplier-purchase-number-' . $purchase->id"
                                     />
                                 </div>
+                                <div class="mt-2">
+                                    <livewire:purchase.tax-ref-no-editor
+                                        :purchaseId="$purchase->id"
+                                        :key="'tax-ref-no-' . $purchase->id"
+                                    />
+                                </div>
                                 <div>
                                     Status: <strong>{{ $purchase->status }}</strong>
                                 </div>
