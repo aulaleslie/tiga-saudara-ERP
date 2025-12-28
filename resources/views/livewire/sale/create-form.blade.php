@@ -56,6 +56,21 @@
                     wire:key="sale-payment-term-dropdown"
                 />
             </div>
+
+            <!-- Nomor Faktur Pajak -->
+            <div class="col-lg-6 mb-3">
+                <label for="tax_ref_no">Nomor Faktur Pajak</label>
+                <input type="text" class="form-control" id="tax_ref_no" wire:model="tax_ref_no" placeholder="Opsional">
+                @error('tax_ref_no')
+                    <div class="invalid-feedback d-block">{{ $message }}</div>
+                @enderror
+            </div>
+
+            <!-- Tag Penjualan -->
+            <div class="col-lg-6 mb-3">
+                <label for="tags">Tag Penjualan</label>
+                <livewire:utils.tag-selector :initial-tags="$tags ?? []" wire:key="sale-tag-selector" />
+            </div>
         </div>
 
         <!-- Keranjang & subtotal -->

@@ -59,7 +59,7 @@ class SaleTable extends Component
     public function render()
     {
         $query = Sale::query()
-            ->with(['customer', 'saleDetails', 'posReceipt', 'posSession'])
+            ->with(['customer', 'saleDetails', 'posReceipt', 'posSession', 'tags'])
             ->where('setting_id', $this->settingId)
             ->when(! empty($this->statusFilter), function ($q) {
                 $q->whereIn('status', (array) $this->statusFilter);
@@ -71,12 +71,16 @@ class SaleTable extends Component
                 $q->where(function ($qq) {
                     $search = $this->search;
                     $qq->where('reference', 'like', "%{$search}%")
+                        ->orWhere('tax_ref_no', 'like', "%{$search}%")
                         ->orWhereHas('customer', function ($q2) use ($search) {
                             $q2->where('customer_name', 'like', "%{$search}%")
                                 ->orWhere('contact_name', 'like', "%{$search}%");
                         })
                         ->orWhereHas('saleDetails', function ($q2) use ($search) {
                             $q2->where('product_name', 'like', "%{$search}%");
+                        })
+                        ->orWhereHas('tags', function ($q2) use ($search) {
+                            $q2->where('name->en', 'like', "%{$search}%");
                         });
                 });
             })

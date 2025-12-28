@@ -6,9 +6,9 @@
         <form class="d-flex" wire:submit.prevent="searchSubmit" style="gap: 0.5rem;">
             <input type="text"
                    class="form-control"
-                   placeholder="Cari referensi, pelanggan, produk..."
+                   placeholder="Cari referensi, pelanggan, produk, nomor faktur pajak, tag..."
                    wire:model.defer="searchText"
-                   style="width: 220px;"
+                   style="width: 300px;"
                    autocomplete="off"
             >
             <button type="submit" class="btn btn-primary">
@@ -37,6 +37,10 @@
             <th wire:click="sortBy('customer_id')" style="cursor:pointer">
                 Pelanggan {!! $this->sortIcon('customer_id') !!}
             </th>
+            <th wire:click="sortBy('tax_ref_no')" style="cursor:pointer">
+                No. Faktur Pajak {!! $this->sortIcon('tax_ref_no') !!}
+            </th>
+            <th>Tags</th>
             <th>Total</th>
             <th>Dibayar</th>
             <th>Jatuh Tempo</th>
@@ -80,6 +84,17 @@
                     @endphp
                     {{ $customerName }}
                 </td>
+                <td>{{ $sale->tax_ref_no ?? '-' }}</td>
+                <td>
+                    @foreach ($sale->tags as $tag)
+                        <span class="badge badge-secondary">
+                        {{ is_array($tag->name) ? ($tag->name['en'] ?? reset($tag->name)) : $tag->name }}
+                        </span>
+                    @endforeach
+                    @if ($sale->tags->isEmpty())
+                        -
+                    @endif
+                </td>
                 <td>{{ format_currency($sale->total_amount) }}</td>
                 <td>{{ format_currency($sale->paid_amount) }}</td>
                 <td>{{ format_currency($sale->due_amount) }}</td>
@@ -89,7 +104,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="10">Tidak ada data yang ditemukan.</td>
+                <td colspan="12">Tidak ada data yang ditemukan.</td>
             </tr>
         @endforelse
         </tbody>

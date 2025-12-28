@@ -29,12 +29,15 @@ class EditForm extends Component
     public $paymentTermId;
     public $paymentTerms = [];
     public $note;
+    public $tax_ref_no;
+    public array $tags = [];
 
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
         'customerCreated' => 'handleCustomerCreated',
         'confirmUpdate'   => 'update',
         'taxCreated'      => 'handleTaxCreated',
+        'tagsUpdated'     => 'handleTagsUpdated',
     ];
 
     public function mount(Sale $sale)
@@ -47,6 +50,8 @@ class EditForm extends Component
         $this->dueDate       = Carbon::parse($sale->due_date)->format('Y-m-d');
         $this->paymentTermId = $sale->payment_term_id;
         $this->note          = $sale->note;
+        $this->tax_ref_no    = $sale->tax_ref_no;
+        $this->tags          = $sale->tags->pluck('name')->map(fn($n) => is_array($n) ? ($n['en'] ?? reset($n)) : $n)->toArray();
         $this->paymentTerms  = PaymentTerm::all();
 
         // Rebuild the cart from the existing sale details
@@ -200,6 +205,11 @@ class EditForm extends Component
         $this->dispatch('taxCreated', $data);
     }
 
+    public function handleTagsUpdated(array $tags): void
+    {
+        $this->tags = $tags;
+    }
+
     public function update(?string $customerId = null, ?string $paymentTermId = null)
     {
         Log::info('Sale update called', [
@@ -244,12 +254,14 @@ class EditForm extends Component
                 'dueDate'       => 'required|date|after_or_equal:date',
                 'paymentTermId' => 'required|exists:payment_terms,id',
                 'note'          => 'nullable|string|max:1000',
+                'tax_ref_no'    => 'nullable|string|max:255',
             ], [
                 'customerId.required'    => 'Pilih pelanggan terlebih dahulu.',
                 'customerId.exists'      => 'Pelanggan tidak valid.',
                 'paymentTermId.required' => 'Pilih term pembayaran terlebih dahulu.',
                 'paymentTermId.exists'   => 'Term pembayaran yang dipilih tidak valid.',
                 'dueDate.after_or_equal' => 'Tanggal jatuh tempo harus ≥ tanggal jual.',
+                'tax_ref_no.max'         => 'Nomor Faktur Pajak maksimal 255 karakter.',
             ]);
 
             if (Cart::instance('sale')->count() === 0) {
@@ -295,7 +307,10 @@ class EditForm extends Component
                     'due_amount'         => $grandTotal,
                     'payment_term_id'    => $this->paymentTermId,
                     'note'               => $this->note,
+                    'tax_ref_no'         => $this->tax_ref_no ?: null,
                 ]);
+
+                $this->sale->syncTags($this->tags);
 
                 Log::info('Sale header updated', ['sale_id' => $this->sale->id, 'reference' => $this->sale->reference]);
 

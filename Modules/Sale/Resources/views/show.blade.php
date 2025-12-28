@@ -55,6 +55,24 @@
                         <h5 class="mb-2 border-bottom pb-2">Info Faktur:</h5>
                         <div>Faktur: <strong>INV/{{ $sale->reference }}</strong></div>
                         <div>Tanggal: {{ Carbon::parse($sale->date)->format('d M, Y') }}</div>
+                        <div class="mt-2">
+                            <livewire:sale.tax-ref-no-editor
+                                :saleId="$sale->id"
+                                :key="'sale-tax-ref-no-' . $sale->id"
+                            />
+                        </div>
+                        <div class="mt-2">
+                            <div>Tags:</div>
+                            <div>
+                                @forelse ($sale->tags as $tag)
+                                    <span class="badge badge-secondary">
+                                        {{ is_array($tag->name) ? ($tag->name['en'] ?? reset($tag->name)) : $tag->name }}
+                                    </span>
+                                @empty
+                                    <span class="text-muted">-</span>
+                                @endforelse
+                            </div>
+                        </div>
                         <div>Status: <strong>{{ $sale->status }}</strong></div>
                         <div>Status Pembayaran: <strong>{{ $sale->payment_status }}</strong></div>
                     </div>

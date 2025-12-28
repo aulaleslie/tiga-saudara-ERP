@@ -68,6 +68,18 @@
                                         :key="'tax-ref-no-' . $purchase->id"
                                     />
                                 </div>
+                                <div class="mt-2">
+                                    <div>Tags:</div>
+                                    <div>
+                                        @forelse ($purchase->tags as $tag)
+                                            <span class="badge badge-secondary">
+                                                {{ is_array($tag->name) ? ($tag->name['en'] ?? reset($tag->name)) : $tag->name }}
+                                            </span>
+                                        @empty
+                                            <span class="text-muted">-</span>
+                                        @endforelse
+                                    </div>
+                                </div>
                                 <div>
                                     Status: <strong>{{ $purchase->status }}</strong>
                                 </div>

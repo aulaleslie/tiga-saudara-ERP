@@ -8,14 +8,19 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use App\Models\PosReceipt;
+use Spatie\Tags\HasTags;
+use Spatie\Tags\Tag;
 
 class Sale extends BaseModel
 {
+    use HasTags;
+
     protected $guarded = [];
 
     protected $casts = [
@@ -177,5 +182,10 @@ class Sale extends BaseModel
     public function posReceipt(): BelongsTo
     {
         return $this->belongsTo(PosReceipt::class, 'pos_receipt_id');
+    }
+
+    public function tags(): MorphToMany
+    {
+        return $this->morphToMany(Tag::class, 'taggable');
     }
 }

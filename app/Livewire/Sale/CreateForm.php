@@ -28,6 +28,8 @@ class CreateForm extends Component
     public $paymentTermId;
     public $paymentTerms = [];
     public $note;
+    public $tax_ref_no;
+    public array $tags = [];
     public string $idempotencyToken;
 
     protected $listeners = [
@@ -35,6 +37,7 @@ class CreateForm extends Component
         'customerCreated' => 'handleCustomerCreated',
         'confirmSubmit' => 'submit',
         'taxCreated' => 'handleTaxCreated',
+        'tagsUpdated' => 'handleTagsUpdated',
     ];
 
     public function mount(string $idempotencyToken)
@@ -44,6 +47,12 @@ class CreateForm extends Component
         $this->date = now()->format('Y-m-d');
         $this->dueDate = now()->format('Y-m-d');
         $this->paymentTerms = PaymentTerm::all();
+        $this->tax_ref_no = null;
+    }
+
+    public function handleTagsUpdated(array $tags): void
+    {
+        $this->tags = $tags;
     }
 
     private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
@@ -183,12 +192,14 @@ class CreateForm extends Component
                 'dueDate'        => 'required|date|after_or_equal:date',
                 'paymentTermId'  => 'required|exists:payment_terms,id',
                 'note'           => 'nullable|string|max:1000',
+                'tax_ref_no'     => 'nullable|string|max:255',
             ], [
                 'customerId.required'   => 'Pilih pelanggan terlebih dahulu.',
                 'customerId.exists'     => 'Pelanggan tidak valid.',
                 'paymentTermId.required' => 'Pilih term pembayaran terlebih dahulu.',
                 'paymentTermId.exists'  => 'Term pembayaran yang dipilih tidak valid.',
                 'dueDate.after_or_equal'=> 'Tanggal jatuh tempo harus ≥ tanggal jual.',
+                'tax_ref_no.max'        => 'Nomor Faktur Pajak maksimal 255 karakter.',
             ]);
 
             if (Cart::instance('sale')->count() === 0) {
@@ -255,7 +266,10 @@ class CreateForm extends Component
                     'paid_amount'        => 0.0,
                     'is_tax_included'    => false,
                     'payment_method'     => '',
+                    'tax_ref_no'         => $this->tax_ref_no ?: null,
                 ]);
+
+                $sale->syncTags($this->tags);
 
                 Log::info('Sale created', ['sale_id' => $sale->id, 'reference' => $sale->reference]);
 
