@@ -439,11 +439,9 @@ class SaleController extends Controller
     {
         abort_if(Gate::denies('sales.dispatch'), 403);
         $currentSettingId = (int) session('setting_id');
-        $locations = Setting::with(['saleLocations.setting:id,company_name'])
-            ->findOrFail($currentSettingId)
-            ->saleLocations
-            ->sortBy('name')
-            ->values();
+        $locations = Location::where('setting_id', $currentSettingId)
+            ->orderBy('name')
+            ->get();
 
         $aggregatedProducts = [];
 
@@ -523,9 +521,9 @@ class SaleController extends Controller
         ]);
 
         $currentSettingId = (int) session('setting_id');
-        $allowedLocationIds = SettingSaleLocation::where('setting_id', $currentSettingId)
-            ->pluck('location_id')
-            ->map(fn ($locationId) => (int) $locationId)
+        $allowedLocationIds = Location::where('setting_id', $currentSettingId)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
             ->all();
 
         $validator = Validator::make($request->all(), [

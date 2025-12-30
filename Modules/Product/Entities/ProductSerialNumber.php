@@ -22,6 +22,7 @@ class ProductSerialNumber extends BaseModel
         'serial_number',
         'tax_id',
         'received_note_detail_id',
+        'dispatch_detail_id',
     ];
 
     /**

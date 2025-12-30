@@ -15,7 +15,7 @@ class DispatchSaleTableStockTest extends TestCase
     public static function setUpBeforeClass(): void
     {
         parent::setUpBeforeClass();
-        self::$databasePath = database_path('dispatch_sale_table_stock.sqlite');
+        self::$databasePath = __DIR__ . '/../../database/dispatch_sale_table_stock.sqlite';
         if (!file_exists(self::$databasePath)) {
             touch(self::$databasePath);
         }
@@ -23,10 +23,10 @@ class DispatchSaleTableStockTest extends TestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         config(['database.default' => 'sqlite']);
         config(['database.connections.sqlite.database' => self::$databasePath]);
-
-        parent::setUp();
 
         Schema::dropIfExists('product_stocks');
         Schema::create('product_stocks', function (Blueprint $table) {

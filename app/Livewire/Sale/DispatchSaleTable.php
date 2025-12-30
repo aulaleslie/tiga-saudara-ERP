@@ -18,9 +18,7 @@ class DispatchSaleTable extends Component
     public $serialNumberRequiredFlags = [];
     public $selectedSerialNumbers = [];
 
-    protected $listeners = [
-        'serialNumberSelected' => 'handleSerialNumberSelected',
-    ];
+    protected $listeners = [];
 
     public function mount($sale, $locations, $aggregatedProducts)
     {
@@ -91,16 +89,7 @@ class DispatchSaleTable extends Component
         }
     }
 
-    public function handleSerialNumberSelected($payload): void
-    {
-        Log::info('Serial number selected', $payload);
-        // Save the selected serial number in a nested array keyed by product composite key and serial index.
-        $productKey = $payload['productCompositeKey'];
-        $serialIndex = $payload['serialIndex'];
-        $this->selectedSerialNumbers[$productKey][$serialIndex] = $payload['serialNumber']['serial_number'];
 
-        // You can add further processing here such as validation if all serial numbers are filled.
-    }
 
     public function render()
     {

@@ -33,4 +33,55 @@ class SerialNumberController extends Controller
 
         return response()->json(['valid' => true], 200);
     }
+
+    /**
+     * Validate a serial number for dispatch.
+     * Checks if the serial number exists, is at the correct location, and is not already dispatched.
+     */
+    public function validateDispatchSerial(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'product_id' => 'required|integer|exists:products,id',
+            'serial_number' => 'required|string|max:255',
+            'location_id' => 'required|integer|exists:locations,id',
+        ]);
+
+        $serial = ProductSerialNumber::where('product_id', $validated['product_id'])
+            ->where('serial_number', $validated['serial_number'])
+            ->first();
+
+        if (!$serial) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number tidak ditemukan.',
+            ], 200);
+        }
+
+        if ((int) $serial->location_id !== (int) $validated['location_id']) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number berada di lokasi yang berbeda.',
+            ], 200);
+        }
+
+        // Check if already dispatched (assuming dispatch_detail_id is not null implies dispatched)
+        // Also check if it's broken? existing logic in SerialNumberLoader checked if is_broken
+        // let's check is_broken too.
+        if ($serial->dispatch_detail_id) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sudah dikirim/terpakai.',
+            ], 200);
+        }
+        
+        // Also check if broken? existing loader had ->where('is_broken', false) unless specified
+         if ($serial->is_broken) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number rusak (broken).',
+            ], 200);
+        }
+
+        return response()->json(['valid' => true], 200);
+    }
 }

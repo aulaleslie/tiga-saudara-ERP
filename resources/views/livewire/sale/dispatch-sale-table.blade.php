@@ -41,6 +41,7 @@
                     <td>{{ $product['dispatched_quantity'] }}</td>
                     <td>
                         <input type="number"
+                               id="quantity-{{ $key }}"
                                name="dispatchedQuantities[{{ $key }}]"
                                value="{{ $dispatchedQuantities[$key] ?? 0 }}"
                                min="0"
@@ -58,34 +59,35 @@
                             @foreach($locations as $location)
                                 <option value="{{ $location->id }}">
                                     {{ $location->name }}
-                                    @if($location->setting_id !== $currentSettingId)
-                                        ({{ optional($location->setting)->company_name ?? 'Tidak diketahui' }})
-                                    @endif
                                 </option>
                             @endforeach
                         </select>
                     </td>
                     <td>{{ $stockAtLocations[$key] ?? 'N/A' }}</td>
                 </tr>
-                @if($serialNumberRequiredFlags[$key] && (($selectedLocations[$key] ?? 0) > 0) && (($dispatchedQuantities[$key] ?? 0) > 0))
+                @if($serialNumberRequiredFlags[$key] && (($selectedLocations[$key] ?? 0) > 0))
                     <tr wire:key="serial-loader-{{ $key }}">
-                        <td colspan="6">
-                            @for ($i = 0; $i < ($dispatchedQuantities[$key] ?? 0); $i++)
-                                <div class="row mb-3">
-                                    <div class="col-sm-6">
-                                        <livewire:auto-complete.serial-number-loader
-                                            :locationId="$selectedLocations[$key]"
-                                            :productId="$product['product_id']"
-                                            :isTaxed="$product['tax_id']"
-                                            :isBroken="false"
-                                            :isDispatch="true"
-                                            :serialIndex="$i"
-                                            :productCompositeKey="$key"
-                                            wire:key="{{ $key . '-' . $i . '-' . ($selectedLocations[$key] ?? 0) . '-' . ($dispatchedQuantities[$key] ?? 0) }}"
-                                        />
+                        <td colspan="6" wire:ignore>
+                            <div class="serial-number-wrapper" data-composite-key="{{ $key }}" data-product-id="{{ $product['product_id'] }}" data-location-id="{{ $selectedLocations[$key] }}">
+                                <div class="input-group mb-2">
+                                    <input type="text"
+                                           class="form-control serial-input"
+                                           id="serial-input-{{ $key }}"
+                                           placeholder="Scan/Type Serial Number..."
+                                           onkeydown="handleSerialKeydown(event, '{{ $key }}', {{ $product['product_id'] }}, {{ $selectedLocations[$key] ?? 0 }})">
+                                    <div class="input-group-append">
+                                        <button class="btn btn-primary" type="button" onclick="addSerialFromInput('{{ $key }}', {{ $product['product_id'] }}, {{ $selectedLocations[$key] ?? 0 }})">
+                                            <i class="bi bi-plus"></i> Tambah
+                                        </button>
                                     </div>
                                 </div>
-                            @endfor
+                                <div id="serial-error-{{ $key }}" class="text-danger small mb-2 d-none"></div>
+                                <small class="text-muted d-block mb-2">Tekan Enter untuk menambahkan setelah scan.</small>
+
+                                <div id="serial-pills-container-{{ $key }}" class="d-flex flex-wrap">
+                                    {{-- Pills will be added here by JS --}}
+                                </div>
+                            </div>
                         </td>
                     </tr>
                 @endif
@@ -93,11 +95,6 @@
             </tbody>
         </table>
     </div>
-    @foreach($selectedSerialNumbers as $compositeKey => $serials)
-        @foreach($serials as $index => $serial)
-            <input type="hidden" name="selectedSerialNumbers[{{ $compositeKey }}][{{ $index }}]" value="{{ $serial }}">
-        @endforeach
-    @endforeach
     @foreach($selectedLocations as $key => $location)
         <input type="hidden" name="selectedLocations[{{ $key }}]" value="{{ $location }}">
     @endforeach
