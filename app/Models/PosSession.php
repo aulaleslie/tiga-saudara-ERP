@@ -21,6 +21,7 @@ class PosSession extends BaseModel
 
     protected $fillable = [
         'user_id',
+        'setting_id',
         'location_id',
         'device_name',
         'cash_float',
@@ -63,5 +64,10 @@ class PosSession extends BaseModel
     public function payments(): HasMany
     {
         return $this->hasMany(SalePayment::class, 'pos_session_id');
+    }
+
+    public function setting(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Setting::class);
     }
 }

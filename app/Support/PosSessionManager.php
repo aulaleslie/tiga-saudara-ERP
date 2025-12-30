@@ -19,11 +19,15 @@ class PosSessionManager
             return null;
         }
 
-        return PosSession::query()
+        $query = PosSession::query()
             ->where('user_id', $userId)
-            ->whereIn('status', [PosSession::STATUS_ACTIVE, PosSession::STATUS_PAUSED])
-            ->latest('id')
-            ->first();
+            ->whereIn('status', [PosSession::STATUS_ACTIVE, PosSession::STATUS_PAUSED]);
+
+        if (session()->has('setting_id')) {
+            $query->where('setting_id', session('setting_id'));
+        }
+
+        return $query->latest('id')->first();
     }
 
     public function ensureActive(?int $userId = null): PosSession
@@ -61,6 +65,7 @@ class PosSessionManager
 
         return PosSession::create([
             'user_id' => $userId,
+            'setting_id' => session('setting_id'),
             'location_id' => $locationId,
             'device_name' => $device,
             'cash_float' => round($cashFloat, 2),
@@ -103,6 +108,19 @@ class PosSessionManager
         return $session->fresh();
     }
 
+    public function calculateExpectedCash(PosSession $session): float
+    {
+        // Calculate total cash payments for this session
+        // Assuming we need to sum payments where paymentMethod is_cash = true
+        $totalCashSales = $session->payments()
+            ->whereHas('paymentMethod', function ($query) {
+                $query->where('is_cash', true);
+            })
+            ->sum('amount');
+
+        return round($session->cash_float + $totalCashSales, 2);
+    }
+
     public function close(float $actualCash, ?float $expectedCash, string $password): PosSession
     {
         $session = $this->current();
@@ -115,10 +133,11 @@ class PosSessionManager
 
         $this->assertPassword($password, field: 'closePassword');
 
-        $finalExpected = $expectedCash ?? $session->expected_cash;
-        $finalExpected = $finalExpected !== null ? round($finalExpected, 2) : null;
+        // Auto-calculate expected cash
+        $finalExpected = $this->calculateExpectedCash($session);
+        
         $actual = round($actualCash, 2);
-        $discrepancy = $finalExpected === null ? null : round($actual - $finalExpected, 2);
+        $discrepancy = round($actual - $finalExpected, 2);
 
         $session->update([
             'status' => PosSession::STATUS_CLOSED,

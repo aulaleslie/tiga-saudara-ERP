@@ -85,16 +85,7 @@ class SessionMonitor extends Component
             ->latest('id');
 
         if ($settingId) {
-            $query->where(function ($builder) use ($settingId) {
-                $builder->whereHas('location', function ($locationQuery) use ($settingId) {
-                    $locationQuery->where('setting_id', $settingId);
-                })->orWhere(function ($subQuery) use ($settingId) {
-                    $subQuery->whereNull('location_id')
-                        ->whereHas('cashier.settings', function ($settings) use ($settingId) {
-                            $settings->where('settings.id', $settingId);
-                        });
-                });
-            });
+            $query->where('setting_id', $settingId);
         }
 
         if ($this->statusFilter !== '') {

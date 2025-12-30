@@ -30,10 +30,7 @@ class SessionManager extends Component
         $this->cashFloat = $this->sanitizeFloat($value);
     }
 
-    public function updatedExpectedCash($value): void
-    {
-        $this->expectedCash = $this->sanitizeFloat($value, allowNegative: true);
-    }
+
 
     public function updatedActualCash($value): void
     {
@@ -59,7 +56,7 @@ class SessionManager extends Component
         $this->refreshSession($manager);
 
         // Redirect to POS page after successful session creation
-        $this->redirect(route('app.pos.index'), navigate: true);
+        $this->redirect(route('app.pos.index'));
     }
 
     public function pauseSession(PosSessionManager $manager): void
@@ -102,12 +99,11 @@ class SessionManager extends Component
     {
         $this->validate([
             'actualCash' => ['required', 'numeric', 'min:0'],
-            'expectedCash' => ['nullable', 'numeric'],
             'closePassword' => ['required', 'string'],
         ]);
 
         try {
-            $manager->close($this->actualCash ?? 0.0, $this->expectedCash, $this->closePassword);
+            $manager->close($this->actualCash ?? 0.0, null, $this->closePassword);
             session()->flash('success', 'Sesi POS ditutup.');
         } catch (Throwable $throwable) {
             $this->handleException($throwable, 'actualCash');
@@ -151,7 +147,7 @@ class SessionManager extends Component
         $this->session = $manager->current();
 
         if ($this->session) {
-            $this->expectedCash = $this->session->expected_cash;
+            $this->expectedCash = $manager->calculateExpectedCash($this->session);
         }
     }
 
