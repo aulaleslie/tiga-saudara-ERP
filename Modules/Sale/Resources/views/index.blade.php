@@ -19,6 +19,9 @@
                         <a href="{{ route('sales.create') }}" class="btn btn-primary">
                             Tambahkan Penjualan <i class="bi bi-plus"></i>
                         </a>
+                        <a href="{{ route('sales.imports.index') }}" class="btn btn-outline-primary">
+                            Import Penjualan <i class="bi bi-upload"></i>
+                        </a>
                         @endcan
 
                         <hr>

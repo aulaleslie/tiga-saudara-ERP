@@ -15,8 +15,16 @@ use Illuminate\Support\Facades\Route;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Http\Controllers\PosController;
 use Modules\Sale\Http\Controllers\SaleController;
+use Modules\Sale\Http\Controllers\SalesUploadController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
+
+    // Sales Upload/Import Routes
+    Route::get('/sales/imports', [SalesUploadController::class, 'index'])->name('sales.imports.index');
+    Route::get('/sales/upload', [SalesUploadController::class, 'uploadPage'])->name('sales.upload.form');
+    Route::post('/sales/upload', [SalesUploadController::class, 'upload'])->name('sales.upload.store');
+    Route::get('/sales/upload/template', [SalesUploadController::class, 'downloadTemplate'])->name('sales.upload.template');
+    Route::get('/sales/imports/{batch}', [SalesUploadController::class, 'show'])->name('sales.imports.show');
 
     Route::get('/app/pos/session', [PosController::class, 'session'])->name('app.pos.session');
     Route::get('/app/pos/sessions/monitor', [PosController::class, 'monitor'])

@@ -6,7 +6,7 @@
         <form class="d-flex" wire:submit.prevent="searchSubmit" style="gap: 0.5rem;">
             <input type="text"
                    class="form-control"
-                   placeholder="Cari referensi, pelanggan, produk, nomor faktur pajak, tag..."
+                   placeholder="Cari referensi, ref import, pelanggan, produk, nomor faktur pajak, tag..."
                    wire:model.defer="searchText"
                    style="width: 300px;"
                    autocomplete="off"
@@ -67,6 +67,10 @@
                        title="{{ $productsTooltip }}">
                         {{ $sale->reference }}
                     </a>
+                    @if (!empty($sale->imported_sales_reference_number))
+                        <br>
+                        <small class="text-muted">{{ $sale->imported_sales_reference_number }}</small>
+                    @endif
                     @if (!empty($sale->note))
                         <br>
                         <small class="text-muted">{{ Str::limit($sale->note, 50) }}</small>
@@ -121,7 +125,7 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <button class="btn btn-outline-secondary btn-sm"
-                    wire:click="$set('page', {{ $sales->currentPage() - 1 }})"
+                    wire:click="gotoPage({{ $sales->currentPage() - 1 }})"
                     @if($sales->onFirstPage()) disabled @endif>
                 <i class="bi bi-chevron-left"></i> Prev
             </button>
@@ -130,7 +134,7 @@
             <span class="text-muted">/ {{ $sales->lastPage() }}</span>
         </span>
             <button class="btn btn-outline-secondary btn-sm"
-                    wire:click="$set('page', {{ $sales->currentPage() + 1 }})"
+                    wire:click="gotoPage({{ $sales->currentPage() + 1 }})"
                     @if(!$sales->hasMorePages()) disabled @endif>
                 Next <i class="bi bi-chevron-right"></i>
             </button>

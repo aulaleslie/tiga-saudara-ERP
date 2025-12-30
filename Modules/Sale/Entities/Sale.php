@@ -5,6 +5,7 @@ namespace Modules\Sale\Entities;
 use App\Models\BaseModel;
 use App\Models\PosSession;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
@@ -66,65 +67,37 @@ class Sale extends BaseModel
         parent::boot();
 
         static::creating(function ($model) {
-            $year = now()->year;
-            $month = now()->month;
+            // Use the sale date if available, otherwise fallback to now()
+            $saleDate = $model->date ? Carbon::parse($model->date) : now();
+            $year = $saleDate->year;
+            $month = $saleDate->month;
 
-            // Determine if this is a POS sale
-            $isPosSale = !empty($model->pos_receipt_id);
-
-            // Grab the setting for this sale's tenant
-            $setting = Setting::find($model->setting_id);
-
-            // Build prefix based on POS or regular sale
-            $documentPrefix = optional($setting)->document_prefix ?: '';
-            if ($isPosSale) {
-                // For POS sales, use pos_document_prefix if set, otherwise fallback to sale_prefix_document
-                $salePrefix = optional($setting)->pos_document_prefix ?: (optional($setting)->sale_prefix_document ?: 'SL');
-            } else {
-                // For regular sales, use sale_prefix_document
-                $salePrefix = optional($setting)->sale_prefix_document ?: 'SL';
-            }
-
-            $prefix = $documentPrefix . '-' . $salePrefix;
-            $referencePrefix = sprintf(
-                '%s-%s-%s-',
-                $prefix,
-                $year,
-                str_pad($month, 2, '0', STR_PAD_LEFT)
-            );
-
-            // Fetch latest matching reference by prefix (safer than relying on created_at window)
-            $latestReferenceQuery = Sale::where('setting_id', $model->setting_id)
-                ->where('reference', 'like', $referencePrefix . '%');
-
-            if ($isPosSale) {
-                $latestReferenceQuery->whereNotNull('pos_receipt_id');
-            } else {
-                $latestReferenceQuery->whereNull('pos_receipt_id');
-            }
-
-            $latestReference = $latestReferenceQuery->latest('id')->value('reference');
+            // Fetch the latest reference for this setting, year, and month
+            $latestReference = Sale::where('setting_id', $model->setting_id)
+                ->whereYear('date', $year)
+                ->whereMonth('date', $month)
+                ->latest('id')
+                ->value('reference');
 
             // Extract the number from the latest reference
             $nextNumber = 1; // Default to 1 if no reference exists
-            if ($latestReference && str_starts_with($latestReference, $referencePrefix)) {
-                $numericPart = substr($latestReference, strlen($referencePrefix));
-                $lastNumber = (int) $numericPart;
+            if ($latestReference) {
+                $parts = explode('-', $latestReference);
+                $lastNumber = (int) end($parts);
                 $nextNumber = $lastNumber + 1;
             }
 
-            // Ensure uniqueness even if historical data exists with the same reference
-            do {
-                $candidate = make_reference_id($prefix, $year, $month, $nextNumber);
-                $exists = Sale::where('setting_id', $model->setting_id)
-                    ->where('reference', $candidate)
-                    ->exists();
-                if ($exists) {
-                    $nextNumber++;
-                }
-            } while ($exists);
+            // Grab the setting from model (works during queue processing)
+            $setting = Setting::find($model->setting_id);
 
-            $model->reference = $candidate;
+            // Build prefix:
+            // 1) take document_prefix if truthy, else empty string
+            // 2) then take sale_prefix_document if truthy, else fallback to 'SL'
+            $prefix = (optional($setting)->document_prefix ?: '') . '-'
+                . (optional($setting)->sale_prefix_document ?: 'SL');
+
+            // Generate the new reference ID
+            $model->reference = make_reference_id($prefix, $year, $month, $nextNumber);
         });
     }
 

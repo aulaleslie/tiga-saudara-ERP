@@ -71,6 +71,7 @@ class SaleTable extends Component
                 $q->where(function ($qq) {
                     $search = $this->search;
                     $qq->where('reference', 'like', "%{$search}%")
+                        ->orWhere('imported_sales_reference_number', 'like', "%{$search}%")
                         ->orWhere('tax_ref_no', 'like', "%{$search}%")
                         ->orWhereHas('customer', function ($q2) use ($search) {
                             $q2->where('customer_name', 'like', "%{$search}%")
