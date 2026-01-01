@@ -30,14 +30,15 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
         $productId = $this->filters['productId'] ?? null;
         $locationId = $this->filters['locationId'] ?? null;
         $mutationType = $this->filters['mutationType'] ?? '';
+        $isGlobal = $this->filters['isGlobal'] ?? false;
 
         // 1. Purchase Receivings (IN)
         if (empty($mutationType) || $mutationType === 'IN') {
             $receivings = ReceivedNoteDetail::with(['receivedNote.purchase', 'purchaseDetail.product'])
-                ->whereHas('receivedNote', function ($q) use ($settingId, $startDate, $endDate) {
+                ->whereHas('receivedNote', function ($q) use ($settingId, $startDate, $endDate, $isGlobal) {
                     $q->when($startDate, fn($q) => $q->whereDate('created_at', '>=', $startDate))
                         ->when($endDate, fn($q) => $q->whereDate('created_at', '<=', $endDate))
-                        ->whereHas('purchase', fn($q) => $q->where('setting_id', $settingId));
+                        ->when(!$isGlobal, fn($q) => $q->whereHas('purchase', fn($q) => $q->where('setting_id', $settingId)));
                 })
                 ->when($productId, fn($q) => $q->whereHas('purchaseDetail', fn($pq) => $pq->where('product_id', $productId)))
                 ->get()
@@ -59,10 +60,10 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
         // 2. Sale Dispatches (OUT)
         if (empty($mutationType) || $mutationType === 'OUT') {
             $dispatches = DispatchDetail::with(['dispatch.sale', 'product', 'location'])
-                ->whereHas('dispatch', function ($q) use ($settingId, $startDate, $endDate) {
+                ->whereHas('dispatch', function ($q) use ($settingId, $startDate, $endDate, $isGlobal) {
                     $q->when($startDate, fn($q) => $q->whereDate('created_at', '>=', $startDate))
                         ->when($endDate, fn($q) => $q->whereDate('created_at', '<=', $endDate))
-                        ->whereHas('sale', fn($q) => $q->where('setting_id', $settingId));
+                        ->when(!$isGlobal, fn($q) => $q->whereHas('sale', fn($q) => $q->where('setting_id', $settingId)));
                 })
                 ->when($productId, fn($q) => $q->where('product_id', $productId))
                 ->when($locationId, fn($q) => $q->where('location_id', $locationId))
@@ -85,11 +86,11 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
         // 3. Stock Transfers - Dispatched (OUT from origin)
         if (empty($mutationType) || $mutationType === 'OUT') {
             $transfersOut = TransferProduct::with(['transfer.originLocation', 'product'])
-                ->whereHas('transfer', function ($q) use ($settingId, $startDate, $endDate) {
+                ->whereHas('transfer', function ($q) use ($settingId, $startDate, $endDate, $isGlobal) {
                     $q->whereIn('status', ['DISPATCHED', 'RECEIVED', 'RETURN_DISPATCHED', 'RETURN_RECEIVED'])
                         ->when($startDate, fn($q) => $q->whereDate('dispatched_at', '>=', $startDate))
                         ->when($endDate, fn($q) => $q->whereDate('dispatched_at', '<=', $endDate))
-                        ->whereHas('originLocation', fn($q) => $q->where('setting_id', $settingId));
+                        ->when(!$isGlobal, fn($q) => $q->whereHas('originLocation', fn($q) => $q->where('setting_id', $settingId)));
                 })
                 ->when($productId, fn($q) => $q->where('product_id', $productId))
                 ->when($locationId, fn($q) => $q->whereHas('transfer', fn($tq) => $tq->where('origin_location_id', $locationId)))
@@ -112,11 +113,11 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
         // 4. Stock Transfers - Received (IN to destination)
         if (empty($mutationType) || $mutationType === 'IN') {
             $transfersIn = TransferProduct::with(['transfer.destinationLocation', 'product'])
-                ->whereHas('transfer', function ($q) use ($settingId, $startDate, $endDate) {
+                ->whereHas('transfer', function ($q) use ($settingId, $startDate, $endDate, $isGlobal) {
                     $q->whereIn('status', ['RECEIVED', 'RETURN_DISPATCHED', 'RETURN_RECEIVED'])
                         ->when($startDate, fn($q) => $q->whereDate('received_at', '>=', $startDate))
                         ->when($endDate, fn($q) => $q->whereDate('received_at', '<=', $endDate))
-                        ->whereHas('destinationLocation', fn($q) => $q->where('setting_id', $settingId));
+                        ->when(!$isGlobal, fn($q) => $q->whereHas('destinationLocation', fn($q) => $q->where('setting_id', $settingId)));
                 })
                 ->when($productId, fn($q) => $q->where('product_id', $productId))
                 ->when($locationId, fn($q) => $q->whereHas('transfer', fn($tq) => $tq->where('destination_location_id', $locationId)))
@@ -138,11 +139,11 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
 
         // 5. Stock Adjustments
         $adjustments = AdjustedProduct::with(['adjustment', 'product'])
-            ->whereHas('adjustment', function ($q) use ($settingId, $startDate, $endDate) {
+            ->whereHas('adjustment', function ($q) use ($settingId, $startDate, $endDate, $isGlobal) {
                 $q->where('status', 'APPROVED')
                     ->when($startDate, fn($q) => $q->whereDate('updated_at', '>=', $startDate))
                     ->when($endDate, fn($q) => $q->whereDate('updated_at', '<=', $endDate))
-                    ->where('setting_id', $settingId);
+                    ->when(!$isGlobal, fn($q) => $q->where('setting_id', $settingId));
             })
             ->when($productId, fn($q) => $q->where('product_id', $productId))
             ->get()

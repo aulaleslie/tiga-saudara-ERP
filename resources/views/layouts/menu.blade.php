@@ -53,6 +53,18 @@
         </ul>
         @endif
         @endcan
+        @can('purchaseReports.global.access')
+        @if(Route::has('reports.purchase-report.global'))
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.purchase-report.global') ? 'c-active' : '' }}"
+                   href="{{ route('reports.purchase-report.global') }}">
+                    <i class="c-sidebar-nav-icon bi bi-globe" style="line-height: 1;"></i> Laporan Pembelian Global
+                </a>
+            </li>
+        </ul>
+        @endif
+        @endcan
         @can('saleReports.access')
         @if(Route::has('reports.sale-report.index'))
         <ul class="c-sidebar-nav-dropdown-items">
@@ -65,6 +77,18 @@
         </ul>
         @endif
         @endcan
+        @can('saleReports.global.access')
+        @if(Route::has('reports.sale-report.global'))
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.sale-report.global') ? 'c-active' : '' }}"
+                   href="{{ route('reports.sale-report.global') }}">
+                    <i class="c-sidebar-nav-icon bi bi-globe" style="line-height: 1;"></i> Laporan Penjualan Global
+                </a>
+            </li>
+        </ul>
+        @endif
+        @endcan
         @can('stockMutationReports.access')
         @if(Route::has('reports.stock-mutation-report.index'))
         <ul class="c-sidebar-nav-dropdown-items">
@@ -72,6 +96,18 @@
                 <a class="c-sidebar-nav-link {{ request()->routeIs('reports.stock-mutation-report.index') ? 'c-active' : '' }}"
                    href="{{ route('reports.stock-mutation-report.index') }}">
                     <i class="c-sidebar-nav-icon bi bi-arrow-left-right" style="line-height: 1;"></i> Mutasi Stok
+                </a>
+            </li>
+        </ul>
+        @endif
+        @endcan
+        @can('stockMutationReports.global.access')
+        @if(Route::has('reports.stock-mutation-report.global'))
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.stock-mutation-report.global') ? 'c-active' : '' }}"
+                   href="{{ route('reports.stock-mutation-report.global') }}">
+                    <i class="c-sidebar-nav-icon bi bi-globe" style="line-height: 1;"></i> Mutasi Stok Global
                 </a>
             </li>
         </ul>

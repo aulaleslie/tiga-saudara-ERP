@@ -112,14 +112,17 @@
 
                                         'Laporan Pembelian' => [
                                             'purchaseReports.access' => 'Akses Laporan Pembelian',
+                                            'purchaseReports.global.access' => 'Akses Laporan Pembelian Global',
                                         ],
 
                                         'Laporan Penjualan' => [
                                             'saleReports.access' => 'Akses Laporan Penjualan',
+                                            'saleReports.global.access' => 'Akses Laporan Penjualan Global',
                                         ],
 
                                         'Laporan Mutasi Stok' => [
                                             'stockMutationReports.access' => 'Akses Laporan Mutasi Stok',
+                                            'stockMutationReports.global.access' => 'Akses Laporan Mutasi Stok Global',
                                         ],
 
                                         'Pembayaran Pembelian' => [

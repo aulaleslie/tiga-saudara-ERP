@@ -10,6 +10,16 @@ class StockMutationReportController extends Controller
     public function index()
     {
         abort_if(Gate::denies('stockMutationReports.access'), 403);
-        return view('reports::stock-mutation-report.index');
+        return view('reports::stock-mutation-report.index', [
+            'isGlobal' => false,
+        ]);
+    }
+
+    public function indexGlobal()
+    {
+        abort_if(Gate::denies('stockMutationReports.global.access'), 403);
+        return view('reports::stock-mutation-report.index', [
+            'isGlobal' => true,
+        ]);
     }
 }

@@ -21,12 +21,14 @@ class SaleReport extends Component
     public $paymentStatus;
     public $selectedTag;
     public $filterTriggered = false;
+    public $isGlobal = false;
 
     protected $paginationTheme = 'bootstrap';
 
-    public function mount($customers)
+    public function mount($customers, $isGlobal = false)
     {
         $this->customers = $customers;
+        $this->isGlobal = $isGlobal;
         $this->startDate = now()->startOfMonth()->format('Y-m-d');
         $this->endDate = now()->format('Y-m-d');
         $this->customerId = '';
@@ -44,13 +46,15 @@ class SaleReport extends Component
     public function exportExcel()
     {
         $filters = $this->exportFilters();
-        return Excel::download(new SaleReportExport($filters), 'laporan-penjualan.xlsx');
+        $filename = $this->isGlobal ? 'laporan-penjualan-global.xlsx' : 'laporan-penjualan.xlsx';
+        return Excel::download(new SaleReportExport($filters), $filename);
     }
 
     public function exportCsv()
     {
         $filters = $this->exportFilters();
-        return Excel::download(new SaleReportExport($filters), 'laporan-penjualan.csv', \Maatwebsite\Excel\Excel::CSV);
+        $filename = $this->isGlobal ? 'laporan-penjualan-global.csv' : 'laporan-penjualan.csv';
+        return Excel::download(new SaleReportExport($filters), $filename, \Maatwebsite\Excel\Excel::CSV);
     }
 
     private function exportFilters(): array
@@ -62,15 +66,16 @@ class SaleReport extends Component
             'saleStatus' => $this->saleStatus,
             'paymentStatus' => $this->paymentStatus,
             'selectedTag' => $this->selectedTag,
+            'isGlobal' => $this->isGlobal,
         ];
     }
 
     public function render()
     {
-        $settingId = session('setting_id');
-
         $query = Sale::with(['customer', 'tags'])
-            ->where('setting_id', $settingId)
+            ->when(!$this->isGlobal, function ($q) {
+                $q->where('setting_id', session('setting_id'));
+            })
             ->when($this->filterTriggered, function ($q) {
                 $q->when($this->startDate, fn($q) => $q->whereDate('date', '>=', $this->startDate))
                     ->when($this->endDate, fn($q) => $q->whereDate('date', '<=', $this->endDate))
@@ -94,6 +99,7 @@ class SaleReport extends Component
                 Sale::STATUS_RETURNED => 'Diretur',
                 Sale::STATUS_RETURNED_PARTIALLY => 'Diretur Sebagian',
             ],
+            'isGlobal' => $this->isGlobal,
         ]);
     }
 }

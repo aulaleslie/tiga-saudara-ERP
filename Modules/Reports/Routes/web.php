@@ -52,13 +52,25 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
             ->name('reports.purchase-report.index')
             ->middleware('can:purchaseReports.access');
 
+        Route::get('/purchase-report/global', [PurchaseReportController::class, 'indexGlobal'])
+            ->name('reports.purchase-report.global')
+            ->middleware('can:purchaseReports.global.access');
+
         Route::get('/sale-report', [SaleReportController::class, 'index'])
             ->name('reports.sale-report.index')
             ->middleware('can:saleReports.access');
 
+        Route::get('/sale-report/global', [SaleReportController::class, 'indexGlobal'])
+            ->name('reports.sale-report.global')
+            ->middleware('can:saleReports.global.access');
+
         Route::get('/stock-mutation-report', [StockMutationReportController::class, 'index'])
             ->name('reports.stock-mutation-report.index')
             ->middleware('can:stockMutationReports.access');
+
+        Route::get('/stock-mutation-report/global', [StockMutationReportController::class, 'indexGlobal'])
+            ->name('reports.stock-mutation-report.global')
+            ->middleware('can:stockMutationReports.global.access');
     });
 
     Route::get('/test-pdf', function () {

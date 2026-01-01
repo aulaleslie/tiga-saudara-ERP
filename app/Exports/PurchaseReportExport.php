@@ -28,9 +28,10 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
         $selectedTag = $this->filters['selectedTag'] ?? null;
         $status = $this->filters['status'] ?? null;
         $paymentStatus = $this->filters['paymentStatus'] ?? null;
+        $isGlobal = $this->filters['isGlobal'] ?? false;
 
         return Purchase::with('supplier')
-            ->where('setting_id', $settingId)
+            ->when(!$isGlobal, fn($q) => $q->where('setting_id', $settingId))
             ->when($startDate, fn($q) => $q->where('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->where('date', '<=', $endDate))
             ->when($supplierId, fn($q) => $q->where('supplier_id', $supplierId))

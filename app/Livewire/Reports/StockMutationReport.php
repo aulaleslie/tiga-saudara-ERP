@@ -20,11 +20,13 @@ class StockMutationReport extends Component
 
     public $startDate, $endDate, $productId, $locationId, $mutationType;
     public $filterTriggered = false;
+    public $isGlobal = false;
 
     protected $paginationTheme = 'bootstrap';
 
-    public function mount()
+    public function mount($isGlobal = false)
     {
+        $this->isGlobal = $isGlobal;
         $this->startDate = now()->startOfMonth()->format('Y-m-d');
         $this->endDate = now()->format('Y-m-d');
         $this->mutationType = '';
@@ -39,13 +41,15 @@ class StockMutationReport extends Component
     public function exportExcel()
     {
         $filters = $this->exportFilters();
-        return Excel::download(new StockMutationReportExport($filters), 'laporan-mutasi-stok.xlsx');
+        $filename = $this->isGlobal ? 'laporan-mutasi-stok-global.xlsx' : 'laporan-mutasi-stok.xlsx';
+        return Excel::download(new StockMutationReportExport($filters), $filename);
     }
 
     public function exportCsv()
     {
         $filters = $this->exportFilters();
-        return Excel::download(new StockMutationReportExport($filters), 'laporan-mutasi-stok.csv', \Maatwebsite\Excel\Excel::CSV);
+        $filename = $this->isGlobal ? 'laporan-mutasi-stok-global.csv' : 'laporan-mutasi-stok.csv';
+        return Excel::download(new StockMutationReportExport($filters), $filename, \Maatwebsite\Excel\Excel::CSV);
     }
 
     private function exportFilters(): array
@@ -56,6 +60,7 @@ class StockMutationReport extends Component
             'productId' => $this->productId,
             'locationId' => $this->locationId,
             'mutationType' => $this->mutationType,
+            'isGlobal' => $this->isGlobal,
         ];
     }
 
@@ -67,14 +72,15 @@ class StockMutationReport extends Component
 
         $mutations = collect();
         $settingId = session('setting_id');
+        $isGlobal = $this->isGlobal;
 
         // 1. Purchase Receivings (IN)
         if (empty($this->mutationType) || $this->mutationType === 'IN') {
             $receivings = ReceivedNoteDetail::with(['receivedNote.purchase', 'purchaseDetail.product'])
-                ->whereHas('receivedNote', function ($q) use ($settingId) {
+                ->whereHas('receivedNote', function ($q) use ($settingId, $isGlobal) {
                     $q->when($this->startDate, fn($q) => $q->whereDate('created_at', '>=', $this->startDate))
                         ->when($this->endDate, fn($q) => $q->whereDate('created_at', '<=', $this->endDate))
-                        ->whereHas('purchase', fn($q) => $q->where('setting_id', $settingId));
+                        ->when(!$isGlobal, fn($q) => $q->whereHas('purchase', fn($q) => $q->where('setting_id', $settingId)));
                 })
                 ->when($this->productId, fn($q) => $q->whereHas('purchaseDetail', fn($pq) => $pq->where('product_id', $this->productId)))
                 ->get()
@@ -96,10 +102,10 @@ class StockMutationReport extends Component
         // 2. Sale Dispatches (OUT)
         if (empty($this->mutationType) || $this->mutationType === 'OUT') {
             $dispatches = DispatchDetail::with(['dispatch.sale', 'product', 'location'])
-                ->whereHas('dispatch', function ($q) use ($settingId) {
+                ->whereHas('dispatch', function ($q) use ($settingId, $isGlobal) {
                     $q->when($this->startDate, fn($q) => $q->whereDate('created_at', '>=', $this->startDate))
                         ->when($this->endDate, fn($q) => $q->whereDate('created_at', '<=', $this->endDate))
-                        ->whereHas('sale', fn($q) => $q->where('setting_id', $settingId));
+                        ->when(!$isGlobal, fn($q) => $q->whereHas('sale', fn($q) => $q->where('setting_id', $settingId)));
                 })
                 ->when($this->productId, fn($q) => $q->where('product_id', $this->productId))
                 ->when($this->locationId, fn($q) => $q->where('location_id', $this->locationId))
@@ -122,11 +128,11 @@ class StockMutationReport extends Component
         // 3. Stock Transfers - Dispatched (OUT from origin)
         if (empty($this->mutationType) || $this->mutationType === 'OUT') {
             $transfersOut = TransferProduct::with(['transfer.originLocation', 'product'])
-                ->whereHas('transfer', function ($q) use ($settingId) {
+                ->whereHas('transfer', function ($q) use ($settingId, $isGlobal) {
                     $q->whereIn('status', ['DISPATCHED', 'RECEIVED', 'RETURN_DISPATCHED', 'RETURN_RECEIVED'])
                         ->when($this->startDate, fn($q) => $q->whereDate('dispatched_at', '>=', $this->startDate))
                         ->when($this->endDate, fn($q) => $q->whereDate('dispatched_at', '<=', $this->endDate))
-                        ->whereHas('originLocation', fn($q) => $q->where('setting_id', $settingId));
+                        ->when(!$isGlobal, fn($q) => $q->whereHas('originLocation', fn($q) => $q->where('setting_id', $settingId)));
                 })
                 ->when($this->productId, fn($q) => $q->where('product_id', $this->productId))
                 ->when($this->locationId, fn($q) => $q->whereHas('transfer', fn($tq) => $tq->where('origin_location_id', $this->locationId)))
@@ -149,11 +155,11 @@ class StockMutationReport extends Component
         // 4. Stock Transfers - Received (IN to destination)
         if (empty($this->mutationType) || $this->mutationType === 'IN') {
             $transfersIn = TransferProduct::with(['transfer.destinationLocation', 'product'])
-                ->whereHas('transfer', function ($q) use ($settingId) {
+                ->whereHas('transfer', function ($q) use ($settingId, $isGlobal) {
                     $q->whereIn('status', ['RECEIVED', 'RETURN_DISPATCHED', 'RETURN_RECEIVED'])
                         ->when($this->startDate, fn($q) => $q->whereDate('received_at', '>=', $this->startDate))
                         ->when($this->endDate, fn($q) => $q->whereDate('received_at', '<=', $this->endDate))
-                        ->whereHas('destinationLocation', fn($q) => $q->where('setting_id', $settingId));
+                        ->when(!$isGlobal, fn($q) => $q->whereHas('destinationLocation', fn($q) => $q->where('setting_id', $settingId)));
                 })
                 ->when($this->productId, fn($q) => $q->where('product_id', $this->productId))
                 ->when($this->locationId, fn($q) => $q->whereHas('transfer', fn($tq) => $tq->where('destination_location_id', $this->locationId)))
@@ -175,11 +181,11 @@ class StockMutationReport extends Component
 
         // 5. Stock Adjustments
         $adjustments = AdjustedProduct::with(['adjustment', 'product'])
-            ->whereHas('adjustment', function ($q) use ($settingId) {
+            ->whereHas('adjustment', function ($q) use ($settingId, $isGlobal) {
                 $q->where('status', 'APPROVED')
                     ->when($this->startDate, fn($q) => $q->whereDate('updated_at', '>=', $this->startDate))
                     ->when($this->endDate, fn($q) => $q->whereDate('updated_at', '<=', $this->endDate))
-                    ->where('setting_id', $settingId);
+                    ->when(!$isGlobal, fn($q) => $q->where('setting_id', $settingId));
             })
             ->when($this->productId, fn($q) => $q->where('product_id', $this->productId))
             ->get()
@@ -214,7 +220,10 @@ class StockMutationReport extends Component
         return view('livewire.reports.stock-mutation-report', [
             'mutations' => $this->mutations,
             'products' => Product::orderBy('product_name')->get(),
-            'locations' => Location::where('setting_id', $settingId)->orderBy('name')->get(),
+            'locations' => $this->isGlobal
+                ? Location::orderBy('name')->get()
+                : Location::where('setting_id', $settingId)->orderBy('name')->get(),
+            'isGlobal' => $this->isGlobal,
         ]);
     }
 }

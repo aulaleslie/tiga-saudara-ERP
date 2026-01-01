@@ -27,9 +27,10 @@ class SaleReportExport implements FromCollection, WithHeadings, WithEvents
         $saleStatus = $this->filters['saleStatus'] ?? null;
         $paymentStatus = $this->filters['paymentStatus'] ?? null;
         $selectedTag = $this->filters['selectedTag'] ?? null;
+        $isGlobal = $this->filters['isGlobal'] ?? false;
 
         return Sale::with('customer')
-            ->where('setting_id', $settingId)
+            ->when(!$isGlobal, fn($q) => $q->where('setting_id', $settingId))
             ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
             ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
             ->when($customerId, fn($q) => $q->where('customer_id', $customerId))

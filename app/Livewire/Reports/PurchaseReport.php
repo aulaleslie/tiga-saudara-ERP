@@ -18,11 +18,13 @@ class PurchaseReport extends Component
     public $startDate, $endDate, $supplierId, $withTax, $selectedTag;
     public $status, $paymentStatus;
     public $filterTriggered = false;
+    public $isGlobal = false;
 
     protected $paginationTheme = 'bootstrap';
 
-    public function mount()
+    public function mount($isGlobal = false)
     {
+        $this->isGlobal = $isGlobal;
         $this->startDate = now()->startOfMonth()->format('Y-m-d');
         $this->endDate = now()->format('Y-m-d');
     }
@@ -36,13 +38,15 @@ class PurchaseReport extends Component
     public function exportExcel()
     {
         $filters = $this->exportFilters();
-        return Excel::download(new PurchaseReportExport($filters), 'laporan-pembelian.xlsx');
+        $filename = $this->isGlobal ? 'laporan-pembelian-global.xlsx' : 'laporan-pembelian.xlsx';
+        return Excel::download(new PurchaseReportExport($filters), $filename);
     }
 
     public function exportCsv()
     {
         $filters = $this->exportFilters();
-        return Excel::download(new PurchaseReportExport($filters), 'laporan-pembelian.csv', \Maatwebsite\Excel\Excel::CSV);
+        $filename = $this->isGlobal ? 'laporan-pembelian-global.csv' : 'laporan-pembelian.csv';
+        return Excel::download(new PurchaseReportExport($filters), $filename, \Maatwebsite\Excel\Excel::CSV);
     }
 
     public function exportPdf()
@@ -50,7 +54,8 @@ class PurchaseReport extends Component
         $filters = $this->exportFilters();
         $purchases = (new PurchaseReportExport($filters))->collection();
         $pdf = Pdf::loadView('exports.purchase-pdf', ['purchases' => $purchases]);
-        return response()->streamDownload(fn () => print($pdf->stream()), 'laporan-pembelian.pdf');
+        $filename = $this->isGlobal ? 'laporan-pembelian-global.pdf' : 'laporan-pembelian.pdf';
+        return response()->streamDownload(fn () => print($pdf->stream()), $filename);
     }
 
     private function exportFilters(): array
@@ -63,15 +68,16 @@ class PurchaseReport extends Component
             'selectedTag' => $this->selectedTag,
             'status' => $this->status,
             'paymentStatus' => $this->paymentStatus,
+            'isGlobal' => $this->isGlobal,
         ];
     }
 
     public function render()
     {
-        $settingId = session('setting_id');
-
         $query = Purchase::with('supplier')
-            ->where('setting_id', $settingId)
+            ->when(!$this->isGlobal, function ($q) {
+                $q->where('setting_id', session('setting_id'));
+            })
             ->when($this->filterTriggered, function ($q) {
                 $q->when($this->startDate, fn($q) => $q->where('date', '>=', $this->startDate))
                     ->when($this->endDate, fn($q) => $q->where('date', '<=', $this->endDate))
@@ -94,6 +100,7 @@ class PurchaseReport extends Component
                 Purchase::STATUS_RECEIVED_PARTIALLY => 'Diterima Sebagian',
                 Purchase::STATUS_RECEIVED => 'Diterima',
             ],
+            'isGlobal' => $this->isGlobal,
         ]);
     }
 }
