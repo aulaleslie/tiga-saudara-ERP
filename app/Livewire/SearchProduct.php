@@ -434,9 +434,15 @@ class SearchProduct extends Component
         $serialStockFilter = $this->buildLocationFilter('location_id', 'suggest_serial', false);
         $serialLocationFilter = $this->buildLocationFilter('psn.location_id', 'suggest_serial_loc', false);
 
+        /*
+         * Query filters to only show products that have been purchased before.
+         * We use INNER JOIN with a subquery of distinct purchased product IDs
+         * which is evaluated once and then joined, rather than EXISTS which
+         * would be evaluated per-row in each UNION segment.
+         */
         $sql = "
     SELECT * FROM (
-        /* Base rows */
+        /* Base rows - non-serial products matched by name/code/barcode */
         SELECT
             p.id,
             p.product_name,
@@ -462,6 +468,9 @@ class SearchProduct extends Component
                 ) THEN 1 ELSE 0
             END AS has_bundle
         FROM products p
+        /* Only include products that have been purchased at least once */
+        INNER JOIN (SELECT DISTINCT product_id FROM purchase_details WHERE product_id IS NOT NULL) purchased_prods
+            ON purchased_prods.product_id = p.id
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_base
         LEFT JOIN (
             SELECT product_id,
@@ -480,7 +489,7 @@ class SearchProduct extends Component
 
         UNION ALL
 
-        /* Conversion rows */
+        /* Conversion rows - products with unit conversions (alternate barcodes/units) */
         SELECT
             p.id,
             p.product_name,
@@ -507,6 +516,9 @@ class SearchProduct extends Component
             END AS has_bundle
         FROM product_unit_conversions puc
         JOIN products p ON p.id = puc.product_id
+        /* Only include products that have been purchased at least once */
+        INNER JOIN (SELECT DISTINCT product_id FROM purchase_details WHERE product_id IS NOT NULL) purchased_prods
+            ON purchased_prods.product_id = p.id
         LEFT JOIN product_unit_conversion_prices pucp
             ON pucp.product_unit_conversion_id = puc.id
            AND pucp.setting_id = :settingId_conversion_pucp
@@ -528,7 +540,7 @@ class SearchProduct extends Component
 
         UNION ALL
 
-        /* Serial rows */
+        /* Serial rows - products with serial numbers (matched by serial number search) */
         SELECT
             p.id,
             p.product_name,
@@ -555,6 +567,9 @@ class SearchProduct extends Component
             END AS has_bundle
         FROM product_serial_numbers psn
         JOIN products p ON p.id = psn.product_id
+        /* Only include products that have been purchased at least once */
+        INNER JOIN (SELECT DISTINCT product_id FROM purchase_details WHERE product_id IS NOT NULL) purchased_prods
+            ON purchased_prods.product_id = p.id
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_serial
         LEFT JOIN (
             SELECT product_id,
@@ -570,8 +585,7 @@ class SearchProduct extends Component
           AND LOWER(psn.serial_number) LIKE :term_serial
           AND p.serial_number_required = 1
     ) results
-    WHERE results.product_quantity > 0
-    ORDER BY results.product_name ASC
+    ORDER BY results.product_quantity DESC, results.product_name ASC
     LIMIT {$limit}
     ";
 

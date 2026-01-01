@@ -419,9 +419,9 @@ class SalesImportService
                 );
 
                 $quantity = (int) ($rowData['kuantitas'] ?? 1);
-                $unitPrice = (float) ($rowData['harga_satuan'] ?? 0);
+                $unitPriceDpp = (float) ($rowData['harga_satuan'] ?? 0);
                 $taxAmount = (float) ($rowData['pajak'] ?? 0);
-                $subtotal = $quantity * $unitPrice;
+                $subtotal = $quantity * $unitPriceDpp;
 
                 $totalAmount += $subtotal;
                 $totalTaxAmount += $taxAmount;
@@ -435,11 +435,18 @@ class SalesImportService
                     $tax = $taxPercentage > 0 ? $this->findOrCreateTax($taxPercentage) : null;
                 }
 
+                // Calculate final unit price (including tax) for ProductPrice updates
+                $effectiveTaxRate = $taxRateFromCsv > 0 ? $taxRateFromCsv : ($tax?->value ?? 0);
+                $unitPriceFinal = $effectiveTaxRate > 0
+                    ? $unitPriceDpp * (1 + ($effectiveTaxRate / 100))
+                    : $unitPriceDpp;
+
                 $details[] = [
                     'row' => $row,
                     'product' => $product,
                     'quantity' => $quantity,
-                    'unit_price' => $unitPrice,
+                    'unit_price' => $unitPriceDpp,
+                    'unit_price_final' => $unitPriceFinal,
                     'subtotal' => $subtotal,
                     'tax_id' => $tax?->id,
                     'tax_amount' => $taxAmount,
@@ -486,7 +493,7 @@ class SalesImportService
                 throw new \Exception("No location found for setting: {$setting->company_name}");
             }
 
-            // Create sale details
+            // Create sale details and update ProductPrice with sale_price
             foreach ($details as $detail) {
                 SaleDetails::create([
                     'sale_id' => $sale->id,
@@ -502,6 +509,27 @@ class SalesImportService
                     'product_tax_amount' => $detail['tax_amount'],
                     'tax_id' => $detail['tax_id'],
                 ]);
+
+                // Update ProductPrice with sale_price (final price including tax)
+                $productPrice = ProductPrice::firstOrCreate(
+                    [
+                        'product_id' => $detail['product']->id,
+                        'setting_id' => $setting->id,
+                    ],
+                    [
+                        'sale_price' => 0,
+                        'last_purchase_price' => 0,
+                        'average_purchase_price' => 0,
+                    ]
+                );
+
+                // Update sale_price if current is 0 or if new price is higher (latest price)
+                $unitPriceFinal = $detail['unit_price_final'];
+                if (($productPrice->sale_price ?? 0) == 0 || $unitPriceFinal > 0) {
+                    $productPrice->update([
+                        'sale_price' => $unitPriceFinal,
+                    ]);
+                }
             }
 
             // Auto-dispatch: Create Dispatch and DispatchDetail, decrement stock
