@@ -16,17 +16,17 @@ class SettingDatabaseSeeder extends Seeder
     public function run()
     {
         $companies = [
-            'CV Tiga Nusa Computer',
-            'CV Top IT Internusa',
-            'Tiga Computer',
-            'White Knight Computer',
-            'Dunia Computer',
-            'Perdana',
+            ['name' => 'CV Tiga Nusa Computer', 'document_prefix' => 'TNC'],
+            ['name' => 'CV Top IT Internusa', 'document_prefix' => 'TPI'],
+            ['name' => 'Tiga Computer', 'document_prefix' => 'TC'],
+            ['name' => 'White Knight Computer', 'document_prefix' => 'WKC'],
+            ['name' => 'Dunia Computer', 'document_prefix' => 'DC'],
+            ['name' => 'Perdana', 'document_prefix' => 'PD'],
         ];
 
         foreach ($companies as $company) {
             $setting = Setting::create([
-                'company_name' => $company,
+                'company_name' => $company['name'],
                 'company_email' => 'contactus@tiga-computer.com',
                 'company_phone' => '012345678901',
                 'notification_email' => 'notification@tiga-computer.com',
@@ -34,10 +34,10 @@ class SettingDatabaseSeeder extends Seeder
                 'default_currency_position' => 'prefix',
                 'footer_text' => 'CV Tiga Computer © 2021',
                 'company_address' => 'Bima, NTB',
-                'document_prefix' => 'TNC',
+                'document_prefix' => $company['document_prefix'],
                 'purchase_prefix_document' => 'BL',
                 'sale_prefix_document' => 'JL',
-                'pos_document_prefix' => 'POS', // Will use sale_prefix_document if null
+                'pos_document_prefix' => 'POS',
                 'pos_idle_threshold_minutes' => 30,
                 'pos_default_cash_threshold' => 0,
             ]);
