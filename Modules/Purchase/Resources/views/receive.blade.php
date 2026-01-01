@@ -108,7 +108,7 @@
                                             </td>
                                             <td>
                                                 @if ($detail->product->serial_number_required)
-                                                    <div class="serial-number-wrapper" data-detail-id="{{ $detail->id }}" data-product-id="{{ $detail->product_id }}">
+                                                    <div class="serial-number-wrapper" data-detail-id="{{ $detail->id }}" data-product-id="{{ $detail->product_id }}" data-max-quantity="{{ $detail->quantity - ($detail->quantity_received ?? 0) }}">
                                                         <div class="input-group mb-2">
                                                             <input type="text"
                                                                    class="form-control serial-input"
@@ -222,8 +222,20 @@
 
             if (!serial) return;
 
-            // Check duplicate in current list (client-side)
+            // Check if max quantity has been reached
+            const wrapper = document.querySelector(`.serial-number-wrapper[data-detail-id="${detailId}"]`);
+            const maxQuantity = parseInt(wrapper.dataset.maxQuantity) || 0;
             const container = document.getElementById(`serial-pills-container-${detailId}`);
+            const currentCount = container.querySelectorAll('input[type="hidden"]').length;
+            
+            if (currentCount >= maxQuantity) {
+                showError(detailId, `Jumlah maksimal serial number yang dapat diterima adalah ${maxQuantity}.`);
+                input.value = '';
+                input.focus();
+                return;
+            }
+
+            // Check duplicate in current list (client-side)
             let existsLocally = false;
             container.querySelectorAll('input[type="hidden"]').forEach(hidden => {
                if (hidden.value === serial) existsLocally = true;

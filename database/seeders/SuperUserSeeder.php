@@ -23,7 +23,7 @@ class SuperUserSeeder extends Seeder
             $user = User::create([
                 'name' => 'Administrator',
                 'email' => 'super.admin@tiga-computer.com',
-                'password' => Hash::make(12345678),
+                'password' => Hash::make('Bima@1234'),
                 'is_active' => 1
             ]);
         }
