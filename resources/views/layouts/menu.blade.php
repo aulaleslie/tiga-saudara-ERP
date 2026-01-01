@@ -21,7 +21,7 @@
 <li class="c-sidebar-nav-divider"></li>
 
 @can('reports.access')
-    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.mekari-converter.*') || request()->routeIs('reports.mekari-invoice-generator.*') || request()->routeIs('reports.purchase-report.index') || request()->routeIs('app.pos.monitor') ? 'c-show' : '' }}">
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.mekari-converter.*') || request()->routeIs('reports.mekari-invoice-generator.*') || request()->routeIs('reports.purchase-report.index') || request()->routeIs('reports.sale-report.index') || request()->routeIs('reports.stock-mutation-report.index') || request()->routeIs('app.pos.monitor') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-file-earmark-spreadsheet" style="line-height: 1;"></i> Laporan
         </a>
@@ -41,6 +41,7 @@
                 </a>
             </li>
         </ul>
+        @can('purchaseReports.access')
         <ul class="c-sidebar-nav-dropdown-items">
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('reports.purchase-report.index') ? 'c-active' : '' }}"
@@ -49,7 +50,27 @@
                 </a>
             </li>
         </ul>
-
+        @endcan
+        @can('saleReports.access')
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.sale-report.index') ? 'c-active' : '' }}"
+                   href="{{ route('reports.sale-report.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-graph-up-arrow" style="line-height: 1;"></i> Laporan Penjualan
+                </a>
+            </li>
+        </ul>
+        @endcan
+        @can('stockMutationReports.access')
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.stock-mutation-report.index') ? 'c-active' : '' }}"
+                   href="{{ route('reports.stock-mutation-report.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-arrow-left-right" style="line-height: 1;"></i> Mutasi Stok
+                </a>
+            </li>
+        </ul>
+        @endcan
         <ul class="c-sidebar-nav-dropdown-items">
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('app.pos.monitor') ? 'c-active' : '' }}"

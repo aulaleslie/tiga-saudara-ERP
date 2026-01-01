@@ -112,6 +112,14 @@
                                             'purchaseReports.access' => 'Akses Laporan Pembelian',
                                         ],
 
+                                        'Laporan Penjualan' => [
+                                            'saleReports.access' => 'Akses Laporan Penjualan',
+                                        ],
+
+                                        'Laporan Mutasi Stok' => [
+                                            'stockMutationReports.access' => 'Akses Laporan Mutasi Stok',
+                                        ],
+
                                         'Pembayaran Pembelian' => [
                                             'purchasePayments.access' => 'Akses Pembayaran Pembelian',
                                             'purchasePayments.create' => 'Buat Pembayaran Pembelian',

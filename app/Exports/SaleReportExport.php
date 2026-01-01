@@ -7,9 +7,9 @@ use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Events\AfterSheet;
-use Modules\Purchase\Entities\Purchase;
+use Modules\Sale\Entities\Sale;
 
-class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
+class SaleReportExport implements FromCollection, WithHeadings, WithEvents
 {
     protected array $filters;
 
@@ -23,32 +23,30 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
         $settingId = session('setting_id');
         $startDate = $this->filters['startDate'] ?? null;
         $endDate = $this->filters['endDate'] ?? null;
-        $supplierId = $this->filters['supplierId'] ?? null;
-        $withTax = $this->filters['withTax'] ?? null;
-        $selectedTag = $this->filters['selectedTag'] ?? null;
-        $status = $this->filters['status'] ?? null;
+        $customerId = $this->filters['customerId'] ?? null;
+        $saleStatus = $this->filters['saleStatus'] ?? null;
         $paymentStatus = $this->filters['paymentStatus'] ?? null;
+        $selectedTag = $this->filters['selectedTag'] ?? null;
 
-        return Purchase::with('supplier')
+        return Sale::with('customer')
             ->where('setting_id', $settingId)
-            ->when($startDate, fn($q) => $q->where('date', '>=', $startDate))
-            ->when($endDate, fn($q) => $q->where('date', '<=', $endDate))
-            ->when($supplierId, fn($q) => $q->where('supplier_id', $supplierId))
-            ->when($withTax !== null && $withTax !== '', fn($q) => $q->where('is_tax_included', $withTax))
-            ->when($selectedTag, fn($q) => $q->whereHas('tags', fn($tq) => $tq->where('tags.id', $selectedTag)))
-            ->when($status, fn($q) => $q->where('status', $status))
+            ->when($startDate, fn($q) => $q->whereDate('date', '>=', $startDate))
+            ->when($endDate, fn($q) => $q->whereDate('date', '<=', $endDate))
+            ->when($customerId, fn($q) => $q->where('customer_id', $customerId))
+            ->when($saleStatus, fn($q) => $q->where('status', $saleStatus))
             ->when($paymentStatus, fn($q) => $q->where('payment_status', $paymentStatus))
+            ->when($selectedTag, fn($q) => $q->whereHas('tags', fn($tq) => $tq->where('tags.id', $selectedTag)))
+            ->orderBy('date', 'desc')
             ->get()
-            ->map(fn($p) => [
-                'Tanggal' => date('d/m/Y', strtotime($p->date)),
-                'No. Referensi' => $p->reference,
-                'Pemasok' => $p->supplier->supplier_name ?? '-',
-                'Status' => $this->translateStatus($p->status),
-                'Status Pembayaran' => $this->translatePaymentStatus($p->payment_status),
-                'Total' => $p->total_amount,
-                'Pajak' => $p->tax_amount,
-                'Termasuk Pajak' => $p->is_tax_included ? 'Ya' : 'Tidak',
-                'Sisa Tagihan' => $p->due_amount,
+            ->map(fn($s) => [
+                'Tanggal' => date('d/m/Y', strtotime($s->date)),
+                'No. Referensi' => $s->reference,
+                'Pelanggan' => $s->customer->customer_name ?? '-',
+                'Status' => $this->translateStatus($s->status),
+                'Status Pembayaran' => $this->translatePaymentStatus($s->payment_status),
+                'Total' => $s->total_amount,
+                'Dibayar' => $s->paid_amount,
+                'Sisa Tagihan' => $s->due_amount,
             ]);
     }
 
@@ -59,11 +57,11 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
             'WAITING_APPROVAL' => 'Menunggu Persetujuan',
             'APPROVED' => 'Disetujui',
             'REJECTED' => 'Ditolak',
-            'RECEIVED PARTIALLY' => 'Diterima Sebagian',
-            'RECEIVED' => 'Diterima',
+            'DISPATCHED PARTIALLY' => 'Dikirim Sebagian',
+            'DISPATCHED' => 'Terkirim',
             'RETURNED' => 'Diretur',
             'RETURNED PARTIALLY' => 'Diretur Sebagian',
-            default => $status ?? '-',
+            default => $status,
         };
     }
 
@@ -82,12 +80,11 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
         return [
             'Tanggal',
             'No. Referensi',
-            'Pemasok',
+            'Pelanggan',
             'Status',
             'Status Pembayaran',
             'Total',
-            'Pajak',
-            'Termasuk Pajak',
+            'Dibayar',
             'Sisa Tagihan',
         ];
     }
@@ -105,8 +102,8 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
                 $sheet->insertNewRowBefore(1, 2);
 
                 // Title row
-                $sheet->setCellValue('A1', 'LAPORAN PEMBELIAN');
-                $sheet->mergeCells('A1:I1');
+                $sheet->setCellValue('A1', 'LAPORAN PENJUALAN');
+                $sheet->mergeCells('A1:H1');
                 $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
                 $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
 
@@ -117,11 +114,11 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
                     $endDate ? date('d/m/Y', strtotime($endDate)) : '-'
                 );
                 $sheet->setCellValue('A2', $periodText);
-                $sheet->mergeCells('A2:I2');
+                $sheet->mergeCells('A2:H2');
                 $sheet->getStyle('A2')->getAlignment()->setHorizontal('center');
 
                 // Style header row (now row 3)
-                $sheet->getStyle('A3:I3')->getFont()->setBold(true);
+                $sheet->getStyle('A3:H3')->getFont()->setBold(true);
             },
         ];
     }

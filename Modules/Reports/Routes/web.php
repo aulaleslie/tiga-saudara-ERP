@@ -15,6 +15,8 @@ use App\Livewire\Reports\PurchaseReport;
 use Illuminate\Support\Facades\Route;
 use Modules\Reports\Http\Controllers\MekariConverterController;
 use Modules\Reports\Http\Controllers\PurchaseReportController;
+use Modules\Reports\Http\Controllers\SaleReportController;
+use Modules\Reports\Http\Controllers\StockMutationReportController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Profit Loss Report
@@ -48,7 +50,15 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
         Route::get('/purchase-report', [PurchaseReportController::class, 'index'])
             ->name('reports.purchase-report.index')
-            ->middleware('can:reports.access');
+            ->middleware('can:purchaseReports.access');
+
+        Route::get('/sale-report', [SaleReportController::class, 'index'])
+            ->name('reports.sale-report.index')
+            ->middleware('can:saleReports.access');
+
+        Route::get('/stock-mutation-report', [StockMutationReportController::class, 'index'])
+            ->name('reports.stock-mutation-report.index')
+            ->middleware('can:stockMutationReports.access');
     });
 
     Route::get('/test-pdf', function () {

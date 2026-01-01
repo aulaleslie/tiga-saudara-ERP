@@ -9,20 +9,33 @@
             <input type="date" wire:model.defer="endDate" class="form-control">
         </div>
         <div class="col">
-            <label class="form-label small">Pemasok</label>
-            <select wire:model.defer="supplierId" class="form-control">
-                <option value="">-- Semua Pemasok --</option>
-                @foreach($suppliers as $supplier)
-                    <option value="{{ $supplier->id }}">{{ $supplier->supplier_name }}</option>
+            <label class="form-label small">Pelanggan</label>
+            <select wire:model.defer="customerId" class="form-control">
+                <option value="">-- Semua Pelanggan --</option>
+                @foreach($customers as $customer)
+                    <option value="{{ $customer->id }}">{{ $customer->customer_name }}</option>
                 @endforeach
             </select>
         </div>
         <div class="col">
-            <label class="form-label small">Pajak</label>
-            <select wire:model.defer="withTax" class="form-control">
+            <label class="form-label small">Status</label>
+            <select wire:model.defer="saleStatus" class="form-control">
+                <option value="">-- Semua Status --</option>
+                @foreach($statuses as $key => $label)
+                    <option value="{{ $key }}">{{ $label }}</option>
+                @endforeach
+            </select>
+        </div>
+    </div>
+
+    <div class="row g-2 mb-3">
+        <div class="col">
+            <label class="form-label small">Status Pembayaran</label>
+            <select wire:model.defer="paymentStatus" class="form-control">
                 <option value="">-- Semua --</option>
-                <option value="1">Dengan Pajak</option>
-                <option value="0">Tanpa Pajak</option>
+                <option value="Paid">Lunas</option>
+                <option value="Unpaid">Belum Dibayar</option>
+                <option value="Partial">Sebagian</option>
             </select>
         </div>
         <div class="col">
@@ -32,27 +45,6 @@
                 @foreach($tags as $tag)
                     <option value="{{ $tag->id }}">{{ json_decode($tag->name)->en ?? '' }}</option>
                 @endforeach
-            </select>
-        </div>
-    </div>
-
-    <div class="row g-2 mb-3">
-        <div class="col">
-            <label class="form-label small">Status</label>
-            <select wire:model.defer="status" class="form-control">
-                <option value="">-- Semua Status --</option>
-                @foreach($statuses as $key => $label)
-                    <option value="{{ $key }}">{{ $label }}</option>
-                @endforeach
-            </select>
-        </div>
-        <div class="col">
-            <label class="form-label small">Status Pembayaran</label>
-            <select wire:model.defer="paymentStatus" class="form-control">
-                <option value="">-- Semua --</option>
-                <option value="Paid">Lunas</option>
-                <option value="Unpaid">Belum Dibayar</option>
-                <option value="Partial">Sebagian</option>
             </select>
         </div>
         <div class="col-auto d-flex align-items-end">
@@ -70,11 +62,6 @@
                 <i class="bi bi-filetype-csv"></i> Export CSV
             </button>
         </div>
-        <div class="col-auto d-flex align-items-end">
-            <button wire:click="exportPdf" class="btn btn-danger">
-                <i class="bi bi-file-earmark-pdf"></i> Export PDF
-            </button>
-        </div>
     </div>
 
     <div class="table-responsive">
@@ -83,42 +70,42 @@
             <tr>
                 <th>Tanggal</th>
                 <th>No. Referensi</th>
-                <th>Pemasok</th>
+                <th>Pelanggan</th>
                 <th>Status</th>
                 <th>Status Pembayaran</th>
                 <th class="text-end">Total</th>
-                <th class="text-end">Pajak</th>
+                <th class="text-end">Dibayar</th>
                 <th class="text-end">Sisa Tagihan</th>
             </tr>
             </thead>
             <tbody>
             @if($filterTriggered)
-                @forelse($purchases as $p)
+                @forelse($sales as $sale)
                     <tr>
-                        <td>{{ $p->date }}</td>
-                        <td>{{ $p->reference }}</td>
-                        <td>{{ $p->supplier->nickname ?? $p->supplier->supplier_name ?? '-' }}</td>
+                        <td>{{ \Carbon\Carbon::parse($sale->date)->format('d/m/Y') }}</td>
+                        <td>{{ $sale->reference }}</td>
+                        <td>{{ $sale->customer->customer_name ?? '-' }}</td>
                         <td>
                             <span class="badge bg-secondary">
-                                {{ $statuses[$p->status] ?? ucfirst(str_replace('_', ' ', strtolower($p->status))) }}
+                                {{ $statuses[$sale->status] ?? $sale->status }}
                             </span>
                         </td>
                         <td>
-                            @if($p->payment_status === 'Paid')
+                            @if($sale->payment_status === 'Paid')
                                 <span class="badge bg-success">Lunas</span>
-                            @elseif($p->payment_status === 'Partial')
+                            @elseif($sale->payment_status === 'Partial')
                                 <span class="badge bg-warning">Sebagian</span>
                             @else
                                 <span class="badge bg-danger">Belum Dibayar</span>
                             @endif
                         </td>
-                        <td class="text-end">{{ number_format($p->total_amount, 2) }}</td>
-                        <td class="text-end">{{ number_format($p->tax_amount, 2) }}</td>
-                        <td class="text-end">{{ number_format($p->due_amount, 2) }}</td>
+                        <td class="text-end">{{ number_format($sale->total_amount, 2) }}</td>
+                        <td class="text-end">{{ number_format($sale->paid_amount, 2) }}</td>
+                        <td class="text-end">{{ number_format($sale->due_amount, 2) }}</td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="text-center">Tidak ada data pembelian untuk periode ini.</td>
+                        <td colspan="8" class="text-center">Tidak ada data penjualan untuk periode ini.</td>
                     </tr>
                 @endforelse
             @else
@@ -130,7 +117,7 @@
         </table>
     </div>
 
-    @if($filterTriggered && $purchases instanceof \Illuminate\Pagination\LengthAwarePaginator)
-        {{ $purchases->links() }}
+    @if($filterTriggered && $sales instanceof \Illuminate\Pagination\LengthAwarePaginator)
+        {{ $sales->links() }}
     @endif
 </div>
