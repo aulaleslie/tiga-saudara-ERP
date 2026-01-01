@@ -56,23 +56,27 @@
             </select>
         </div>
         <div class="col-auto d-flex align-items-end">
-            <button wire:click="applyFilters" class="btn btn-primary">
-                <i class="bi bi-search"></i> Tampilkan Laporan
+            <button wire:click="applyFilters" wire:loading.attr="disabled" class="btn btn-primary">
+                <span wire:loading wire:target="applyFilters" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                <i wire:loading.remove wire:target="applyFilters" class="bi bi-search"></i> Tampilkan Laporan
             </button>
         </div>
         <div class="col-auto d-flex align-items-end">
-            <button wire:click="exportExcel" class="btn btn-success">
-                <i class="bi bi-file-earmark-excel"></i> Export Excel
+            <button wire:click="exportExcel" wire:loading.attr="disabled" class="btn btn-success">
+                <span wire:loading wire:target="exportExcel" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                <i wire:loading.remove wire:target="exportExcel" class="bi bi-file-earmark-excel"></i> Export Excel
             </button>
         </div>
         <div class="col-auto d-flex align-items-end">
-            <button wire:click="exportCsv" class="btn btn-secondary">
-                <i class="bi bi-filetype-csv"></i> Export CSV
+            <button wire:click="exportCsv" wire:loading.attr="disabled" class="btn btn-secondary">
+                <span wire:loading wire:target="exportCsv" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                <i wire:loading.remove wire:target="exportCsv" class="bi bi-filetype-csv"></i> Export CSV
             </button>
         </div>
         <div class="col-auto d-flex align-items-end">
-            <button wire:click="exportPdf" class="btn btn-danger">
-                <i class="bi bi-file-earmark-pdf"></i> Export PDF
+            <button wire:click="exportPdf" wire:loading.attr="disabled" class="btn btn-danger">
+                <span wire:loading wire:target="exportPdf" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                <i wire:loading.remove wire:target="exportPdf" class="bi bi-file-earmark-pdf"></i> Export PDF
             </button>
         </div>
     </div>
@@ -104,9 +108,9 @@
                             </span>
                         </td>
                         <td>
-                            @if($p->payment_status === 'Paid')
+                            @if(strtolower($p->payment_status) === 'paid')
                                 <span class="badge bg-success">Lunas</span>
-                            @elseif($p->payment_status === 'Partial')
+                            @elseif(strtolower($p->payment_status) === 'partial')
                                 <span class="badge bg-warning">Sebagian</span>
                             @else
                                 <span class="badge bg-danger">Belum Dibayar</span>

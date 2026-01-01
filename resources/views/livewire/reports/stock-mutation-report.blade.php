@@ -38,18 +38,21 @@
 
     <div class="row g-2 mb-3">
         <div class="col-auto">
-            <button wire:click="applyFilters" class="btn btn-primary">
-                <i class="bi bi-search"></i> Tampilkan Laporan
+            <button wire:click="applyFilters" wire:loading.attr="disabled" class="btn btn-primary">
+                <span wire:loading wire:target="applyFilters" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                <i wire:loading.remove wire:target="applyFilters" class="bi bi-search"></i> Tampilkan Laporan
             </button>
         </div>
         <div class="col-auto">
-            <button wire:click="exportExcel" class="btn btn-success">
-                <i class="bi bi-file-earmark-excel"></i> Export Excel
+            <button wire:click="exportExcel" wire:loading.attr="disabled" class="btn btn-success">
+                <span wire:loading wire:target="exportExcel" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                <i wire:loading.remove wire:target="exportExcel" class="bi bi-file-earmark-excel"></i> Export Excel
             </button>
         </div>
         <div class="col-auto">
-            <button wire:click="exportCsv" class="btn btn-secondary">
-                <i class="bi bi-filetype-csv"></i> Export CSV
+            <button wire:click="exportCsv" wire:loading.attr="disabled" class="btn btn-secondary">
+                <span wire:loading wire:target="exportCsv" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                <i wire:loading.remove wire:target="exportCsv" class="bi bi-filetype-csv"></i> Export CSV
             </button>
         </div>
     </div>

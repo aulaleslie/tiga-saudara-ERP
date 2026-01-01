@@ -42,6 +42,7 @@
             </li>
         </ul>
         @can('purchaseReports.access')
+        @if(Route::has('reports.purchase-report.index'))
         <ul class="c-sidebar-nav-dropdown-items">
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('reports.purchase-report.index') ? 'c-active' : '' }}"
@@ -50,8 +51,10 @@
                 </a>
             </li>
         </ul>
+        @endif
         @endcan
         @can('saleReports.access')
+        @if(Route::has('reports.sale-report.index'))
         <ul class="c-sidebar-nav-dropdown-items">
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('reports.sale-report.index') ? 'c-active' : '' }}"
@@ -60,8 +63,10 @@
                 </a>
             </li>
         </ul>
+        @endif
         @endcan
         @can('stockMutationReports.access')
+        @if(Route::has('reports.stock-mutation-report.index'))
         <ul class="c-sidebar-nav-dropdown-items">
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('reports.stock-mutation-report.index') ? 'c-active' : '' }}"
@@ -70,6 +75,7 @@
                 </a>
             </li>
         </ul>
+        @endif
         @endcan
         <ul class="c-sidebar-nav-dropdown-items">
             <li class="c-sidebar-nav-item">

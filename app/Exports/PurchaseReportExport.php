@@ -69,10 +69,10 @@ class PurchaseReportExport implements FromCollection, WithHeadings, WithEvents
 
     private function translatePaymentStatus($status): string
     {
-        return match ($status) {
-            'Paid' => 'Lunas',
-            'Unpaid' => 'Belum Dibayar',
-            'Partial' => 'Sebagian',
+        return match (strtolower($status ?? '')) {
+            'paid' => 'Lunas',
+            'unpaid' => 'Belum Dibayar',
+            'partial' => 'Sebagian',
             default => $status ?? '-',
         };
     }
