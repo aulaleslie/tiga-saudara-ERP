@@ -325,6 +325,10 @@ class Checkout extends Component
 
     public function productSelected($product)
     {
+        // Refresh location context to ensure we have current POS location IDs
+        // This prevents intermittent stock validation errors during Livewire hydration
+        $this->refreshPosLocationContext();
+
         [$product, $pendingSerials] = $this->normalizeProductInput($product);
 
         if (!$product) {
