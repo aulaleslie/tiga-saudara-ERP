@@ -186,6 +186,8 @@ class SalesUploadController extends Controller
      */
     public function downloadTemplate()
     {
+        abort_if(Gate::denies('sales.access'), 403);
+
         $headers = ['Tanggal', 'Nama Panggilan', 'Nomor Transaksi', 'Nama Produk', 'Kuantitas', 'Satuan', 'Harga per Unit', 'Jumlah Pajak', 'Tag', 'Gudang'];
         $example = ['09/02/2020', 'customer umum', 'CA-1', '* Epson L3110', '1', 'UNIT', '1890909.09', '189090.91', 'CV TIGA NUSA', ''];
 

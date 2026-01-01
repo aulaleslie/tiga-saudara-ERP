@@ -186,6 +186,8 @@ class PurchaseUploadController extends Controller
      */
     public function downloadTemplate()
     {
+        abort_if(Gate::denies('purchases.access'), 403);
+
         $headers = ['Tanggal', 'Supplier', 'No Faktur', 'Produk', 'Kuantitas', 'Satuan', 'Harga Satuan', 'Pajak'];
         $example = ['19/03/2020', 'PT BALI SATU COMPUTER', 'JL.2003.02096', '* PC SERVER DELL Power Edge', '1', 'UNIT', '9009090.91', '900909.09'];
 

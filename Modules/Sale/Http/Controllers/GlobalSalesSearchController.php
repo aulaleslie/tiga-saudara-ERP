@@ -37,7 +37,7 @@ class GlobalSalesSearchController extends Controller
      */
     public function search(GlobalSalesSearchRequest $request): JsonResponse
     {
-        abort_if(Gate::denies('sales.search.global'), 403);
+        abort_if(Gate::denies('globalSalesSearch.access'), 403);
 
         try {
             $startTime = microtime(true);
@@ -105,7 +105,7 @@ class GlobalSalesSearchController extends Controller
      */
     public function searchByReference(string $reference): JsonResponse
     {
-        abort_if(Gate::denies('sales.search.global'), 403);
+        abort_if(Gate::denies('globalSalesSearch.access'), 403);
 
         try {
             $sale = Sale::query()
@@ -146,7 +146,7 @@ class GlobalSalesSearchController extends Controller
      */
     public function getSerialDetails(int $serialId): JsonResponse
     {
-        abort_if(Gate::denies('sales.search.global'), 403);
+        abort_if(Gate::denies('globalSalesSearch.access'), 403);
 
         try {
             $serial = ProductSerialNumber::query()
@@ -201,7 +201,7 @@ class GlobalSalesSearchController extends Controller
      */
     public function suggest(Request $request): JsonResponse
     {
-        abort_if(Gate::denies('sales.search.global'), 403);
+        abort_if(Gate::denies('globalSalesSearch.access'), 403);
 
         try {
             $query = $request->input('q', '');

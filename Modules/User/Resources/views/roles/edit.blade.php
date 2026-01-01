@@ -56,6 +56,11 @@
                                             'show_notifications' => 'Notifications',
                                         ],
 
+                                        'Pencarian Global' => [
+                                            'globalSalesSearch.access' => 'Pencarian Penjualan Global',
+                                            'globalPurchaseAndSalesSearch.access' => 'Pencarian Penjualan & Pembelian Global',
+                                        ],
+
                                         'Penjualan' => [
                                             'sales.access'   => 'Hak Akses',
                                             'sales.create'   => 'Buat',
@@ -209,6 +214,7 @@
                                         'POS' => [
                                             'pos.access' => 'Akses POS',
                                             'pos.create' => 'Buat POS',
+                                            'pos.transactions.access' => 'Akses Riwayat Transaksi POS',
                                             'pricePoints.access' => 'Akses Terminal Harga',
                                         ],
 
@@ -293,6 +299,20 @@
                                             'chartOfAccounts.edit'   => 'Ubah COA',
                                             'chartOfAccounts.delete' => 'Hapus COA',
                                             'chartOfAccounts.show'   => 'Lihat COA',
+                                        ],
+
+                                        'Pengguna' => [
+                                            'users.access' => 'Akses Pengguna',
+                                            'users.create' => 'Buat Pengguna',
+                                            'users.edit'   => 'Ubah Pengguna',
+                                            'users.delete' => 'Hapus Pengguna',
+                                        ],
+
+                                        'Peran' => [
+                                            'roles.access' => 'Akses Peran',
+                                            'roles.create' => 'Buat Peran',
+                                            'roles.edit'   => 'Ubah Peran',
+                                            'roles.delete' => 'Hapus Peran',
                                         ],
                                     ];
                                 @endphp

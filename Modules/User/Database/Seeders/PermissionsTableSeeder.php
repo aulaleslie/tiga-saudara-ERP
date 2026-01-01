@@ -231,6 +231,9 @@ class PermissionsTableSeeder extends Seeder
             // Global Sales Search - Track Sales by Serial Number
             'globalSalesSearch.access',
 
+            // Global Purchase and Sales Search
+            'globalPurchaseAndSalesSearch.access',
+
             // Notifications / Misc
             'show_notifications',
         ];

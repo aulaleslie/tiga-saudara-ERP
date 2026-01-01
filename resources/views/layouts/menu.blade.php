@@ -319,6 +319,7 @@
             </li>
         </ul>
         @endcan
+        @can('stockTransfers.access')
         <ul class="c-sidebar-nav-dropdown-items">
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('transfers.index') ? 'c-active' : '' }}"
@@ -327,6 +328,7 @@
                 </a>
             </li>
         </ul>
+        @endcan
     </li>
 @endcan
 
@@ -352,12 +354,14 @@
                 </a>
             @endcan
             </li>
+            @can('adjustments.access')
             <li class="c-sidebar-nav-item">
                 <a class="c-sidebar-nav-link {{ request()->routeIs('adjustments.index') ? 'c-active' : '' }}"
                    href="{{ route('adjustments.index') }}">
                     <i class="c-sidebar-nav-icon bi bi-journals" style="line-height: 1;"></i> Semua Penyesuaian
                 </a>
             </li>
+            @endcan
         </ul>
     </li>
 @endcan
