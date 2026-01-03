@@ -14,8 +14,12 @@ return new class extends Migration
     {
         $driver = DB::getDriverName();
         
-        // Helper function to check if index exists
+        // Helper function to check if index exists (only if table exists)
         $indexExists = function($table, $indexName) use ($driver) {
+            if (!Schema::hasTable($table)) {
+                return false; // Table doesn't exist, so index doesn't exist
+            }
+            
             if ($driver === 'mysql') {
                 $result = DB::select("SHOW INDEX FROM {$table} WHERE Key_name = ?", [$indexName]);
                 return !empty($result);
@@ -27,28 +31,28 @@ return new class extends Migration
         };
 
         // Add index on settings.company_name for faster tenant lookups
-        if (!$indexExists('settings', 'idx_settings_company_name')) {
+        if (Schema::hasTable('settings') && !$indexExists('settings', 'idx_settings_company_name')) {
             Schema::table('settings', function (Blueprint $table) {
                 $table->index('company_name', 'idx_settings_company_name');
             });
         }
 
         // Add composite index on product_prices for faster lookups
-        if (!$indexExists('product_prices', 'idx_product_prices_product_setting')) {
+        if (Schema::hasTable('product_prices') && !$indexExists('product_prices', 'idx_product_prices_product_setting')) {
             Schema::table('product_prices', function (Blueprint $table) {
                 $table->index(['product_id', 'setting_id'], 'idx_product_prices_product_setting');
             });
         }
 
         // Add composite index on product_stocks for faster lookups
-        if (!$indexExists('product_stocks', 'idx_product_stocks_product_location')) {
+        if (Schema::hasTable('product_stocks') && !$indexExists('product_stocks', 'idx_product_stocks_product_location')) {
             Schema::table('product_stocks', function (Blueprint $table) {
                 $table->index(['product_id', 'location_id'], 'idx_product_stocks_product_location');
             });
         }
 
         // Add index on taxes.value for faster lookups
-        if (!$indexExists('taxes', 'idx_taxes_value')) {
+        if (Schema::hasTable('taxes') && !$indexExists('taxes', 'idx_taxes_value')) {
             Schema::table('taxes', function (Blueprint $table) {
                 $table->index('value', 'idx_taxes_value');
             });
@@ -57,31 +61,39 @@ return new class extends Migration
         // For case-insensitive searches, we need to handle differently based on DB driver
         if ($driver === 'pgsql') {
             // PostgreSQL: Create expression indexes for LOWER() lookups
-            DB::statement('CREATE INDEX IF NOT EXISTS idx_customers_name_lower ON customers (LOWER(customer_name))');
-            DB::statement('CREATE INDEX IF NOT EXISTS idx_products_name_lower ON products (LOWER(product_name))');
-            DB::statement('CREATE INDEX IF NOT EXISTS idx_units_short_name_lower ON units (LOWER(short_name))');
-            DB::statement('CREATE INDEX IF NOT EXISTS idx_suppliers_name_lower ON suppliers (LOWER(supplier_name))');
+            if (Schema::hasTable('customers')) {
+                DB::statement('CREATE INDEX IF NOT EXISTS idx_customers_name_lower ON customers (LOWER(customer_name))');
+            }
+            if (Schema::hasTable('products')) {
+                DB::statement('CREATE INDEX IF NOT EXISTS idx_products_name_lower ON products (LOWER(product_name))');
+            }
+            if (Schema::hasTable('units')) {
+                DB::statement('CREATE INDEX IF NOT EXISTS idx_units_short_name_lower ON units (LOWER(short_name))');
+            }
+            if (Schema::hasTable('suppliers')) {
+                DB::statement('CREATE INDEX IF NOT EXISTS idx_suppliers_name_lower ON suppliers (LOWER(supplier_name))');
+            }
         } else {
             // MySQL/MariaDB: Regular indexes (case-insensitive by default for utf8mb4_unicode_ci)
-            if (!$indexExists('customers', 'idx_customers_name')) {
+            if (Schema::hasTable('customers') && !$indexExists('customers', 'idx_customers_name')) {
                 Schema::table('customers', function (Blueprint $table) {
                     $table->index('customer_name', 'idx_customers_name');
                 });
             }
             
-            if (!$indexExists('products', 'idx_products_name')) {
+            if (Schema::hasTable('products') && !$indexExists('products', 'idx_products_name')) {
                 Schema::table('products', function (Blueprint $table) {
                     $table->index('product_name', 'idx_products_name');
                 });
             }
             
-            if (!$indexExists('units', 'idx_units_short_name')) {
+            if (Schema::hasTable('units') && !$indexExists('units', 'idx_units_short_name')) {
                 Schema::table('units', function (Blueprint $table) {
                     $table->index('short_name', 'idx_units_short_name');
                 });
             }
             
-            if (!$indexExists('suppliers', 'idx_suppliers_name')) {
+            if (Schema::hasTable('suppliers') && !$indexExists('suppliers', 'idx_suppliers_name')) {
                 Schema::table('suppliers', function (Blueprint $table) {
                     $table->index('supplier_name', 'idx_suppliers_name');
                 });
