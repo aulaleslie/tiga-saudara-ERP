@@ -25,6 +25,18 @@ use Modules\Setting\Entities\Location;
 class SalesImportService
 {
     /**
+     * Entity caches to avoid N+1 queries
+     */
+    protected array $settingsCache = [];
+    protected array $customersCache = [];
+    protected array $productsCache = [];
+    protected array $taxesCache = [];
+    protected array $unitsCache = [];
+    protected array $locationsCache = [];
+    protected array $productPricesCache = [];
+    protected array $productStocksCache = [];
+    
+    /**
      * Tag-based tenant mapping (Priority 1).
      * Maps Tag column values to company names.
      */
@@ -85,6 +97,13 @@ class SalesImportService
     {
         $companyName = $this->tenantMapping[$marker] ?? $this->tenantMapping['default'];
 
+        // Check cache first
+        foreach ($this->settingsCache as $setting) {
+            if (stripos($setting->company_name, $companyName) !== false) {
+                return $setting;
+            }
+        }
+
         return Setting::where('company_name', 'LIKE', "%{$companyName}%")->first();
     }
 
@@ -102,6 +121,13 @@ class SalesImportService
 
         if (!$companyName) {
             return null;
+        }
+
+        // Check cache first
+        foreach ($this->settingsCache as $setting) {
+            if (stripos($setting->company_name, $companyName) !== false) {
+                return $setting;
+            }
         }
 
         return Setting::where('company_name', 'LIKE', "%{$companyName}%")->first();
@@ -159,6 +185,11 @@ class SalesImportService
      */
     public function findOrCreateTax(int $percentage): Tax
     {
+        // Check cache first
+        if (isset($this->taxesCache[$percentage])) {
+            return $this->taxesCache[$percentage];
+        }
+
         $tax = Tax::where('value', $percentage)->first();
 
         if (!$tax) {
@@ -173,6 +204,9 @@ class SalesImportService
             ]);
         }
 
+        // Cache it
+        $this->taxesCache[$percentage] = $tax;
+
         return $tax;
     }
 
@@ -182,7 +216,14 @@ class SalesImportService
      */
     public function findOrCreateCustomer(string $name, ?string $contactName = null, ?string $phone = null): Customer
     {
-        $customer = Customer::whereRaw('LOWER(customer_name) = ?', [strtolower(trim($name))])->first();
+        $normalizedName = strtolower(trim($name));
+        
+        // Check cache first
+        if (isset($this->customersCache[$normalizedName])) {
+            return $this->customersCache[$normalizedName];
+        }
+
+        $customer = Customer::whereRaw('LOWER(customer_name) = ?', [$normalizedName])->first();
 
         if (!$customer) {
             $customer = Customer::create([
@@ -201,6 +242,9 @@ class SalesImportService
             ]);
         }
 
+        // Cache it
+        $this->customersCache[$normalizedName] = $customer;
+
         return $customer;
     }
 
@@ -209,16 +253,30 @@ class SalesImportService
      */
     public function findOrCreateProduct(string $cleanName, string $unitName, int $settingId, ?string $description = null): Product
     {
-        $product = Product::whereRaw('LOWER(product_name) = ?', [strtolower(trim($cleanName))])->first();
+        $normalizedName = strtolower(trim($cleanName));
+        
+        // Check cache first
+        if (isset($this->productsCache[$normalizedName])) {
+            return $this->productsCache[$normalizedName];
+        }
+
+        $product = Product::whereRaw('LOWER(product_name) = ?', [$normalizedName])->first();
 
         if (!$product) {
-            // Find or create unit
-            $unit = Unit::whereRaw('LOWER(short_name) = ?', [strtolower(trim($unitName))])->first();
+            // Find or create unit (use cache)
+            $normalizedUnitName = strtolower(trim($unitName));
+            $unit = $this->unitsCache[$normalizedUnitName] ?? null;
+            
             if (!$unit) {
-                $unit = Unit::create([
-                    'name' => ucfirst(strtolower($unitName)),
-                    'short_name' => strtoupper($unitName),
-                ]);
+                $unit = Unit::whereRaw('LOWER(short_name) = ?', [$normalizedUnitName])->first();
+                if (!$unit) {
+                    $unit = Unit::create([
+                        'name' => ucfirst(strtolower($unitName)),
+                        'short_name' => strtoupper($unitName),
+                    ]);
+                }
+                // Cache the unit
+                $this->unitsCache[$normalizedUnitName] = $unit;
             }
 
             $product = Product::create([
@@ -241,6 +299,9 @@ class SalesImportService
             ]);
         }
 
+        // Cache it
+        $this->productsCache[$normalizedName] = $product;
+
         return $product;
     }
 
@@ -253,55 +314,282 @@ class SalesImportService
     }
 
     /**
+     * Pre-load all settings and cache them.
+     */
+    protected function preloadSettings(): void
+    {
+        if (empty($this->settingsCache)) {
+            $settings = Setting::all();
+            foreach ($settings as $setting) {
+                $this->settingsCache[$setting->id] = $setting;
+            }
+            Log::info('[SalesImport] Pre-loaded settings', ['count' => count($this->settingsCache)]);
+        }
+    }
+
+    /**
+     * Pre-load all taxes and cache them.
+     */
+    protected function preloadTaxes(): void
+    {
+        if (empty($this->taxesCache)) {
+            $taxes = Tax::all();
+            foreach ($taxes as $tax) {
+                $this->taxesCache[$tax->value] = $tax;
+            }
+            Log::info('[SalesImport] Pre-loaded taxes', ['count' => count($this->taxesCache)]);
+        }
+    }
+
+    /**
+     * Pre-load all units and cache them.
+     */
+    protected function preloadUnits(): void
+    {
+        if (empty($this->unitsCache)) {
+            $units = Unit::all();
+            foreach ($units as $unit) {
+                $this->unitsCache[strtolower($unit->short_name)] = $unit;
+            }
+            Log::info('[SalesImport] Pre-loaded units', ['count' => count($this->unitsCache)]);
+        }
+    }
+
+    /**
+     * Pre-load all locations and cache them by setting_id.
+     */
+    protected function preloadLocations(): void
+    {
+        if (empty($this->locationsCache)) {
+            $locations = Location::all();
+            foreach ($locations as $location) {
+                if (!isset($this->locationsCache[$location->setting_id])) {
+                    $this->locationsCache[$location->setting_id] = $location;
+                }
+            }
+            Log::info('[SalesImport] Pre-loaded locations', ['count' => count($this->locationsCache)]);
+        }
+    }
+
+    /**
+     * Pre-load existing customers from the batch rows.
+     */
+    protected function preloadCustomersForBatch(Collection $rows): void
+    {
+        // Extract unique customer names from rows
+        $customerNames = $rows->map(function ($row) {
+            return strtolower(trim($row->raw_json['customer'] ?? ''));
+        })->filter()->unique()->values()->toArray();
+
+        if (empty($customerNames)) {
+            return;
+        }
+
+        // Load customers in a single query
+        $customers = Customer::whereIn(DB::raw('LOWER(customer_name)'), $customerNames)->get();
+        
+        foreach ($customers as $customer) {
+            $this->customersCache[strtolower($customer->customer_name)] = $customer;
+        }
+
+        Log::info('[SalesImport] Pre-loaded customers', ['count' => count($this->customersCache)]);
+    }
+
+    /**
+     * Pre-load existing products from the batch rows.
+     */
+    protected function preloadProductsForBatch(Collection $rows): void
+    {
+        // Extract unique product names from rows
+        $productNames = $rows->map(function ($row) {
+            $parsed = $this->parseProductName($row->raw_json['produk'] ?? '');
+            return strtolower(trim($parsed['clean_name']));
+        })->filter()->unique()->values()->toArray();
+
+        if (empty($productNames)) {
+            return;
+        }
+
+        // Load products in a single query
+        $products = Product::whereIn(DB::raw('LOWER(product_name)'), $productNames)->get();
+        
+        foreach ($products as $product) {
+            $this->productsCache[strtolower($product->product_name)] = $product;
+        }
+
+        Log::info('[SalesImport] Pre-loaded products', ['count' => count($this->productsCache)]);
+    }
+
+    /**
+     * Pre-load product prices for a given setting.
+     */
+    protected function preloadProductPricesForSetting(int $settingId): void
+    {
+        $cacheKey = "setting_{$settingId}";
+        
+        if (!isset($this->productPricesCache[$cacheKey])) {
+            $productPrices = ProductPrice::where('setting_id', $settingId)->get();
+            
+            $this->productPricesCache[$cacheKey] = [];
+            foreach ($productPrices as $price) {
+                $this->productPricesCache[$cacheKey][$price->product_id] = $price;
+            }
+        }
+    }
+
+    /**
+     * Pre-load product stocks for a given location.
+     */
+    protected function preloadProductStocksForLocation(int $locationId): void
+    {
+        $cacheKey = "location_{$locationId}";
+        
+        if (!isset($this->productStocksCache[$cacheKey])) {
+            $productStocks = ProductStock::where('location_id', $locationId)->get();
+            
+            $this->productStocksCache[$cacheKey] = [];
+            foreach ($productStocks as $stock) {
+                $this->productStocksCache[$cacheKey][$stock->product_id] = $stock;
+            }
+        }
+    }
+
+    /**
      * Process a batch of import rows.
-     * Uses chunked loading to avoid memory issues with large imports.
+     * Optimized with smart chunking and entity pre-loading to avoid N+1 queries
+     * and memory issues with large batches.
      */
     public function processBatch(SalesImportBatch $batch): void
     {
+        $startTime = microtime(true);
         $batch->update(['status' => SalesImportBatch::STATUS_PROCESSING]);
 
         try {
-            // Process rows in chunks to avoid memory issues
-            $chunkSize = 1000;
+            // Pre-load all static entities ONCE (these are small and don't change)
+            $this->preloadSettings();
+            $this->preloadTaxes();
+            $this->preloadUnits();
+            $this->preloadLocations();
+
+            Log::info('[SalesImport] Starting batch processing', [
+                'batch_id' => $batch->id,
+                'total_rows' => $batch->total_rows,
+                'preload_time' => round(microtime(true) - $startTime, 2) . 's',
+            ]);
+
+            // Check if there are any pending rows
+            $totalPending = $batch->pendingRows()->count();
+            if ($totalPending === 0) {
+                $batch->update(['status' => SalesImportBatch::STATUS_COMPLETED]);
+                return;
+            }
+
+            // Process in chunks to avoid memory issues with large batches
+            // Use invoice-aware chunking to prevent splitting invoice groups
+            $targetChunkSize = 500; // Target size, actual may be slightly larger
+            $processedChunks = 0;
+            $totalGroupsProcessed = 0;
             $offset = 0;
-            $totalGroups = 0;
 
             while (true) {
-                // Load chunk of pending rows
-                $rows = $batch->pendingRows()
+                $chunkStartTime = microtime(true);
+                
+                // Load initial chunk
+                $initialRows = $batch->pendingRows()
                     ->orderBy('row_number')
                     ->skip($offset)
-                    ->take($chunkSize)
+                    ->take($targetChunkSize)
                     ->get();
 
-                if ($rows->isEmpty()) {
-                    break;
+                if ($initialRows->isEmpty()) {
+                    break; // No more rows to process
                 }
 
-                // Group rows by invoice number and marker (tenant)
+                // Get the last row's invoice info to check for split groups
+                $lastRow = $initialRows->last();
+                $lastRowData = $lastRow->raw_json;
+                $lastInvoiceNo = $lastRowData['no_faktur'] ?? '';
+                $lastTag = $lastRowData['tag'] ?? '';
+                $lastProductName = $lastRowData['produk'] ?? '';
+
+                // Check if there are more rows with the same invoice after this chunk
+                $additionalRows = collect([]);
+                if (!empty($lastInvoiceNo)) {
+                    // Load additional rows that belong to the same invoice group
+                    $lastRowNumber = $lastRow->row_number;
+                    
+                    $additionalRows = $batch->pendingRows()
+                        ->where('row_number', '>', $lastRowNumber)
+                        ->orderBy('row_number')
+                        ->get()
+                        ->takeWhile(function ($row) use ($lastInvoiceNo, $lastTag, $lastProductName) {
+                            $rowData = $row->raw_json;
+                            $rowInvoiceNo = $rowData['no_faktur'] ?? '';
+                            $rowTag = $rowData['tag'] ?? '';
+                            
+                            // Check if this row belongs to same invoice group
+                            if ($rowInvoiceNo !== $lastInvoiceNo) {
+                                return false; // Different invoice, stop here
+                            }
+                            
+                            // Same invoice number, check if same tenant
+                            if (!empty($lastTag) && !empty($rowTag)) {
+                                return strtolower(trim($rowTag)) === strtolower(trim($lastTag));
+                            }
+                            
+                            // Fallback to product marker matching
+                            $rowProductName = $rowData['produk'] ?? '';
+                            $lastParsed = $this->parseProductName($lastProductName);
+                            $rowParsed = $this->parseProductName($rowProductName);
+                            
+                            return $lastParsed['marker'] === $rowParsed['marker'];
+                        });
+                }
+
+                // Merge initial chunk with additional rows to keep invoice groups together
+                $rows = $initialRows->merge($additionalRows);
+                $actualChunkSize = $rows->count();
+                $processedChunks++;
+
+                Log::info('[SalesImport] Processing chunk', [
+                    'batch_id' => $batch->id,
+                    'chunk_number' => $processedChunks,
+                    'target_size' => $targetChunkSize,
+                    'actual_size' => $actualChunkSize,
+                    'additional_rows' => $additionalRows->count(),
+                    'offset' => $offset,
+                ]);
+
+                // Pre-load customers and products specific to THIS chunk
+                $this->preloadCustomersForBatch($rows);
+                $this->preloadProductsForBatch($rows);
+
+                // Group rows by invoice number and tenant
                 $groups = $this->groupRowsByInvoiceAndTenant($rows);
 
-                foreach ($groups as $groupKey => $groupRows) {
-                    DB::transaction(function () use ($groupRows, $batch) {
-                        $this->processInvoiceGroup($groupRows, $batch);
-                    });
-                    $totalGroups++;
-                }
+                // Process groups in transaction batches (reduce transaction overhead)
+                $groupsProcessed = $this->processGroupsInBatches($groups, $batch, $batchSize = 50);
+                $totalGroupsProcessed += $groupsProcessed;
 
-                $offset += $chunkSize;
+                Log::info('[SalesImport] Chunk completed', [
+                    'batch_id' => $batch->id,
+                    'chunk_number' => $processedChunks,
+                    'groups_in_chunk' => count($groups),
+                    'chunk_time' => round(microtime(true) - $chunkStartTime, 2) . 's',
+                    'cumulative_time' => round(microtime(true) - $startTime, 2) . 's',
+                ]);
 
-                // Log progress for large batches
-                if ($offset % 5000 === 0) {
-                    Log::info('[SalesImport] Processing progress', [
-                        'batch_id' => $batch->id,
-                        'rows_processed' => $offset,
-                        'groups_processed' => $totalGroups,
-                    ]);
-                }
+                // Clear chunk-specific caches to free memory
+                $this->customersCache = [];
+                $this->productsCache = [];
+                $this->productPricesCache = [];
+                $this->productStocksCache = [];
 
-                // Free memory
-                unset($rows, $groups);
+                // Force garbage collection
                 gc_collect_cycles();
+
+                // Move offset forward by actual processed rows
+                $offset += $actualChunkSize;
             }
 
             // Update batch status
@@ -311,20 +599,59 @@ class SalesImportService
                 'processed_rows' => $batch->rows()->whereIn('status', ['processed', 'invalid', 'skipped'])->count(),
             ]);
 
+            $totalTime = microtime(true) - $startTime;
+            $totalRows = $batch->total_rows;
+            $rowsPerSecond = $totalRows > 0 ? round($totalRows / $totalTime, 2) : 0;
+
             Log::info('[SalesImport] Batch completed', [
                 'batch_id' => $batch->id,
                 'success_count' => $batch->success_count,
                 'error_count' => $batch->error_count,
-                'total_groups' => $totalGroups,
+                'total_chunks' => $processedChunks,
+                'total_groups' => $totalGroupsProcessed,
+                'total_time' => round($totalTime, 2) . 's',
+                'rows_per_second' => $rowsPerSecond,
             ]);
         } catch (\Exception $e) {
             $batch->update(['status' => SalesImportBatch::STATUS_FAILED]);
             Log::error('[SalesImport] Batch failed', [
                 'batch_id' => $batch->id,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Process invoice groups in transaction batches to reduce overhead.
+     * Processing multiple groups per transaction is much more efficient.
+     */
+    protected function processGroupsInBatches(array $groups, SalesImportBatch $batch, int $batchSize): int
+    {
+        // Split groups into batches
+        $groupChunks = array_chunk($groups, $batchSize, true);
+        $totalProcessed = 0;
+
+        foreach ($groupChunks as $chunkIndex => $groupChunk) {
+            // Process multiple invoice groups in ONE transaction
+            DB::transaction(function () use ($groupChunk, $batch, &$totalProcessed) {
+                foreach ($groupChunk as $groupKey => $groupRows) {
+                    $this->processInvoiceGroup($groupRows, $batch);
+                    $totalProcessed++;
+                }
+            });
+
+            // Log progress every 10 transaction batches (500 invoice groups)
+            if (($chunkIndex + 1) % 10 === 0) {
+                Log::info('[SalesImport] Transaction batch progress', [
+                    'batch_id' => $batch->id,
+                    'groups_processed' => $totalProcessed,
+                ]);
+            }
+        }
+
+        return $totalProcessed;
     }
 
 
@@ -521,11 +848,19 @@ class SalesImportService
                 $sale->syncTags([trim($tag)]);
             }
 
-            // Get first location for this setting
-            $location = Location::where('setting_id', $setting->id)->first();
+            // Get first location for this setting (use cache)
+            $location = $this->locationsCache[$setting->id] ?? null;
             if (!$location) {
-                throw new \Exception("No location found for setting: {$setting->company_name}");
+                $location = Location::where('setting_id', $setting->id)->first();
+                if (!$location) {
+                    throw new \Exception("No location found for setting: {$setting->company_name}");
+                }
+                $this->locationsCache[$setting->id] = $location;
             }
+
+            // Pre-load ProductPrice and ProductStock for this setting/location
+            $this->preloadProductPricesForSetting($setting->id);
+            $this->preloadProductStocksForLocation($location->id);
 
             // Create sale details and update ProductPrice with sale_price
             foreach ($details as $detail) {
@@ -545,17 +880,24 @@ class SalesImportService
                 ]);
 
                 // Update ProductPrice with sale_price (final price including tax)
-                $productPrice = ProductPrice::firstOrCreate(
-                    [
-                        'product_id' => $detail['product']->id,
-                        'setting_id' => $setting->id,
-                    ],
-                    [
-                        'sale_price' => 0,
-                        'last_purchase_price' => 0,
-                        'average_purchase_price' => 0,
-                    ]
-                );
+                $settingCacheKey = "setting_{$setting->id}";
+                $productPrice = $this->productPricesCache[$settingCacheKey][$detail['product']->id] ?? null;
+                
+                if (!$productPrice) {
+                    $productPrice = ProductPrice::firstOrCreate(
+                        [
+                            'product_id' => $detail['product']->id,
+                            'setting_id' => $setting->id,
+                        ],
+                        [
+                            'sale_price' => 0,
+                            'last_purchase_price' => 0,
+                            'average_purchase_price' => 0,
+                        ]
+                    );
+                    // Cache it
+                    $this->productPricesCache[$settingCacheKey][$detail['product']->id] = $productPrice;
+                }
 
                 // Update sale_price if current is 0 or if new price is higher (latest price)
                 $unitPriceFinal = $detail['unit_price_final'];
@@ -627,21 +969,28 @@ class SalesImportService
             $quantity = $detail['quantity'];
             $taxId = $detail['tax_id'];
 
-            // Get or create ProductStock for this product/location
-            $productStock = ProductStock::firstOrCreate(
-                [
-                    'product_id' => $product->id,
-                    'location_id' => $location->id,
-                ],
-                [
-                    'quantity' => 0,
-                    'quantity_tax' => 0,
-                    'quantity_non_tax' => 0,
-                    'broken_quantity' => 0,
-                    'broken_quantity_tax' => 0,
-                    'broken_quantity_non_tax' => 0,
-                ]
-            );
+            // Get or create ProductStock for this product/location (use cache)
+            $locationCacheKey = "location_{$location->id}";
+            $productStock = $this->productStocksCache[$locationCacheKey][$product->id] ?? null;
+            
+            if (!$productStock) {
+                $productStock = ProductStock::firstOrCreate(
+                    [
+                        'product_id' => $product->id,
+                        'location_id' => $location->id,
+                    ],
+                    [
+                        'quantity' => 0,
+                        'quantity_tax' => 0,
+                        'quantity_non_tax' => 0,
+                        'broken_quantity' => 0,
+                        'broken_quantity_tax' => 0,
+                        'broken_quantity_non_tax' => 0,
+                    ]
+                );
+                // Cache it
+                $this->productStocksCache[$locationCacheKey][$product->id] = $productStock;
+            }
 
             // Capture previous quantities
             $previousQuantity = $product->product_quantity ?? 0;

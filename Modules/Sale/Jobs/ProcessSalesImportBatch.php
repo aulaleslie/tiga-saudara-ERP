@@ -16,7 +16,7 @@ class ProcessSalesImportBatch implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
-    public int $timeout = 300; // 5 minutes per attempt
+    public int $timeout = 7200; // 2 hours for large batches
 
     public function __construct(public int $batchId) {}
 
