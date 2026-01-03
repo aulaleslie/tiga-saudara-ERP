@@ -254,35 +254,68 @@ class SalesImportService
 
     /**
      * Process a batch of import rows.
+     * Uses chunked loading to avoid memory issues with large imports.
      */
     public function processBatch(SalesImportBatch $batch): void
     {
         $batch->update(['status' => SalesImportBatch::STATUS_PROCESSING]);
 
         try {
-            // Load all pending rows
-            $rows = $batch->pendingRows()->orderBy('row_number')->get();
+            // Process rows in chunks to avoid memory issues
+            $chunkSize = 1000;
+            $offset = 0;
+            $totalGroups = 0;
 
-            // Group rows by invoice number and marker (tenant)
-            $groups = $this->groupRowsByInvoiceAndTenant($rows);
+            while (true) {
+                // Load chunk of pending rows
+                $rows = $batch->pendingRows()
+                    ->orderBy('row_number')
+                    ->skip($offset)
+                    ->take($chunkSize)
+                    ->get();
 
-            foreach ($groups as $groupKey => $groupRows) {
-                DB::transaction(function () use ($groupRows, $batch) {
-                    $this->processInvoiceGroup($groupRows, $batch);
-                });
+                if ($rows->isEmpty()) {
+                    break;
+                }
+
+                // Group rows by invoice number and marker (tenant)
+                $groups = $this->groupRowsByInvoiceAndTenant($rows);
+
+                foreach ($groups as $groupKey => $groupRows) {
+                    DB::transaction(function () use ($groupRows, $batch) {
+                        $this->processInvoiceGroup($groupRows, $batch);
+                    });
+                    $totalGroups++;
+                }
+
+                $offset += $chunkSize;
+
+                // Log progress for large batches
+                if ($offset % 5000 === 0) {
+                    Log::info('[SalesImport] Processing progress', [
+                        'batch_id' => $batch->id,
+                        'rows_processed' => $offset,
+                        'groups_processed' => $totalGroups,
+                    ]);
+                }
+
+                // Free memory
+                unset($rows, $groups);
+                gc_collect_cycles();
             }
 
             // Update batch status
             $batch->refresh();
             $batch->update([
                 'status' => SalesImportBatch::STATUS_COMPLETED,
-                'processed_rows' => $batch->rows()->whereIn('status', ['processed', 'invalid'])->count(),
+                'processed_rows' => $batch->rows()->whereIn('status', ['processed', 'invalid', 'skipped'])->count(),
             ]);
 
             Log::info('[SalesImport] Batch completed', [
                 'batch_id' => $batch->id,
                 'success_count' => $batch->success_count,
                 'error_count' => $batch->error_count,
+                'total_groups' => $totalGroups,
             ]);
         } catch (\Exception $e) {
             $batch->update(['status' => SalesImportBatch::STATUS_FAILED]);
@@ -293,6 +326,7 @@ class SalesImportService
             throw $e;
         }
     }
+
 
     /**
      * Group rows by invoice number and tenant (using Tag or marker).

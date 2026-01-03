@@ -82,7 +82,7 @@ class SalesUploadController extends Controller
 
         Log::info('[SalesImport] Batch created', ['batch_id' => $batch->id]);
 
-        // Parse CSV and stage rows
+        // Validate CSV headers only (don't stage rows here)
         try {
             $csv = Reader::createFromPath($fullPath);
 
@@ -109,35 +109,17 @@ class SalesUploadController extends Controller
                 ]);
             }
 
-            // Stage rows
-            $records = (new Statement())->process($csv);
-            $rowNo = 0;
+            // Dispatch job to stage rows asynchronously (with bulk insert)
+            \Modules\Sale\Jobs\StageSalesImportRows::dispatch(
+                $batch->id,
+                $normalizedHeaders,
+                $rawHeaders,
+                $delimiter
+            );
 
-            foreach ($records as $record) {
-                $mapped = $this->mapCsvRow((array) $record, $normalizedHeaders, $rawHeaders);
-
-                // Skip empty rows
-                if (empty($mapped['produk']) || empty($mapped['tanggal'])) {
-                    continue;
-                }
-
-                SalesImportRow::create([
-                    'batch_id' => $batch->id,
-                    'row_number' => ++$rowNo,
-                    'raw_json' => $mapped,
-                    'status' => SalesImportRow::STATUS_PENDING,
-                ]);
-            }
-
-            $batch->update(['total_rows' => $rowNo, 'status' => 'validating']);
-
-            Log::info('[SalesImport] Rows staged', [
+            Log::info('[SalesImport] StageSalesImportRows job dispatched', [
                 'batch_id' => $batch->id,
-                'total_rows' => $rowNo,
             ]);
-
-            // Dispatch job for async processing
-            \Modules\Sale\Jobs\ProcessSalesImportBatch::dispatch($batch->id);
 
             toast("Upload berhasil. Batch #{$batch->id} sedang diproses di background.", 'success');
             return redirect()->route('sales.imports.show', $batch);
@@ -152,6 +134,7 @@ class SalesUploadController extends Controller
             return back()->withErrors(['file' => 'Error processing file: ' . $e->getMessage()]);
         }
     }
+
 
     /**
      * Show batch status with paginated rows, filtering, and search.
