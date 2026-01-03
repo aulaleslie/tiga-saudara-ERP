@@ -53,6 +53,9 @@ class PurchaseUploadController extends Controller
     /**
      * Handle CSV upload.
      */
+    /**
+     * Handle CSV upload.
+     */
     public function upload(Request $request): RedirectResponse
     {
         abort_if(Gate::denies('purchases.create'), 403);
@@ -82,7 +85,7 @@ class PurchaseUploadController extends Controller
 
         Log::info('[PurchaseImport] Batch created', ['batch_id' => $batch->id]);
 
-        // Parse CSV and stage rows
+        // Validate CSV headers only (don't stage rows here)
         try {
             $csv = Reader::createFromPath($fullPath);
 
@@ -109,35 +112,17 @@ class PurchaseUploadController extends Controller
                 ]);
             }
 
-            // Stage rows
-            $records = (new Statement())->process($csv);
-            $rowNo = 0;
+            // Dispatch job to stage rows asynchronously (with bulk insert)
+            \Modules\Purchase\Jobs\StagePurchaseImportRows::dispatch(
+                $batch->id,
+                $normalizedHeaders,
+                $rawHeaders,
+                $delimiter
+            );
 
-            foreach ($records as $record) {
-                $mapped = $this->mapCsvRow((array) $record, $normalizedHeaders, $rawHeaders);
-
-                // Skip empty rows
-                if (empty($mapped['produk']) || empty($mapped['tanggal'])) {
-                    continue;
-                }
-
-                PurchaseImportRow::create([
-                    'batch_id' => $batch->id,
-                    'row_number' => ++$rowNo,
-                    'raw_json' => $mapped,
-                    'status' => PurchaseImportRow::STATUS_PENDING,
-                ]);
-            }
-
-            $batch->update(['total_rows' => $rowNo, 'status' => 'validating']);
-
-            Log::info('[PurchaseImport] Rows staged', [
+            Log::info('[PurchaseImport] StagePurchaseImportRows job dispatched', [
                 'batch_id' => $batch->id,
-                'total_rows' => $rowNo,
             ]);
-
-            // Dispatch job for async processing
-            \Modules\Purchase\Jobs\ProcessPurchaseImportBatch::dispatch($batch->id);
 
             toast("Upload berhasil. Batch #{$batch->id} sedang diproses di background.", 'success');
             return redirect()->route('purchases.imports.show', $batch);
