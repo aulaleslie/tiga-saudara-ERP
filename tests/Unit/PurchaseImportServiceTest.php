@@ -217,4 +217,67 @@ class PurchaseImportServiceTest extends TestCase
         $result = $this->service->parseTaxRate('abc');
         $this->assertEquals(0, $result);
     }
+
+    /**
+     * Test parseDiscountPercent with "0.00 %" format.
+     */
+    public function test_parse_discount_percent_with_percentage_sign(): void
+    {
+        $result = $this->service->parseDiscountPercent('0.00 %');
+        $this->assertEquals(0.0, $result);
+    }
+
+    /**
+     * Test parseDiscountPercent with numeric string (e.g., "7.26").
+     */
+    public function test_parse_discount_percent_numeric(): void
+    {
+        $result = $this->service->parseDiscountPercent('7.26');
+        $this->assertEquals(7.26, $result);
+    }
+
+    /**
+     * Test parseDiscountPercent with percentage and spaces (e.g., "8.33 %").
+     */
+    public function test_parse_discount_percent_with_spaces(): void
+    {
+        $result = $this->service->parseDiscountPercent('8.33 %');
+        $this->assertEquals(8.33, $result);
+    }
+
+    /**
+     * Test parseDiscountPercent with empty string returns 0.
+     */
+    public function test_parse_discount_percent_empty_string(): void
+    {
+        $result = $this->service->parseDiscountPercent('');
+        $this->assertEquals(0.0, $result);
+    }
+
+    /**
+     * Test parseDiscountPercent with null returns 0.
+     */
+    public function test_parse_discount_percent_null(): void
+    {
+        $result = $this->service->parseDiscountPercent(null);
+        $this->assertEquals(0.0, $result);
+    }
+
+    /**
+     * Test parseDiscountPercent with non-numeric returns 0.
+     */
+    public function test_parse_discount_percent_non_numeric(): void
+    {
+        $result = $this->service->parseDiscountPercent('abc');
+        $this->assertEquals(0.0, $result);
+    }
+
+    /**
+     * Test parseDiscountPercent with large discount value.
+     */
+    public function test_parse_discount_percent_large_value(): void
+    {
+        $result = $this->service->parseDiscountPercent('25.5');
+        $this->assertEquals(25.5, $result);
+    }
 }

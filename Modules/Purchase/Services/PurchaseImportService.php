@@ -142,6 +142,21 @@ class PurchaseImportService
     }
 
     /**
+     * Parse discount percentage from CSV string (e.g., "0.00 %" or "7.26").
+     */
+    public function parseDiscountPercent(?string $discountStr): float
+    {
+        if (empty($discountStr)) {
+            return 0.0;
+        }
+
+        // Remove percentage sign and whitespace
+        $cleaned = trim(str_replace(['%', ' '], '', $discountStr));
+
+        return is_numeric($cleaned) ? (float) $cleaned : 0.0;
+    }
+
+    /**
      * Calculate tax percentage from amounts.
      */
     public function calculateTaxPercentage(float $subtotal, float $taxAmount): int
@@ -419,37 +434,58 @@ class PurchaseImportService
                 );
 
                 $quantity = (int) ($rowData['kuantitas'] ?? 1);
-                $unitPriceDpp = (float) ($rowData['harga_satuan'] ?? 0);
-                $taxAmount = (float) ($rowData['pajak'] ?? 0);
-                $subtotal = $quantity * $unitPriceDpp;
+                $unitPriceDpp = (float) ($rowData['harga_satuan'] ?? 0); // DPP from CSV
 
-                $totalAmount += $subtotal;
-                $totalTaxAmount += $taxAmount;
+                // Parse discount percentage (e.g., "0.00 %" or "7.26")
+                $discountPercent = $this->parseDiscountPercent($rowData['diskon_persen'] ?? '0');
+                $discountAmount = $unitPriceDpp * ($discountPercent / 100);
+                $dppAfterDiscount = $unitPriceDpp - $discountAmount;
 
-                // Get tax: prefer tarif_pajak from CSV, fallback to calculated percentage
+                // Get tax rate from CSV
                 $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
+
+                // Calculate unit price with tax: Harga Satuan = DPP × (1 + Tarif Pajak%)
+                // For taxed items, the final unit price includes tax
+                $unitPriceWithTax = $taxRateFromCsv > 0
+                    ? $dppAfterDiscount * (1 + ($taxRateFromCsv / 100))
+                    : $dppAfterDiscount;
+
+                // Calculate tax amount for this line
+                $lineTaxAmount = $taxRateFromCsv > 0
+                    ? $dppAfterDiscount * $quantity * ($taxRateFromCsv / 100)
+                    : (float) ($rowData['pajak'] ?? 0);
+
+                // Calculate subtotal: Final unit price × quantity
+                $subtotalWithTax = $unitPriceWithTax * $quantity;
+                $subtotalDpp = $dppAfterDiscount * $quantity;
+
+                $totalAmount += $subtotalDpp; // Base amount (DPP) for totals
+                $totalTaxAmount += $lineTaxAmount;
+
+                // Find or create tax record
+                $tax = null;
                 if ($taxRateFromCsv > 0) {
                     $tax = $this->findOrCreateTax($taxRateFromCsv);
                 } else {
-                    $taxPercentage = $this->calculateTaxPercentage($subtotal, $taxAmount);
-                    $tax = $taxPercentage > 0 ? $this->findOrCreateTax($taxPercentage) : null;
+                    // Fallback: calculate from pajak column if present
+                    $csvTaxAmount = (float) ($rowData['pajak'] ?? 0);
+                    if ($csvTaxAmount > 0 && $subtotalDpp > 0) {
+                        $taxPercentage = $this->calculateTaxPercentage($subtotalDpp, $csvTaxAmount);
+                        $tax = $taxPercentage > 0 ? $this->findOrCreateTax($taxPercentage) : null;
+                    }
                 }
-
-                // Calculate final unit price (including tax) for ProductPrice updates
-                $effectiveTaxRate = $taxRateFromCsv > 0 ? $taxRateFromCsv : ($tax?->value ?? 0);
-                $unitPriceFinal = $effectiveTaxRate > 0
-                    ? $unitPriceDpp * (1 + ($effectiveTaxRate / 100))
-                    : $unitPriceDpp;
 
                 $details[] = [
                     'row' => $row,
                     'product' => $product,
                     'quantity' => $quantity,
-                    'unit_price' => $unitPriceDpp,
-                    'unit_price_final' => $unitPriceFinal,
-                    'subtotal' => $subtotal,
+                    'unit_price' => $dppAfterDiscount, // Store DPP after discount as base price
+                    'unit_price_final' => $unitPriceWithTax, // Final price including tax for ProductPrice updates
+                    'subtotal' => $subtotalDpp, // Subtotal based on DPP (base amount)
                     'tax_id' => $tax?->id,
-                    'tax_amount' => $taxAmount,
+                    'tax_amount' => $lineTaxAmount,
+                    'discount_percent' => $discountPercent,
+                    'discount_amount' => $discountAmount * $quantity, // Total discount for this line
                 ];
             }
 
@@ -512,8 +548,8 @@ class PurchaseImportService
                     'price' => $detail['unit_price'],
                     'unit_price' => $detail['unit_price'],
                     'sub_total' => $detail['subtotal'],
-                    'product_discount_amount' => 0,
-                    'product_discount_type' => 'fixed',
+                    'product_discount_amount' => $detail['discount_amount'] ?? 0,
+                    'product_discount_type' => ($detail['discount_percent'] ?? 0) > 0 ? 'percentage' : 'fixed',
                     'product_tax_amount' => $detail['tax_amount'],
                     'tax_id' => $detail['tax_id'],
                 ]);
