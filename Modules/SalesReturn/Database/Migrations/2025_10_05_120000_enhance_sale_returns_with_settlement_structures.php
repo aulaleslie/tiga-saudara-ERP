@@ -120,13 +120,16 @@ return new class extends Migration
                 'due_amount' => DB::raw('due_amount / 100'),
             ]);
 
-            DB::statement("ALTER TABLE sale_returns
-                MODIFY tax_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
-                MODIFY discount_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
-                MODIFY shipping_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
-                MODIFY total_amount DECIMAL(15,2) NOT NULL,
-                MODIFY paid_amount DECIMAL(15,2) NOT NULL,
-                MODIFY due_amount DECIMAL(15,2) NOT NULL");
+            if (DB::getDriverName() !== 'sqlite') {
+                DB::statement("ALTER TABLE sale_returns
+                    MODIFY tax_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+                    MODIFY discount_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+                    MODIFY shipping_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+                    MODIFY total_amount DECIMAL(15,2) NOT NULL,
+                    MODIFY paid_amount DECIMAL(15,2) NOT NULL,
+                    MODIFY due_amount DECIMAL(15,2) NOT NULL");
+            }
+
         }
 
         Schema::table('sale_return_details', function (Blueprint $table) {
@@ -178,12 +181,15 @@ return new class extends Migration
                 'product_tax_amount' => DB::raw('product_tax_amount / 100'),
             ]);
 
-            DB::statement("ALTER TABLE sale_return_details
-                MODIFY price DECIMAL(15,2) NOT NULL,
-                MODIFY unit_price DECIMAL(15,2) NOT NULL,
-                MODIFY sub_total DECIMAL(15,2) NOT NULL,
-                MODIFY product_discount_amount DECIMAL(15,2) NOT NULL,
-                MODIFY product_tax_amount DECIMAL(15,2) NOT NULL");
+            if (DB::getDriverName() !== 'sqlite') {
+                DB::statement("ALTER TABLE sale_return_details
+                    MODIFY price DECIMAL(15,2) NOT NULL,
+                    MODIFY unit_price DECIMAL(15,2) NOT NULL,
+                    MODIFY sub_total DECIMAL(15,2) NOT NULL,
+                    MODIFY product_discount_amount DECIMAL(15,2) NOT NULL,
+                    MODIFY product_tax_amount DECIMAL(15,2) NOT NULL");
+            }
+
         }
 
         if (! Schema::hasTable('sale_return_goods')) {
@@ -270,12 +276,15 @@ return new class extends Migration
                 'product_tax_amount' => DB::raw('product_tax_amount * 100'),
             ]);
 
-            DB::statement("ALTER TABLE sale_return_details
-                MODIFY price INT NOT NULL,
-                MODIFY unit_price INT NOT NULL,
-                MODIFY sub_total INT NOT NULL,
-                MODIFY product_discount_amount INT NOT NULL,
-                MODIFY product_tax_amount INT NOT NULL");
+            if (DB::getDriverName() !== 'sqlite') {
+                DB::statement("ALTER TABLE sale_return_details
+                    MODIFY price INT NOT NULL,
+                    MODIFY unit_price INT NOT NULL,
+                    MODIFY sub_total INT NOT NULL,
+                    MODIFY product_discount_amount INT NOT NULL,
+                    MODIFY product_tax_amount INT NOT NULL");
+            }
+
         }
 
         Schema::table('sale_return_details', function (Blueprint $table) {
@@ -310,13 +319,16 @@ return new class extends Migration
                 'due_amount' => DB::raw('due_amount * 100'),
             ]);
 
-            DB::statement("ALTER TABLE sale_returns
-                MODIFY tax_amount INT NOT NULL DEFAULT 0,
-                MODIFY discount_amount INT NOT NULL DEFAULT 0,
-                MODIFY shipping_amount INT NOT NULL DEFAULT 0,
-                MODIFY total_amount INT NOT NULL,
-                MODIFY paid_amount INT NOT NULL,
-                MODIFY due_amount INT NOT NULL");
+            if (DB::getDriverName() !== 'sqlite') {
+                DB::statement("ALTER TABLE sale_returns
+                    MODIFY tax_amount INT NOT NULL DEFAULT 0,
+                    MODIFY discount_amount INT NOT NULL DEFAULT 0,
+                    MODIFY shipping_amount INT NOT NULL DEFAULT 0,
+                    MODIFY total_amount INT NOT NULL,
+                    MODIFY paid_amount INT NOT NULL,
+                    MODIFY due_amount INT NOT NULL");
+            }
+
         }
 
         Schema::table('sale_returns', function (Blueprint $table) {

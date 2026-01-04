@@ -31,7 +31,10 @@ return new class extends Migration
                     ->update(['position' => $counters[$settingId]]);
             });
 
-        DB::statement('ALTER TABLE setting_sale_locations MODIFY position INT UNSIGNED NOT NULL');
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement('ALTER TABLE setting_sale_locations MODIFY position INT UNSIGNED NOT NULL');
+        }
+
     }
 
     public function down(): void

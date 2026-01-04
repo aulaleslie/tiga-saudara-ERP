@@ -489,15 +489,17 @@ class SalesImportService
             $targetChunkSize = 500; // Target size, actual may be slightly larger
             $processedChunks = 0;
             $totalGroupsProcessed = 0;
-            $offset = 0;
+            // $offset = 0; // Offset is not needed as processed rows are removed from pendingRows() query
 
             while (true) {
                 $chunkStartTime = microtime(true);
                 
                 // Load initial chunk
+                // ALWAYS take from the beginning (offset 0) because previously processed rows 
+                // satisfy the 'pending' status check and effectively disappear from this query.
                 $initialRows = $batch->pendingRows()
                     ->orderBy('row_number')
-                    ->skip($offset)
+                    // ->skip($offset) // REMOVED: Using offset causes skipping rows in dynamic lists
                     ->take($targetChunkSize)
                     ->get();
 
@@ -557,7 +559,7 @@ class SalesImportService
                     'target_size' => $targetChunkSize,
                     'actual_size' => $actualChunkSize,
                     'additional_rows' => $additionalRows->count(),
-                    'offset' => $offset,
+                    // 'offset' => $offset,
                 ]);
 
                 // Pre-load customers and products specific to THIS chunk
@@ -589,7 +591,7 @@ class SalesImportService
                 gc_collect_cycles();
 
                 // Move offset forward by actual processed rows
-                $offset += $actualChunkSize;
+                // $offset += $actualChunkSize; // REMOVED
             }
 
             // Update batch status
@@ -796,19 +798,30 @@ class SalesImportService
                     $tax = $taxPercentage > 0 ? $this->findOrCreateTax($taxPercentage) : null;
                 }
 
-                // Calculate final unit price (including tax) for ProductPrice updates
+                // Calculate effective tax rate
                 $effectiveTaxRate = $taxRateFromCsv > 0 ? $taxRateFromCsv : ($tax?->value ?? 0);
+
+                // Calculate final unit price (including tax)
                 $unitPriceFinal = $effectiveTaxRate > 0
                     ? $unitPriceDpp * (1 + ($effectiveTaxRate / 100))
                     : $unitPriceDpp;
+
+                // If tax rate was 0 but we have tax amount fallback, recalculate unitPriceFinal from total tax
+                if ($effectiveTaxRate == 0 && $taxAmount > 0 && $quantity > 0) {
+                     $unitTaxAmount = $taxAmount / $quantity;
+                     $unitPriceFinal = $unitPriceDpp + $unitTaxAmount;
+                }
+
+                // Recalculate Subtotal based on final price
+                $subtotal = $unitPriceFinal * $quantity;
 
                 $details[] = [
                     'row' => $row,
                     'product' => $product,
                     'quantity' => $quantity,
-                    'unit_price' => $unitPriceDpp,
+                    'unit_price' => $unitPriceFinal, // Store Tax Included Price
                     'unit_price_final' => $unitPriceFinal,
-                    'subtotal' => $subtotal,
+                    'subtotal' => $subtotal, // Subtotal Tax Included
                     'tax_id' => $tax?->id,
                     'tax_amount' => $taxAmount,
                 ];
@@ -1047,5 +1060,131 @@ class SalesImportService
             'sale_id' => $sale->id,
             'details_count' => count($details),
         ]);
+    }
+
+    /**
+     * Normalize header names.
+     */
+
+    public function normalizeHeaders(array $rawHeaders): array
+    {
+        $aliases = [
+            // Date
+            'tanggal' => 'tanggal',
+            'date' => 'tanggal',
+            // Customer
+            'customer' => 'customer',
+            'customer name' => 'customer',
+            'nama panggilan' => 'customer',
+            // Invoice number
+            'no faktur' => 'no_faktur',
+            'no. faktur' => 'no_faktur',
+            'invoice' => 'no_faktur',
+            'invoice no' => 'no_faktur',
+            'nomor transaksi' => 'no_faktur',
+            // Product
+            'produk' => 'produk',
+            'product' => 'produk',
+            'product name' => 'produk',
+            'nama produk' => 'produk',
+            // Quantity
+            'kuantitas' => 'kuantitas',
+            'quantity' => 'kuantitas',
+            'qty' => 'kuantitas',
+            // Unit
+            'satuan' => 'satuan',
+            'unit' => 'satuan',
+            // Unit price
+            'harga satuan' => 'harga_satuan',
+            'harga per unit' => 'harga_satuan',
+            'unit price' => 'harga_satuan',
+            'price' => 'harga_satuan',
+            // Tax amount per line
+            'pajak' => 'pajak',
+            'tax' => 'pajak',
+            'tax amount' => 'pajak',
+            'jumlah pajak' => 'pajak',
+            // Tax rate
+            'tarif pajak' => 'tarif_pajak',
+            'tax rate' => 'tarif_pajak',
+            // Product description
+            'deskripsi' => 'deskripsi',
+            'description' => 'deskripsi',
+            // Tag (for tenant selection)
+            'tag' => 'tag',
+            // Memo/notes
+            'memo' => 'memo',
+            // Due date
+            'tanggal jatuh tempo' => 'tanggal_jatuh_tempo',
+            'due date' => 'tanggal_jatuh_tempo',
+            // Outstanding balance
+            'sisa tagihan hari ini' => 'sisa_tagihan',
+            'sisa tagihan' => 'sisa_tagihan',
+            // Payment amount
+            'pembayaran' => 'pembayaran',
+            'payment' => 'pembayaran',
+            // Shipping
+            'biaya pengiriman' => 'biaya_pengiriman',
+            'shipping' => 'biaya_pengiriman',
+            // Customer company name
+            'nama perusahaan' => 'nama_perusahaan',
+            'company name' => 'nama_perusahaan',
+            // Phone
+            'nomor telepon' => 'nomor_telepon',
+            'phone' => 'nomor_telepon',
+            // Discount
+            'diskon per baris %' => 'diskon_persen',
+            // Location/warehouse
+            'gudang' => 'gudang',
+            'warehouse' => 'gudang',
+        ];
+
+        $map = [];
+        foreach ($rawHeaders as $header) {
+            $norm = strtolower(trim(preg_replace('/\s+/', ' ', $header)));
+            if (isset($aliases[$norm])) {
+                $map[$aliases[$norm]] = $header;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Map CSV row to normalized structure.
+     */
+    public function mapCsvRow(array $record, array $normalizedHeaders): array
+    {
+        $get = function (string $canonical) use ($record, $normalizedHeaders) {
+            if (!isset($normalizedHeaders[$canonical])) {
+                return null;
+            }
+            $actual = $normalizedHeaders[$canonical];
+            return array_key_exists($actual, $record) ? trim((string) $record[$actual]) : null;
+        };
+
+        return [
+            'tanggal' => $get('tanggal'),
+            'customer' => $get('customer'),
+            'no_faktur' => $get('no_faktur'),
+            'produk' => $get('produk'),
+            'kuantitas' => $get('kuantitas'),
+            'satuan' => $get('satuan'),
+            'harga_satuan' => $get('harga_satuan'),
+            'pajak' => $get('pajak') ?: '0',
+            // Additional fields
+            'tag' => $get('tag'),
+            'tarif_pajak' => $get('tarif_pajak'),
+            'deskripsi' => $get('deskripsi'),
+            'memo' => $get('memo'),
+            'tanggal_jatuh_tempo' => $get('tanggal_jatuh_tempo'),
+            'sisa_tagihan' => $get('sisa_tagihan') ?: '0',
+            'pembayaran' => $get('pembayaran') ?: '0',
+            'biaya_pengiriman' => $get('biaya_pengiriman') ?: '0',
+            'nama_perusahaan' => $get('nama_perusahaan'),
+            'nomor_telepon' => $get('nomor_telepon'),
+            'diskon_persen' => $get('diskon_persen') ?: '0',
+            'gudang' => $get('gudang'),
+        ];
     }
 }

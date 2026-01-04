@@ -101,6 +101,14 @@ return new class extends Migration
 
     private function indexExists(string $table, string $index): bool
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return DB::table('sqlite_master')
+                ->where('type', 'index')
+                ->where('tbl_name', $table)
+                ->where('name', $index)
+                ->exists();
+        }
+
         $connection = Schema::getConnection();
         $database   = $connection->getDatabaseName();
         $prefix     = $connection->getTablePrefix();

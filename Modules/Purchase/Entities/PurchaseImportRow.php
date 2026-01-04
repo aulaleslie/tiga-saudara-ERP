@@ -16,6 +16,9 @@ class PurchaseImportRow extends BaseModel
         'purchase_id',
     ];
 
+    protected bool $uppercaseAllText = false;
+
+
     protected $casts = [
         'raw_json' => 'array',
     ];

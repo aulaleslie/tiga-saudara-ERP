@@ -104,6 +104,9 @@ class PurchaseImportService
         }
 
         return Setting::where('company_name', 'LIKE', "%{$companyName}%")->first();
+
+
+
     }
 
     /**
@@ -352,6 +355,8 @@ class PurchaseImportService
         $data = $firstRow->raw_json;
 
         // Resolve tenant using Tag (Priority 1) then product marker (Priority 2)
+
+
         $tag = $data['tag'] ?? null;
         $productName = $data['produk'] ?? '';
         $setting = $this->resolveTenant($tag, $productName);
@@ -444,20 +449,22 @@ class PurchaseImportService
                 // Get tax rate from CSV
                 $taxRateFromCsv = $this->parseTaxRate($rowData['tarif_pajak'] ?? null);
 
-                // Calculate unit price with tax: Harga Satuan = DPP × (1 + Tarif Pajak%)
-                // For taxed items, the final unit price includes tax
-                $unitPriceWithTax = $taxRateFromCsv > 0
-                    ? $dppAfterDiscount * (1 + ($taxRateFromCsv / 100))
-                    : $dppAfterDiscount;
-
                 // Calculate tax amount for this line
-                $lineTaxAmount = $taxRateFromCsv > 0
-                    ? $dppAfterDiscount * $quantity * ($taxRateFromCsv / 100)
-                    : (float) ($rowData['pajak'] ?? 0);
+                $lineTaxAmount = 0;
+                if ($taxRateFromCsv > 0) {
+                    $lineTaxAmount = $dppAfterDiscount * $quantity * ($taxRateFromCsv / 100);
+                } else {
+                    $lineTaxAmount = (float) ($rowData['pajak'] ?? 0);
+                }
 
-                // Calculate subtotal: Final unit price × quantity
-                $subtotalWithTax = $unitPriceWithTax * $quantity;
+                // Calculate subtotals
                 $subtotalDpp = $dppAfterDiscount * $quantity;
+                $subtotalWithTax = $subtotalDpp + $lineTaxAmount;
+
+                // Calculate unit price with tax (Inclusive)
+                // If quantity is 0, avoid division by zero (though quantity defaults to 1)
+                $unitTaxAmount = $quantity > 0 ? ($lineTaxAmount / $quantity) : 0;
+                $unitPriceWithTax = $dppAfterDiscount + $unitTaxAmount;
 
                 $totalAmount += $subtotalDpp; // Base amount (DPP) for totals
                 $totalTaxAmount += $lineTaxAmount;
@@ -479,9 +486,10 @@ class PurchaseImportService
                     'row' => $row,
                     'product' => $product,
                     'quantity' => $quantity,
-                    'unit_price' => $dppAfterDiscount, // Store DPP after discount as base price
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPriceWithTax, // Store Tax Included Price as requested
                     'unit_price_final' => $unitPriceWithTax, // Final price including tax for ProductPrice updates
-                    'subtotal' => $subtotalDpp, // Subtotal based on DPP (base amount)
+                    'subtotal' => $subtotalWithTax, // Subtotal Tax Included
                     'tax_id' => $tax?->id,
                     'tax_amount' => $lineTaxAmount,
                     'discount_percent' => $discountPercent,

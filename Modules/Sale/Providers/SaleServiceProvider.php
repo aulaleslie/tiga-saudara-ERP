@@ -28,8 +28,14 @@ class SaleServiceProvider extends ServiceProvider
         $this->registerConfig();
         $this->registerViews();
         $this->registerLivewireComponents();
+
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+        
+        $this->commands([
+            \Modules\Sale\Console\ImportSalesCommand::class,
+        ]);
     }
+
 
     /**
      * Register the service provider.

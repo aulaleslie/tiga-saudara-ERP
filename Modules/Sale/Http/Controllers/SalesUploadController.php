@@ -53,63 +53,136 @@ class SalesUploadController extends Controller
     /**
      * Handle CSV upload.
      */
-    public function upload(Request $request): RedirectResponse
+    public function upload(Request $request)
     {
         abort_if(Gate::denies('sales.create'), 403);
 
+        if ($request->has('is_chunked')) {
+            return $this->handleChunkedUpload($request);
+        }
+
         $request->validate([
-            'file' => 'required|mimes:csv,txt',
+            'file' => 'required|mimes:csv,txt,zip',
         ]);
 
         $file = $request->file('file');
-        Log::info('[SalesImport] Upload request received', [
+        return $this->processUploadedFile($file);
+    }
+
+    /**
+     * Handle chunked upload request.
+     */
+    protected function handleChunkedUpload(Request $request)
+    {
+        $fileId = $request->input('file_id'); // Unique ID for the file upload session
+        $chunkIndex = $request->input('chunk_index');
+        $totalChunks = $request->input('total_chunks');
+        $file = $request->file('chunk');
+
+        $fileName = $request->input('file_name');
+        $tempPath = 'imports/sales/temp/' . $fileId . '_' . $fileName;
+        $finalPath = 'imports/sales/' . $fileName;
+
+        // Append chunk to temp file
+        Storage::append($tempPath, $file->get());
+
+        // logging
+        // Log::info("Processed chunk {$chunkIndex}/{$totalChunks} for {$fileName}");
+
+        if ($chunkIndex == $totalChunks - 1) {
+            // Last chunk received, Move temp file to final location
+            if (Storage::exists($finalPath)) {
+                Storage::delete($finalPath);
+            }
+            Storage::move($tempPath, $finalPath);
+
+            $fullPath = Storage::path($finalPath);
+            
+            // Create a fake file object to reuse existing logic if possible, 
+            // or just call processing logic directly.
+            // Since processUploadedFile expects a generic file or UploadedFile, 
+            // Let's adapt processUploadedFile to take a path or handle it.
+            // Actually, let's just duplicate the processing logic for now to ensure safety or refactor processUploadedFile.
+            
+            return $this->processLocalFile($finalPath, $fullPath);
+        }
+
+        return response()->json(['status' => 'chunk_uploaded']);
+    }
+
+    /**
+     * Process a file that is already in storage (from chunked upload).
+     */
+    protected function processLocalFile($relativePath, $absolutePath) 
+    {
+        Log::info('[SalesImport] Processing local file', [
             'user_id' => auth()->id(),
-            'file_name' => $file->getClientOriginalName(),
-            'file_size_kb' => round($file->getSize() / 1024, 2),
+            'path' => $relativePath
         ]);
 
-        // Save CSV
-        $path = $file->store('imports/sales');
-        $fullPath = Storage::path($path);
+        // Handle ZIP files (reuse logic)
+        $isZip = str_ends_with(strtolower($absolutePath), '.zip');
+        $csvPath = $relativePath;
+        $processingPath = $absolutePath; // Path to the actual CSV file to read
+
+        if ($isZip) {
+            $zip = new \ZipArchive;
+            if ($zip->open($absolutePath) === TRUE) {
+                $extractedCsv = null;
+                for ($i = 0; $i < $zip->numFiles; $i++) {
+                    $filename = $zip->getNameIndex($i);
+                    if (str_ends_with(strtolower($filename), '.csv') || str_ends_with(strtolower($filename), '.txt')) {
+                        $extractedCsv = $filename;
+                        break;
+                    }
+                }
+
+                if ($extractedCsv) {
+                    $extractDir = dirname($absolutePath) . '/extracted_' . time();
+                    $zip->extractTo($extractDir, $extractedCsv);
+                    $zip->close();
+                    
+                    $newRelativePath = 'imports/sales/' . time() . '_' . basename($extractedCsv);
+                    Storage::put($newRelativePath, file_get_contents($extractDir . '/' . $extractedCsv));
+                    
+                    $csvPath = $newRelativePath;
+                    $processingPath = Storage::path($csvPath);
+                } else {
+                    $zip->close();
+                    return response()->json(['error' => 'No CSV file found inside ZIP.'], 422);
+                }
+            } else {
+                 return response()->json(['error' => 'Failed to open ZIP archive.'], 422);
+            }
+        }
 
         // Create batch
         $batch = SalesImportBatch::create([
             'user_id' => auth()->id(),
-            'source_csv_path' => $path,
-            'file_sha256' => hash_file('sha256', $fullPath),
+            'source_csv_path' => $csvPath, // Store relative path for job
+            'file_sha256' => hash_file('sha256', $processingPath),
             'status' => 'queued',
         ]);
 
-        Log::info('[SalesImport] Batch created', ['batch_id' => $batch->id]);
-
-        // Validate CSV headers only (don't stage rows here)
         try {
-            $csv = Reader::createFromPath($fullPath);
-
-            // Auto-detect delimiter
-            $sample = @file_get_contents($fullPath, false, null, 0, 4096) ?: '';
+            $csv = Reader::createFromPath($processingPath);
+            $sample = @file_get_contents($processingPath, false, null, 0, 4096) ?: '';
             $delimiter = (substr_count($sample, ';') > substr_count($sample, ',')) ? ';' : ',';
             $csv->setDelimiter($delimiter);
-
             $csv->setHeaderOffset(0);
             $rawHeaders = $csv->getHeader();
-
-            // Normalize headers
+            
             $normalizedHeaders = $this->normalizeHeaders($rawHeaders);
-
-            // Validate required columns
             $required = ['tanggal', 'customer', 'no_faktur', 'produk', 'kuantitas', 'satuan', 'harga_satuan'];
             $missing = array_diff($required, array_keys($normalizedHeaders));
 
             if (!empty($missing)) {
                 $batch->update(['status' => 'failed']);
-                return back()->withErrors([
-                    'file' => 'Missing required columns: ' . implode(', ', $missing)
-                        . '. Required: Tanggal, Customer (Nama Panggilan), Nomor Transaksi, Produk, Kuantitas, Satuan, Harga per Unit',
-                ]);
+                return response()->json([
+                    'error' => 'Missing required columns: ' . implode(', ', $missing)
+                ], 422);
             }
 
-            // Dispatch job to stage rows asynchronously (with bulk insert)
             \Modules\Sale\Jobs\StageSalesImportRows::dispatch(
                 $batch->id,
                 $normalizedHeaders,
@@ -117,22 +190,48 @@ class SalesUploadController extends Controller
                 $delimiter
             );
 
-            Log::info('[SalesImport] StageSalesImportRows job dispatched', [
-                'batch_id' => $batch->id,
+            // Return JSON redirect URL for frontend to follow
+            return response()->json([
+                'status' => 'completed', 
+                'redirect_url' => route('sales.imports.show', $batch)
             ]);
-
-            toast("Upload berhasil. Batch #{$batch->id} sedang diproses di background.", 'success');
-            return redirect()->route('sales.imports.show', $batch);
 
         } catch (\Exception $e) {
-            Log::error('[SalesImport] Upload failed', [
-                'batch_id' => $batch->id,
-                'error' => $e->getMessage(),
-            ]);
-
-            $batch->update(['status' => 'failed']);
-            return back()->withErrors(['file' => 'Error processing file: ' . $e->getMessage()]);
+             $batch->update(['status' => 'failed']);
+             return response()->json(['error' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Legacy/Standard File Upload Handler
+     */
+    protected function processUploadedFile($file)
+    {
+        // Save uploaded file
+        $uploadPath = $file->store('imports/sales');
+        $fullPath = Storage::path($uploadPath);
+        
+        // Use the common logic, assuming processLocalFile returns JSON, 
+        // we need to adapt it to return RedirectResponse for standard valid form processing.
+        // But since I'm implementing chunked upload, the frontend will primarily use that.
+        // For fallback standard upload, I'll essentially replicate the logic or just wrap the response.
+        
+        // Actually, let's keep the standard upload logic simple as before for fallback
+        // Re-implementing simplified version of previous logic here for standard requests
+        
+        // Reuse processLocalFile but handle response
+        $response = $this->processLocalFile($uploadPath, $fullPath);
+        
+        if ($response->getStatusCode() === 200) {
+            $data = json_decode($response->getContent(), true);
+            if (isset($data['redirect_url'])) {
+                 toast("Upload berhasil.", 'success');
+                 return redirect($data['redirect_url']);
+            }
+        }
+        
+        $data = json_decode($response->getContent(), true);
+        return back()->withErrors(['file' => $data['error'] ?? 'Upload failed']);
     }
 
 

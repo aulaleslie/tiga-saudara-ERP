@@ -31,12 +31,21 @@ return new class extends Migration
             }
         });
 
-        DB::statement("ALTER TABLE `transfers` MODIFY `status` ENUM('PENDING','APPROVED','REJECTED','DISPATCHED','RECEIVED','RETURN_DISPATCHED','RETURN_RECEIVED') NOT NULL DEFAULT 'PENDING'");
+        // DEBUG
+        dump('Driver: ' . DB::getDriverName());
+        if (DB::getDriverName() !== 'sqlite') {
+
+            DB::statement("ALTER TABLE `transfers` MODIFY `status` ENUM('PENDING','APPROVED','REJECTED','DISPATCHED','RECEIVED','RETURN_DISPATCHED','RETURN_RECEIVED') NOT NULL DEFAULT 'PENDING'");
+        }
+
     }
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE `transfers` MODIFY `status` ENUM('PENDING','APPROVED','REJECTED','DISPATCHED','RECEIVED') NOT NULL DEFAULT 'PENDING'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE `transfers` MODIFY `status` ENUM('PENDING','APPROVED','REJECTED','DISPATCHED','RECEIVED') NOT NULL DEFAULT 'PENDING'");
+        }
+
 
         Schema::table('transfers', function (Blueprint $table) {
             if (Schema::hasColumn('transfers', 'return_received_by')) {

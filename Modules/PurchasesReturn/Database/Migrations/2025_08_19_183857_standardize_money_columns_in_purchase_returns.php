@@ -12,6 +12,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         // purchase_returns
         DB::statement("ALTER TABLE purchase_returns
             MODIFY tax_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
@@ -39,6 +43,10 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         // rollback to int (not ideal if values > INT range were saved)
         DB::statement("ALTER TABLE purchase_returns
             MODIFY tax_amount INT NOT NULL DEFAULT 0,
