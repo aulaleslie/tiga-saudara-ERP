@@ -64,6 +64,7 @@
                                         'Penjualan' => [
                                             'sales.access'   => 'Hak Akses',
                                             'sales.create'   => 'Buat',
+                                            'sales.import'   => 'Import',
                                             'sales.edit'     => 'Ubah',
                                             'sales.delete'   => 'Hapus',
                                             'sales.dispatch' => 'Kirim',
@@ -99,6 +100,7 @@
                                         'Pembelian' => [
                                             'purchases.access'   => 'Hak Akses',
                                             'purchases.create'   => 'Buat',
+                                            'purchases.import'   => 'Import',
                                             'purchases.edit'     => 'Ubah',
                                             'purchases.delete'   => 'Hapus',
                                             'purchases.show'     => 'Lihat',

@@ -753,8 +753,10 @@ class SalesImportService
         try {
             // Parse dates
             $saleDate = $this->parseDate($data['tanggal']);
-            $dueDate = !empty($data['tanggal_jatuh_tempo']) 
-                ? $this->parseDate($data['tanggal_jatuh_tempo']) 
+            
+            $dueDateStr = isset($data['tanggal_jatuh_tempo']) ? trim($data['tanggal_jatuh_tempo']) : '';
+            $dueDate = !empty($dueDateStr) 
+                ? $this->parseDate($dueDateStr) 
                 : $saleDate;
 
             // Find or create customer (global, not scoped by setting)
@@ -854,6 +856,7 @@ class SalesImportService
             $sale->setting_id = $setting->id;
             $sale->imported_sales_reference_number = $data['no_faktur'] ?? null;
             $sale->note = $data['memo'] ?? null;
+            $sale->is_tax_included = $totalTaxAmount > 0;
             $sale->save();
 
             // Sync tag to sale
@@ -975,6 +978,7 @@ class SalesImportService
         $dispatch = Dispatch::create([
             'sale_id' => $sale->id,
             'dispatch_date' => $saleDate,
+            'location_id' => $location->id,
         ]);
 
         foreach ($details as $detail) {

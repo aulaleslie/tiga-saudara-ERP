@@ -134,5 +134,8 @@ class PurchaseImportReproductionTest extends TestCase
         // BUT actually wants Tax Included: 4,600,000
         $this->assertEqualsWithDelta(4600000, $detail->unit_price, 100.0, 'Detail Unit Price (Tax Included) Mismatch');
         $this->assertEqualsWithDelta(23000000, $detail->sub_total, 100.0, 'Detail Subtotal (Tax Included) Mismatch');
+        
+        // Check is_tax_included
+        $this->assertTrue((bool)$purchase->is_tax_included, 'Purchase is_tax_included should be true');
     }
 }

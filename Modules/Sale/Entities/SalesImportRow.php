@@ -20,6 +20,12 @@ class SalesImportRow extends BaseModel
         'raw_json' => 'array',
     ];
 
+    protected array $uppercaseExcept = [
+        'status',
+        'error_message',
+        'raw_json' // Although cast to array, good to be safe if treated as string
+    ];
+
     const STATUS_PENDING = 'pending';
     const STATUS_VALID = 'valid';
     const STATUS_INVALID = 'invalid';

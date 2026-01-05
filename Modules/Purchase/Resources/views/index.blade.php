@@ -19,6 +19,8 @@
                             <a href="{{ route('purchases.create') }}" class="btn btn-primary">
                                 Tambahkan Pembelian <i class="bi bi-plus"></i>
                             </a>
+                        @endcan
+                        @can('purchases.import')
                             <a href="{{ route('purchases.imports.index') }}" class="btn btn-secondary">
                                 Upload Pembelian <i class="bi bi-upload"></i>
                             </a>

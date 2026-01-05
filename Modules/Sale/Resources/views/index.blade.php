@@ -15,10 +15,12 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
-                        @can("sale.create")
+                        @can("sales.create")
                         <a href="{{ route('sales.create') }}" class="btn btn-primary">
                             Tambahkan Penjualan <i class="bi bi-plus"></i>
                         </a>
+                        @endcan
+                        @can("sales.import")
                         <a href="{{ route('sales.imports.index') }}" class="btn btn-outline-primary">
                             Import Penjualan <i class="bi bi-upload"></i>
                         </a>

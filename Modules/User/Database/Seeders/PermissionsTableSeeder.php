@@ -130,6 +130,7 @@ class PermissionsTableSeeder extends Seeder
             // Purchases & related
             'purchases.access',
             'purchases.create',
+            'purchases.import',
             'purchases.edit',
             'purchases.delete',
             'purchases.show',
@@ -227,6 +228,7 @@ class PermissionsTableSeeder extends Seeder
             'saleReturns.receive',
             'sales.access',
             'sales.create',
+            'sales.import',
             'sales.edit',
             'sales.delete',
             'sales.dispatch',

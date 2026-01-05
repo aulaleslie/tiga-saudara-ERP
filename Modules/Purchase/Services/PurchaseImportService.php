@@ -532,6 +532,7 @@ class PurchaseImportService
             $purchase->supplier_purchase_number = $data['no_faktur'] ?? null;
             $purchase->note = $data['memo'] ?? null;
             $purchase->tax_ref_no = $data['nomor_pajak'] ?? null;
+            $purchase->is_tax_included = $totalTaxAmount > 0;
             $purchase->save();
 
             // Sync tag to purchase (matching CreateForm/EditForm pattern)
