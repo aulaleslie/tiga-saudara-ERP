@@ -111,6 +111,12 @@ class PurchaseReturn extends BaseModel
     {
         return $q->whereRaw('LOWER(approval_status) = ?', ['approved']);
     }
+
+    public function scopeCompleted($query)
+    {
+        return $query->where('status', 'Completed');
+    }
+
     public function scopePending($q)
     {
         return $q->whereRaw('LOWER(approval_status) = ?', ['pending']);
