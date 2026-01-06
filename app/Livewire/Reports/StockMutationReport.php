@@ -3,16 +3,17 @@
 namespace App\Livewire\Reports;
 
 use App\Exports\StockMutationReportExport;
+use Carbon\Carbon;
+use Illuminate\Support\Collection;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Maatwebsite\Excel\Facades\Excel;
-use Modules\Adjustment\Entities\AdjustedProduct;
-use Modules\Adjustment\Entities\TransferProduct;
+use Modules\Adjustment\Entities\Transfer;
 use Modules\Product\Entities\Product;
-use Modules\Purchase\Entities\ReceivedNoteDetail;
-use Modules\Sale\Entities\DispatchDetail;
+use Modules\Product\Entities\Transaction;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\Location;
-use Illuminate\Support\Collection;
 
 class StockMutationReport extends Component
 {
@@ -70,147 +71,294 @@ class StockMutationReport extends Component
             return collect();
         }
 
-        $mutations = collect();
         $settingId = session('setting_id');
-        $isGlobal = $this->isGlobal;
+        $mutationType = $this->mutationType;
+        $startDate = $this->startDate ? Carbon::parse($this->startDate)->startOfDay() : null;
+        $endDate = $this->endDate ? Carbon::parse($this->endDate)->endOfDay() : null;
 
-        // 1. Purchase Receivings (IN)
-        if (empty($this->mutationType) || $this->mutationType === 'IN') {
-            $receivings = ReceivedNoteDetail::with(['receivedNote.purchase', 'purchaseDetail.product'])
-                ->whereHas('receivedNote', function ($q) use ($settingId, $isGlobal) {
-                    $q->when($this->startDate, fn($q) => $q->whereDate('created_at', '>=', $this->startDate))
-                        ->when($this->endDate, fn($q) => $q->whereDate('created_at', '<=', $this->endDate))
-                        ->when(!$isGlobal, fn($q) => $q->whereHas('purchase', fn($q) => $q->where('setting_id', $settingId)));
-                })
-                ->when($this->productId, fn($q) => $q->whereHas('purchaseDetail', fn($pq) => $pq->where('product_id', $this->productId)))
-                ->get()
-                ->map(function ($item) {
-                    return [
-                        'date' => $item->receivedNote->created_at->format('Y-m-d'),
-                        'product_name' => $item->purchaseDetail->product->product_name ?? '-',
-                        'product_code' => $item->purchaseDetail->product->product_code ?? '-',
-                        'location' => '-',
-                        'type' => 'Penerimaan Pembelian',
-                        'qty_in' => $item->quantity_received,
-                        'qty_out' => 0,
-                        'reference' => $item->receivedNote->purchase->reference ?? '-',
-                    ];
-                });
-            $mutations = $mutations->concat($receivings);
-        }
-
-        // 2. Sale Dispatches (OUT)
-        if (empty($this->mutationType) || $this->mutationType === 'OUT') {
-            $dispatches = DispatchDetail::with(['dispatch.sale', 'product', 'location'])
-                ->whereHas('dispatch', function ($q) use ($settingId, $isGlobal) {
-                    $q->when($this->startDate, fn($q) => $q->whereDate('created_at', '>=', $this->startDate))
-                        ->when($this->endDate, fn($q) => $q->whereDate('created_at', '<=', $this->endDate))
-                        ->when(!$isGlobal, fn($q) => $q->whereHas('sale', fn($q) => $q->where('setting_id', $settingId)));
-                })
-                ->when($this->productId, fn($q) => $q->where('product_id', $this->productId))
-                ->when($this->locationId, fn($q) => $q->where('location_id', $this->locationId))
-                ->get()
-                ->map(function ($item) {
-                    return [
-                        'date' => $item->dispatch->created_at->format('Y-m-d'),
-                        'product_name' => $item->product->product_name ?? '-',
-                        'product_code' => $item->product->product_code ?? '-',
-                        'location' => $item->location->name ?? '-',
-                        'type' => 'Pengiriman Penjualan',
-                        'qty_in' => 0,
-                        'qty_out' => $item->dispatched_quantity,
-                        'reference' => $item->dispatch->sale->reference ?? '-',
-                    ];
-                });
-            $mutations = $mutations->concat($dispatches);
-        }
-
-        // 3. Stock Transfers - Dispatched (OUT from origin)
-        if (empty($this->mutationType) || $this->mutationType === 'OUT') {
-            $transfersOut = TransferProduct::with(['transfer.originLocation', 'product'])
-                ->whereHas('transfer', function ($q) use ($settingId, $isGlobal) {
-                    $q->whereIn('status', ['DISPATCHED', 'RECEIVED', 'RETURN_DISPATCHED', 'RETURN_RECEIVED'])
-                        ->when($this->startDate, fn($q) => $q->whereDate('dispatched_at', '>=', $this->startDate))
-                        ->when($this->endDate, fn($q) => $q->whereDate('dispatched_at', '<=', $this->endDate))
-                        ->when(!$isGlobal, fn($q) => $q->whereHas('originLocation', fn($q) => $q->where('setting_id', $settingId)));
-                })
-                ->when($this->productId, fn($q) => $q->where('product_id', $this->productId))
-                ->when($this->locationId, fn($q) => $q->whereHas('transfer', fn($tq) => $tq->where('origin_location_id', $this->locationId)))
-                ->get()
-                ->map(function ($item) {
-                    return [
-                        'date' => $item->transfer->dispatched_at?->format('Y-m-d') ?? '-',
-                        'product_name' => $item->product->product_name ?? '-',
-                        'product_code' => $item->product->product_code ?? '-',
-                        'location' => $item->transfer->originLocation->name ?? '-',
-                        'type' => 'Transfer Keluar',
-                        'qty_in' => 0,
-                        'qty_out' => $item->dispatched_quantity ?? $item->quantity,
-                        'reference' => $item->transfer->document_number ?? '-',
-                    ];
-                });
-            $mutations = $mutations->concat($transfersOut);
-        }
-
-        // 4. Stock Transfers - Received (IN to destination)
-        if (empty($this->mutationType) || $this->mutationType === 'IN') {
-            $transfersIn = TransferProduct::with(['transfer.destinationLocation', 'product'])
-                ->whereHas('transfer', function ($q) use ($settingId, $isGlobal) {
-                    $q->whereIn('status', ['RECEIVED', 'RETURN_DISPATCHED', 'RETURN_RECEIVED'])
-                        ->when($this->startDate, fn($q) => $q->whereDate('received_at', '>=', $this->startDate))
-                        ->when($this->endDate, fn($q) => $q->whereDate('received_at', '<=', $this->endDate))
-                        ->when(!$isGlobal, fn($q) => $q->whereHas('destinationLocation', fn($q) => $q->where('setting_id', $settingId)));
-                })
-                ->when($this->productId, fn($q) => $q->where('product_id', $this->productId))
-                ->when($this->locationId, fn($q) => $q->whereHas('transfer', fn($tq) => $tq->where('destination_location_id', $this->locationId)))
-                ->get()
-                ->map(function ($item) {
-                    return [
-                        'date' => $item->transfer->received_at?->format('Y-m-d') ?? '-',
-                        'product_name' => $item->product->product_name ?? '-',
-                        'product_code' => $item->product->product_code ?? '-',
-                        'location' => $item->transfer->destinationLocation->name ?? '-',
-                        'type' => 'Transfer Masuk',
-                        'qty_in' => $item->dispatched_quantity ?? $item->quantity,
-                        'qty_out' => 0,
-                        'reference' => $item->transfer->document_number ?? '-',
-                    ];
-                });
-            $mutations = $mutations->concat($transfersIn);
-        }
-
-        // 5. Stock Adjustments
-        $adjustments = AdjustedProduct::with(['adjustment', 'product'])
-            ->whereHas('adjustment', function ($q) use ($settingId, $isGlobal) {
-                $q->where('status', 'APPROVED')
-                    ->when($this->startDate, fn($q) => $q->whereDate('updated_at', '>=', $this->startDate))
-                    ->when($this->endDate, fn($q) => $q->whereDate('updated_at', '<=', $this->endDate))
-                    ->when(!$isGlobal, fn($q) => $q->where('setting_id', $settingId));
-            })
+        $transactions = Transaction::query()
+            ->with(['product', 'location'])
             ->when($this->productId, fn($q) => $q->where('product_id', $this->productId))
-            ->get()
-            ->filter(function ($item) {
-                $isIn = ($item->type ?? '') === 'add';
-                if ($this->mutationType === 'IN') return $isIn;
-                if ($this->mutationType === 'OUT') return !$isIn;
-                return true;
-            })
-            ->map(function ($item) {
-                $isIn = ($item->type ?? '') === 'add';
-                return [
-                    'date' => $item->adjustment->updated_at->format('Y-m-d'),
-                    'product_name' => $item->product->product_name ?? '-',
-                    'product_code' => $item->product->product_code ?? '-',
-                    'location' => '-',
-                    'type' => $isIn ? 'Penyesuaian Tambah' : 'Penyesuaian Kurang',
-                    'qty_in' => $isIn ? $item->quantity : 0,
-                    'qty_out' => $isIn ? 0 : $item->quantity,
-                    'reference' => $item->adjustment->reference ?? '-',
-                ];
-            });
-        $mutations = $mutations->concat($adjustments);
+            ->when($this->locationId, fn($q) => $q->where('location_id', $this->locationId))
+            ->when(!$this->isGlobal, fn($q) => $q->where('setting_id', $settingId))
+            ->get();
 
-        return $mutations->sortBy('date')->values();
+        [$purchaseRefs, $saleRefs] = $this->collectTransactionReferences($transactions);
+        $purchaseDateMap = $this->buildPurchaseDateMap($purchaseRefs, $settingId);
+        $saleDateMap = $this->buildSaleDateMap($saleRefs, $settingId);
+        $transferMeta = $this->loadTransferMeta($transactions);
+
+        return $transactions
+            ->map(function (Transaction $transaction) use (
+                $mutationType,
+                $startDate,
+                $endDate,
+                $purchaseDateMap,
+                $saleDateMap,
+                $transferMeta
+            ) {
+                $delta = $this->resolveDelta($transaction);
+                if ($delta == 0.0) {
+                    return null;
+                }
+
+                $rawReference = $this->extractReference($transaction->reason);
+                $transactionDate = $this->resolveTransactionDate(
+                    $transaction,
+                    $delta,
+                    $rawReference,
+                    $purchaseDateMap,
+                    $saleDateMap,
+                    $transferMeta
+                );
+
+                if ($startDate && $transactionDate && $transactionDate->lt($startDate)) {
+                    return null;
+                }
+
+                if ($endDate && $transactionDate && $transactionDate->gt($endDate)) {
+                    return null;
+                }
+
+                if ($mutationType === 'IN' && $delta <= 0) {
+                    return null;
+                }
+
+                if ($mutationType === 'OUT' && $delta >= 0) {
+                    return null;
+                }
+
+                $reference = $this->resolveReference($transaction, $transferMeta);
+
+                return [
+                    'date' => $transactionDate?->format('Y-m-d') ?? '-',
+                    'product_name' => $transaction->product->product_name ?? '-',
+                    'product_code' => $transaction->product->product_code ?? '-',
+                    'location' => $transaction->location->name ?? '-',
+                    'type' => $this->resolveTypeLabel($transaction, $delta),
+                    'qty_in' => $delta > 0 ? $delta : 0,
+                    'qty_out' => $delta < 0 ? abs($delta) : 0,
+                    'reference' => $reference,
+                    'sort_date' => $transactionDate?->toDateString() ?? '9999-12-31',
+                    'sort_reference' => $reference === '-' ? '' : $reference,
+                    'sort_id' => $transaction->id,
+                ];
+            })
+            ->filter()
+            ->sort(function (array $left, array $right) {
+                $dateComparison = strcmp($left['sort_date'], $right['sort_date']);
+                if ($dateComparison !== 0) {
+                    return $dateComparison;
+                }
+
+                $referenceComparison = strnatcasecmp($left['sort_reference'], $right['sort_reference']);
+                if ($referenceComparison !== 0) {
+                    return $referenceComparison;
+                }
+
+                return $left['sort_id'] <=> $right['sort_id'];
+            })
+            ->values()
+            ->map(function (array $row) {
+                unset($row['sort_date'], $row['sort_reference'], $row['sort_id']);
+                return $row;
+            })
+            ->values();
+    }
+
+    private function resolveDelta(Transaction $transaction): float
+    {
+        $type = strtoupper((string) $transaction->type);
+        $quantity = (float) ($transaction->quantity ?? 0);
+        $diff = (float) ($transaction->after_quantity_at_location ?? 0)
+            - (float) ($transaction->previous_quantity_at_location ?? 0);
+
+        if ($type === 'ADJ' && $diff != 0.0) {
+            return $diff;
+        }
+
+        if ($quantity != 0.0) {
+            return $quantity;
+        }
+
+        return $diff;
+    }
+
+    private function resolveTypeLabel(Transaction $transaction, float $delta): string
+    {
+        $type = strtoupper((string) $transaction->type);
+
+        return match ($type) {
+            'BUY' => 'Penerimaan Pembelian',
+            'DISPATCH', 'SELL' => 'Pengiriman Penjualan',
+            'TRF' => $delta >= 0 ? 'Transfer Masuk' : 'Transfer Keluar',
+            'ADJ' => $delta >= 0 ? 'Penyesuaian Tambah' : 'Penyesuaian Kurang',
+            'INIT' => 'Inisialisasi Stok',
+            default => $type ?: 'Mutasi Stok',
+        };
+    }
+
+    private function resolveReference(Transaction $transaction, array $transferMeta): string
+    {
+        $type = strtoupper((string) $transaction->type);
+
+        if ($type === 'TRF') {
+            $transferId = $this->extractTransferId($transaction->reason);
+            if ($transferId) {
+                return $transferMeta[$transferId]['document_number'] ?? (string) $transferId;
+            }
+        }
+
+        $reference = $this->extractReference($transaction->reason);
+
+        return $reference ?: '-';
+    }
+
+    private function collectTransactionReferences(Collection $transactions): array
+    {
+        $purchaseRefs = [];
+        $saleRefs = [];
+
+        foreach ($transactions as $transaction) {
+            $type = strtoupper((string) $transaction->type);
+            $reference = $this->extractReference($transaction->reason);
+
+            if (! $reference) {
+                continue;
+            }
+
+            if ($type === 'BUY') {
+                $purchaseRefs[$reference] = true;
+            }
+
+            if (in_array($type, ['DISPATCH', 'SELL'], true)) {
+                $saleRefs[$reference] = true;
+            }
+        }
+
+        return [array_keys($purchaseRefs), array_keys($saleRefs)];
+    }
+
+    private function buildPurchaseDateMap(array $references, int $settingId): array
+    {
+        if (empty($references)) {
+            return [];
+        }
+
+        return Purchase::query()
+            ->where('setting_id', $settingId)
+            ->whereIn('reference', $references)
+            ->pluck('date', 'reference')
+            ->all();
+    }
+
+    private function buildSaleDateMap(array $references, int $settingId): array
+    {
+        if (empty($references)) {
+            return [];
+        }
+
+        return Sale::query()
+            ->where('setting_id', $settingId)
+            ->whereIn('reference', $references)
+            ->pluck('date', 'reference')
+            ->all();
+    }
+
+    private function resolveTransactionDate(
+        Transaction $transaction,
+        float $delta,
+        ?string $reference,
+        array $purchaseDateMap,
+        array $saleDateMap,
+        array $transferMeta
+    ): ?Carbon {
+        $type = strtoupper((string) $transaction->type);
+
+        if ($reference) {
+            if ($type === 'BUY' && isset($purchaseDateMap[$reference])) {
+                return Carbon::parse($purchaseDateMap[$reference]);
+            }
+
+            if (in_array($type, ['DISPATCH', 'SELL'], true) && isset($saleDateMap[$reference])) {
+                return Carbon::parse($saleDateMap[$reference]);
+            }
+        }
+
+        if ($type === 'TRF') {
+            $transferId = $this->extractTransferId($transaction->reason);
+            $meta = $transferId ? ($transferMeta[$transferId] ?? null) : null;
+            if ($meta) {
+                $candidate = $delta >= 0
+                    ? ($meta['received_at'] ?? $meta['transfer_date'] ?? $meta['dispatched_at'] ?? null)
+                    : ($meta['dispatched_at'] ?? $meta['transfer_date'] ?? $meta['received_at'] ?? null);
+
+                if ($candidate) {
+                    return Carbon::parse($candidate);
+                }
+            }
+        }
+
+        return $transaction->created_at ? Carbon::parse($transaction->created_at) : null;
+    }
+
+    private function extractReference(?string $reason): ?string
+    {
+        if (! $reason) {
+            return null;
+        }
+
+        if (preg_match('/#\\s*([A-Za-z0-9\\.\\-]+)/', $reason, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
+    }
+
+    private function extractTransferId(?string $reason): ?int
+    {
+        if (! $reason) {
+            return null;
+        }
+
+        if (preg_match('/\\(#(\\d+)\\)/', $reason, $matches)) {
+            return (int) $matches[1];
+        }
+
+        if (preg_match('/#(\\d+)/', $reason, $matches)) {
+            return (int) $matches[1];
+        }
+
+        return null;
+    }
+
+    private function loadTransferMeta(Collection $transactions): array
+    {
+        $transferIds = $transactions
+            ->filter(fn (Transaction $transaction) => strtoupper((string) $transaction->type) === 'TRF')
+            ->map(fn (Transaction $transaction) => $this->extractTransferId($transaction->reason))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($transferIds->isEmpty()) {
+            return [];
+        }
+
+        return Transfer::query()
+            ->whereIn('id', $transferIds)
+            ->get(['id', 'document_number', 'transfer_date', 'dispatched_at', 'received_at'])
+            ->mapWithKeys(function (Transfer $transfer) {
+                return [
+                    $transfer->id => [
+                        'document_number' => $transfer->document_number,
+                        'transfer_date' => $transfer->transfer_date,
+                        'dispatched_at' => $transfer->dispatched_at,
+                        'received_at' => $transfer->received_at,
+                    ],
+                ];
+            })
+            ->all();
     }
 
     public function render()

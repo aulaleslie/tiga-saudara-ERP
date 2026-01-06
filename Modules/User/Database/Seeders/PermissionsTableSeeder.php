@@ -144,6 +144,7 @@ class PermissionsTableSeeder extends Seeder
             'saleReports.global.access',
             'stockMutationReports.access',
             'stockMutationReports.global.access',
+            'inventoryValuationReports.access',
 
             // Purchase Payments
             'purchasePayments.access',

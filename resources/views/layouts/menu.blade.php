@@ -21,7 +21,7 @@
 <li class="c-sidebar-nav-divider"></li>
 
 @can('reports.access')
-    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.mekari-converter.*') || request()->routeIs('reports.mekari-invoice-generator.*') || request()->routeIs('reports.purchase-report.index') || request()->routeIs('reports.sale-report.index') || request()->routeIs('reports.stock-mutation-report.index') || request()->routeIs('app.pos.monitor') ? 'c-show' : '' }}">
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.mekari-converter.*') || request()->routeIs('reports.mekari-invoice-generator.*') || request()->routeIs('reports.purchase-report.index') || request()->routeIs('reports.sale-report.index') || request()->routeIs('reports.stock-mutation-report.index') || request()->routeIs('reports.inventory-valuation-report.index') || request()->routeIs('app.pos.monitor') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-file-earmark-spreadsheet" style="line-height: 1;"></i> Laporan
         </a>
@@ -108,6 +108,18 @@
                 <a class="c-sidebar-nav-link {{ request()->routeIs('reports.stock-mutation-report.global') ? 'c-active' : '' }}"
                    href="{{ route('reports.stock-mutation-report.global') }}">
                     <i class="c-sidebar-nav-icon bi bi-globe" style="line-height: 1;"></i> Mutasi Stok Global
+                </a>
+            </li>
+        </ul>
+        @endif
+        @endcan
+        @can('inventoryValuationReports.access')
+        @if(Route::has('reports.inventory-valuation-report.index'))
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('reports.inventory-valuation-report.index') ? 'c-active' : '' }}"
+                   href="{{ route('reports.inventory-valuation-report.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-calculator" style="line-height: 1;"></i> Valuasi Stok
                 </a>
             </li>
         </ul>

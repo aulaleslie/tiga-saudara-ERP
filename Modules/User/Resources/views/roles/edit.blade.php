@@ -125,6 +125,10 @@
                                             'stockMutationReports.global.access' => 'Akses Laporan Mutasi Stok Global',
                                         ],
 
+                                        'Valuasi Stok' => [
+                                            'inventoryValuationReports.access' => 'Akses Laporan Valuasi Stok',
+                                        ],
+
                                         'Pembayaran Pembelian' => [
                                             'purchasePayments.access' => 'Akses Pembayaran Pembelian',
                                             'purchasePayments.create' => 'Buat Pembayaran Pembelian',

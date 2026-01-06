@@ -14,6 +14,7 @@
 use App\Livewire\Reports\PurchaseReport;
 use Illuminate\Support\Facades\Route;
 use Modules\Reports\Http\Controllers\MekariConverterController;
+use Modules\Reports\Http\Controllers\InventoryValuationReportController;
 use Modules\Reports\Http\Controllers\PurchaseReportController;
 use Modules\Reports\Http\Controllers\SaleReportController;
 use Modules\Reports\Http\Controllers\StockMutationReportController;
@@ -71,6 +72,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::get('/stock-mutation-report/global', [StockMutationReportController::class, 'indexGlobal'])
             ->name('reports.stock-mutation-report.global')
             ->middleware('can:stockMutationReports.global.access');
+
+        Route::get('/inventory-valuation-report', [InventoryValuationReportController::class, 'index'])
+            ->name('reports.inventory-valuation-report.index')
+            ->middleware('can:inventoryValuationReports.access');
     });
 
     Route::get('/test-pdf', function () {
