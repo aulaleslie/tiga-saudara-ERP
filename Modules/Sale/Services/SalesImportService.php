@@ -978,7 +978,6 @@ class SalesImportService
         $dispatch = Dispatch::create([
             'sale_id' => $sale->id,
             'dispatch_date' => $saleDate,
-            'location_id' => $location->id,
         ]);
 
         foreach ($details as $detail) {

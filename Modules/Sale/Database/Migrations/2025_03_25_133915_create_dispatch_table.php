@@ -11,12 +11,12 @@ return new class extends Migration
         Schema::create('dispatches', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('sale_id');
-            $table->unsignedBigInteger('location_id');
+            $table->unsignedBigInteger('location_id')->nullable();
             $table->dateTime('dispatch_date')->nullable();
             $table->timestamps();
 
             $table->foreign('sale_id')->references('id')->on('sales')->onDelete('cascade');
-            $table->foreign('location_id')->references('id')->on('locations')->onDelete('cascade');
+            $table->foreign('location_id')->references('id')->on('locations')->nullOnDelete();
         });
     }
 
