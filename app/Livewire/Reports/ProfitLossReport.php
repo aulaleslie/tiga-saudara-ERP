@@ -2,7 +2,10 @@
 
 namespace App\Livewire\Reports;
 
+use App\Exports\ProfitLossReportExport;
+use Carbon\Carbon;
 use Livewire\Component;
+use Maatwebsite\Excel\Facades\Excel;
 use Modules\Expense\Entities\Expense;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchasePayment;
@@ -57,6 +60,37 @@ class ProfitLossReport extends Component
 
     public function generateReport() {
         $this->validate();
+    }
+
+    public function exportExcel() {
+        $this->validate();
+
+        $filters = $this->exportFilters();
+        $filename = $this->buildFilename();
+
+        return Excel::download(new ProfitLossReportExport($filters), $filename);
+    }
+
+    private function exportFilters(): array {
+        return [
+            'startDate' => $this->start_date,
+            'endDate' => $this->end_date,
+        ];
+    }
+
+    private function buildFilename(): string {
+        $start = $this->formatDateForFilename($this->start_date);
+        $end = $this->formatDateForFilename($this->end_date);
+
+        return sprintf('profit_loss_%s_%s.xlsx', $start, $end);
+    }
+
+    private function formatDateForFilename(?string $date): string {
+        if (! $date) {
+            return 'unknown';
+        }
+
+        return Carbon::parse($date)->format('d-m-Y');
     }
 
     public function setValues() {

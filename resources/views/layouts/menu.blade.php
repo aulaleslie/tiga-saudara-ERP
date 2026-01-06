@@ -21,7 +21,7 @@
 <li class="c-sidebar-nav-divider"></li>
 
 @can('reports.access')
-    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.mekari-converter.*') || request()->routeIs('reports.mekari-invoice-generator.*') || request()->routeIs('reports.purchase-report.index') || request()->routeIs('reports.sale-report.index') || request()->routeIs('reports.stock-mutation-report.index') || request()->routeIs('reports.inventory-valuation-report.index') || request()->routeIs('app.pos.monitor') ? 'c-show' : '' }}">
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('reports.mekari-converter.*') || request()->routeIs('reports.mekari-invoice-generator.*') || request()->routeIs('profit-loss-report.index') || request()->routeIs('reports.purchase-report.index') || request()->routeIs('reports.sale-report.index') || request()->routeIs('reports.stock-mutation-report.index') || request()->routeIs('reports.inventory-valuation-report.index') || request()->routeIs('app.pos.monitor') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-file-earmark-spreadsheet" style="line-height: 1;"></i> Laporan
         </a>
@@ -41,6 +41,16 @@
                 </a>
             </li>
         </ul>
+        @if(Route::has('profit-loss-report.index'))
+        <ul class="c-sidebar-nav-dropdown-items">
+            <li class="c-sidebar-nav-item">
+                <a class="c-sidebar-nav-link {{ request()->routeIs('profit-loss-report.index') ? 'c-active' : '' }}"
+                   href="{{ route('profit-loss-report.index') }}">
+                    <i class="c-sidebar-nav-icon bi bi-cash-coin" style="line-height: 1;"></i> Laporan Laba Rugi
+                </a>
+            </li>
+        </ul>
+        @endif
         @can('purchaseReports.access')
         @if(Route::has('reports.purchase-report.index'))
         <ul class="c-sidebar-nav-dropdown-items">

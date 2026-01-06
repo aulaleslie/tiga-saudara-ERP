@@ -223,7 +223,7 @@ class SalesImportService
             return $this->customersCache[$normalizedName];
         }
 
-        $customer = Customer::whereRaw('LOWER(customer_name) = ?', [$normalizedName])->first();
+        $customer = Customer::where('customer_name', trim($name))->first();
 
         if (!$customer) {
             $customer = Customer::create([
@@ -260,7 +260,7 @@ class SalesImportService
             return $this->productsCache[$normalizedName];
         }
 
-        $product = Product::whereRaw('LOWER(product_name) = ?', [$normalizedName])->first();
+        $product = Product::where('product_name', trim($cleanName))->first();
 
         if (!$product) {
             // Find or create unit (use cache)
@@ -376,17 +376,17 @@ class SalesImportService
      */
     protected function preloadCustomersForBatch(Collection $rows): void
     {
-        // Extract unique customer names from rows
+        // Extract unique customer names from rows (preserve case for index usage)
         $customerNames = $rows->map(function ($row) {
-            return strtolower(trim($row->raw_json['customer'] ?? ''));
+            return trim($row->raw_json['customer'] ?? '');
         })->filter()->unique()->values()->toArray();
 
         if (empty($customerNames)) {
             return;
         }
 
-        // Load customers in a single query
-        $customers = Customer::whereIn(DB::raw('LOWER(customer_name)'), $customerNames)->get();
+        // Load customers in a single query using index
+        $customers = Customer::whereIn('customer_name', $customerNames)->get();
         
         foreach ($customers as $customer) {
             $this->customersCache[strtolower($customer->customer_name)] = $customer;
@@ -400,18 +400,18 @@ class SalesImportService
      */
     protected function preloadProductsForBatch(Collection $rows): void
     {
-        // Extract unique product names from rows
+        // Extract unique product names from rows (preserve case for index usage)
         $productNames = $rows->map(function ($row) {
             $parsed = $this->parseProductName($row->raw_json['produk'] ?? '');
-            return strtolower(trim($parsed['clean_name']));
+            return trim($parsed['clean_name']);
         })->filter()->unique()->values()->toArray();
 
         if (empty($productNames)) {
             return;
         }
 
-        // Load products in a single query
-        $products = Product::whereIn(DB::raw('LOWER(product_name)'), $productNames)->get();
+        // Load products in a single query using index
+        $products = Product::whereIn('product_name', $productNames)->get();
         
         foreach ($products as $product) {
             $this->productsCache[strtolower($product->product_name)] = $product;

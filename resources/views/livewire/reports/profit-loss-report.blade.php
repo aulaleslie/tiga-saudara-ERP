@@ -30,6 +30,11 @@
                                 <i wire:target="generateReport" wire:loading.remove class="bi bi-shuffle"></i>
                                 Filter Report
                             </button>
+                            <button type="button" wire:click="exportExcel" wire:loading.attr="disabled" class="btn btn-success ml-2">
+                                <span wire:target="exportExcel" wire:loading class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                <i wire:target="exportExcel" wire:loading.remove class="bi bi-file-earmark-excel"></i>
+                                Export Excel
+                            </button>
                         </div>
                     </form>
                 </div>
