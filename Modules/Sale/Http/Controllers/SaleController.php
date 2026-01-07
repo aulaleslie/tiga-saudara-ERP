@@ -219,6 +219,7 @@ class SaleController extends Controller
 
         $sale->load([
             'saleDetails.bundleItems',
+            'saleDetails.tax',
             'saleDispatches.details',
             'saleDispatches.details.product',
             'saleDispatches.details.location',
