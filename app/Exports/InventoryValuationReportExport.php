@@ -53,6 +53,14 @@ class InventoryValuationReportExport implements FromArray, WithEvents, WithTitle
         $products = Product::query()
             ->where('setting_id', $settingId)
             ->where('stock_managed', true)
+            ->whereHas('transactions', function ($query) use ($settingId, $locationId) {
+                $query->where('setting_id', $settingId)
+                    ->whereIn('type', ['BUY', 'DISPATCH', 'SELL']);
+
+                if ($locationId) {
+                    $query->where('location_id', $locationId);
+                }
+            })
             ->when($productId, fn ($q) => $q->where('id', $productId))
             ->orderBy('product_name')
             ->get();

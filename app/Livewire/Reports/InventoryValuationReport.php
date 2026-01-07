@@ -71,6 +71,10 @@ class InventoryValuationReport extends Component
         return view('livewire.reports.inventory-valuation-report', [
             'products' => Product::query()
                 ->where('setting_id', $settingId)
+                ->whereHas('transactions', function ($query) use ($settingId) {
+                    $query->where('setting_id', $settingId)
+                        ->whereIn('type', ['BUY', 'DISPATCH', 'SELL']);
+                })
                 ->orderBy('product_name')
                 ->get(),
             'locations' => Location::query()
