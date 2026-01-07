@@ -91,7 +91,7 @@ class InventoryValuationReportExport implements FromArray, WithEvents, WithTitle
             $transferMeta
         );
 
-        $transactionsByProduct = $transactions->groupBy('product_id');
+        $transactionsByProduct = $transactions->groupBy('product_id')->toBase();
         $eligibleProductIds = $this->resolveEligibleProductIds(
             $transactionsByProduct,
             $transactionMeta,
