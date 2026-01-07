@@ -81,6 +81,7 @@ class InventoryValuationReportExport implements FromArray, WithEvents, WithTitle
         );
 
         $purchaseDateMap = $this->buildPurchaseDateMap($purchaseRefs, $settingId);
+        $purchaseNumberMap = $this->buildPurchaseNumberMap($purchaseRefs, $settingId);
         $saleDateMap = $this->buildSaleDateMap($saleRefs, $settingId);
         $transferMeta = $this->loadTransferMeta($transactions);
         $transactionMeta = $this->buildTransactionMeta(
@@ -90,8 +91,20 @@ class InventoryValuationReportExport implements FromArray, WithEvents, WithTitle
             $transferMeta
         );
 
-        $transactionsByProduct = $transactions
-            ->groupBy('product_id')
+        $transactionsByProduct = $transactions->groupBy('product_id');
+        $eligibleProductIds = $this->resolveEligibleProductIds(
+            $transactionsByProduct,
+            $transactionMeta,
+            $startDate,
+            $endDate
+        );
+
+        $products = $products
+            ->whereIn('id', $eligibleProductIds)
+            ->values();
+
+        $transactionsByProduct = $transactionsByProduct
+            ->only($eligibleProductIds)
             ->map(function (Collection $group) use ($transactionMeta) {
                 return $group->sort(function (Transaction $left, Transaction $right) use ($transactionMeta) {
                     return $this->compareTransactions($left, $right, $transactionMeta);
@@ -146,6 +159,7 @@ class InventoryValuationReportExport implements FromArray, WithEvents, WithTitle
 
                 $type = strtoupper((string) $transaction->type);
                 $reference = $meta['reference'] ?? $this->extractReference($transaction->reason);
+                $displayNumber = $this->resolveDisplayNumber($type, $reference, $purchaseNumberMap);
                 $unitPrice = $this->resolveUnitPrice(
                     $type,
                     $reference,
@@ -198,7 +212,7 @@ class InventoryValuationReportExport implements FromArray, WithEvents, WithTitle
                 $rows[] = [
                     $transactionDate->format('d/m/Y'),
                     $this->resolveTransactionLabel($type, $delta),
-                    $reference ?: '-',
+                    $displayNumber,
                     $description,
                     $delta,
                     $runningStock,
@@ -386,6 +400,19 @@ class InventoryValuationReportExport implements FromArray, WithEvents, WithTitle
             ->all();
     }
 
+    private function buildPurchaseNumberMap(array $references, int $settingId): array
+    {
+        if (empty($references)) {
+            return [];
+        }
+
+        return Purchase::query()
+            ->where('setting_id', $settingId)
+            ->whereIn('reference', $references)
+            ->pluck('supplier_purchase_number', 'reference')
+            ->all();
+    }
+
     private function buildSaleDateMap(array $references, int $settingId): array
     {
         if (empty($references)) {
@@ -519,6 +546,58 @@ class InventoryValuationReportExport implements FromArray, WithEvents, WithTitle
         }
 
         return $transaction->created_at ? Carbon::parse($transaction->created_at) : null;
+    }
+
+    private function resolveDisplayNumber(string $type, ?string $reference, array $purchaseNumberMap): string
+    {
+        if ($type === 'BUY') {
+            $number = $reference ? ($purchaseNumberMap[$reference] ?? null) : null;
+            return $number ?: '-';
+        }
+
+        return $reference ?: '-';
+    }
+
+    private function resolveEligibleProductIds(
+        Collection $transactionsByProduct,
+        array $transactionMeta,
+        Carbon $startDate,
+        Carbon $endDate
+    ): array {
+        $eligible = [];
+
+        foreach ($transactionsByProduct as $productId => $productTransactions) {
+            $hasSaleInPeriod = false;
+            $endingStock = 0.0;
+
+            foreach ($productTransactions as $transaction) {
+                $meta = $transactionMeta[$transaction->id] ?? null;
+                $transactionDate = $meta['date'] ?? null;
+                if (! $transactionDate || $transactionDate->gt($endDate)) {
+                    continue;
+                }
+
+                $delta = $this->resolveDelta($transaction);
+                if ($delta == 0.0) {
+                    continue;
+                }
+
+                if (! $transactionDate->lt($startDate)) {
+                    $type = strtoupper((string) $transaction->type);
+                    if (in_array($type, ['DISPATCH', 'SELL'], true)) {
+                        $hasSaleInPeriod = true;
+                    }
+                }
+
+                $endingStock += $delta;
+            }
+
+            if ($hasSaleInPeriod || $endingStock != 0.0) {
+                $eligible[] = $productId;
+            }
+        }
+
+        return $eligible;
     }
 
     private function buildPurchasePriceMap(array $references, Collection $productIds, int $settingId): array
