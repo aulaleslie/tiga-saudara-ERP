@@ -5,10 +5,10 @@
         <button type="button"
                 class="form-control d-flex justify-content-between align-items-center text-start"
                 wire:click="toggleDropdown">
-            <span class="{{ $selectedLabel ? '' : 'text-muted' }}">
+            <span class="{{ $selectedLabel ? '' : 'text-muted' }} text-truncate me-2" title="{{ $selectedLabel ?? $placeholder }}">
                 {{ $selectedLabel ?? $placeholder }}
             </span>
-            <i class="bi {{ $open ? 'bi-chevron-up' : 'bi-chevron-down' }}"></i>
+            <i class="bi {{ $open ? 'bi-chevron-up' : 'bi-chevron-down' }} flex-shrink-0"></i>
         </button>
 
         @if($open)
@@ -26,9 +26,10 @@
                     @foreach($options as $option)
                         <button
                             type="button"
-                            class="dropdown-item"
+                            class="dropdown-item text-truncate"
                             wire:click="select('{{ $option['id'] }}')"
                             wire:key="location-option-{{ $option['id'] }}"
+                            title="{{ $option['name'] }}"
                         >
                             {{ $option['name'] }}
                         </button>

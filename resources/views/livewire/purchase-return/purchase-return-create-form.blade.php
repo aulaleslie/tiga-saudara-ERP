@@ -36,7 +36,14 @@
                             <input type="text" class="form-control" value="{{ $this->supplierName ?? '-' }}" disabled>
                             <div class="form-text">Pemasok tidak dapat diubah setelah retur disetujui.</div>
                         @else
-                            <livewire:auto-complete.supplier-loader :supplierId="$supplier_id" />
+                            <livewire:modules.people.supplier-search-dropdown
+                                name="supplier_id"
+                                placeholder="Pilih pemasok..."
+                                :allow-create="false"
+                                :selected="$supplier_id"
+                                :error="$errors->first('supplier_id')"
+                                wire:key="purchase-return-supplier-dropdown"
+                            />
                         @endif
                         @error('supplier_id')
                             <div class="invalid-feedback d-block">{{ $message }}</div>
@@ -57,12 +64,14 @@
                             <input type="text" id="location" class="form-control" value="{{ $this->locationName ?? '-' }}" disabled>
                             <div class="form-text">Lokasi tidak dapat diubah setelah retur disetujui.</div>
                         @else
-                            <livewire:auto-complete.location-business-loader
-                                :settingId="session('setting_id')"
-                                :locationId="$location_id"
-                                label="Lokasi"
-                                event-name="purchaseReturnLocationSelected"
-                                name="location_id" />
+                            <livewire:modules.setting.location-search-dropdown
+                                name="location_id"
+                                placeholder="Pilih lokasi..."
+                                :allow-create="false"
+                                :selected="$location_id"
+                                :error="$errors->first('location_id')"
+                                wire:key="purchase-return-location-dropdown"
+                            />
                         @endif
                         @error('location_id')
                             <div class="invalid-feedback d-block">{{ $message }}</div>

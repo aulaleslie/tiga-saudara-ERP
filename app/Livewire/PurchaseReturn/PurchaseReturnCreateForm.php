@@ -36,7 +36,7 @@ class PurchaseReturnCreateForm extends Component
     protected $listeners = [
         'supplierSelected' => 'handleSupplierSelected',
         'updateRows' => 'handleUpdatedRows',
-        'purchaseReturnLocationSelected' => 'handleLocationSelected',
+        'locationDropdownSelected' => 'handleLocationDropdownSelected',
     ];
 
     public function mount(): void
@@ -46,23 +46,27 @@ class PurchaseReturnCreateForm extends Component
         $this->submitLabel = 'Proses Retur';
     }
 
-    public function handleSupplierSelected($supplier): void
+    public function handleSupplierSelected($supplierId): void
     {
-        if ($supplier) {
-            Log::info('Updated supplier id', ['supplier' => $supplier]);
-            $this->supplier_id = $supplier['id'];
-            $this->supplierName = $supplier['supplier_name'] ?? null;
+        if ($supplierId) {
+            Log::info('Updated supplier id', ['supplier_id' => $supplierId]);
+            $supplier = Supplier::find($supplierId);
+            $this->supplier_id = $supplierId;
+            $this->supplierName = $supplier?->supplier_name;
         } else {
             $this->supplier_id = null;
             $this->supplierName = null;
         }
     }
 
-    public function handleLocationSelected($location): void
+    public function handleLocationDropdownSelected($name, $value): void
     {
-        $this->location_id = $location['id'] ?? null;
-        $this->locationName = $location['name'] ?? null;
-        $this->dispatch('locationUpdated', $this->location_id);
+        if ($name === 'location_id') {
+            $this->location_id = $value;
+            $location = \Modules\Setting\Entities\Location::find($value);
+            $this->locationName = $location?->name;
+            $this->dispatch('locationUpdated', $this->location_id);
+        }
     }
 
     public function handleUpdatedRows($updatedRows): void

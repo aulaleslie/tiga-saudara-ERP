@@ -1,18 +1,38 @@
 <div>
+    <style>
+        .sticky-action-header {
+            position: sticky;
+            right: 0;
+            z-index: 2;
+            background-color: #f8f9fa !important;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.05); /* Subtle separator */
+        }
+        .sticky-action-col {
+            position: sticky;
+            right: 0;
+            z-index: 1;
+            background-color: #fff;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.05);
+        }
+        /* Ensure specific background functionality on hover */
+        .table-hover tbody tr:hover .sticky-action-col {
+            background-color: var(--bs-table-hover-bg);
+        }
+    </style>
     @if ($supplierId)
-        <div class="table-responsive" style="overflow: visible;">
-            <table class="table table-hover align-middle mb-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" style="min-width: 1300px;">
                 <thead class="table-light">
                     <tr class="text-center text-uppercase small text-muted">
                         <th style="width: 22%">Produk</th>
                         <th style="width: 9%">Tersedia Non Pajak</th>
                         <th style="width: 9%">Tersedia Pajak</th>
                         <th style="width: 9%">Jumlah Retur</th>
-                        <th style="width: 18%">Nomor Purchase</th>
+                        <th style="width: 18%">Nomor Pembelian</th>
                         <th style="width: 10%">Tanggal Purchase</th>
                         <th style="width: 11%">Harga Beli</th>
                         <th style="width: 9%" class="text-end">Subtotal</th>
-                        <th style="width: 3%">
+                        <th style="width: 3%;" class="sticky-action-header text-center">
                             <button type="button" class="btn btn-outline-primary btn-sm rounded-circle"
                                     wire:click="addProductRow">
                                 <i class="bi bi-plus-lg"></i>
@@ -24,9 +44,11 @@
                     @forelse ($rows as $index => $row)
                         <tr>
                             <td>
-                                <livewire:purchase-return.product-search-purchase-return
+                                <livewire:purchase-return.product-search-dropdown
                                     :index="$index"
                                     :supplier_id="$supplierId"
+                                    :selected="$row['product_id']"
+                                    :error="$validationErrors['rows.'.$index.'.product_id'][0] ?? null"
                                     wire:key="product-{{ $index }}" />
                                 @if(!empty($validationErrors["rows.$index.product_id"]))
                                     <span class="invalid-feedback d-block">{{ $validationErrors["rows.$index.product_id"][0] }}</span>
@@ -64,10 +86,12 @@
                             </td>
                             <td>
                                 @if (!empty($row['product_id']))
-                                    <livewire:purchase-return.purchase-order-search-purchase-return
+                                    <livewire:purchase-return.purchase-order-search-dropdown
                                         :index="$index"
                                         :supplier_id="$supplierId"
                                         :product_id="$row['product_id']"
+                                        :selected="$row['purchase_order_id']"
+                                        :error="$validationErrors['rows.'.$index.'.purchase_order_id'][0] ?? null"
                                         wire:key="po-{{ $index }}" />
                                     @error("rows.".$index.".purchase_order_id")
                                         <span class="invalid-feedback d-block">{{ $message }}</span>
@@ -87,7 +111,7 @@
                             <td class="text-end fw-semibold">
                                 {{ isset($row['total']) ? 'Rp ' . number_format($row['total'], 0, ',', '.') . ',-' : '-' }}
                             </td>
-                            <td class="text-center">
+                            <td class="text-center sticky-action-col">
                                 <button type="button" class="btn btn-outline-danger btn-sm rounded-circle"
                                         wire:click="removeProductRow({{ $index }})">
                                     <i class="bi bi-trash"></i>

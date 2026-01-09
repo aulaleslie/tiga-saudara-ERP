@@ -7,10 +7,10 @@
         <button type="button"
                 class="form-control d-flex justify-content-between align-items-center text-start"
                 @click="open = !open">
-            <span class="{{ $selectedLabel ? '' : 'text-muted' }}">
+            <span class="{{ $selectedLabel ? '' : 'text-muted' }} text-truncate me-2" title="{{ $selectedLabel ?? $placeholder }}">
                 {{ $selectedLabel ?? $placeholder }}
             </span>
-            <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+            <i class="bi flex-shrink-0" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
         </button>
 
         <div class="dropdown-menu w-100 shadow show p-2"
@@ -29,10 +29,11 @@
                 @foreach($options as $option)
                     <button
                         type="button"
-                        class="dropdown-item"
+                        class="dropdown-item text-truncate"
                         wire:click="select('{{ $option['id'] }}')"
                         @click="open = false"
                         wire:key="supplier-option-{{ $option['id'] }}"
+                        title="{{ $option['name'] }}"
                     >
                         {{ $option['name'] }}
                     </button>
