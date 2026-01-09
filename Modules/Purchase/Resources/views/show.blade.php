@@ -210,6 +210,10 @@
                                                     <th>Tanggal</th>
                                                     <th>Lokasi</th>
                                                     <th>Total Diterima</th>
+                                                    <th>Status</th>
+                                                    @can('purchaseReceivings.approval')
+                                                        <th>Aksi</th>
+                                                    @endcan
                                                 </tr>
                                                 </thead>
                                                 <tbody>
@@ -229,11 +233,69 @@
                                                         <td>{{ optional($receivedNote->created_at)->format('Y-m-d') }}</td>
                                                         <td>{{ $receivedNote->location->name ?? '-' }}</td>
                                                         <td>{{ $receivedNote->receivedNoteDetails->sum('quantity_received') }}</td>
+                                                        <td>
+                                                            @if($receivedNote->isPending())
+                                                                <span class="badge badge-warning">Menunggu Persetujuan</span>
+                                                            @elseif($receivedNote->isApproved())
+                                                                <span class="badge badge-success">Disetujui</span>
+                                                            @elseif($receivedNote->isRejected())
+                                                                <span class="badge badge-danger">Ditolak</span>
+                                                            @endif
+                                                        </td>
+                                                        @can('purchaseReceivings.approval')
+                                                            <td>
+                                                                @if($receivedNote->isPending())
+                                                                    <form action="{{ route('receivings.approve', $receivedNote) }}" method="POST" class="d-inline">
+                                                                        @csrf
+                                                                        <button type="submit" class="btn btn-sm btn-success" title="Setujui">
+                                                                            <i class="bi bi-check-lg"></i>
+                                                                        </button>
+                                                                    </form>
+                                                                    <button type="button" class="btn btn-sm btn-danger" title="Tolak" 
+                                                                            data-toggle="modal" data-target="#rejectModal{{ $receivedNote->id }}">
+                                                                        <i class="bi bi-x-lg"></i>
+                                                                    </button>
+                                                                    
+                                                                    <!-- Reject Modal -->
+                                                                    <div class="modal fade" id="rejectModal{{ $receivedNote->id }}" tabindex="-1">
+                                                                        <div class="modal-dialog">
+                                                                            <div class="modal-content">
+                                                                                <form action="{{ route('receivings.reject', $receivedNote) }}" method="POST">
+                                                                                    @csrf
+                                                                                    <div class="modal-header">
+                                                                                        <h5 class="modal-title">Tolak Penerimaan</h5>
+                                                                                        <button type="button" class="close" data-dismiss="modal">
+                                                                                            <span>&times;</span>
+                                                                                        </button>
+                                                                                    </div>
+                                                                                    <div class="modal-body">
+                                                                                        <div class="form-group">
+                                                                                            <label for="rejection_reason">Alasan Penolakan <span class="text-danger">*</span></label>
+                                                                                            <textarea name="rejection_reason" class="form-control" rows="3" required></textarea>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div class="modal-footer">
+                                                                                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                                                                                        <button type="submit" class="btn btn-danger">Tolak</button>
+                                                                                    </div>
+                                                                                </form>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                @elseif($receivedNote->isRejected())
+                                                                    <span class="text-muted small" title="{{ $receivedNote->rejection_reason }}">
+                                                                        <i class="bi bi-info-circle"></i> {{ Str::limit($receivedNote->rejection_reason, 30) }}
+                                                                    </span>
+                                                                @else
+                                                                    <span class="text-muted">-</span>
+                                                                @endif
+                                                            </td>
+                                                        @endcan
                                                     </tr>
 
                                                     <!-- Expandable Details Row -->
                                                     <tr id="details-{{ $receivedNote->id }}" class="receiving-details-row d-none">
-                                                        <td colspan="6">
+                                                        <td colspan="{{ Gate::allows('purchaseReceivings.approval') ? 8 : 7 }}">
                                                             @include('purchase::receivings.receiving-details', ['data' => $receivedNote])
                                                         </td>
                                                     </tr>

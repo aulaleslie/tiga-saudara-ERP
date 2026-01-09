@@ -78,8 +78,6 @@
                                     <thead class="thead-dark">
                                     <tr>
                                         <th>Produk</th>
-                                        <th>Jumlah Dipesan</th>
-                                        <th>Jumlah Sudah Diterima</th>
                                         <th>Jumlah Diterima</th>
                                         <th>Serial Number</th>
                                         <th>Catatan</th>
@@ -93,13 +91,10 @@
                                                 <br>
                                                 <span class="badge badge-success">{{ $detail->product_code }}</span>
                                             </td>
-                                            <td>{{ $detail->quantity }}</td>
-                                            <td>{{ $detail->quantity_received ?? 0 }}</td>
                                             <td>
                                                 <input type="number" name="received[{{ $detail->id }}]"
                                                        class="form-control"
                                                        min="0"
-                                                       max="{{ $detail->quantity - ($detail->quantity_received ?? 0) }}"
                                                        value="{{ old("received.$detail->id", 0) }}"
                                                        data-require-serial="{{ $detail->product->serial_number_required ? 'true' : 'false' }}"
                                                        data-detail-id="{{ $detail->id }}"
@@ -108,7 +103,7 @@
                                             </td>
                                             <td>
                                                 @if ($detail->product->serial_number_required)
-                                                    <div class="serial-number-wrapper" data-detail-id="{{ $detail->id }}" data-product-id="{{ $detail->product_id }}" data-max-quantity="{{ $detail->quantity - ($detail->quantity_received ?? 0) }}">
+                                                    <div class="serial-number-wrapper" data-detail-id="{{ $detail->id }}" data-product-id="{{ $detail->product_id }}">
                                                         <div class="input-group mb-2">
                                                             <input type="text"
                                                                    class="form-control serial-input"
@@ -222,20 +217,8 @@
 
             if (!serial) return;
 
-            // Check if max quantity has been reached
-            const wrapper = document.querySelector(`.serial-number-wrapper[data-detail-id="${detailId}"]`);
-            const maxQuantity = parseInt(wrapper.dataset.maxQuantity) || 0;
-            const container = document.getElementById(`serial-pills-container-${detailId}`);
-            const currentCount = container.querySelectorAll('input[type="hidden"]').length;
-            
-            if (currentCount >= maxQuantity) {
-                showError(detailId, `Jumlah maksimal serial number yang dapat diterima adalah ${maxQuantity}.`);
-                input.value = '';
-                input.focus();
-                return;
-            }
-
             // Check duplicate in current list (client-side)
+            const container = document.getElementById(`serial-pills-container-${detailId}`);
             let existsLocally = false;
             container.querySelectorAll('input[type="hidden"]').forEach(hidden => {
                if (hidden.value === serial) existsLocally = true;

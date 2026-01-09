@@ -59,6 +59,17 @@ class PurchaseController extends Controller
         return view('purchase::receiving.filtered-index', compact('purchase'));
     }
 
+    /**
+     * Display the list of all receivings with their status.
+     */
+    public function receivingsList(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('purchaseReceivings.access'), 403);
+
+        return view('purchase::receiving.list');
+    }
+
+
 
     public function createAlpine(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
@@ -500,45 +511,22 @@ class PurchaseController extends Controller
         }
 
         DB::transaction(function () use ($data, $purchase) {
-            // Lock the purchase row
-            $purchase->lockForUpdate();
-
-            // Lock all purchase details
-            $purchaseDetails = $purchase->purchaseDetails()->lockForUpdate()->get();
-
-            // Lock all related products and product stocks
-            $productIds = $purchaseDetails->pluck('product_id')->unique();
-            $products = Product::whereIn('id', $productIds)->lockForUpdate()->get();
-            $productStocks = ProductStock::whereIn('product_id', $productIds)
-                ->where('location_id', $data['location_id'])
-                ->lockForUpdate()
-                ->get();
-
-            // Fetch all stored received quantities in bulk
-            $poDetailIds = $purchaseDetails->pluck('id');
-            $storedReceiveds = ReceivedNoteDetail::whereIn('po_detail_id', $poDetailIds)
-                ->selectRaw('po_detail_id, SUM(quantity_received) as total_received')
-                ->groupBy('po_detail_id')
-                ->pluck('total_received', 'po_detail_id');
-
-            // Create a ReceivedNote
+            // Create a ReceivedNote with PENDING status
             $receivedNote = ReceivedNote::create([
                 'po_id' => $purchase->id,
                 'external_delivery_number' => $data['external_delivery_number'] ?? null,
                 'date' => now(),
                 'location_id' => $data['location_id'],
+                'status' => ReceivedNote::STATUS_PENDING,
             ]);
 
-            // Track the newly received quantities for this transaction
-            $newReceivedQuantities = [];
+            // Get purchase details for validation
+            $purchaseDetails = $purchase->purchaseDetails()->get();
 
             foreach ($purchaseDetails as $detail) {
                 $receivedQuantity = $data['received'][$detail->id] ?? 0;
 
                 if ($receivedQuantity > 0) {
-                    // Track the received quantity for this transaction
-                    $newReceivedQuantities[$detail->id] = ($newReceivedQuantities[$detail->id] ?? 0) + $receivedQuantity;
-
                     // Create ReceivedNoteDetail
                     $receivedNoteDetail = ReceivedNoteDetail::create([
                         'received_note_id' => $receivedNote->id,
@@ -558,109 +546,14 @@ class PurchaseController extends Controller
                             ]);
                         }
                     }
-
-                    $product = $products->where('id', $detail->product_id)->first();
-
-                    // Update product stock
-                    $productStock = $productStocks->where('product_id', $detail->product_id)
-                        ->where('location_id', $data['location_id'])
-                        ->first();
-
-                    if (!$productStock) {
-                        // If no ProductStock exists, create one and lock it
-                        $productStock = ProductStock::create([
-                            'product_id' => $detail->product_id,
-                            'location_id' => $data['location_id'],
-                            'quantity' => 0,
-                            'quantity_tax' => 0,
-                            'quantity_non_tax' => 0,
-                            'broken_quantity_non_tax' => 0,
-                            'broken_quantity_tax' => 0,
-                            'broken_quantity' => 0,
-                        ]);
-                    }
-
-                    // Capture the **previous stock** before updating
-                    $previous_quantity = $product->product_quantity;
-                    $previous_quantity_at_location = $productStock->quantity;
-
-                    // Increment stock quantity
-                    $productStock->increment('quantity', $receivedQuantity);
-
-                    if ($detail->tax_id) {
-                        $productStock->increment('quantity_tax', $receivedQuantity);
-                    } else {
-                        $productStock->increment('quantity_non_tax', $receivedQuantity);
-                    }
-
-                    // Update product quantity in the Product model
-                    $product->increment('product_quantity', $receivedQuantity);
-
-                    // Capture the **after stock** after updating
-                    $after_quantity = $product->product_quantity;
-                    $after_quantity_at_location = $productStock->quantity;
-
-                    // Update Last Purchase Price
-                    $product->update([
-                        'last_purchase_price' => $detail->price, // Update last purchase price from purchase detail
-                    ]);
-
-                    // Update Average Purchase Price
-                    $this->updateAveragePurchasePrice($product, $detail->price, $receivedQuantity);
-
-                    // **Insert Transaction Log**
-                    Transaction::create([
-                        'product_id' => $detail->product_id,
-                        'setting_id' => session('setting_id'),
-                        'quantity' => $receivedQuantity,
-                        'current_quantity' => $after_quantity,
-                        'broken_quantity' => 0,
-                        'location_id' => $data['location_id'],
-                        'user_id' => auth()->id(),
-                        'reason' => 'Received from Purchase Order #' . $purchase->reference,
-                        'type' => 'BUY', // Define the transaction type
-                        'previous_quantity' => $previous_quantity,
-                        'after_quantity' => $after_quantity,
-                        'previous_quantity_at_location' => $previous_quantity_at_location,
-                        'after_quantity_at_location' => $after_quantity_at_location,
-                        'quantity_non_tax' => $detail->tax_id ? 0 : $receivedQuantity,
-                        'quantity_tax' => $detail->tax_id ? $receivedQuantity : 0,
-                        'broken_quantity_non_tax' => 0,
-                        'broken_quantity_tax' => 0,
-                    ]);
                 }
             }
 
-            // Calculate status based on stored and new received quantities
-            $allFullyReceived = true;
-
-            foreach ($purchaseDetails as $detail) {
-                // Retrieve the stored received quantity
-                $storedReceived = $storedReceiveds[$detail->id] ?? 0;
-
-                // Sum of stored and new received quantities
-                $newReceived = $newReceivedQuantities[$detail->id] ?? 0;
-                $totalReceived = $storedReceived + $newReceived;
-
-                Log::info('numbers', [
-                    '$storedReceived' => $storedReceived,
-                    'newReceived' => $newReceived,
-                    'detailQuantity' => $detail->quantity,
-                ]);
-
-                if ($totalReceived < $detail->quantity) {
-                    $allFullyReceived = false;
-                    break;
-                }
-            }
-
-            $status = $allFullyReceived ? Purchase::STATUS_RECEIVED : Purchase::STATUS_RECEIVED_PARTIALLY;
-
-            // Update purchase status
-            $purchase->update(['status' => $status]);
+            // Stock increment and purchase status update are now done on approval
         });
 
-        return redirect()->route('purchases.show', $purchase->id)->with('message', 'Items successfully received.');
+        toast('Penerimaan berhasil disimpan dan menunggu persetujuan.', 'success');
+        return redirect()->route('purchases.receiving.index')->with('message', 'Penerimaan berhasil disimpan. Menunggu persetujuan.');
     }
 
     private function updateAveragePurchasePrice(Product $product, $newPrice, $receivedQuantity)
@@ -700,5 +593,165 @@ class PurchaseController extends Controller
         if (! is_null($currentSettingId) && (int) $purchase->setting_id !== (int) $currentSettingId) {
             abort(404);
         }
+    }
+
+    /**
+     * Approve a receiving and increment stock.
+     */
+    public function approveReceiving(ReceivedNote $receivedNote): RedirectResponse
+    {
+        abort_if(Gate::denies('purchaseReceivings.approval'), 403);
+
+        if (!$receivedNote->isPending()) {
+            toast('Penerimaan ini sudah diproses sebelumnya.', 'error');
+            return redirect()->back();
+        }
+
+        DB::transaction(function () use ($receivedNote) {
+            $receivedNote->lockForUpdate();
+            $purchase = $receivedNote->purchase;
+            
+            // Load received note details with purchase details
+            $receivedNote->load('receivedNoteDetails.purchaseDetail.product');
+            
+            $productIds = $receivedNote->receivedNoteDetails->pluck('purchaseDetail.product_id')->unique();
+            $products = Product::whereIn('id', $productIds)->lockForUpdate()->get();
+            $productStocks = ProductStock::whereIn('product_id', $productIds)
+                ->where('location_id', $receivedNote->location_id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($receivedNote->receivedNoteDetails as $detail) {
+                $purchaseDetail = $detail->purchaseDetail;
+                $receivedQuantity = $detail->quantity_received;
+
+                if ($receivedQuantity > 0) {
+                    $product = $products->where('id', $purchaseDetail->product_id)->first();
+
+                    // Update product stock
+                    $productStock = $productStocks->where('product_id', $purchaseDetail->product_id)
+                        ->where('location_id', $receivedNote->location_id)
+                        ->first();
+
+                    if (!$productStock) {
+                        $productStock = ProductStock::create([
+                            'product_id' => $purchaseDetail->product_id,
+                            'location_id' => $receivedNote->location_id,
+                            'quantity' => 0,
+                            'quantity_tax' => 0,
+                            'quantity_non_tax' => 0,
+                            'broken_quantity_non_tax' => 0,
+                            'broken_quantity_tax' => 0,
+                            'broken_quantity' => 0,
+                        ]);
+                    }
+
+                    // Capture previous stock
+                    $previous_quantity = $product->product_quantity;
+                    $previous_quantity_at_location = $productStock->quantity;
+
+                    // Increment stock quantity
+                    $productStock->increment('quantity', $receivedQuantity);
+
+                    if ($purchaseDetail->tax_id) {
+                        $productStock->increment('quantity_tax', $receivedQuantity);
+                    } else {
+                        $productStock->increment('quantity_non_tax', $receivedQuantity);
+                    }
+
+                    $product->increment('product_quantity', $receivedQuantity);
+
+                    // Capture after stock
+                    $after_quantity = $product->product_quantity;
+                    $after_quantity_at_location = $productStock->quantity;
+
+                    // Update Last Purchase Price
+                    $product->update(['last_purchase_price' => $purchaseDetail->price]);
+
+                    // Update Average Purchase Price
+                    $this->updateAveragePurchasePrice($product, $purchaseDetail->price, $receivedQuantity);
+
+                    // Insert Transaction Log
+                    Transaction::create([
+                        'product_id' => $purchaseDetail->product_id,
+                        'setting_id' => session('setting_id'),
+                        'quantity' => $receivedQuantity,
+                        'current_quantity' => $after_quantity,
+                        'broken_quantity' => 0,
+                        'location_id' => $receivedNote->location_id,
+                        'user_id' => auth()->id(),
+                        'reason' => 'Received from Purchase Order #' . $purchase->reference . ' (Approved)',
+                        'type' => 'BUY',
+                        'previous_quantity' => $previous_quantity,
+                        'after_quantity' => $after_quantity,
+                        'previous_quantity_at_location' => $previous_quantity_at_location,
+                        'after_quantity_at_location' => $after_quantity_at_location,
+                        'quantity_non_tax' => $purchaseDetail->tax_id ? 0 : $receivedQuantity,
+                        'quantity_tax' => $purchaseDetail->tax_id ? $receivedQuantity : 0,
+                        'broken_quantity_non_tax' => 0,
+                        'broken_quantity_tax' => 0,
+                    ]);
+                }
+            }
+
+            // Update receiving status to APPROVED
+            $receivedNote->update([
+                'status' => ReceivedNote::STATUS_APPROVED,
+                'approved_at' => now(),
+                'approved_by' => auth()->id(),
+            ]);
+
+            // Calculate and update purchase status based on all APPROVED receivings
+            $purchaseDetails = $purchase->purchaseDetails;
+            $approvedReceiveds = ReceivedNoteDetail::whereHas('receivedNote', function ($q) use ($purchase) {
+                $q->where('po_id', $purchase->id)->where('status', ReceivedNote::STATUS_APPROVED);
+            })->selectRaw('po_detail_id, SUM(quantity_received) as total_received')
+              ->groupBy('po_detail_id')
+              ->pluck('total_received', 'po_detail_id');
+
+            $allFullyReceived = true;
+            foreach ($purchaseDetails as $detail) {
+                $totalReceived = $approvedReceiveds[$detail->id] ?? 0;
+                if ($totalReceived < $detail->quantity) {
+                    $allFullyReceived = false;
+                    break;
+                }
+            }
+
+            $status = $allFullyReceived ? Purchase::STATUS_RECEIVED : Purchase::STATUS_RECEIVED_PARTIALLY;
+            $purchase->update(['status' => $status]);
+        });
+
+        toast('Penerimaan berhasil disetujui dan stok telah diperbarui.', 'success');
+        return redirect()->back();
+    }
+
+    /**
+     * Reject a receiving.
+     */
+    public function rejectReceiving(Request $request, ReceivedNote $receivedNote): RedirectResponse
+    {
+        abort_if(Gate::denies('purchaseReceivings.approval'), 403);
+
+        if (!$receivedNote->isPending()) {
+            toast('Penerimaan ini sudah diproses sebelumnya.', 'error');
+            return redirect()->back();
+        }
+
+        $request->validate([
+            'rejection_reason' => 'required|string|max:1000',
+        ], [
+            'rejection_reason.required' => 'Alasan penolakan wajib diisi.',
+        ]);
+
+        $receivedNote->update([
+            'status' => ReceivedNote::STATUS_REJECTED,
+            'rejection_reason' => $request->rejection_reason,
+            'approved_at' => now(),
+            'approved_by' => auth()->id(),
+        ]);
+
+        toast('Penerimaan berhasil ditolak.', 'warning');
+        return redirect()->back();
     }
 }

@@ -3,7 +3,7 @@
         <i class="bi bi-three-dots-vertical"></i>
     </button>
     <div class="dropdown-menu">
-        @if ($data->status === 'APPROVED' || $data->status === 'RECEIVED_PARTIALLY')
+        @if ($data->status === \Modules\Purchase\Entities\Purchase::STATUS_APPROVED || $data->status === \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED_PARTIALLY)
             <a href="{{ route('purchases.receive', $data->id) }}" class="dropdown-item text-primary">
                 <i class="bi bi-box-arrow-in-down mr-2"></i> Menerima
             </a>

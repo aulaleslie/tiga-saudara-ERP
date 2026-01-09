@@ -253,6 +253,15 @@
                 </li>
             @endcan
 
+            @can('purchaseReceivings.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('receivings.list') ? 'c-active' : '' }}"
+                       href="{{ route('receivings.list') }}">
+                        <i class="c-sidebar-nav-icon bi bi-clipboard-check" style="line-height: 1;"></i> Daftar Penerimaan
+                    </a>
+                </li>
+            @endcan
+
             @can('purchaseReturns.create')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('purchase-returns.create') ? 'c-active' : '' }}"

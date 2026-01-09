@@ -1,12 +1,12 @@
 @extends('layouts.app')
 
-@section('title', __('Penerimaan Barang'))
+@section('title', 'Daftar Penerimaan Barang')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
-        <li class="breadcrumb-item"><a href="{{ route('home') }}">{{ __('Beranda') }}</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">{{ __('Pembelian') }}</a></li>
-        <li class="breadcrumb-item active">{{ __('Penerimaan Barang') }}</li>
+        <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
+        <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Pembelian</a></li>
+        <li class="breadcrumb-item active">Daftar Penerimaan</li>
     </ol>
 @endsection
 
@@ -14,26 +14,6 @@
     <div class="container-fluid">
         <div class="row">
             <div class="col-12">
-                <!-- Purchases ready for receiving -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">Pembelian Siap Diterima</h5>
-                    </div>
-                    <div class="card-body">
-                        <p class="text-muted mb-3">
-                            {{ __('Menampilkan pembelian yang sudah disetujui atau sebagian diterima untuk diproses penerimaan barang.') }}
-                        </p>
-
-                        <div class="table-responsive">
-                            <livewire:purchase.purchase-table :status-filter="[
-                                \Modules\Purchase\Entities\Purchase::STATUS_APPROVED,
-                                \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED_PARTIALLY,
-                            ]" />
-                        </div>
-                    </div>
-                </div>
-
-                <!-- All Receivings List -->
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">Daftar Penerimaan Barang</h5>
@@ -70,11 +50,7 @@
                                     @forelse($receivings as $receivedNote)
                                         <tr>
                                             <td>{{ $receivedNote->external_delivery_number ?? '-' }}</td>
-                                            <td>
-                                                <a href="{{ route('purchases.show', $receivedNote->purchase->id) }}">
-                                                    {{ $receivedNote->purchase->reference ?? '-' }}
-                                                </a>
-                                            </td>
+                                            <td>{{ $receivedNote->purchase->reference ?? '-' }}</td>
                                             <td>{{ optional($receivedNote->created_at)->format('Y-m-d') }}</td>
                                             <td>{{ $receivedNote->location->name ?? '-' }}</td>
                                             <td>{{ $receivedNote->receivedNoteDetails->sum('quantity_received') }}</td>
@@ -153,4 +129,3 @@
         </div>
     </div>
 @endsection
-
