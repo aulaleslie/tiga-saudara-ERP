@@ -17,8 +17,8 @@ class UpdatePurchaseRequest extends FormRequest
         return [
             'supplier_id' => 'required|integer|exists:suppliers,id',
             'reference' => 'required|string|max:255|unique:purchases,reference,' . $this->route('purchase')->id . ',id,setting_id,' . session('setting_id'),
-            'supplier_purchase_number' => 'sometimes|nullable|string|max:255',
-            'tax_ref_no' => 'sometimes|nullable|string|max:255',
+            'supplier_purchase_number' => 'sometimes|nullable|string|max:255|unique:purchases,supplier_purchase_number,' . $this->route('purchase')->id . ',id,setting_id,' . session('setting_id'),
+            'tax_ref_no' => 'sometimes|nullable|string|max:255|unique:purchases,tax_ref_no,' . $this->route('purchase')->id . ',id,setting_id,' . session('setting_id'),
             'date' => 'required|date',
             'due_date' => 'required|date|after_or_equal:date',
             'tax_id' => 'nullable|integer|exists:taxes,id',

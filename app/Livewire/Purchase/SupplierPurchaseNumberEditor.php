@@ -41,7 +41,7 @@ class SupplierPurchaseNumberEditor extends Component
         $this->authorizeEdit();
 
         $data = $this->validate([
-            'supplierPurchaseNumber' => 'nullable|string|max:255',
+            'supplierPurchaseNumber' => 'nullable|string|max:255|unique:purchases,supplier_purchase_number,' . $this->purchaseId . ',id,setting_id,' . session('setting_id'),
         ]);
 
         $purchase = $this->findPurchase();

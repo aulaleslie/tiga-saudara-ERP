@@ -41,7 +41,7 @@ class TaxRefNoEditor extends Component
         $this->authorizeEdit();
 
         $data = $this->validate([
-            'taxRefNo' => 'nullable|string|max:255',
+            'taxRefNo' => 'nullable|string|max:255|unique:purchases,tax_ref_no,' . $this->purchaseId . ',id,setting_id,' . session('setting_id'),
         ]);
 
         $purchase = $this->findPurchase();

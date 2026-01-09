@@ -170,8 +170,8 @@ class CreateForm extends Component
         try {
             $this->validate([
                 'supplier_id' => 'required|exists:suppliers,id',
-                'supplier_purchase_number' => 'nullable|string|max:255',
-                'tax_ref_no' => 'nullable|string|max:255',
+                'supplier_purchase_number' => 'nullable|string|max:255|unique:purchases,supplier_purchase_number,NULL,id,setting_id,' . session('setting_id'),
+                'tax_ref_no' => 'nullable|string|max:255|unique:purchases,tax_ref_no,NULL,id,setting_id,' . session('setting_id'),
                 'date' => 'required|date',
                 'due_date' => 'required|date|after_or_equal:date',
                 'payment_term' => 'required|exists:payment_terms,id',
@@ -179,6 +179,8 @@ class CreateForm extends Component
             ], [
                 'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
                 'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
+                'supplier_purchase_number.unique' => 'Nomor pembelian pemasok sudah digunakan.',
+                'tax_ref_no.unique' => 'Nomor Faktur Pajak sudah digunakan.',
                 'date.required' => 'Tanggal pembelian wajib diisi.',
                 'date.date' => 'Format tanggal tidak valid.',
                 'due_date.required' => 'Tanggal jatuh tempo wajib diisi.',
