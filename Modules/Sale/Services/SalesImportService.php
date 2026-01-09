@@ -150,6 +150,61 @@ class SalesImportService
     }
 
     /**
+     * Resolve the Setting (Tenant) where stock should be affected.
+     * Rules:
+     * 1. Markers (*, TP) always override, pointing to CV Tiga Nusa or CV Top IT.
+     * 2. No marker:
+     *    - Try to find 'Last Tenant' (other than CV Tiga Nusa) that purchased this product.
+     *    - If found, use that tenant.
+     *    - Else, use Source Tenant.
+     */
+    public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
+    {
+        $parsed = $this->parseProductName($productName);
+        $marker = $parsed['marker'];
+
+        // Rule 1: Markers are absolute
+        if ($marker === 'asterisk') {
+            // * -> CV TIGA NUSA COMPUTER
+            $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
+            if ($setting) return $setting;
+        }
+
+        if ($marker === 'tp') {
+            // TP -> CV TOP IT INTERNUSA
+            $setting = Setting::where('company_name', 'LIKE', '%CV TOP IT INTERNUSA%')->first();
+            if ($setting) return $setting;
+        }
+
+        // Rule 2: No marker (or marker tenant not found/fallback)
+        // Find CV Tiga Nusa ID to exclude it
+        $tigaNusa = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
+        $tigaNusaId = $tigaNusa ? $tigaNusa->id : 0;
+
+        // If product doesn't exist yet, we can't check history, so default to source
+        if (!$product) {
+            return $sourceSetting;
+        }
+
+        // Check history: Last Tenant other than CV Tiga Nusa that performed a purchase (Transaction type BUY)
+        $lastTransaction = Transaction::where('product_id', $product->id)
+            ->where('type', 'BUY')
+            ->where('setting_id', '!=', $tigaNusaId)
+            ->latest('id')
+            ->first();
+
+        if ($lastTransaction) {
+            $lastSetting = Setting::find($lastTransaction->setting_id);
+            if ($lastSetting) {
+                return $lastSetting;
+            }
+        }
+
+        // Fallback: Use Source Tenant
+        return $sourceSetting;
+    }
+
+    /**
      * Parse tax rate from CSV string (e.g., "10.0" or "10.0 %").
      */
     public function parseTaxRate(?string $taxRateStr): int
@@ -925,7 +980,8 @@ class SalesImportService
             }
 
             // Auto-dispatch: Create Dispatch and DispatchDetail, decrement stock
-            $this->dispatchSale($sale, $details, $location, $setting, $saleDate);
+            // Note: Location resolution is now done inside dispatchSale per product
+            $this->dispatchSale($sale, $details, $setting, $tag, $saleDate);
 
             // Update row statuses
             foreach ($details as $detail) {
@@ -972,7 +1028,10 @@ class SalesImportService
     /**
      * Create dispatch and decrement stock for the sale.
      */
-    protected function dispatchSale(Sale $sale, array $details, Location $location, Setting $setting, Carbon $saleDate): void
+    /**
+     * Create dispatch and decrement stock for the sale.
+     */
+    protected function dispatchSale(Sale $sale, array $details, Setting $setting, ?string $tag, Carbon $saleDate): void
     {
         // Create Dispatch record
         $dispatch = Dispatch::create([
@@ -984,6 +1043,25 @@ class SalesImportService
             $product = $detail['product'];
             $quantity = $detail['quantity'];
             $taxId = $detail['tax_id'];
+
+            // Resolve stock setting (Target Tenant for stock movement) PER PRODUCT
+            $stockSetting = $this->resolveStockSetting($tag, $product->product_name, $setting, $product);
+            
+            // Get location for the resolved STOCK setting
+            // Use cache if possible? We only cache by setting_id in locationsCache
+            $location = $this->locationsCache[$stockSetting->id] ?? null;
+            if (!$location) {
+                $location = Location::where('setting_id', $stockSetting->id)->first();
+                if (!$location) {
+                     // Fallback to source setting location
+                     $location = Location::where('setting_id', $setting->id)->first();
+                }
+                if (!$location) {
+                    throw new \Exception("No location found for setting: {$stockSetting->company_name}");
+                }
+                // Cache it
+                $this->locationsCache[$stockSetting->id] = $location;
+            }
 
             // Get or create ProductStock for this product/location (use cache)
             $locationCacheKey = "location_{$location->id}";
@@ -1037,13 +1115,13 @@ class SalesImportService
             // Create Transaction log with sale date
             Transaction::create([
                 'product_id' => $product->id,
-                'setting_id' => $setting->id,
+                'setting_id' => $stockSetting->id, // Log transaction against the Stock Owner
                 'quantity' => -$quantity,
                 'current_quantity' => $product->product_quantity,
                 'broken_quantity' => 0,
-                'location_id' => $location->id,
+                'location_id' => $location->id, // Resolved Location
                 'user_id' => auth()->id() ?? 1,
-                'reason' => 'Imported from Sale #' . $sale->reference,
+                'reason' => 'Imported from Sale #' . $sale->reference . ' (Source: ' . $setting->company_name . ')',
                 'type' => 'DISPATCH',
                 'previous_quantity' => $previousQuantity,
                 'after_quantity' => $product->product_quantity,

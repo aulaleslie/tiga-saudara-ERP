@@ -126,6 +126,87 @@ class PurchaseImportService
     }
 
     /**
+     * Resolve the Setting (Tenant) where stock should be affected.
+     * Rules:
+     * 1. Markers (*, TP) always override, pointing to CV Tiga Nusa or CV Top IT.
+     * 2. No marker:
+     *    - Try to find 'Last Tenant' (other than CV Tiga Nusa) that purchased this product.
+     *    - If found, use that tenant.
+     *    - Else, use Source Tenant.
+     */
+    public function resolveStockSetting(?string $tag, string $productName, Setting $sourceSetting, ?Product $product = null): Setting
+    {
+        $parsed = $this->parseProductName($productName);
+        $marker = $parsed['marker'];
+
+        // Rule 1: Markers are absolute
+        if ($marker === 'asterisk') {
+            // * -> CV TIGA NUSA COMPUTER
+            $setting = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
+            if ($setting) return $setting;
+        }
+
+        if ($marker === 'tp') {
+            // TP -> CV TOP IT INTERNUSA
+            $setting = Setting::where('company_name', 'LIKE', '%CV TOP IT INTERNUSA%')->first();
+            if ($setting) return $setting;
+        }
+
+        // Rule 2: No marker (or marker tenant not found/fallback)
+        // Find CV Tiga Nusa ID to exclude it
+        $tigaNusa = Setting::where('company_name', 'LIKE', '%CV TIGA NUSA COMPUTER%')->first();
+        $tigaNusaId = $tigaNusa ? $tigaNusa->id : 0;
+
+        // If product doesn't exist yet, we can't check history, so default to source
+        if (!$product) {
+            return $sourceSetting;
+        }
+
+        // Check history: Last Tenant other than CV Tiga Nusa that performed a purchase (Transaction type BUY)
+        /*
+         * Query logic:
+         * Find latest transaction for this product 
+         * where type = BUY 
+         * and setting_id != TigaNusaID
+         */
+        $lastTransaction = Transaction::where('product_id', $product->id)
+            ->where('type', 'BUY')
+            ->where('setting_id', '!=', $tigaNusaId)
+            ->latest('id')
+            ->first();
+
+        if ($lastTransaction) {
+            $lastSetting = Setting::find($lastTransaction->setting_id);
+            if ($lastSetting) {
+                return $lastSetting;
+            }
+        }
+
+        // Search in Purchase table if Transaction history is missing/incomplete (redundancy check)
+        // This might be slower but useful if Transactions are purged or not synced
+        /*
+        $lastPurchaseDetail = PurchaseDetail::where('product_id', $product->id)
+            ->whereHas('purchase', function($q) use ($tigaNusaId) {
+                $q->where('setting_id', '!=', $tigaNusaId);
+            })
+            ->latest('id')
+            ->first();
+            
+        if ($lastPurchaseDetail && $lastPurchaseDetail->purchase) {
+            $lastSetting = Setting::find($lastPurchaseDetail->purchase->setting_id);
+            if ($lastSetting) {
+                return $lastSetting;
+            }
+        }
+        */
+
+        // Fallback: Use Source Tenant
+        // If the source itself is CV Tiga Nusa and no other history exists, 
+        // it means it stays in CV Tiga Nusa (which is the Source).
+        return $sourceSetting;
+    }
+
+    /**
      * Parse tax rate from CSV string (e.g., "10.0" or "10.0 %").
      */
     public function parseTaxRate(?string $taxRateStr): int
@@ -540,11 +621,7 @@ class PurchaseImportService
                 $purchase->syncTags([trim($tag)]);
             }
 
-            // Get first location for this setting
-            $location = Location::where('setting_id', $setting->id)->first();
-            if (!$location) {
-                throw new \Exception("No location found for setting: {$setting->company_name}");
-            }
+
 
             // Create purchase details and update stock
             foreach ($details as $detail) {
@@ -567,7 +644,22 @@ class PurchaseImportService
                 $product = $detail['product'];
                 $quantity = $detail['quantity'];
 
-                // Get or create ProductStock for this product/location
+                // Resolve stock setting (Target Tenant for stock movement) PER PRODUCT
+                $stockSetting = $this->resolveStockSetting($tag, $product->product_name, $setting, $product);
+                
+                // Get location for the resolved STOCK setting
+                $location = Location::where('setting_id', $stockSetting->id)->first();
+                
+                if (!$location) {
+                     // Fallback to source setting location
+                     $location = Location::where('setting_id', $setting->id)->first();
+                }
+                
+                if (!$location) {
+                    throw new \Exception("No location found for setting: {$stockSetting->company_name}");
+                }
+
+                // Get or create ProductStock for this product/location (Target Location)
                 $productStock = ProductStock::firstOrCreate(
                     [
                         'product_id' => $product->id,
@@ -584,6 +676,7 @@ class PurchaseImportService
                 );
 
                 // Capture previous quantities (default to 0 for new products)
+                // Note: previousQuantity is global, previousQuantityAtLocation is specific to the TARGET location
                 $previousQuantity = $product->product_quantity ?? 0;
                 $previousQuantityAtLocation = $productStock->quantity ?? 0;
 
@@ -599,6 +692,9 @@ class PurchaseImportService
                 $product->increment('product_quantity', $quantity);
 
                 // Update ProductPrice table for this product/setting
+                // Important: Prices track per Setting. We should likely update price for the Source Setting (Purchase Owner) 
+                // AND potentially valuable to update for the Stock Owner too? 
+                // Requirement implies "keep item exactly in same document as source", so Prices belong to Source.
                 $productPrice = ProductPrice::firstOrCreate(
                     [
                         'product_id' => $product->id,
@@ -633,13 +729,13 @@ class PurchaseImportService
                 // Create Transaction log with purchase date
                 Transaction::create([
                     'product_id' => $product->id,
-                    'setting_id' => $setting->id,
+                    'setting_id' => $stockSetting->id, // Log transaction against the Stock Owner
                     'quantity' => $quantity,
                     'current_quantity' => $product->product_quantity,
                     'broken_quantity' => 0,
-                    'location_id' => $location->id,
+                    'location_id' => $location->id, // Resolved Location
                     'user_id' => auth()->id() ?? 1,
-                    'reason' => 'Imported from Purchase #' . $purchase->reference,
+                    'reason' => 'Imported from Purchase #' . $purchase->reference . ' (Source: ' . $setting->company_name . ')',
                     'type' => 'BUY',
                     'previous_quantity' => $previousQuantity,
                     'after_quantity' => $product->product_quantity,
