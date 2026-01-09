@@ -336,7 +336,7 @@ class SalesImportService
 
             $product = Product::create([
                 'product_name' => trim($cleanName),
-                'product_code' => 'IMP-' . strtoupper(substr(md5($cleanName), 0, 8)),
+                'product_code' => 'SKU-' . strtoupper(substr(md5($cleanName), 0, 8)),
                 'unit_id' => $unit->id,
                 'setting_id' => $settingId,
                 'product_cost' => 0,

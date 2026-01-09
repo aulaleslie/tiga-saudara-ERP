@@ -74,7 +74,7 @@ class ProductImportChunkStockTest extends TestCase
             'row_number' => 1,
             'raw_json' => [
                 'product_name' => 'Imported Product',
-                'product_code' => 'IMP-001',
+                'product_code' => 'SKU-001',
                 'base_unit_name' => 'PCS',
                 'stock_managed' => true,
                 'min_stock' => 0,
@@ -95,7 +95,7 @@ class ProductImportChunkStockTest extends TestCase
 
         (new ProcessProductImportChunk($batch->id, [$row->id]))->handle();
 
-        $product = Product::where('product_code', 'IMP-001')->firstOrFail();
+        $product = Product::where('product_code', 'SKU-001')->firstOrFail();
         $stock = ProductStock::where('product_id', $product->id)->firstOrFail();
         $transaction = Transaction::where('product_id', $product->id)->firstOrFail();
 
@@ -149,7 +149,7 @@ class ProductImportChunkStockTest extends TestCase
                 '=',
                 'p.id'
             )
-            ->where('p.product_code', 'IMP-001')
+            ->where('p.product_code', 'SKU-001')
             ->whereRaw('COALESCE(st.stock_qty, 0) > 0')
             ->select('p.product_code', 'st.stock_qty')
             ->get();
