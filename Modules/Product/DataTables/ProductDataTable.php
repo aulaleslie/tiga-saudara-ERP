@@ -24,6 +24,36 @@ class ProductDataTable extends DataTable
             ->addColumn('action', function ($data) {
                 return view('product::products.partials.actions', compact('data'));
             })
+            ->editColumn('product_code', function ($data) {
+                $link = route('products.show', $data->id);
+                $codeHtml = '<a href="' . $link . '" target="_blank" class="text-primary font-weight-bold" style="text-decoration: underline;">' . $data->product_code . '</a>';
+
+                // Resolve active setting ID
+                $user = auth()->user();
+                $settingId = session('setting_id')
+                    ?? optional($user?->settings()->select('settings.id')->first())->id
+                    ?? Setting::query()->min('id');
+
+                $settingStocks = $data->productStocks->filter(function ($stock) use ($settingId) {
+                    return $stock->location && $stock->location->setting_id == $settingId;
+                });
+
+                $totalQty = $settingStocks->sum('quantity');
+                $brokenQty = $settingStocks->sum('broken_quantity');
+                $goodQty = $totalQty - $brokenQty;
+
+                $format = function($val) use ($data) {
+                     return $this->formatQuantityValue($data, $val);
+                };
+
+                $stockHtml = '<div style="font-size: 0.8em; margin-top: 5px;">' .
+                             '<div>Total Stok: <span class="font-weight-bold">' . $format($totalQty) . '</span></div>' .
+                             '<div>Stok Baik: <span class="font-weight-bold text-success">' . $format($goodQty) . '</span></div>' .
+                             '<div>Stok Rusak: <span class="font-weight-bold text-danger">' . $format($brokenQty) . '</span></div>' .
+                             '</div>';
+
+                return $codeHtml . $stockHtml;
+            })
             ->addColumn('product_image', function ($data) {
                 $url = $data->getFirstMediaUrl('images', 'thumb');
                 return '<img src="' . $url . '" border="0" width="50" class="img-thumbnail" align="center"/>';
@@ -56,7 +86,7 @@ class ProductDataTable extends DataTable
             ->addColumn('brand', function ($data) {
                 return optional($data->brand)->name ?? 'N/A';
             })
-            ->rawColumns(['product_image']);
+            ->rawColumns(['product_image', 'product_code']);
     }
 
     /**
@@ -68,6 +98,11 @@ class ProductDataTable extends DataTable
             ? $data->product_quantity - $data->broken_quantity
             : $data->broken_quantity;
 
+        return $this->formatQuantityValue($data, $quantity);
+    }
+
+    protected function formatQuantityValue($data, $quantity): string
+    {
         $baseUnit = $data->baseUnit;
         $conversions = $data->conversions;
 
@@ -100,6 +135,7 @@ class ProductDataTable extends DataTable
                 'brand:id,name',
                 'baseUnit:id,short_name',
                 'conversions.unit:id,short_name',
+                'productStocks.location.setting:id,company_name'
             ])
             ->select([
                 'products.*',

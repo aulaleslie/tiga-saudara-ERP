@@ -258,4 +258,8 @@ class Product extends BaseModel implements HasMedia
         $row = $this->priceRow($settingId);
         return $row?->average_purchase_price;
     }
+    public function productStocks(): HasMany
+    {
+        return $this->hasMany(ProductStock::class);
+    }
 }
