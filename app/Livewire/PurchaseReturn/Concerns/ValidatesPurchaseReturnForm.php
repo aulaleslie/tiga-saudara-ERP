@@ -93,7 +93,8 @@ trait ValidatesPurchaseReturnForm
 
                 $existing = ProductSerialNumber::query()
                     ->whereIn('serial_number', $serialNumbers)
-                    ->where('is_broken', true)
+                    ->where('product_id', $productId)
+                    ->when($this->location_id, fn($q) => $q->where('location_id', $this->location_id))
                     ->pluck('serial_number')
                     ->unique()
                     ->values()
@@ -102,10 +103,10 @@ trait ValidatesPurchaseReturnForm
                 $missing = array_diff($serialNumbers, $existing);
                 $extra = array_diff($existing, $serialNumbers);
 
-                if (! empty($missing) || ! empty($extra)) {
+                if (! empty($missing)) {
                     $validator->errors()->add(
                         "rows.$index.serial_numbers",
-                        'Nomor seri tidak valid atau tidak rusak: ' . implode(', ', array_merge($missing, $extra))
+                        'Nomor seri tidak valid atau tidak ditemukan pada lokasi ini: ' . implode(', ', $missing)
                     );
                 }
             }

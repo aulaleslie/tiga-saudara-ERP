@@ -1,38 +1,84 @@
-<div class="position-relative">
-    <div class="input-group">
-        <input type="text"
-               class="form-control"
-               wire:model.live.debounce.500ms="query"
-               wire:focus="$set('isFocused', true)"
-               wire:blur="resetQueryAfterDelay"
-               wire:keydown.escape="resetQuery"
-               placeholder="Cari produk pengganti...">
-    </div>
+<div class="d-flex" 
+     x-data="{
+        open: @entangle('open'),
+        top: -9999,
+        left: -9999,
+        width: 0,
+        init() {
+            if (this.open) {
+                this.$nextTick(() => this.updatePosition());
+            }
+            this.$watch('open', value => {
+                if (value) {
+                    this.$nextTick(() => {
+                        this.updatePosition();
+                    });
+                }
+            });
+        },
+        updatePosition() {
+            let rect = this.$refs.trigger.getBoundingClientRect();
+            this.top = rect.bottom;
+            this.left = rect.left;
+            this.width = rect.width;
+        },
+        toggleDropdown() {
+             this.$wire.toggleDropdown();
+        }
+     }"
+     @scroll.window="open = false" 
+     @resize.window="open = false"
+     >
+    <div class="flex-grow-1 position-relative" wire:click.away="closeDropdown">
+        <button type="button"
+                x-ref="trigger"
+                class="form-control d-flex justify-content-between align-items-center text-start"
+                @click="toggleDropdown">
+            <span class="{{ $selectedLabel ? '' : 'text-muted' }} text-truncate me-2" title="{{ $selectedLabel ?? $placeholder }}">
+                {{ $selectedLabel ?? $placeholder }}
+            </span>
+            <i class="bi {{ $open ? 'bi-chevron-up' : 'bi-chevron-down' }} flex-shrink-0"></i>
+        </button>
 
-    @if($isFocused)
-        <div class="card position-absolute mt-1 w-100" style="z-index: 10;">
-            <div class="card-body p-0">
-                @if(count($search_results) > 0)
-                    <ul class="list-group list-group-flush">
-                        @foreach($search_results as $result)
-                            <li class="list-group-item list-group-item-action">
-                                <a href="#" wire:click.prevent="selectProduct({{ $result->id }})">
-                                    {{ $result->product_code }} | {{ $result->product_name }}
-                                </a>
-                            </li>
-                        @endforeach
-                        @if($query_count > $how_many)
-                            <li class="list-group-item text-center">
-                                <a href="#" class="btn btn-sm btn-outline-primary" wire:click.prevent="loadMore">
-                                    Muat lebih banyak
-                                </a>
-                            </li>
-                        @endif
-                    </ul>
-                @elseif($query)
-                    <div class="p-3 text-center text-muted">Produk tidak ditemukan.</div>
+        @if($open)
+            <div class="dropdown-menu shadow show p-2"
+                 x-init="updatePosition()"
+                 x-bind:style="`position: fixed; top: ${top}px; left: ${left}px; width: ${width}px; z-index: 1060; max-height: 300px; overflow-y: auto;`">
+                <input
+                    type="text"
+                    class="form-control form-control-sm mb-2"
+                    wire:model.live.debounce.300ms="search"
+                    placeholder="Cari produk pengganti..."
+                    autocomplete="off"
+                    autofocus
+                >
+
+                @if(count($options))
+                    @foreach($options as $option)
+                        <button
+                            type="button"
+                            class="dropdown-item text-truncate"
+                            wire:click="select('{{ $option['id'] }}')"
+                            wire:key="product-option-{{ $option['id'] }}"
+                            title="{{ $option['name'] }}"
+                        >
+                            {{ $option['name'] }}
+                        </button>
+                    @endforeach
+                    
+                    @if($query_count > count($options))
+                        <div class="text-center mt-2">
+                             <button type="button" class="btn btn-sm btn-link text-decoration-none" wire:click.prevent="loadMore">
+                                 Muat lebih banyak...
+                             </button>
+                        </div>
+                    @endif
+                @else
+                    <div class="dropdown-item disabled text-muted text-center">
+                        {{ $search ? 'Produk tidak ditemukan' : 'Ketik untuk mencari...' }}
+                    </div>
                 @endif
             </div>
-        </div>
-    @endif
+        @endif
+    </div>
 </div>

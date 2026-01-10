@@ -20,6 +20,13 @@ class PurchaseReturnsDataTable extends DataTable
     {
         return datatables()
             ->eloquent($query)
+            ->editColumn('reference', function ($data) {
+                $details = $data->purchaseReturnDetails->map(function($detail) {
+                    return $detail->product_name . ': ' . $detail->quantity;
+                })->implode("\n");
+
+                return '<a href="' . route('purchase-returns.show', $data->id) . '" target="_blank" title="' . $details . '">' . $data->reference . '</a>';
+            })
             ->addColumn('total_amount', function ($data) {
                 return format_currency($data->total_amount);
             })
@@ -40,13 +47,14 @@ class PurchaseReturnsDataTable extends DataTable
             })
             ->addColumn('action', function ($data) {
                 return view('purchasesreturn::partials.actions', compact('data'));
-            });
+            })
+            ->rawColumns(['reference', 'status', 'settlement_status', 'action']);
     }
 
     public function query(PurchaseReturn $model): Builder
     {
         return $model->newQuery()
-            ->with(['supplier', 'location'])
+            ->with(['supplier', 'location', 'purchaseReturnDetails'])
             ->when(session('setting_id'), function (Builder $query, $settingId) {
                 $query->where('setting_id', $settingId);
             });
@@ -78,6 +86,7 @@ class PurchaseReturnsDataTable extends DataTable
     {
         return [
             Column::make('reference')
+                ->title('Nomor Retur')
                 ->className('text-center align-middle'),
 
             Column::make('supplier_name')
@@ -88,12 +97,15 @@ class PurchaseReturnsDataTable extends DataTable
                 ->className('text-center align-middle'),
 
             Column::computed('total_amount')
+                ->title('Total')
                 ->className('text-center align-middle'),
 
             Column::computed('paid_amount')
+                ->title('Terbayar')
                 ->className('text-center align-middle'),
 
             Column::computed('due_amount')
+                ->title('Sisa Tagihan')
                 ->className('text-center align-middle'),
 
             Column::computed('settlement_status')
@@ -101,6 +113,7 @@ class PurchaseReturnsDataTable extends DataTable
                 ->className('text-center align-middle'),
 
             Column::computed('action')
+                ->title('Aksi')
                 ->exportable(false)
                 ->printable(false)
                 ->className('text-center align-middle'),

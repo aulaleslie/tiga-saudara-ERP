@@ -11,67 +11,90 @@ use Modules\Product\Entities\Product;
 class ReplacementProductSearch extends Component
 {
     public $index;
-    public $query = '';
-    public $search_results = [];
-    public $isFocused = false;
-    public $query_count = 0;
-    public $how_many = 10;
+    public string $placeholder = 'Pilih produk pengganti...';
+    public string $search = '';
+    public bool $open = false;
+    public int $how_many = 10;
+    public int $query_count = 0;
+
+    public $selected = null;
+    public ?string $selectedLabel = null;
+
+    public array $options = []; // Renamed from search_results for consistency with view pattern
 
     public function mount($index): void
     {
         $this->index = $index;
     }
 
-    public function updatedQuery(): void
+    public function updatedSearch(): void
     {
-        if ($this->isFocused) {
+        $this->how_many = 10;
+        $this->searchProducts();
+    }
+
+    public function toggleDropdown(): void
+    {
+        $this->open = !$this->open;
+        if ($this->open) {
+            $this->search = '';
             $this->searchProducts();
-        } else {
-            $this->search_results = [];
         }
+    }
+
+    public function closeDropdown(): void
+    {
+        $this->open = false;
     }
 
     public function searchProducts(): void
     {
-        if (! $this->query) {
-            $this->search_results = [];
-            $this->query_count = 0;
-            return;
-        }
-
         $qb = Product::query()
             ->where(function ($query) {
-                $query->where('product_name', 'like', '%' . $this->query . '%')
-                    ->orWhere('product_code', 'like', '%' . $this->query . '%');
+                $query->where('product_name', 'like', '%' . $this->search . '%')
+                    ->orWhere('product_code', 'like', '%' . $this->search . '%');
             })
             ->orderBy('product_name');
 
         $this->query_count = $qb->count();
-        $this->search_results = $qb->limit($this->how_many)->get();
+        $this->options = $qb->limit($this->how_many)
+            ->get()
+            ->map(fn($product) => [
+                'id' => $product->id,
+                'name' => "$product->product_code | $product->product_name"
+            ])
+            ->all();
     }
 
-    public function selectProduct($productId): void
+    public function select($productId): void
     {
         $product = Product::find($productId);
         if (! $product) {
             return;
         }
 
+        $this->selected = $productId;
+        $this->selectedLabel = "$product->product_code | $product->product_name";
+
         $payload = [
             'index' => $this->index,
+            'quantity' => 1,
+            'unit_value' => (float) ($product->lastPurchasePrice(session('setting_id')) ?? 0),
+            'sub_total' => (float) ($product->lastPurchasePrice(session('setting_id')) ?? 0),
+            'serial_number' => '',
             'product' => [
                 'id' => $product->id,
                 'product_name' => $product->product_name,
                 'product_code' => $product->product_code,
                 'last_purchase_price' => (float) ($product->lastPurchasePrice(session('setting_id')) ?? 0),
+                'serial_number_required' => (bool) $product->serial_number_required,
             ],
         ];
 
-        $this->query = $product->product_code . ' | ' . $product->product_name;
-        $this->search_results = [$product];
         $this->dispatch('replacementProductSelected', $payload);
-        $this->isFocused = false;
-        $this->query_count = 0;
+        $this->open = false;
+        $this->search = '';
+        $this->options = [];
     }
 
     public function loadMore(): void
@@ -80,16 +103,10 @@ class ReplacementProductSearch extends Component
         $this->searchProducts();
     }
 
-    public function resetQuery(): void
+    public function resetSearch(): void
     {
-        $this->search_results = [];
+        $this->options = [];
         $this->query_count = 0;
-    }
-
-    public function resetQueryAfterDelay(): void
-    {
-        usleep(150 * 1000);
-        $this->isFocused = false;
     }
 
     public function render(): Factory|Application|View

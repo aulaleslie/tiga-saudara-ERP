@@ -19,6 +19,7 @@ use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnGood;
 use Modules\PurchasesReturn\Entities\PurchaseReturnPayment;
 use Modules\PurchasesReturn\Entities\SupplierCredit;
+use Modules\Product\Entities\ProductSerialNumber;
 
 class PurchaseReturnSettlementForm extends Component
 {
@@ -72,6 +73,8 @@ class PurchaseReturnSettlementForm extends Component
                     'quantity' => (int) $good->quantity,
                     'unit_value' => (float) $good->unit_value,
                     'sub_total' => (float) $good->sub_total,
+                    'serial_number' => $good->serial_number ?? '',
+                    'serial_number_required' => false,
                 ];
             })->toArray();
         }
@@ -90,6 +93,8 @@ class PurchaseReturnSettlementForm extends Component
             'quantity' => 1,
             'unit_value' => 0.0,
             'sub_total' => 0.0,
+            'serial_number' => '',
+            'serial_number_required' => false,
         ];
     }
 
@@ -136,6 +141,8 @@ class PurchaseReturnSettlementForm extends Component
         $this->replacement_goods[$index]['product_name'] = $product['product_name'];
         $this->replacement_goods[$index]['product_code'] = $product['product_code'] ?? '';
         $this->replacement_goods[$index]['unit_value'] = (float) ($product['last_purchase_price'] ?? 0);
+        $this->replacement_goods[$index]['serial_number_required'] = $product['serial_number_required'] ?? false;
+        $this->replacement_goods[$index]['serial_number'] = ''; // Reset on change
         $this->recalculateReplacement($index);
     }
 
@@ -200,6 +207,10 @@ class PurchaseReturnSettlementForm extends Component
                             if ((int) ($replacement['quantity'] ?? 0) <= 0) {
                                 $validator->errors()->add("replacement_goods.$idx.quantity", 'Jumlah pengganti harus lebih dari 0.');
                             }
+
+                            if (! empty($replacement['serial_number_required']) && empty($replacement['serial_number'])) {
+                                $validator->errors()->add("replacement_goods.$idx.serial_number", 'Nomor seri wajib diisi untuk produk ini.');
+                            }
                         }
                     }
                 }
@@ -252,7 +263,23 @@ class PurchaseReturnSettlementForm extends Component
                             'quantity' => $quantity,
                             'unit_value' => $unitValue,
                             'sub_total' => round($quantity * $unitValue, 2),
+                            'serial_number' => $replacement['serial_number'] ?? null,
                         ]);
+
+                        if (! empty($replacement['serial_number'])) {
+                            ProductSerialNumber::updateOrCreate(
+                                [
+                                    'product_id' => $replacement['product_id'],
+                                    'serial_number' => $replacement['serial_number'],
+                                ],
+                                [
+                                    'location_id' => $purchaseReturn->location_id,
+                                    'is_broken' => false,
+                                    'dispatch_detail_id' => null, // Available
+                                    'received_note_detail_id' => null, // We might want to link to return good id if we had a column, but we don't.
+                                ]
+                            );
+                        }
                     }
                 }
 

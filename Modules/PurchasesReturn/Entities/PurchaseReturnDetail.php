@@ -34,4 +34,17 @@ class PurchaseReturnDetail extends BaseModel
     {
         return $this->belongsTo(Purchase::class, 'po_id', 'id');
     }
+
+    /**
+     * Get the serial numbers associated with the return detail.
+     */
+    public function getSerialNumbers()
+    {
+        if (empty($this->serial_number_ids)) {
+            return collect();
+        }
+
+        return \Modules\Product\Entities\ProductSerialNumber::whereIn('id', $this->serial_number_ids)
+            ->pluck('serial_number');
+    }
 }

@@ -54,6 +54,17 @@ class PurchaseReturnTable extends Component
         
         foreach (array_keys($this->rows) as $index) {
             $this->populateStockForRow($index);
+            
+            // Clear serial numbers on location change as they are location-specific
+            if (!empty($this->rows[$index]['serial_numbers'])) {
+                $this->rows[$index]['serial_numbers'] = [];
+            }
+            
+            // If serials are required, reset quantity to match serial count (0)
+            if (!empty($this->rows[$index]['serial_number_required'])) {
+                 $this->rows[$index]['quantity'] = 0;
+                 $this->computeRowTotal($this->rows[$index]);
+            }
         }
 
         $this->dispatch('updateRows', $this->rows);
@@ -91,6 +102,10 @@ class PurchaseReturnTable extends Component
 
     protected function computeRowTotal(&$row): void
     {
+        if (!empty($row['serial_number_required'])) {
+            $row['quantity'] = count($row['serial_numbers'] ?? []);
+        }
+
         $price = (float) ($row['purchase_price'] ?? 0);
         $qty = (int) ($row['quantity'] ?? 0);
         $row['total'] = round($price * $qty, 2);
@@ -200,13 +215,20 @@ class PurchaseReturnTable extends Component
             return;
         }
 
-        if (!in_array($serialNumber, $this->rows[$index]['serial_numbers'])) {
+        // Check for uniqueness using ID
+        $exists = collect($this->rows[$index]['serial_numbers'])->contains('id', $serialNumber['id']);
+
+
+
+        if (!$exists) {
             $this->rows[$index]['serial_numbers'][] = $serialNumber;
         }
 
         // ✅ Sync quantity
         $this->rows[$index]['quantity'] = count($this->rows[$index]['serial_numbers']);
         $this->computeRowTotal($this->rows[$index]);
+
+
 
         $this->dispatch('updateRows', $this->rows);
     }

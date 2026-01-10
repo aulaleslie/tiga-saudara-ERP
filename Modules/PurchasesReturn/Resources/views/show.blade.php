@@ -135,6 +135,13 @@
                                             <td>
                                                 <div class="fw-semibold">{{ $item->product_name }}</div>
                                                 <small class="badge bg-success">{{ $item->product_code }}</small>
+                                                @if($item->getSerialNumbers()->isNotEmpty())
+                                                    <div class="mt-1">
+                                                        @foreach($item->getSerialNumbers() as $serial)
+                                                            <span class="badge bg-secondary">{{ $serial }}</span>
+                                                        @endforeach
+                                                    </div>
+                                                @endif
                                             </td>
                                             <td class="text-center">{{ format_currency($item->unit_price) }}</td>
                                             <td class="text-center">{{ $item->quantity }}</td>

@@ -16,7 +16,7 @@
             @if($approvalStatus === 'pending')
                 <form method="POST" action="{{ route('purchase-returns.approve', $data->id) }}" class="m-0">
                     @csrf
-                    <button type="submit" class="dropdown-item d-flex align-items-center border-0 bg-transparent px-0" onclick="return confirm('Setujui retur pembelian ini?')">
+                    <button type="submit" class="dropdown-item d-flex align-items-center" onclick="return confirm('Setujui retur pembelian ini?')">
                         <i class="bi bi-check2-circle text-success me-2"></i> <span>Setujui</span>
                     </button>
                 </form>

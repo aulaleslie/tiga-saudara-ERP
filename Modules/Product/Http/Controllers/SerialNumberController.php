@@ -158,4 +158,48 @@ class SerialNumberController extends Controller
             'serial_number' => $serialNumber->fresh(),
         ]);
     }
+
+    /**
+     * Validate a serial number for purchase return.
+     * Checks if the serial number exists at the specified location and is available (not dispatched).
+     */
+    public function validatePurchaseReturnSerial(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'product_id' => 'required|integer|exists:products,id',
+            'serial_number' => 'required|string|max:255',
+            'location_id' => 'required|integer|exists:locations,id',
+        ]);
+
+        $search = ProductSerialNumber::where('product_id', $validated['product_id'])
+            ->where('serial_number', $validated['serial_number']);
+            
+        $serial = $search->first();
+
+        if (!$serial) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number tidak ditemukan.',
+            ], 200);
+        }
+
+        if ((int) $serial->location_id !== (int) $validated['location_id']) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number berada di lokasi yang berbeda.',
+            ], 200);
+        }
+
+        if ($serial->dispatch_detail_id) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sudah terjual/keluar.',
+            ], 200);
+        }
+        
+        return response()->json([
+            'valid' => true,
+            'serial_number_object' => $serial
+        ], 200);
+    }
 }

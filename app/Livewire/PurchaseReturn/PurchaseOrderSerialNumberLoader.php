@@ -10,23 +10,32 @@ use Livewire\Component;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Purchase\Entities\PurchaseDetail;
 
+use Livewire\Attributes\Reactive;
+
 class PurchaseOrderSerialNumberLoader extends Component
 {
-    public $query = '';  // User input for search
+    public $query = ''; // Input for serial number
+    
+    #[Reactive]
     public $product_id = '';
+    
+    #[Reactive]
     public $purchase_id = '';
-    public $search_results = []; // Product search results
+    
+    #[Reactive]
     public $index; // Row index in table
-    public $isFocused = false;
-    public $query_count = 0;
-    public $how_many = 10; // Limit for search results
+    
+    #[Reactive]
     public $location_id;
+    
+    #[Reactive]
     public $is_broken = false;
+    
+    #[Reactive]
     public $is_transfer = false;
+    public $error_message = '';
 
-    protected $listeners = [
-        'purchaseOrderSelected' => 'updatePurchaseOrderRow',
-    ];
+    protected $listeners = [];
 
     public function mount($index, $product_id, $purchase_id = null, $location_id = null, $is_broken = null, $is_transfer = null): void
     {
@@ -35,113 +44,55 @@ class PurchaseOrderSerialNumberLoader extends Component
         $this->purchase_id = $purchase_id;
         $this->location_id = $location_id;
         $this->is_broken = $is_broken;
+    }
 
-        Log::info("serial number row", [
-            'index' => $this->index,
-            'product_id' => $this->product_id,
-            'purchase_id' => $this->purchase_id,
-            'location_id' => $this->location_id,
-            'is_broken' => $this->is_broken,
-            'is_transfer' => $this->is_transfer,
+
+
+    public function addSerial(): void
+    {
+        $this->error_message = '';
+        // Allow leading/trailing space removal but handle input carefully
+        $serial_number_input = trim($this->query);
+
+        if (empty($serial_number_input)) {
+            return;
+        }
+
+        if (!$this->location_id) {
+            $this->error_message = 'Pilih lokasi terlebih dahulu.';
+            return;
+        }
+
+        // Validate serial number
+        $search = ProductSerialNumber::where('product_id', $this->product_id)
+            ->where('serial_number', $serial_number_input);
+            
+        $serial = $search->first();
+
+        if (!$serial) {
+            $this->error_message = 'Serial number tidak ditemukan.';
+            return;
+        }
+
+        if ((int) $serial->location_id !== (int) $this->location_id) {
+            $this->error_message = 'Serial number berada di lokasi yang berbeda.';
+            return;
+        }
+
+        if ($serial->dispatch_detail_id) {
+            $this->error_message = 'Serial number sudah terjual/keluar.';
+            return;
+        }
+        
+        // Dispatch event to update table row
+        $this->dispatch('serialNumberSelected', $this->index, [
+            'id' => $serial->id,
+            'serial_number' => $serial->serial_number,
         ]);
-    }
-
-    public function updatedQuery(): void
-    {
-        if ($this->isFocused) {
-            $this->searchSerialNumbers();
-        } else {
-            $this->search_results = [];
-        }
-    }
-
-    public function updatePurchaseOrderRow($index, $purchase): void
-    {
-        $this->purchase_id = $purchase['id'];
-    }
-
-    public function searchSerialNumbers(): void
-    {
-        if ($this->query && $this->product_id) {
-            $serial_number_query = ProductSerialNumber::query();
-
-            // If is_transfer is true, location_id must exist,
-            // Only show serial numbers with dispatch_detail_id IS NULL and correct location
-            if ($this->is_transfer) {
-                if (!$this->location_id) {
-                    // If location is not set, no result
-                    $this->search_results = [];
-                    $this->query_count = 0;
-                    return;
-                }
-                $serial_number_query->where('location_id', $this->location_id)
-                    ->whereNull('dispatch_detail_id')
-                    ->where('product_id', $this->product_id)
-                    ->where('serial_number', 'like', '%' . $this->query . '%');
-                // Optionally, add more filters if needed for transfer
-            } else {
-                // Standard logic for purchase return, not transfer
-                if ($this->location_id) {
-                    $serial_number_query->where('location_id', $this->location_id);
-                }
-
-                if ($this->is_broken) {
-                    $serial_number_query->where('is_broken', true);
-                }
-
-                // Filter for specific purchase_id (exclude broken products)
-                if ($this->purchase_id) {
-                    $serial_number_query->whereIn('received_note_detail_id', function ($query) {
-                        $query->select('rnd.id')
-                            ->from('received_note_details as rnd')
-                            ->join('purchase_details as pd', 'rnd.po_detail_id', '=', 'pd.id')
-                            ->where('pd.purchase_id', $this->purchase_id);
-                    });
-                }
-
-                $serial_number_query
-                    ->where('product_id', $this->product_id)
-                    ->where('serial_number', 'like', '%' . $this->query . '%')
-                    ->whereNull('dispatch_detail_id');
-            }
-
-            $this->query_count = $serial_number_query->count();
-            $this->search_results = $serial_number_query->limit($this->how_many)->get();
-        }
-    }
-
-    public function resetQueryAfterDelay(): void
-    {
-        sleep(1); // Small delay before closing
-        $this->isFocused = false;
-    }
-
-    public function selectSerialNumber($serial_number_id): void
-    {
-        $serial_number = ProductSerialNumber::find($serial_number_id);
-        if ($serial_number) {
-            $this->search_results = array($serial_number);
-            // Set input to show full serial number name and code
-            $this->query = "$serial_number->serial_number";
-
-            // Dispatch event to update table row
-            $this->dispatch('serialNumberSelected', $this->index, $serial_number);
-            $this->isFocused = false;
-            $this->query_count = 0;
-            $this->query = '';
-            $this->search_results = [];
-        }
-    }
-
-    public function loadMore(): void
-    {
-        $this->how_many += 10; // Load more results
-        $this->searchSerialNumbers();
-    }
-
-    public function resetQuery(): void
-    {
-        $this->search_results = [];
+        
+        // Clear input
+        $this->reset('query');
+        $this->dispatch('clear-input', ['index' => $this->index]);
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
@@ -149,3 +100,4 @@ class PurchaseOrderSerialNumberLoader extends Component
         return view('livewire.purchase-return.purchase-order-serial-number-loader');
     }
 }
+

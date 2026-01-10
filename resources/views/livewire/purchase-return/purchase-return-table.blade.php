@@ -42,7 +42,7 @@
                 </thead>
                 <tbody>
                     @forelse ($rows as $index => $row)
-                        <tr>
+                        <tr wire:key="row-{{ $index }}">
                             <td>
                                 <livewire:purchase-return.product-search-dropdown
                                     :index="$index"
@@ -65,11 +65,9 @@
                             </td>
                             <td class="text-center">
                                 @if (!empty($row['serial_number_required']))
-                                    <input type="number"
-                                           class="form-control text-center bg-light"
-                                           style="min-width: 60px;"
-                                           wire:model.defer="rows.{{ $index }}.quantity"
-                                           readonly>
+                                    <div class="form-control text-center bg-light" style="min-width: 60px;">
+                                        {{ $row['quantity'] ?? 0 }}
+                                    </div>
                                 @else
                                     <input type="number"
                                            class="form-control text-center"
@@ -126,6 +124,7 @@
                                         <livewire:purchase-return.purchase-order-serial-number-loader
                                             :index="$index"
                                             :product_id="$row['product_id']"
+                                            :purchase_id="$row['purchase_order_id'] ?? null"
                                             :location_id="$locationId"
                                             :is_broken="true"
                                             wire:key="serial-number-{{ $index }}" />

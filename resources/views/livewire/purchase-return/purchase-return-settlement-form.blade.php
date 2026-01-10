@@ -113,30 +113,42 @@
                             <tbody>
                                 @forelse($replacement_goods as $index => $replacement)
                                     <tr>
-                                        <td>
+                                        <td class="align-top">
                                             @if($isReadOnly)
                                                 <div class="fw-semibold">{{ $replacement['product_name'] }}</div>
-                                                <small class="text-muted">{{ $replacement['product_code'] }}</small>
+                                                <div class="small text-muted">{{ $replacement['product_code'] }}</div>
+                                                @if(!empty($replacement['serial_number']))
+                                                    <div class="small text-primary mt-1">SN: {{ $replacement['serial_number'] }}</div>
+                                                @endif
                                             @else
                                                 <livewire:purchase-return.replacement-product-search :index="$index" wire:key="replacement-{{ $index }}" />
                                                 @error("replacement_goods.$index.product_id")
                                                     <span class="invalid-feedback d-block">{{ $message }}</span>
                                                 @enderror
+
+                                                @if(!empty($replacement['serial_number_required']))
+                                                    <div class="mt-2">
+                                                        <input type="text" class="form-control form-control-sm" placeholder="Masukkan Nomor Seri" wire:model.defer="replacement_goods.{{ $index }}.serial_number">
+                                                        @error("replacement_goods.$index.serial_number")
+                                                            <span class="invalid-feedback d-block">{{ $message }}</span>
+                                                        @enderror
+                                                    </div>
+                                                @endif
                                             @endif
                                         </td>
-                                        <td class="text-center">
+                                        <td class="text-center align-top">
                                             <input type="number" min="0" class="form-control text-center" wire:model.lazy="replacement_goods.{{ $index }}.quantity" wire:change="recalculateReplacement({{ $index }})" @disabled($isReadOnly)>
                                             @error("replacement_goods.$index.quantity")
                                                 <span class="invalid-feedback d-block">{{ $message }}</span>
                                             @enderror
                                         </td>
-                                        <td>
+                                        <td class="align-top">
                                             <input type="number" step="0.01" min="0" class="form-control text-end" wire:model.lazy="replacement_goods.{{ $index }}.unit_value" wire:change="recalculateReplacement({{ $index }})" @disabled($isReadOnly)>
                                         </td>
-                                        <td class="text-end align-middle">
+                                        <td class="text-end align-top">
                                             <span class="fw-semibold">Rp {{ number_format($replacement['sub_total'] ?? 0, 2, ',', '.') }}</span>
                                         </td>
-                                        <td class="text-center align-middle">
+                                        <td class="text-center align-top">
                                             <button type="button" class="btn btn-outline-danger btn-sm" wire:click="removeReplacementGood({{ $index }})" @disabled($isReadOnly)>
                                                 <i class="bi bi-trash"></i>
                                             </button>
@@ -206,6 +218,14 @@
                                         <div class="fw-semibold">{{ $detail->product_name }}</div>
                                         @if($detail->product_code)
                                             <span class="badge bg-light text-secondary border">{{ $detail->product_code }}</span>
+                                        @endif
+                                        @if(!empty($detail->serial_number_ids))
+                                            <div class="small text-muted mt-1">
+                                                SN:
+                                                @foreach($detail->getSerialNumbers() as $sn)
+                                                    <span class="badge bg-secondary">{{ $sn }}</span>
+                                                @endforeach
+                                            </div>
                                         @endif
                                     </td>
                                     <td class="text-center">
