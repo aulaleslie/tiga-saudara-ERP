@@ -6,12 +6,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 
 class SerialNumberController extends Controller
 {
     /**
      * Validate a serial number against the database.
-     * Checks if the serial number already exists for the given product.
+     * Checks if the serial number already exists (committed) or is pending in a receiving.
      */
     public function validateSerial(Request $request): JsonResponse
     {
@@ -20,14 +22,36 @@ class SerialNumberController extends Controller
             'serial_number' => 'required|string|max:255',
         ]);
 
-        $exists = ProductSerialNumber::where('product_id', $validated['product_id'])
+        // Check if serial number already exists in committed product_serial_numbers
+        $existsCommitted = ProductSerialNumber::where('product_id', $validated['product_id'])
             ->where('serial_number', $validated['serial_number'])
             ->exists();
 
-        if ($exists) {
+        if ($existsCommitted) {
             return response()->json([
                 'valid' => false,
                 'message' => 'Serial number sudah ada untuk produk ini.',
+            ], 200);
+        }
+
+        // Check if serial number is pending in a PENDING receiving
+        $existsPending = ReceivedNoteDetail::whereHas('receivedNote', function ($q) {
+            $q->where('status', ReceivedNote::STATUS_PENDING);
+        })
+            ->whereHas('purchaseDetail', function ($q) use ($validated) {
+                $q->where('product_id', $validated['product_id']);
+            })
+            ->whereNotNull('pending_serial_numbers')
+            ->get()
+            ->contains(function ($detail) use ($validated) {
+                $pendingSerials = $detail->pending_serial_numbers ?? [];
+                return in_array($validated['serial_number'], $pendingSerials);
+            });
+
+        if ($existsPending) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sedang dalam proses penerimaan yang menunggu persetujuan.',
             ], 200);
         }
 

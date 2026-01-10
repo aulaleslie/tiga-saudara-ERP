@@ -500,13 +500,34 @@ class PurchaseController extends Controller
             ->filter() // Remove null or empty values
             ->unique(); // Avoid duplicate checks within the input itself
 
-        // Find duplicate serial numbers in the database
+        // Find duplicate serial numbers in committed product_serial_numbers
         $existingSerialNumbers = ProductSerialNumber::whereIn('serial_number', $inputtedSerialNumbers)->pluck('serial_number')->toArray();
 
+        // Also check for serial numbers pending in PENDING receivings
+        $pendingSerialNumbers = [];
+        if ($inputtedSerialNumbers->isNotEmpty()) {
+            $pendingDetails = ReceivedNoteDetail::whereHas('receivedNote', function ($q) {
+                $q->where('status', ReceivedNote::STATUS_PENDING);
+            })
+                ->whereNotNull('pending_serial_numbers')
+                ->get();
+            
+            foreach ($pendingDetails as $detail) {
+                $pendingSerials = $detail->pending_serial_numbers ?? [];
+                foreach ($pendingSerials as $serial) {
+                    if ($inputtedSerialNumbers->contains($serial)) {
+                        $pendingSerialNumbers[] = $serial;
+                    }
+                }
+            }
+        }
+
+        $allDuplicates = array_unique(array_merge($existingSerialNumbers, $pendingSerialNumbers));
+
         // If any duplicate serial numbers exist, return a validation error
-        if (!empty($existingSerialNumbers)) {
+        if (!empty($allDuplicates)) {
             return redirect()->back()->withErrors([
-                'serial_numbers' => 'Serial Number berikut sudah ada: ' . implode(', ', $existingSerialNumbers),
+                'serial_numbers' => 'Serial Number berikut sudah ada atau sedang dalam proses penerimaan: ' . implode(', ', $allDuplicates),
             ])->withInput();
         }
 
@@ -527,25 +548,21 @@ class PurchaseController extends Controller
                 $receivedQuantity = $data['received'][$detail->id] ?? 0;
 
                 if ($receivedQuantity > 0) {
-                    // Create ReceivedNoteDetail
-                    $receivedNoteDetail = ReceivedNoteDetail::create([
+                    // Collect pending serial numbers for this detail
+                    $pendingSerials = null;
+                    if ($detail->product->serial_number_required && isset($data['serial_numbers'][$detail->id])) {
+                        $pendingSerials = array_values(array_filter($data['serial_numbers'][$detail->id]));
+                    }
+
+                    // Create ReceivedNoteDetail with pending serial numbers (not committed yet)
+                    ReceivedNoteDetail::create([
                         'received_note_id' => $receivedNote->id,
                         'quantity_received' => $receivedQuantity,
                         'po_detail_id' => $detail->id,
+                        'pending_serial_numbers' => $pendingSerials,
                     ]);
 
-                    // If serial numbers are required, save them
-                    if ($detail->product->serial_number_required && isset($data['serial_numbers'][$detail->id])) {
-                        foreach ($data['serial_numbers'][$detail->id] as $serialNumber) {
-                            ProductSerialNumber::create([
-                                'product_id' => $detail->product_id,
-                                'location_id' => $data['location_id'],
-                                'serial_number' => $serialNumber,
-                                'tax_id' => $detail->tax_id,
-                                'received_note_detail_id' => $receivedNoteDetail->id,
-                            ]);
-                        }
-                    }
+                    // Serial numbers will be committed to product_serial_numbers table on approval
                 }
             }
 
@@ -691,6 +708,21 @@ class PurchaseController extends Controller
                         'broken_quantity_non_tax' => 0,
                         'broken_quantity_tax' => 0,
                     ]);
+
+                    // Commit pending serial numbers to product_serial_numbers table
+                    if (!empty($detail->pending_serial_numbers) && is_array($detail->pending_serial_numbers)) {
+                        foreach ($detail->pending_serial_numbers as $serialNumber) {
+                            ProductSerialNumber::create([
+                                'product_id' => $purchaseDetail->product_id,
+                                'location_id' => $receivedNote->location_id,
+                                'serial_number' => $serialNumber,
+                                'tax_id' => $purchaseDetail->tax_id,
+                                'received_note_detail_id' => $detail->id,
+                            ]);
+                        }
+                        // Clear pending serial numbers after commit
+                        $detail->update(['pending_serial_numbers' => null]);
+                    }
                 }
             }
 
