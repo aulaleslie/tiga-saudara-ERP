@@ -615,12 +615,70 @@ class PurchaseController extends Controller
     /**
      * Approve a receiving and increment stock.
      */
-    public function approveReceiving(ReceivedNote $receivedNote): RedirectResponse
+    public function approveReceiving(ReceivedNote $receivedNote): RedirectResponse|\Illuminate\Http\JsonResponse
     {
         abort_if(Gate::denies('purchaseReceivings.approval'), 403);
 
         if (!$receivedNote->isPending()) {
+            if (request()->ajax() || request()->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'already_processed',
+                    'message' => 'Penerimaan ini sudah diproses sebelumnya.',
+                ], 422);
+            }
             toast('Penerimaan ini sudah diproses sebelumnya.', 'error');
+            return redirect()->back();
+        }
+
+        // Validate for over-receiving before approval
+        $purchase = $receivedNote->purchase;
+        $receivedNote->load('receivedNoteDetails.purchaseDetail');
+        
+        // Get already approved quantities for this purchase
+        $approvedQuantities = ReceivedNoteDetail::whereHas('receivedNote', function ($q) use ($purchase) {
+            $q->where('po_id', $purchase->id)->where('status', ReceivedNote::STATUS_APPROVED);
+        })->selectRaw('po_detail_id, SUM(quantity_received) as total_received')
+          ->groupBy('po_detail_id')
+          ->pluck('total_received', 'po_detail_id');
+
+        $overReceivingErrors = [];
+        
+        foreach ($receivedNote->receivedNoteDetails as $detail) {
+            $purchaseDetail = $detail->purchaseDetail;
+            if (!$purchaseDetail) {
+                continue;
+            }
+            
+            $orderedQuantity = $purchaseDetail->quantity;
+            $alreadyReceived = $approvedQuantities[$purchaseDetail->id] ?? 0;
+            $pendingQuantity = $detail->quantity_received;
+            $totalAfterApproval = $alreadyReceived + $pendingQuantity;
+            
+            if ($totalAfterApproval > $orderedQuantity) {
+                $overReceivingErrors[] = [
+                    'product_name' => $purchaseDetail->product_name,
+                    'product_code' => $purchaseDetail->product_code,
+                    'ordered_quantity' => $orderedQuantity,
+                    'already_received' => $alreadyReceived,
+                    'pending_quantity' => $pendingQuantity,
+                    'excess' => $totalAfterApproval - $orderedQuantity,
+                ];
+            }
+        }
+        
+        if (!empty($overReceivingErrors)) {
+            if (request()->ajax() || request()->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'over_receiving',
+                    'message' => 'Jumlah penerimaan melebihi jumlah pesanan',
+                    'details' => $overReceivingErrors,
+                    'received_note_id' => $receivedNote->id,
+                ], 422);
+            }
+            // Fallback for non-AJAX requests
+            toast('Jumlah penerimaan melebihi jumlah pesanan. Silakan tolak penerimaan ini.', 'error');
             return redirect()->back();
         }
 
@@ -753,6 +811,13 @@ class PurchaseController extends Controller
             $status = $allFullyReceived ? Purchase::STATUS_RECEIVED : Purchase::STATUS_RECEIVED_PARTIALLY;
             $purchase->update(['status' => $status]);
         });
+
+        if (request()->ajax() || request()->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Penerimaan berhasil disetujui dan stok telah diperbarui.',
+            ]);
+        }
 
         toast('Penerimaan berhasil disetujui dan stok telah diperbarui.', 'success');
         return redirect()->back();

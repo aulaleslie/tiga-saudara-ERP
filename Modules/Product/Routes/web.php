@@ -13,6 +13,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('serial-numbers.validate');
     Route::post('/serial-numbers/validate-dispatch', [SerialNumberController::class, 'validateDispatchSerial'])
         ->name('serial-numbers.validate-dispatch');
+    Route::put('/serial-numbers/{serialNumber}', [SerialNumberController::class, 'updateSerial'])
+        ->name('serial-numbers.update');
     Route::get('/products/print-barcode', 'BarcodeController@printBarcode')->name('barcode.print');
 
     // ⟵ keep these URLs & names exactly, just point to the new controller

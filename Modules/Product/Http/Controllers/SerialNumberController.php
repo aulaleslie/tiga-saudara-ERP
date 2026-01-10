@@ -108,4 +108,54 @@ class SerialNumberController extends Controller
 
         return response()->json(['valid' => true], 200);
     }
+
+    /**
+     * Update a serial number.
+     */
+    public function updateSerial(Request $request, ProductSerialNumber $serialNumber): JsonResponse
+    {
+        $validated = $request->validate([
+            'serial_number' => 'required|string|max:255',
+        ]);
+
+        // Check if the new serial number already exists (excluding current)
+        $exists = ProductSerialNumber::where('serial_number', $validated['serial_number'])
+            ->where('id', '!=', $serialNumber->id)
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Serial number sudah digunakan.',
+            ], 422);
+        }
+
+        // Check if it's pending in a receiving
+        $existsPending = ReceivedNoteDetail::whereHas('receivedNote', function ($q) {
+            $q->where('status', ReceivedNote::STATUS_PENDING);
+        })
+            ->whereNotNull('pending_serial_numbers')
+            ->get()
+            ->contains(function ($detail) use ($validated) {
+                $pendingSerials = $detail->pending_serial_numbers ?? [];
+                return in_array($validated['serial_number'], $pendingSerials);
+            });
+
+        if ($existsPending) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Serial number sedang dalam proses penerimaan yang menunggu persetujuan.',
+            ], 422);
+        }
+
+        $serialNumber->update([
+            'serial_number' => $validated['serial_number'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Serial number berhasil diperbarui.',
+            'serial_number' => $serialNumber->fresh(),
+        ]);
+    }
 }

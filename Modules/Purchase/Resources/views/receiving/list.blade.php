@@ -68,7 +68,7 @@
                                             @can('purchaseReceivings.approval')
                                                 <td>
                                                     @if($receivedNote->isPending())
-                                                        <form action="{{ route('receivings.approve', $receivedNote) }}" method="POST" class="d-inline">
+                                                        <form action="{{ route('receivings.approve', $receivedNote) }}" method="POST" class="d-inline approve-receiving-form" onsubmit="handleApproveReceiving(this, event); return false;">
                                                             @csrf
                                                             <button type="submit" class="btn btn-sm btn-success" title="Setujui">
                                                                 <i class="bi bi-check-lg"></i>
@@ -130,4 +130,7 @@
             </div>
         </div>
     </div>
+
+    {{-- Over-Receive Error Modal --}}
+    @include('purchase::partials.over-receive-error-modal')
 @endsection
