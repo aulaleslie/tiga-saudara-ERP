@@ -28,6 +28,9 @@
             <th wire:click="sortBy('reference')" style="cursor:pointer">
                 Ref {!! $this->sortIcon('reference') !!}
             </th>
+            <th wire:click="sortBy('supplier_purchase_number')" style="cursor:pointer">
+                No. Pembelian Supplier {!! $this->sortIcon('supplier_purchase_number') !!}
+            </th>
             <th wire:click="sortBy('date')" style="cursor:pointer">
                 Tanggal {!! $this->sortIcon('date') !!}
             </th>
@@ -44,6 +47,7 @@
                 <td>
                     {{ $purchase->reference }}
                 </td>
+                <td>{{ $purchase->supplier_purchase_number ?? '-' }}</td>
                 <td>
                     {{ Carbon::parse($purchase->date)->format('d M Y') }}
                 </td>
@@ -53,7 +57,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="6">Tidak ada data yang ditemukan.</td>
+                <td colspan="7">Tidak ada data yang ditemukan.</td>
             </tr>
         @endforelse
         </tbody>

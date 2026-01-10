@@ -24,6 +24,7 @@
                                 <thead>
                                     <tr>
                                         <th>No. Delivery</th>
+                                        <th>No. Pembelian Supplier</th>
                                         <th>No. PO</th>
                                         <th>Tanggal</th>
                                         <th>Lokasi</th>
@@ -50,6 +51,7 @@
                                     @forelse($receivings as $receivedNote)
                                         <tr>
                                             <td>{{ $receivedNote->external_delivery_number ?? '-' }}</td>
+                                            <td>{{ $receivedNote->purchase->supplier_purchase_number ?? '-' }}</td>
                                             <td>{{ $receivedNote->purchase->reference ?? '-' }}</td>
                                             <td>{{ optional($receivedNote->created_at)->format('Y-m-d') }}</td>
                                             <td>{{ $receivedNote->location->name ?? '-' }}</td>
@@ -115,7 +117,7 @@
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="{{ Gate::allows('purchaseReceivings.approval') ? 7 : 6 }}" class="text-center text-muted">
+                                            <td colspan="{{ Gate::allows('purchaseReceivings.approval') ? 8 : 7 }}" class="text-center text-muted">
                                                 Belum ada data penerimaan barang.
                                             </td>
                                         </tr>

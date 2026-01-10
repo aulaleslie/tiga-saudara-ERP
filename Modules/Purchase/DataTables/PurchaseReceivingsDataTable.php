@@ -36,6 +36,9 @@ class PurchaseReceivingsDataTable extends DataTable
             ->addColumn('details', function ($data) {
                 return view('purchase::receivings.receiving-details', compact('data'))->render();
             })
+            ->addColumn('supplier_purchase_number', function ($data) {
+                return $data->purchase->supplier_purchase_number ?? '-';
+            })
             ->rawColumns(['expand', 'details']);
     }
 
@@ -44,6 +47,7 @@ class PurchaseReceivingsDataTable extends DataTable
         return $model->newQuery()
             ->byPurchase()
             ->with([
+                'purchase',
                 'receivedNoteDetails.purchaseDetail',
                 'receivedNoteDetails.product',
                 'receivedNoteDetails.productSerialNumbers'
@@ -73,6 +77,7 @@ class PurchaseReceivingsDataTable extends DataTable
         return [
             Column::computed('expand')->title('')->exportable(false)->printable(false)->className('align-middle text-center'),
             Column::make('received_note_id')->title('ID')->className('align-middle text-center'),
+            Column::computed('supplier_purchase_number')->title('No. Pembelian Supplier')->className('align-middle text-center'),
             Column::make('external_delivery_number')->title('No. Delivery')->className('align-middle text-center'),
             Column::make('internal_invoice_number')->title('No. Invoice')->className('align-middle text-center'),
             Column::make('date')->title('Tanggal')->className('align-middle text-center'),
