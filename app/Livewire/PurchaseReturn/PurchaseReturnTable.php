@@ -29,6 +29,7 @@ class PurchaseReturnTable extends Component
         'purchaseOrderSelected' => 'updatePurchaseOrderRow',
         'serialNumberSelected' => 'updateSerialNumberRow',
         'updateTableErrors' => 'handleValidationErrors',
+        'supplierUpdated' => 'handleSupplierUpdated',
     ];
 
     public function updatedSupplierId($value): void
@@ -37,6 +38,14 @@ class PurchaseReturnTable extends Component
             Log::info('Updated supplier id: ', ['supplierId' => $value]);
         }
         $this->rows = [];
+    }
+
+    public function handleSupplierUpdated($supplierId): void
+    {
+        Log::info('PurchaseReturnTable: handleSupplierUpdated called', ['supplierId' => $supplierId]);
+        $this->supplierId = $supplierId;
+        $this->rows = [];
+        $this->dispatch('updateRows', $this->rows);
     }
 
     public function updatedLocationId($value): void

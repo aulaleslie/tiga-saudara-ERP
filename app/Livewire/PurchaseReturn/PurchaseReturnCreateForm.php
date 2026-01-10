@@ -60,6 +60,9 @@ class PurchaseReturnCreateForm extends Component
         // Clear rows when supplier changes to ensure table refresh
         $this->rows = [];
         $this->grand_total = 0.0;
+
+        // Dispatch event to notify PurchaseReturnTable to refresh
+        $this->dispatch('supplierUpdated', $this->supplier_id);
     }
 
     public function handleLocationDropdownSelected($name, $value): void
