@@ -57,6 +57,9 @@ class PurchaseReturnCreateForm extends Component
             $this->supplier_id = null;
             $this->supplierName = null;
         }
+        // Clear rows when supplier changes to ensure table refresh
+        $this->rows = [];
+        $this->grand_total = 0.0;
     }
 
     public function handleLocationDropdownSelected($name, $value): void

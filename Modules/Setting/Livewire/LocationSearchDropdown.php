@@ -253,12 +253,8 @@ class LocationSearchDropdown extends Component
 
     private function dispatchSelection(): void
     {
-        if (!$this->dispatchTo) {
-            return;
-        }
-
         $event = $this->dispatch('locationDropdownSelected', name: $this->name, value: $this->selected);
-        if (method_exists($event, 'to')) {
+        if ($this->dispatchTo && method_exists($event, 'to')) {
             $event->to($this->dispatchTo);
         }
     }
