@@ -126,7 +126,7 @@
                                         <livewire:purchase-return.purchase-order-serial-number-loader
                                             :index="$index"
                                             :product_id="$row['product_id']"
-                                            :location_id="$location_id"
+                                            :location_id="$locationId"
                                             :is_broken="true"
                                             wire:key="serial-number-{{ $index }}" />
 

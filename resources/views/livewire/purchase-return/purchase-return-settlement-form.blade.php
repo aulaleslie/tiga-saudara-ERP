@@ -57,7 +57,7 @@
                 <div class="row">
                     <div class="col-md-4 mb-3">
                         <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'exchange') border-primary bg-light @endif">
-                            <input class="form-check-input" type="radio" id="settlement_exchange" value="exchange" wire:model="return_type" @disabled($isReadOnly)>
+                            <input class="form-check-input" type="radio" name="return_type" id="settlement_exchange" value="exchange" wire:model.live="return_type" @disabled($isReadOnly)>
                             <label class="form-check-label ms-2" for="settlement_exchange">
                                 <span class="d-block fw-semibold">Penggantian Produk</span>
                                 <small class="text-muted">Produk diganti dengan barang baru setara.</small>
@@ -66,7 +66,7 @@
                     </div>
                     <div class="col-md-4 mb-3">
                         <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'deposit') border-primary bg-light @endif">
-                            <input class="form-check-input" type="radio" id="settlement_deposit" value="deposit" wire:model="return_type" @disabled($isReadOnly)>
+                            <input class="form-check-input" type="radio" name="return_type" id="settlement_deposit" value="deposit" wire:model.live="return_type" @disabled($isReadOnly)>
                             <label class="form-check-label ms-2" for="settlement_deposit">
                                 <span class="d-block fw-semibold">Simpan Sebagai Kredit</span>
                                 <small class="text-muted">Nilai retur dijadikan uang muka untuk transaksi berikutnya.</small>
@@ -75,7 +75,7 @@
                     </div>
                     <div class="col-md-4 mb-3">
                         <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'cash') border-primary bg-light @endif">
-                            <input class="form-check-input" type="radio" id="settlement_cash" value="cash" wire:model="return_type" @disabled($isReadOnly)>
+                            <input class="form-check-input" type="radio" name="return_type" id="settlement_cash" value="cash" wire:model.live="return_type" @disabled($isReadOnly)>
                             <label class="form-check-label ms-2" for="settlement_cash">
                                 <span class="d-block fw-semibold">Pengembalian Tunai</span>
                                 <small class="text-muted">Pemasok mengembalikan dana sesuai nilai retur.</small>
