@@ -89,7 +89,6 @@
                             <button type="button"
                                     class="btn btn-outline-primary btn-sm"
                                     wire:click="addConversionRow"
-                                    @disabled($locked)
                             >
                                 <i class="bi bi-plus"></i> Tambah
                             </button>
@@ -122,15 +121,13 @@
                                                 :error="$errors['conversions.' . $index . '.unit_id'][0] ?? null"
                                                 width="220px"
                                                 wire:key="unit-dropdown-{{ $rowKey }}"
-                                                :disabled="$locked"
                                             />
                                         </td>
                                         <td>
                                             <input type="number" name="conversions[{{ $index }}][conversion_factor]"
                                                    class="form-control {{ isset($errors['conversions.' . $index . '.conversion_factor']) ? 'is-invalid' : '' }}"
                                                    step="0.0001"
-                                                   value="{{ $conversion['conversion_factor'] }}"
-                                                   @disabled($locked)>
+                                                   value="{{ $conversion['conversion_factor'] }}">
                                             @if(isset($errors['conversions.' . $index . '.conversion_factor']))
                                                 <span class="invalid-feedback"
                                                       role="alert"><strong>{{ $errors['conversions.' . $index . '.conversion_factor'][0] }}</strong></span>
@@ -139,8 +136,7 @@
                                         <td>
                                             <input type="text" name="conversions[{{ $index }}][barcode]"
                                                    class="form-control {{ isset($errors['conversions.' . $index . '.barcode']) ? 'is-invalid' : '' }}"
-                                                   value="{{ $conversion['barcode'] }}"
-                                                   @disabled($locked)>
+                                                   value="{{ $conversion['barcode'] }}">
                                             @if(isset($errors['conversions.' . $index . '.barcode']))
                                                 <span class="invalid-feedback"
                                                       role="alert"><strong>{{ $errors['conversions.' . $index . '.barcode'][0] }}</strong></span>
@@ -161,7 +157,6 @@
                                                    wire:focus="showRawPrice({{ $index }})"
                                                    wire:blur="syncPrice({{ $index }})"
                                                    value="{{ $displayPrices[$index] ?? '' }}"
-                                                   @disabled($locked)
                                             />
                                             @if(isset($errors['conversions.' . $index . '.price']))
                                                 <span class="invalid-feedback" role="alert">
@@ -173,8 +168,7 @@
                                         <td class="text-end">
                                             <button type="button"
                                                     class="btn btn-danger"
-                                                    wire:click="removeConversionRow('{{ $rowKey }}')"
-                                                    @disabled($locked)>
+                                                    wire:click="removeConversionRow('{{ $rowKey }}')">
                                                 Hapus
                                             </button>
                                         </td>

@@ -67,7 +67,7 @@ class UnitConfiguration extends Component
 
     public function addConversionRow(): void
     {
-        if (!$this->stockManaged || $this->locked) {
+        if (!$this->stockManaged) {
             return;
         }
 
@@ -84,9 +84,6 @@ class UnitConfiguration extends Component
 
     public function removeConversionRow(string $key): void
     {
-        if ($this->locked) {
-            return;
-        }
 
         $index = array_search($key, $this->rowKeys, true);
         if ($index === false) {
