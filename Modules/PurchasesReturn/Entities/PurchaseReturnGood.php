@@ -26,4 +26,9 @@ class PurchaseReturnGood extends BaseModel
     {
         return $this->belongsTo(Product::class, 'product_id', 'id');
     }
+
+    public function receivedBy(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'received_by');
+    }
 }

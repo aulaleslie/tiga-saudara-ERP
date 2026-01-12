@@ -34,6 +34,17 @@ Route::group(['middleware' => ['auth', 'role.setting']], function() {
         ->name('purchase-returns.approve');
     Route::post('purchase-returns/{purchase_return}/reject', 'PurchasesReturnController@reject')
         ->name('purchase-returns.reject');
+    
+    //Settlements
+    Route::group(['prefix' => 'purchase-returns/settlements', 'as' => 'purchase-return-settlements.'], function () {
+        Route::post('/{purchase_return}', 'PurchasesReturnSettlementController@store')->name('store');
+        Route::post('/{settlement}/submit', 'PurchasesReturnSettlementController@submit')->name('submit');
+        Route::post('/{settlement}/approve', 'PurchasesReturnSettlementController@approve')->name('approve');
+        Route::post('/{settlement}/reject', 'PurchasesReturnSettlementController@reject')->name('reject');
+        Route::post('/{settlement}/execute', 'PurchasesReturnSettlementController@execute')->name('execute');
+        Route::post('/{settlement}/dispatch', 'PurchasesReturnSettlementController@dispatchStock')->name('dispatch');
+        Route::post('/{settlement}/receive', 'PurchasesReturnSettlementController@receiveStock')->name('receive');
+    });
 
     //Payments
     Route::get('/purchase-return-payments/{purchase_return_id}', 'PurchaseReturnPaymentsController@index')

@@ -28,6 +28,7 @@ class PurchaseReturn extends BaseModel
         'approved_at'      => 'datetime',
         'rejected_at'      => 'datetime',
         'settled_at'       => 'datetime',
+        'return_dispatched_at' => 'datetime',
     ];
 
     public function purchaseReturnDetails(): Builder|HasMany|PurchaseReturn
@@ -128,5 +129,15 @@ class PurchaseReturn extends BaseModel
     public function scopeDraft($q)
     {
         return $q->whereRaw('LOWER(approval_status) = ?', ['draft']);
+    }
+
+    public function settlement(): HasOne
+    {
+        return $this->hasOne(PurchaseReturnSettlement::class, 'purchase_return_id');
+    }
+
+    public function dispatchedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'return_dispatched_by');
     }
 }
