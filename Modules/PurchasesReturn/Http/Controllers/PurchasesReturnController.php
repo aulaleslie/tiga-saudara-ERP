@@ -14,6 +14,7 @@ use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\PurchasesReturn\Entities\PurchaseReturnPayment;
 use Modules\PurchasesReturn\Http\Requests\StorePurchaseReturnRequest;
 use Modules\PurchasesReturn\Http\Requests\UpdatePurchaseReturnRequest;
@@ -87,12 +88,15 @@ class PurchasesReturnController extends Controller
                     'product_tax_amount' => $cart_item->options->product_tax * 100,
                 ]);
 
+                /*
+                // Stock deduction is now handled by the Dispatch Return action (Batch 6)
                 if ($request->status == 'Shipped' || $request->status == 'Completed') {
                     $product = Product::findOrFail($cart_item->id);
                     $product->update([
                         'product_quantity' => $product->product_quantity - $cart_item->qty
                     ]);
                 }
+                */
             }
 
             Cart::instance('purchase_return')->destroy();
@@ -117,7 +121,7 @@ class PurchasesReturnController extends Controller
     public function show(PurchaseReturn $purchase_return) {
         abort_if(Gate::denies('purchaseReturns.show'), 403);
 
-        $purchase_return->loadMissing(['purchaseReturnDetails.product', 'goods.product', 'supplierCredit', 'purchaseReturnPayments', 'location']);
+        $purchase_return->loadMissing(['purchaseReturnDetails.product', 'goods.product', 'supplierCredit', 'purchaseReturnPayments', 'location', 'settlement']);
         $supplier = Supplier::findOrFail($purchase_return->supplier_id);
 
         return view('purchasesreturn::show', compact('purchase_return', 'supplier'));
@@ -191,12 +195,15 @@ class PurchasesReturnController extends Controller
                 : 'pending';
 
             foreach ($purchase_return->purchaseReturnDetails as $purchase_return_detail) {
+                /*
+                // Stock restoration is disabled to prevent conflicts with Dispatch flow
                 if ($purchase_return->status == 'Shipped' || $purchase_return->status == 'Completed') {
                     $product = Product::findOrFail($purchase_return_detail->product_id);
                     $product->update([
                         'product_quantity' => $product->product_quantity + $purchase_return_detail->quantity
                     ]);
                 }
+                */
                 $purchase_return_detail->delete();
             }
 
@@ -235,12 +242,15 @@ class PurchasesReturnController extends Controller
                     'product_tax_amount' => $cart_item->options->product_tax * 100,
                 ]);
 
+                /*
+                // Stock deduction is now handled by the Dispatch Return action (Batch 6)
                 if ($request->status == 'Shipped' || $request->status == 'Completed') {
                     $product = Product::findOrFail($cart_item->id);
                     $product->update([
                         'product_quantity' => $product->product_quantity - $cart_item->qty
                     ]);
                 }
+                */
             }
 
             Cart::instance('purchase_return')->destroy();
@@ -314,6 +324,47 @@ class PurchasesReturnController extends Controller
         ]);
 
         toast('Retur pembelian ditolak.', 'warning');
+
+        return back();
+    }
+
+    public function dispatchReturn(PurchaseReturn $purchase_return)
+    {
+        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+
+        $status = Str::lower($purchase_return->approval_status ?? '');
+        if ($status !== 'approved') {
+            toast('Dispatch hanya dapat diproses setelah retur disetujui.', 'error');
+            return back();
+        }
+
+        if ($purchase_return->return_dispatched_at) {
+            toast('Retur sudah didispatch.', 'warning');
+            return back();
+        }
+
+        DB::transaction(function () use ($purchase_return) {
+            foreach ($purchase_return->purchaseReturnDetails as $detail) {
+                // Update Serial Numbers Status
+                if (!empty($detail->serial_number_ids)) {
+                    ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
+                        ->update(['status' => 'returned']);
+                }
+
+                // Reduce Product Stock
+                $product = Product::findOrFail($detail->product_id);
+                $product->update([
+                    'product_quantity' => $product->product_quantity - $detail->quantity
+                ]);
+            }
+
+            $purchase_return->update([
+                'status' => 'Return Dispatched',
+                'return_dispatched_at' => now(),
+            ]);
+        });
+
+        toast('Retur berhasil didispatch!', 'success');
 
         return back();
     }

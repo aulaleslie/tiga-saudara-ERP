@@ -56,12 +56,27 @@ class PurchaseReturnSettlementForm extends Component
             'purchaseReturnPayments',
             'supplier',
             'location',
+            'settlement',
         ])->findOrFail($this->purchaseReturnId);
 
         $this->isReadOnly = ! empty($this->purchaseReturn->return_type);
-        $this->return_type = $this->purchaseReturn->return_type
-            ? Str::lower($this->purchaseReturn->return_type)
-            : '';
+        
+        $settlement = $this->purchaseReturn->settlement;
+
+        if ($settlement) {
+            // Populate from settlement if exists
+            $this->return_type = Str::lower($settlement->method);
+            
+            // If pending or approved, lock it.
+            if (in_array($settlement->status, ['pending', 'approved', 'executing', 'completed'])) {
+                $this->isReadOnly = true;
+            }
+        } else {
+             $this->return_type = $this->purchaseReturn->return_type
+                ? Str::lower($this->purchaseReturn->return_type)
+                : '';
+        }
+
         $this->replacement_goods = [];
 
         if ($this->purchaseReturn->goods->isNotEmpty()) {
@@ -239,12 +254,21 @@ class PurchaseReturnSettlementForm extends Component
                 $storedProof = $this->cash_proof->store('purchase-returns/proofs', 'public');
             }
 
-            DB::transaction(function () use ($total, $paymentMethod, $storedProof) {
-                $purchaseReturn = PurchaseReturn::lockForUpdate()->findOrFail($this->purchaseReturn->id);
+            DB::transaction(function () use ($total, $storedProof) {
+                // Delete existing settlement and goods if we are re-submitting (Draft/Pending only)
+                // Logic: If there is an existing pending settlement, we replace it.
+                // Assuming one active settlement per return for now.
+                $this->purchaseReturn->settlement()->delete(); 
+                $this->purchaseReturn->goods()->delete();
 
-                $purchaseReturn->goods()->delete();
-                $purchaseReturn->purchaseReturnPayments()->delete();
-                $purchaseReturn->supplierCredit()->delete();
+                $settlement = \Modules\PurchasesReturn\Entities\PurchaseReturnSettlement::create([
+                    'purchase_return_id' => $this->purchaseReturn->id,
+                    'method' => $this->return_type,
+                    'status' => 'pending',
+                    'submitted_by' => Auth::id(),
+                    'submitted_at' => now(),
+                    'cash_proof_path' => $storedProof,
+                ]);
 
                 if ($this->return_type === 'exchange') {
                     foreach ($this->replacement_goods as $replacement) {
@@ -256,7 +280,7 @@ class PurchaseReturnSettlementForm extends Component
                         $unitValue = (float) ($replacement['unit_value'] ?? 0);
 
                         PurchaseReturnGood::create([
-                            'purchase_return_id' => $purchaseReturn->id,
+                            'purchase_return_id' => $this->purchaseReturn->id,
                             'product_id' => $replacement['product_id'],
                             'product_name' => $replacement['product_name'],
                             'product_code' => $replacement['product_code'] ?? null,
@@ -265,63 +289,10 @@ class PurchaseReturnSettlementForm extends Component
                             'sub_total' => round($quantity * $unitValue, 2),
                             'serial_number' => $replacement['serial_number'] ?? null,
                         ]);
-
-                        if (! empty($replacement['serial_number'])) {
-                            ProductSerialNumber::updateOrCreate(
-                                [
-                                    'product_id' => $replacement['product_id'],
-                                    'serial_number' => $replacement['serial_number'],
-                                ],
-                                [
-                                    'location_id' => $purchaseReturn->location_id,
-                                    'is_broken' => false,
-                                    'dispatch_detail_id' => null, // Available
-                                    'received_note_detail_id' => null, // We might want to link to return good id if we had a column, but we don't.
-                                ]
-                            );
-                        }
+                        
+                        // NOTE: Serial numbers are NOT updated yet. They are updated on Execution/Receive.
                     }
                 }
-
-                if ($this->return_type === 'deposit') {
-                    $creditAmount = $this->calculateCreditAmount();
-
-                    SupplierCredit::create([
-                        'supplier_id' => $purchaseReturn->supplier_id,
-                        'purchase_return_id' => $purchaseReturn->id,
-                        'amount' => $creditAmount,
-                        'remaining_amount' => $creditAmount,
-                        'status' => 'open',
-                    ]);
-                }
-
-                if ($this->return_type === 'cash') {
-                    PurchaseReturnPayment::create([
-                        'purchase_return_id' => $purchaseReturn->id,
-                        'amount' => $total,
-                        'date' => now()->toDateString(),
-                        'reference' => 'PRPAY/' . $purchaseReturn->reference,
-                        'payment_method' => 'Cash',
-                        'payment_method_id' => null,
-                        'note' => 'Pengembalian tunai',
-                    ]);
-                }
-
-                if ($storedProof && $purchaseReturn->cash_proof_path) {
-                    Storage::disk('public')->delete($purchaseReturn->cash_proof_path);
-                }
-
-                $purchaseReturn->update([
-                    'return_type' => $this->return_type,
-                    'payment_status' => 'Paid',
-                    'payment_method' => $paymentMethod,
-                    'paid_amount' => round($total, 2),
-                    'due_amount' => 0,
-                    'cash_proof_path' => $storedProof ?? $purchaseReturn->cash_proof_path,
-                    'status' => 'Completed',
-                    'settled_at' => now(),
-                    'settled_by' => Auth::id(),
-                ]);
             });
 
             session()->flash('success', 'Metode penyelesaian berhasil disimpan.');

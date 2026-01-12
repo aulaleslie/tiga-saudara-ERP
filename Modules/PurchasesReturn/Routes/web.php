@@ -34,6 +34,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function() {
         ->name('purchase-returns.approve');
     Route::post('purchase-returns/{purchase_return}/reject', 'PurchasesReturnController@reject')
         ->name('purchase-returns.reject');
+    Route::post('purchase-returns/{purchase_return}/dispatch', 'PurchasesReturnController@dispatchReturn')
+        ->name('purchase-returns.dispatch');
     
     //Settlements
     Route::group(['prefix' => 'purchase-returns/settlements', 'as' => 'purchase-return-settlements.'], function () {

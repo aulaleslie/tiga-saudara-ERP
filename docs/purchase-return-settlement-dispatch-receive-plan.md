@@ -152,17 +152,17 @@ Usage:
 - Add routes for settlement submit/approve/reject/execute (controller methods can be stubs).
 - Output: routes + permission seed updates, no behavior changes.
 
-### Batch 4: Settlement submit + approve/reject
+### Batch 4: Settlement submit + approve/reject (Completed)
 - Implement settlement submit (draft -> pending) and approve/reject.
 - Lock settlement edits after approval.
 - Output: settlement lifecycle works, execution still manual or disabled.
 
-### Batch 5: Execution for cash + deposit
+### Batch 5: Execution for cash + deposit (Completed)
 - Implement execution for cash and deposit (create payment or supplier credit).
 - Update `purchase_returns` settlement fields and statuses.
 - Output: cash/deposit flow completes end-to-end.
 
-### Batch 6: Exchange dispatch flow
+### Batch 6: Exchange dispatch flow (Completed)
 - Add "Dispatch Return" action (reduce stock, flag serials).
 - Store dispatch timestamps on `purchase_returns`.
 - Output: exchange dispatch tracked, no receive yet.
