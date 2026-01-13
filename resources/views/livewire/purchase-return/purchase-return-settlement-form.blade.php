@@ -202,13 +202,13 @@
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-hover table-sm align-middle mb-0">
+                    <table class="table table-hover align-middle mb-0">
                         <thead class="table-light text-muted text-uppercase small">
-                            <tr>
-                                <th>Produk</th>
-                                <th class="text-center">Jumlah</th>
-                                <th class="text-end">Harga Beli</th>
-                                <th class="text-end">Subtotal</th>
+                            <tr class="text-center">
+                                <th style="width: 50%" class="text-start">Produk</th>
+                                <th style="width: 15%">Jumlah</th>
+                                <th style="width: 15%" class="text-end">Harga Beli</th>
+                                <th style="width: 20%" class="text-end">Subtotal</th>
                             </tr>
                         </thead>
                         <tbody>

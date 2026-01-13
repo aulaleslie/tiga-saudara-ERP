@@ -377,6 +377,8 @@
         </div>
     </div>
     
+@endsection
+
     @push('page_scripts')
     <script>
         document.addEventListener('DOMContentLoaded', function() {

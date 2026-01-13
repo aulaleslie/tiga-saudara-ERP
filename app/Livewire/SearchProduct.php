@@ -26,9 +26,6 @@ class SearchProduct extends Component
     /** All sale location ids configured for the active setting */
     private array $posLocationIds = [];
 
-    /** Cache bundle sell availability checks per product. */
-    private array $bundleSellableCache = [];
-
     public function mount(): void
     {
         // resolve POS location for the current business/setting
@@ -617,15 +614,25 @@ class SearchProduct extends Component
             ]
         );
 
-        $results = collect(DB::select($sql, $bindings))
-            ->filter(function ($row) {
+        $results = collect(DB::select($sql, $bindings));
+
+        // Batch pre-fetch bundle sellability for all product IDs (eliminates N+1)
+        $productIds = $results->pluck('id')->filter()->unique()->values()->all();
+        if (!empty($productIds)) {
+            $sellabilityMap = ProductBundleResolver::areSellable($productIds);
+        } else {
+            $sellabilityMap = [];
+        }
+
+        $results = $results
+            ->filter(function ($row) use ($sellabilityMap) {
                 $productId = (int) ($row->id ?? 0);
 
                 if ($productId <= 0) {
                     return false;
                 }
 
-                $sellable = $this->isBundleSellable($productId);
+                $sellable = $sellabilityMap[$productId] ?? true;
                 $row->bundle_sellable = $sellable;
 
                 return $sellable;
@@ -667,26 +674,5 @@ class SearchProduct extends Component
             'sql' => sprintf('%s IN (%s)', $column, implode(', ', $placeholders)),
             'bindings' => $bindings,
         ];
-    }
-
-    private function isBundleSellable(int $productId): bool
-    {
-        if ($productId <= 0) {
-            return false;
-        }
-
-        if (!array_key_exists($productId, $this->bundleSellableCache)) {
-            $bundles = ProductBundleResolver::forProduct($productId);
-
-            if ($bundles->isEmpty()) {
-                $this->bundleSellableCache[$productId] = true;
-            } else {
-                $this->bundleSellableCache[$productId] = $bundles->contains(function ($bundle) {
-                    return $bundle->items && $bundle->items->isNotEmpty();
-                });
-            }
-        }
-
-        return $this->bundleSellableCache[$productId];
     }
 }

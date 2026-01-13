@@ -102,24 +102,40 @@ class ProductList extends Component
             ->whereRaw('COALESCE(st.stock_qty, 0) > 0');
 
         $products = $query->paginate($this->limit);
-        $productIds = $products->getCollection()->pluck('id')->filter()->unique()->values()->all();
 
-        $mediaRegistry = collect();
-        if (!empty($productIds)) {
-            $mediaRegistry = Product::with('media')->whereIn('id', $productIds)->get()->keyBy('id');
-        }
-
-        $products->getCollection()->transform(function ($item) use ($mediaRegistry) {
-            $model = $mediaRegistry->get($item->id);
-            $item->photo_url = $model
-                ? ($model->getFirstMediaUrl('images') ?: asset('placeholder.png'))
-                : asset('placeholder.png');
+        // Build photo URLs from the already-joined media columns (no extra queries)
+        $products->getCollection()->transform(function ($item) {
+            if ($item->media_id && $item->file_name && $item->disk) {
+                // Build URL from joined media data
+                $item->photo_url = $this->buildMediaUrl($item->disk, $item->uuid, $item->file_name);
+            } else {
+                $item->photo_url = asset('placeholder.png');
+            }
             return $item;
         });
 
         return view('livewire.pos.product-list', [
             'products' => $products,
         ]);
+    }
+
+    /**
+     * Build media URL from disk, uuid, and filename without querying.
+     */
+    private function buildMediaUrl(?string $disk, ?string $uuid, ?string $fileName): string
+    {
+        if (!$disk || !$fileName) {
+            return asset('placeholder.png');
+        }
+
+        // Handle public disk - most common for product images
+        if ($disk === 'public') {
+            $path = $uuid ? "{$uuid}/{$fileName}" : $fileName;
+            return asset("storage/{$path}");
+        }
+
+        // Fallback for other disks
+        return asset('placeholder.png');
     }
 
     public function categoryChanged($category_id)

@@ -67,6 +67,9 @@ class Checkout extends Component
     public ?string $checkoutCompletionTransactionId = null;
     public ?string $lastChangeModalTransactionId = null;
 
+    /** Per-request cache for unit conversions by product ID */
+    private array $conversionCache = [];
+
     public function mount($cartInstance, $customers)
     {
         $this->guardActivePosSession();
@@ -647,19 +650,33 @@ class Checkout extends Component
             return [null, collect()];
         }
 
-        $model = Product::find($productId);
-        if (!$model) {
-            return [null, collect()];
+        // Check if incoming payload already has essential fields (from search)
+        $hasEssentialFields = isset($product['product_name'], $product['product_code'])
+            && array_key_exists('serial_number_required', $product)
+            && array_key_exists('product_quantity', $product);
+
+        if ($hasEssentialFields) {
+            // Trust the payload - skip Product::find() query
+            $hydrated = $product;
+            $hydrated['id'] = $productId;
+            $hydrated['serial_number_required'] = (bool) $product['serial_number_required'];
+        } else {
+            // Fallback: fetch from database if payload is incomplete
+            $model = Product::find($productId);
+            if (!$model) {
+                return [null, collect()];
+            }
+
+            $modelArray = $model->toArray();
+            $hydrated = array_merge($modelArray, $product);
+            $hydrated['id'] = $productId;
+
+            if (!isset($hydrated['serial_number_required'])) {
+                $hydrated['serial_number_required'] = (bool) $model->serial_number_required;
+            }
         }
 
-        $modelArray = $model->toArray();
-        $hydrated = array_merge($modelArray, $product);
-        $hydrated['id'] = $productId;
-
-        if (!isset($hydrated['serial_number_required'])) {
-            $hydrated['serial_number_required'] = (bool) $model->serial_number_required;
-        }
-
+        // Use cached bundle resolver (already batched during search)
         $bundles = ProductBundleResolver::forProduct($productId);
 
         return [$hydrated, $bundles];
@@ -1183,22 +1200,28 @@ class Checkout extends Component
         $settingId = session('setting_id');
         $settingId = $settingId !== null ? (int) $settingId : null;
 
-        $relations = [
-            'unit',
-            'baseUnit',
-        ];
+        // Use cached conversions if available
+        $cacheKey = $productId . '_' . ($settingId ?? 'null');
+        if (!isset($this->conversionCache[$cacheKey])) {
+            $relations = [
+                'unit',
+                'baseUnit',
+            ];
 
-        if ($settingId) {
-            $relations['prices'] = fn ($query) => $query->forSetting($settingId);
-        } else {
-            $relations[] = 'prices';
+            if ($settingId) {
+                $relations['prices'] = fn ($query) => $query->forSetting($settingId);
+            } else {
+                $relations[] = 'prices';
+            }
+
+            $this->conversionCache[$cacheKey] = ProductUnitConversion::query()
+                ->with($relations)
+                ->where('product_id', $productId)
+                ->orderByDesc('conversion_factor')
+                ->get();
         }
 
-        $conversions = ProductUnitConversion::query()
-            ->with($relations)
-            ->where('product_id', $productId)
-            ->orderByDesc('conversion_factor')
-            ->get();
+        $conversions = $this->conversionCache[$cacheKey];
 
         $total_cost = 0.0;
         $used_qty = 0;

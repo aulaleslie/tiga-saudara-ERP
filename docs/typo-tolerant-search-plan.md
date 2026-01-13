@@ -13,10 +13,16 @@
 - Latency target: p95 <= 1s for interactive search.
 - DB: MySQL fulltext + ngram is acceptable if supported; verify MySQL 8+ and `ngram_token_size`.
 - Dependencies: ok to add composer deps and local indexes, but prefer MySQL fulltext first.
-- Ranking policy: hybrid; exact/prefix boosted, fuzzy for length >= 3, exact-only for short/numeric queries.
+- Ranking policy: hybrid; exact/prefix boosted, fuzzy for length >= 3, exact-only for short/numeric queries; re-rank candidates with token similarity and numeric-token boosts.
 - Tenant isolation: no separate per-tenant indexes; respect existing query filters.
 - Normalization: basic lowercase/whitespace/punctuation only.
 - Reindexing: synchronous only (no queued background jobs).
+
+## Behavior requirements (examples)
+- "katrid" should return "CATRIDGE" (tolerate misspelling and sound-alike).
+- "n150 512" should return "ACER ASPIRE LITE AL14 N150 8GB 512GB SSD WIN 11".
+- "n150 8 512" should return the same product (token order/spacing tolerant).
+- "e1404 r 3 512" should return "ASUS VIVOBOOK GO 14 E1404FA - FHD AMD RYZEN 3 7320U 8GB 512GB SSD WIN 11 #" (model/code fragment tolerant).
 
 ## Recommended approach (offline)
 Use MySQL fulltext with the ngram parser for typo tolerance, and keep exact/prefix matching for barcodes and serial numbers.
@@ -42,6 +48,11 @@ Phase 1: POS product search (first)
 Phase 2: POS query integration
 - Update `app/Livewire/SearchProduct.php` suggestions query to use `MATCH ... AGAINST` for name/code with fallback to LIKE when query length is short or results are empty.
 - Apply the existing location and stock filters without changing behavior.
+- Add a second-pass ranking step in PHP for the returned candidates:
+  - Tokenize the query (split on whitespace, remove punctuation).
+  - Treat numeric tokens as high-priority; boost exact numeric matches in product name/code.
+  - Use edit-distance or ngram overlap scoring for text tokens; allow token order changes and partial matches.
+  - Allow query expansion with a small alias/misspelling map for known terms (e.g., "katrid" -> "cartridge"/"catridge").
 
 Phase 3: Observability and guardrails
 - Log fuzzy vs exact usage, response time, and result counts for POS search.
