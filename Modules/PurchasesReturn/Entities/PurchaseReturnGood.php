@@ -8,10 +8,11 @@ use Modules\Product\Entities\Product;
 
 class PurchaseReturnGood extends BaseModel
 {
-    protected $guarded = [];
+    protected $fillable = ['purchase_return_id', 'product_id', 'product_name', 'product_code', 'quantity', 'unit_value', 'sub_total', 'received_at', 'received_quantity', 'note', 'received_by', 'serial_number'];
 
     protected $casts = [
         'quantity'   => 'integer',
+        'received_quantity' => 'integer',
         'unit_value' => 'decimal:2',
         'sub_total'  => 'decimal:2',
         'received_at'=> 'datetime',

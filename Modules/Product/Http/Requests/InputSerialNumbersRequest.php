@@ -30,7 +30,14 @@ class InputSerialNumbersRequest extends FormRequest
     {
         return [
             'serial_numbers' => ['required', 'array'],
-            'serial_numbers.*' => ['required', 'string', 'max:255', 'distinct', 'unique:product_serial_numbers,serial_number'], // Ensure uniqueness in the table
+            'serial_numbers.*' => [
+                'required', 
+                'string', 
+                'max:255', 
+                'distinct', 
+                \Illuminate\Validation\Rule::unique('product_serial_numbers', 'serial_number')
+                    ->where('product_id', $this->route('product_id'))
+            ], 
             'tax_ids' => ['nullable', 'array'],
             'tax_ids.*' => ['nullable', 'integer', 'exists:taxes,id'], // Validate each tax ID (if provided)
         ];

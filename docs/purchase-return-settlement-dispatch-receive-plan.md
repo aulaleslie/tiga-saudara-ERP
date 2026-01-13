@@ -167,12 +167,12 @@ Usage:
 - Store dispatch timestamps on `purchase_returns`.
 - Output: exchange dispatch tracked, no receive yet.
 
-### Batch 7: Exchange receive flow
+### Batch 7: Exchange receive flow (Completed)
 - Add "Receive Replacement" action (restock, create/update serials).
 - Update `purchase_return_goods.received_at` and completion checks.
 - Output: exchange flow completes end-to-end.
 
-### Batch 8: Serial number schema improvements
+### Batch 8: Serial number schema improvements (Completed)
 - Add return lifecycle fields to `product_serial_numbers`.
 - Enforce composite uniqueness per product.
 - Update validation rules for serial creation/selection.

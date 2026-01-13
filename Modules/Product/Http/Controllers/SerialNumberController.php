@@ -89,8 +89,6 @@ class SerialNumberController extends Controller
         }
 
         // Check if already dispatched (assuming dispatch_detail_id is not null implies dispatched)
-        // Also check if it's broken? existing logic in SerialNumberLoader checked if is_broken
-        // let's check is_broken too.
         if ($serial->dispatch_detail_id) {
             return response()->json([
                 'valid' => false,
@@ -98,11 +96,17 @@ class SerialNumberController extends Controller
             ], 200);
         }
         
-        // Also check if broken? existing loader had ->where('is_broken', false) unless specified
          if ($serial->is_broken) {
             return response()->json([
                 'valid' => false,
                 'message' => 'Serial number rusak (broken).',
+            ], 200);
+        }
+
+        if ($serial->is_in_return_process) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sedang dalam proses retur.',
             ], 200);
         }
 
@@ -118,15 +122,16 @@ class SerialNumberController extends Controller
             'serial_number' => 'required|string|max:255',
         ]);
 
-        // Check if the new serial number already exists (excluding current)
+        // Check if the new serial number already exists (excluding current) scoped to product
         $exists = ProductSerialNumber::where('serial_number', $validated['serial_number'])
+            ->where('product_id', $serialNumber->product_id)
             ->where('id', '!=', $serialNumber->id)
             ->exists();
 
         if ($exists) {
             return response()->json([
                 'success' => false,
-                'message' => 'Serial number sudah digunakan.',
+                'message' => 'Serial number sudah digunakan untuk produk ini.',
             ], 422);
         }
 

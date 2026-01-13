@@ -24,6 +24,8 @@ class ProductSerialNumber extends BaseModel
         'received_note_detail_id',
         'dispatch_detail_id',
         'status',
+        'is_in_return_process',
+        'purchase_return_id',
     ];
 
     /**
@@ -32,6 +34,14 @@ class ProductSerialNumber extends BaseModel
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * Get the purchase return associated with the serial number (if in return process).
+     */
+    public function purchaseReturn(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\PurchasesReturn\Entities\PurchaseReturn::class);
     }
 
     /**

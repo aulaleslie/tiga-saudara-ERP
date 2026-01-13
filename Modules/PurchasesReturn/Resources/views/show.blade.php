@@ -113,6 +113,15 @@
                                                     </button>
                                                 </form>
                                             @endcan
+                                            
+                                            {{-- Batch 7: Receive Replacement --}}
+                                            @if($purchase_return->settlement->status === 'executing' && $purchase_return->return_dispatched_at && $purchase_return->goods->where('received_quantity', '<', 'quantity')->isNotEmpty())
+                                                @can('purchaseReturnSettlements.receive')
+                                                    <button type="button" class="btn btn-success btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#receiveReplacementModal">
+                                                        <i class="bi bi-box-seam"></i> Terima Barang Pengganti
+                                                    </button>
+                                                @endcan
+                                            @endif
                                         @elseif($purchase_return->settlement->status === 'rejected')
                                             <span class="badge bg-danger me-2 mb-1">Settlement Rejected</span>
                                             <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
@@ -299,5 +308,91 @@
             </div>
         </div>
     </div>
-@endsection
+
+    <!-- Receiver Replacement Modal -->
+    <div class="modal fade" id="receiveReplacementModal" tabindex="-1" aria-labelledby="receiveReplacementModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form action="{{ route('purchase-return-settlements.receive', $purchase_return->settlement->id ?? 0) }}" method="POST">
+                    @csrf
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="receiveReplacementModalLabel">Terima Barang Pengganti</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-sm align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Produk</th>
+                                        <th class="text-center" style="width: 100px;">Sisa</th>
+                                        <th class="text-center" style="width: 120px;">Diterima</th>
+                                        <th>Catatan</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($purchase_return->goods as $index => $good)
+                                        @php
+                                            $remaining = $good->quantity - $good->received_quantity;
+                                        @endphp
+                                        @if($remaining > 0)
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold">{{ $good->product_name }}</div>
+                                                    <small class="text-muted">{{ $good->product_code }}</small>
+                                                    <input type="hidden" name="items[{{ $index }}][id]" value="{{ $good->id }}">
+                                                    
+                                                    @if($good->product && $good->product->serial_number_required)
+                                                        <div class="mt-2">
+                                                            <label class="small text-muted mb-1">Serial Number (Baru/Repaired)</label>
+                                                            <select class="form-select form-select-sm" name="items[{{ $index }}][serial_numbers][]" multiple data-placeholder="Ketik SN lalu enter" id="serial_select_{{ $good->id }}">
+                                                                {{-- Serials will be entered as tags --}}
+                                                            </select>
+                                                            <small class="text-xs text-muted">Ketik nomor seri lalu tekan Enter.</small>
+                                                        </div>
+                                                    @endif
+                                                </td>
+                                                <td class="text-center">
+                                                    <span class="badge bg-warning text-dark">{{ $remaining }}</span>
+                                                </td>
+                                                <td>
+                                                    <input type="number" name="items[{{ $index }}][received_quantity]" class="form-control form-control-sm text-center" min="0" max="{{ $remaining }}" value="{{ $remaining }}">
+                                                </td>
+                                                <td>
+                                                    <input type="text" name="items[{{ $index }}][note]" class="form-control form-control-sm" placeholder="Catatan penerimaan...">
+                                                </td>
+                                            </tr>
+                                        @endif
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                        <button type="submit" class="btn btn-primary" onclick="return confirm('Pastikan data yang dimasukkan sudah benar.')">Simpan Penerimaan</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    @push('page_scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize Select2 for serial numbers if available, or simple tagging
+            // Assuming no select2 for now to keep it simple, or use standard input if select2 not available.
+            // But since the requirement mentioned serial management, let's try to make it usable.
+            // If Select2 is available globally:
+            if (typeof $ !== 'undefined' && $.fn.select2) {
+                 $('select[name*="[serial_numbers]"]').select2({
+                    tags: true,
+                    tokenSeparators: [',', ' '],
+                    theme: 'bootstrap-5',
+                    width: '100%'
+                });
+            }
+        });
+    </script>
+    @endpush
 
