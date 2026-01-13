@@ -285,6 +285,14 @@ class Checkout extends Component
         $this->resetChangeComputedCache();
 
         $cart_items = Cart::instance($this->cart_instance)->content();
+        $quantityMap = [];
+        foreach ($cart_items as $cart_item) {
+            $cartKey = $cart_item->options->cart_key ?? $cart_item->id;
+            $resolvedQty = $this->quantity[$cartKey] ?? $cart_item->qty;
+            $quantityMap[$cartKey] = $resolvedQty;
+            // keep the Livewire model in sync with the cart
+            $this->quantity[$cartKey] = $resolvedQty;
+        }
 
         return view('livewire.pos.checkout', [
             'cart_items' => $cart_items,
@@ -293,6 +301,7 @@ class Checkout extends Component
             'overPaidWithNonCash' => $this->overPaidWithNonCash,
             'paidAmount' => $this->paid_amount,
             'hasCashPayment' => $this->hasCashPayment,
+            'quantityMap' => $quantityMap,
         ]);
     }
 
@@ -493,6 +502,13 @@ class Checkout extends Component
         Cart::instance($this->cart_instance)->setGlobalDiscount((int) $this->global_discount);
     }
 
+    public function updateQuantityDirect($row_id, $cart_key, $value): void
+    {
+        $newQty = max(1, (int) $value);
+        $this->quantity[$cart_key] = $newQty;
+        $this->updateQuantity($row_id, $cart_key);
+    }
+
     public function updateQuantity($row_id, $cart_key)
     {
         $cart = Cart::instance($this->cart_instance);
@@ -559,6 +575,8 @@ class Checkout extends Component
             'price' => $calculated['unit_price'],
             'options' => $mergedOptions,
         ]);
+
+        $this->quantity[$cart_key] = $newQty;
 
         $this->conversion_breakdowns[$cart_key] = $calculated['conversion_context']['breakdown'] ?? '';
         $this->check_quantity[$cart_key] = (int) ($stockContext['available_total'] ?? $newQty);

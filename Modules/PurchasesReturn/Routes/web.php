@@ -39,6 +39,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function() {
     
     //Settlements
     Route::group(['prefix' => 'purchase-returns/settlements', 'as' => 'purchase-return-settlements.'], function () {
+        Route::get('/', 'PurchasesReturnSettlementController@index')->name('index');
         Route::post('/{purchase_return}', 'PurchasesReturnSettlementController@store')->name('store');
         Route::post('/{settlement}/submit', 'PurchasesReturnSettlementController@submit')->name('submit');
         Route::post('/{settlement}/approve', 'PurchasesReturnSettlementController@approve')->name('approve');

@@ -99,11 +99,18 @@ class ProductList extends Component
                 });
             })
             // Ensure stock > 0
-            ->whereRaw('COALESCE(st.stock_qty, 0) > 0')
-            ->paginate($this->limit);
+            ->whereRaw('COALESCE(st.stock_qty, 0) > 0');
 
-        $query->getCollection()->transform(function ($item) {
-            $model = Product::find($item->id);
+        $products = $query->paginate($this->limit);
+        $productIds = $products->getCollection()->pluck('id')->filter()->unique()->values()->all();
+
+        $mediaRegistry = collect();
+        if (!empty($productIds)) {
+            $mediaRegistry = Product::with('media')->whereIn('id', $productIds)->get()->keyBy('id');
+        }
+
+        $products->getCollection()->transform(function ($item) use ($mediaRegistry) {
+            $model = $mediaRegistry->get($item->id);
             $item->photo_url = $model
                 ? ($model->getFirstMediaUrl('images') ?: asset('placeholder.png'))
                 : asset('placeholder.png');
@@ -111,7 +118,7 @@ class ProductList extends Component
         });
 
         return view('livewire.pos.product-list', [
-            'products' => $query,
+            'products' => $products,
         ]);
     }
 

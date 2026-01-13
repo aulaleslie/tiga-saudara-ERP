@@ -38,10 +38,12 @@ class SearchProduct extends Component
             ->values()
             ->all();
 
-        Log::info('SearchProduct mounted', [
-            'settingId' => $settingId,
-            'posLocationIds' => $this->posLocationIds,
-        ]);
+        if (config('app.debug')) {
+            Log::info('SearchProduct mounted', [
+                'settingId' => $settingId,
+                'posLocationIds' => $this->posLocationIds,
+            ]);
+        }
 
         $this->search_results = Collection::empty();
         $this->resultCount = 0;
@@ -78,13 +80,14 @@ class SearchProduct extends Component
 
         $results = $this->suggestions($input);
         
-        // Debug: log what we're getting
-        Log::info('SearchProduct updatedQuery', [
-            'input' => $input,
-            'posLocationIds' => $this->posLocationIds,
-            'results_count' => $results->count(),
-            'results' => $results->take(3)->toArray(),
-        ]);
+        if (config('app.debug')) {
+            Log::info('SearchProduct updatedQuery', [
+                'input' => $input,
+                'posLocationIds' => $this->posLocationIds,
+                'results_count' => $results->count(),
+                'results' => $results->take(3)->toArray(),
+            ]);
+        }
         
         $this->resultCount = $results->count();
 

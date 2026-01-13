@@ -9,6 +9,17 @@ use Modules\PurchasesReturn\Entities\PurchaseReturnSettlement;
 
 class PurchasesReturnSettlementController extends Controller
 {
+    public function index()
+    {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.access'), 403);
+
+        $settlements = PurchaseReturnSettlement::with(['purchaseReturn', 'purchaseReturn.supplier'])
+            ->latest()
+            ->paginate(10);
+
+        return view('purchasesreturn::settlements.index', compact('settlements'));
+    }
+
     public function store(Request $request, PurchaseReturn $purchaseReturn)
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.submit'), 403);

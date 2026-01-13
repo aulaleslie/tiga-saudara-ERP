@@ -115,6 +115,7 @@ class ProductSearchDropdown extends Component
                 ->from('purchases as p')
                 ->leftJoin('purchase_details as pd', 'p.id', '=', 'pd.purchase_id')
                 ->where('p.supplier_id', $this->supplier_id)
+                ->where('p.setting_id', session('setting_id'))
                 ->whereIn('p.status', ['RECEIVED PARTIALLY', 'RECEIVED']);
         })
         ->where(function ($query) {
