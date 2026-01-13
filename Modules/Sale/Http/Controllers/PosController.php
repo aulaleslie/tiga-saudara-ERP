@@ -528,11 +528,15 @@ class PosController extends Controller
         $items = [];
         $locationSettingMap = $this->loadPosLocationSettingMap();
 
+
+
         foreach ($cartItems as $item) {
             $options = $this->normalizeCartOptions($item->options ?? []);
             $allocations = $this->normalizeAllocations($options['pos_location_allocations'] ?? []);
             $serials = $this->resolveSerialNumbers($options) ?? [];
             $serialsByLocation = [];
+
+
 
             foreach ($serials as $serial) {
                 $locationId = isset($serial['location_id']) ? (int) $serial['location_id'] : null;
@@ -542,6 +546,26 @@ class PosController extends Controller
             }
 
             if (empty($allocations)) {
+                // Still need to resolve correct tenant from stock location owner
+                $productId = (int) ($options['product_id'] ?? 0);
+                if ($productId > 0 && ! empty($locationSettingMap)) {
+                    // Find which POS location has stock for this product
+                    $posLocationIds = array_keys($locationSettingMap);
+                    $stockLocation = ProductStock::query()
+                        ->where('product_id', $productId)
+                        ->whereIn('location_id', $posLocationIds)
+                        ->whereRaw('(quantity_non_tax + quantity_tax) > 0')
+                        ->orderByRaw('FIELD(location_id, ' . implode(',', $posLocationIds) . ')')
+                        ->first();
+
+                    if ($stockLocation) {
+                        $ownerSettingId = $locationSettingMap[$stockLocation->location_id] ?? null;
+                        if ($ownerSettingId) {
+                            $options['setting_id'] = $ownerSettingId;
+                            $item = $this->cloneCartItemWithQuantity($item, (int) $item->qty, 1.0, $options);
+                        }
+                    }
+                }
                 $items[] = $item;
                 continue;
             }
@@ -579,6 +603,26 @@ class PosController extends Controller
             }
 
             if ($totalAllocQty <= 0 || empty($bySetting)) {
+                // Allocations were provided but all had zero quantities
+                // Look up actual stock location to resolve correct tenant
+                $productId = (int) ($options['product_id'] ?? 0);
+                if ($productId > 0 && ! empty($locationSettingMap)) {
+                    $posLocationIds = array_keys($locationSettingMap);
+                    $stockLocation = ProductStock::query()
+                        ->where('product_id', $productId)
+                        ->whereIn('location_id', $posLocationIds)
+                        ->whereRaw('(quantity_non_tax + quantity_tax) > 0')
+                        ->orderByRaw('FIELD(location_id, ' . implode(',', $posLocationIds) . ')')
+                        ->first();
+
+                    if ($stockLocation) {
+                        $ownerSettingId = $locationSettingMap[$stockLocation->location_id] ?? null;
+                        if ($ownerSettingId) {
+                            $options['setting_id'] = $ownerSettingId;
+                            $item = $this->cloneCartItemWithQuantity($item, (int) $item->qty, 1.0, $options);
+                        }
+                    }
+                }
                 $items[] = $item;
                 continue;
             }
@@ -704,11 +748,20 @@ class PosController extends Controller
 
     private function resolveTenantIdForCartItem(array $options, array $productSettings): int
     {
+        // First priority: Explicit setting_id in options (set by expandCartItemsBySetting)
         $tenantId = (int) ($options['setting_id'] ?? 0);
-        $productId = (int) ($options['product_id'] ?? 0);
+        
+        // Second priority: Product owner from database
+        if ($tenantId <= 0) {
+            $productId = (int) ($options['product_id'] ?? 0);
+            if ($productId > 0) {
+                $tenantId = (int) ($productSettings[$productId] ?? 0);
+            }
+        }
 
-        if ($tenantId <= 0 && $productId > 0) {
-            $tenantId = (int) ($productSettings[$productId] ?? 0);
+        // Fallback to options setting_id, then session
+        if ($tenantId <= 0) {
+            $tenantId = (int) ($options['setting_id'] ?? 0);
         }
 
         if ($tenantId <= 0) {
