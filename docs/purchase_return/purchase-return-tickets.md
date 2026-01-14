@@ -104,7 +104,7 @@ Edge cases:
 - Same location name across tenants (label disambiguation).
 - Stock changes between search and submit.
 
-## Ticket 5
+## Ticket 5 (Completed)
 Title: Serial lookup to auto-select and lock location
 
 Description:

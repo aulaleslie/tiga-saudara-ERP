@@ -66,6 +66,7 @@ class PurchaseReturnTable extends Component
             'quantity' => 0,
             'location_id' => null,
             'location_name' => '',
+            'location_locked' => false,
             'purchase_order_id' => null,
             'purchase_order_date' => '',
             'purchase_price' => null,
@@ -101,6 +102,7 @@ class PurchaseReturnTable extends Component
             $this->rows[$index]['serial_numbers'] = [];
             $this->rows[$index]['location_id'] = null;
             $this->rows[$index]['location_name'] = '';
+            $this->rows[$index]['location_locked'] = false;
             $this->computeRowTotal($this->rows[$index]);
             $this->populateStockForRow($index);
         }
@@ -179,6 +181,13 @@ class PurchaseReturnTable extends Component
 
         if (!$exists) {
             $this->rows[$index]['serial_numbers'][] = $serialNumber;
+
+            // Auto-fill and lock location from first serial
+            if (count($this->rows[$index]['serial_numbers']) === 1) {
+                $this->rows[$index]['location_id'] = $serialNumber['location_id'] ?? null;
+                $this->rows[$index]['location_name'] = $serialNumber['location_label'] ?? $serialNumber['location_name'] ?? '';
+                $this->rows[$index]['location_locked'] = true;
+            }
         }
 
         // ✅ Sync quantity
@@ -200,6 +209,11 @@ class PurchaseReturnTable extends Component
         // ✅ Sync quantity
         $this->rows[$index]['quantity'] = count($this->rows[$index]['serial_numbers']);
         $this->computeRowTotal($this->rows[$index]);
+
+        // Unlock location if no serials remain
+        if (empty($this->rows[$index]['serial_numbers'])) {
+            $this->rows[$index]['location_locked'] = false;
+        }
 
         $this->dispatch('updateRows', $this->rows);
     }

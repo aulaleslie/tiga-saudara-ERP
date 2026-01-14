@@ -92,6 +92,22 @@ trait ValidatesPurchaseReturnForm
                     ->values()
                     ->all();
 
+                // Validate each serial's location matches the row location
+                if ($locationId !== null) {
+                    $serialsWithWrongLocation = ProductSerialNumber::whereIn('serial_number', $serialNumbers)
+                        ->where('product_id', $productId)
+                        ->where('location_id', '!=', $locationId)
+                        ->pluck('serial_number')
+                        ->all();
+
+                    if (!empty($serialsWithWrongLocation)) {
+                        $validator->errors()->add(
+                            "rows.$index.serial_numbers",
+                            'Nomor seri berada di lokasi yang berbeda: ' . implode(', ', $serialsWithWrongLocation)
+                        );
+                    }
+                }
+
                 $existing = ProductSerialNumber::query()
                     ->whereIn('serial_number', $serialNumbers)
                     ->where('product_id', $productId)

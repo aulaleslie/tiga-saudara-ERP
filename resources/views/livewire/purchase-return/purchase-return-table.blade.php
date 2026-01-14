@@ -60,12 +60,21 @@
                             </td>
                             <td>
                                 @if (!empty($row['product_id']))
-                                    <livewire:purchase-return.location-search-dropdown-per-line
-                                        :index="$index"
-                                        :product_id="$row['product_id']"
-                                        :selected="$row['location_id']"
-                                        :error="$validationErrors['rows.'.$index.'.location_id'][0] ?? null"
-                                        wire:key="location-{{ $index }}" />
+                                    @if (!empty($row['location_locked']))
+                                        {{-- Read-only display for serial-locked locations --}}
+                                        <div class="form-control form-control-sm bg-light text-muted" style="cursor: not-allowed;">
+                                            <i class="bi bi-lock-fill me-1"></i>
+                                            {{ $row['location_name'] ?? 'Pilih lokasi...' }}
+                                        </div>
+                                        <small class="text-muted">Terkunci oleh serial</small>
+                                    @else
+                                        <livewire:purchase-return.location-search-dropdown-per-line
+                                            :index="$index"
+                                            :product_id="$row['product_id']"
+                                            :selected="$row['location_id']"
+                                            :error="$validationErrors['rows.'.$index.'.location_id'][0] ?? null"
+                                            wire:key="location-{{ $index }}" />
+                                    @endif
                                     @if(!empty($validationErrors["rows.$index.location_id"]))
                                         <span class="invalid-feedback d-block text-start">{{ $validationErrors["rows.$index.location_id"][0] }}</span>
                                     @endif
@@ -141,7 +150,6 @@
                                             :index="$index"
                                             :product_id="$row['product_id']"
                                             :purchase_id="$row['purchase_order_id'] ?? null"
-                                            :location_id="$locationId"
                                             :is_broken="true"
                                             wire:key="serial-number-{{ $index }}" />
 

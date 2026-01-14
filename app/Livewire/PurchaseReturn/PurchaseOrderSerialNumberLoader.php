@@ -17,16 +17,13 @@ class PurchaseOrderSerialNumberLoader extends Component
     public $query = ''; // Input for serial number
     
     #[Reactive]
-    public $product_id = '';
+    public $product_id;
     
     #[Reactive]
-    public $purchase_id = '';
+    public $purchase_id;
     
     #[Reactive]
     public $index; // Row index in table
-    
-    #[Reactive]
-    public $location_id;
     
     #[Reactive]
     public $is_broken = false;
@@ -37,13 +34,9 @@ class PurchaseOrderSerialNumberLoader extends Component
 
     protected $listeners = [];
 
-    public function mount($index, $product_id, $purchase_id = null, $location_id = null, $is_broken = null, $is_transfer = null): void
+    public function mount(): void
     {
-        $this->index = $index;
-        $this->product_id = $product_id;
-        $this->purchase_id = $purchase_id;
-        $this->location_id = $location_id;
-        $this->is_broken = $is_broken;
+        // Reactive props are handled automatically
     }
 
 
@@ -59,18 +52,13 @@ class PurchaseOrderSerialNumberLoader extends Component
         }
 
         // Validate serial number
-        $search = ProductSerialNumber::where('product_id', $this->product_id)
-            ->where('serial_number', $serial_number_input);
-            
-        $serial = $search->first();
+        $serial = ProductSerialNumber::where('product_id', $this->product_id)
+            ->where('serial_number', $serial_number_input)
+            ->with(['location.setting'])
+            ->first();
 
         if (!$serial) {
             $this->error_message = 'Serial number tidak ditemukan.';
-            return;
-        }
-
-        if ($this->location_id && (int) $serial->location_id !== (int) $this->location_id) {
-            $this->error_message = 'Serial number berada di lokasi yang berbeda.';
             return;
         }
 
@@ -83,6 +71,9 @@ class PurchaseOrderSerialNumberLoader extends Component
         $this->dispatch('serialNumberSelected', $this->index, [
             'id' => $serial->id,
             'serial_number' => $serial->serial_number,
+            'location_id' => $serial->location_id,
+            'location_name' => $serial->location->name ?? null,
+            'location_label' => ($serial->location->setting->company_name ?? 'N/A') . ' - ' . ($serial->location->name ?? 'N/A'),
         ]);
         
         // Clear input

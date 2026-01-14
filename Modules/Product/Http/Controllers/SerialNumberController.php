@@ -173,25 +173,17 @@ class SerialNumberController extends Controller
         $validated = $request->validate([
             'product_id' => 'required|integer|exists:products,id',
             'serial_number' => 'required|string|max:255',
-            'location_id' => 'required|integer|exists:locations,id',
         ]);
 
-        $search = ProductSerialNumber::where('product_id', $validated['product_id'])
-            ->where('serial_number', $validated['serial_number']);
-            
-        $serial = $search->first();
+        $serial = ProductSerialNumber::where('product_id', $validated['product_id'])
+            ->where('serial_number', $validated['serial_number'])
+            ->with(['location.setting'])
+            ->first();
 
         if (!$serial) {
             return response()->json([
                 'valid' => false,
                 'message' => 'Serial number tidak ditemukan.',
-            ], 200);
-        }
-
-        if ((int) $serial->location_id !== (int) $validated['location_id']) {
-            return response()->json([
-                'valid' => false,
-                'message' => 'Serial number berada di lokasi yang berbeda.',
             ], 200);
         }
 
@@ -204,7 +196,10 @@ class SerialNumberController extends Controller
         
         return response()->json([
             'valid' => true,
-            'serial_number_object' => $serial
+            'serial_number_object' => $serial,
+            'location_id' => $serial->location_id,
+            'location_name' => $serial->location->name ?? null,
+            'location_label' => ($serial->location->setting->company_name ?? 'N/A') . ' - ' . ($serial->location->name ?? 'N/A'),
         ], 200);
     }
 }
