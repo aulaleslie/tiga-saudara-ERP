@@ -116,7 +116,7 @@ Then no partial return records are persisted
 Scenario: Approval succeeds with sufficient stock
 Given a pending return and current stock is sufficient
 When approval is executed
-Then approval succeeds and stock is reserved or mutated on final approval
+Then approval succeeds and the return status updates to approved (stock mutation remains handled by dispatch flow)
 
 Scenario: Approval fails with insufficient stock
 Given a pending return and current stock is insufficient

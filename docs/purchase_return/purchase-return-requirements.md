@@ -52,7 +52,7 @@
 - Document lifecycle:
   - Submission creates a return document in a pending approval state.
   - No inventory mutation or reservation occurs at creation time.
-  - Approval re-validates stock against actual availability; reservation and mutation occur only on final approval.
+  - Approval re-validates stock against actual availability; reservation/mutation timing is handled in the next iteration (current flow mutates on dispatch).
 - Purchase create:
   - Purchase price is not displayed in the create UI.
 

@@ -26,9 +26,18 @@ return new class extends Migration
             } elseif ($driver === 'pgsql') {
                 $result = DB::select("SELECT 1 FROM pg_indexes WHERE indexname = ?", [$indexName]);
                 return !empty($result);
+            } elseif ($driver === 'sqlite') {
+                $indexes = DB::select("PRAGMA index_list('{$table}')");
+                foreach ($indexes as $index) {
+                    if ($index->name === $indexName) {
+                        return true;
+                    }
+                }
+                return false;
             }
             return false;
         };
+
 
         // Add index on settings.company_name for faster tenant lookups
         if (Schema::hasTable('settings') && !$indexExists('settings', 'idx_settings_company_name')) {

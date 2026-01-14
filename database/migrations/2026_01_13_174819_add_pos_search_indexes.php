@@ -83,9 +83,25 @@ return new class extends Migration
      */
     private function indexExists(string $table, string $indexName): bool
     {
+        $driver = DB::connection()->getDriverName();
+        
+        if ($driver === 'sqlite') {
+            // For SQLite, use PRAGMA to get index list
+            $indexes = DB::select("PRAGMA index_list('{$table}')");
+            foreach ($indexes as $index) {
+                if ($index->name === $indexName) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        // MySQL fallback
         $indexes = DB::select("SHOW INDEX FROM `{$table}` WHERE Key_name = ?", [$indexName]);
         return count($indexes) > 0;
     }
+
+
 
     /**
      * Reverse the migrations.

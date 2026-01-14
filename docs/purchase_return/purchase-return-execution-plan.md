@@ -52,6 +52,8 @@ Phase C (Milestone C)
 - Mitigation: Clear error messaging and recheck option before approval.
 - Risk: “No mutation at create” could allow oversubscription before approval.
 - Mitigation: Revalidation on approval; consider optional reservation in a future phase.
+- Risk: Current dispatch flow mutates global `Product::product_quantity` (not per-location).
+- Mitigation: Keep approval validation aligned with existing dispatch behavior until dispatch is redesigned.
 
 Phase D (Milestone D)
 - Risk: Permission mismatches between UI and API.
@@ -77,4 +79,3 @@ Phase D (Milestone D)
   - Line-level location selection works across multiple lines.
   - Serial lines disable location input when auto-filled.
   - Price fields are hidden on purchase create.
-
