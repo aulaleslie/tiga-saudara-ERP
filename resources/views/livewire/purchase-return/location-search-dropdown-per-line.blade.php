@@ -21,15 +21,19 @@
                        autofocus>
                 
                 <div class="list-group list-group-flush">
-                    @forelse($locations as $location)
-                        <button type="button" 
-                                class="list-group-item list-group-item-action py-1 px-2 small {{ $selected == $location->id ? 'active' : '' }}"
-                                wire:click="select({{ $location->id }})">
-                            {{ $location->name }}
-                        </button>
-                    @empty
-                        <div class="list-group-item disabled py-1 px-2 small">Tidak ada lokasi ditemukan.</div>
-                    @endforelse
+                    @if(!$product_id)
+                        <div class="list-group-item disabled py-1 px-2 small">Pilih produk terlebih dahulu.</div>
+                    @else
+                        @forelse($locations as $location)
+                            <button type="button" 
+                                    class="list-group-item list-group-item-action py-1 px-2 small {{ $selected == $location['id'] ? 'active' : '' }}"
+                                    wire:click="select({{ $location['id'] }})">
+                                {{ $location['label'] }}
+                            </button>
+                        @empty
+                            <div class="list-group-item disabled py-1 px-2 small">Tidak ada lokasi dengan stok tersedia.</div>
+                        @endforelse
+                    @endif
                 </div>
             </div>
         </div>

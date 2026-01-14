@@ -72,6 +72,16 @@ trait ValidatesPurchaseReturnForm
                 } else {
                     $lineCombinations[] = $combination;
                 }
+
+                // Check stock availability
+                $hasStock = \Modules\Product\Entities\ProductStock::where('product_id', $productId)
+                    ->where('location_id', $locationId)
+                    ->where('quantity', '>', 0)
+                    ->exists();
+
+                if (!$hasStock) {
+                    $validator->errors()->add("rows.$index.location_id", 'Stok tidak tersedia di lokasi yang dipilih.');
+                }
             }
 
             if (! empty($row['serial_numbers'])) {

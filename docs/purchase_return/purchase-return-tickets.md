@@ -54,7 +54,7 @@ Edge cases:
 - Legacy returns with header location still present.
 - Supplier disabled or deleted during creation.
 
-## Ticket 3
+## Ticket 3 (Completed)
 Title: Implement multi-line return items with per-line location
 
 Description:
@@ -79,7 +79,7 @@ Edge cases:
 - Same product + same location appears twice (should be blocked or merged).
 - Empty line rows submitted.
 
-## Ticket 4
+## Ticket 4 (Completed)
 Title: Location search dropdown filtered by positive stock across tenants
 
 Description:

@@ -90,6 +90,29 @@ class PurchaseReturnMultiLineTest extends TestCase
             'setting_id' => $this->setting->id,
         ]);
 
+        // Add stock data for both locations to pass validation
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location1->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+        ]);
+
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location2->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+        ]);
+
         session(['setting_id' => $this->setting->id]);
         Gate::shouldReceive('denies')->andReturnFalse()->zeroOrMoreTimes();
         Gate::shouldReceive('allows')->andReturnTrue()->zeroOrMoreTimes();
