@@ -58,11 +58,6 @@ class PurchaseOrderSerialNumberLoader extends Component
             return;
         }
 
-        if (!$this->location_id) {
-            $this->error_message = 'Pilih lokasi terlebih dahulu.';
-            return;
-        }
-
         // Validate serial number
         $search = ProductSerialNumber::where('product_id', $this->product_id)
             ->where('serial_number', $serial_number_input);
@@ -74,7 +69,7 @@ class PurchaseOrderSerialNumberLoader extends Component
             return;
         }
 
-        if ((int) $serial->location_id !== (int) $this->location_id) {
+        if ($this->location_id && (int) $serial->location_id !== (int) $this->location_id) {
             $this->error_message = 'Serial number berada di lokasi yang berbeda.';
             return;
         }
@@ -100,4 +95,3 @@ class PurchaseOrderSerialNumberLoader extends Component
         return view('livewire.purchase-return.purchase-order-serial-number-loader');
     }
 }
-

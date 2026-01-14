@@ -25,18 +25,15 @@ class PurchaseReturnCreateForm extends Component
     public $rows = [];
     public $note;
     public $grand_total = 0.0;
-    public $location_id = null;
 
     public string $formTitle = 'Buat Retur Pembelian';
     public string $submitLabel = 'Proses Retur';
     public bool $approvalLocked = false;
     public ?string $supplierName = null;
-    public ?string $locationName = null;
 
     protected $listeners = [
         'supplierSelected' => 'handleSupplierSelected',
         'updateRows' => 'handleUpdatedRows',
-        'locationDropdownSelected' => 'handleLocationDropdownSelected',
     ];
 
     public function mount(): void
@@ -63,16 +60,6 @@ class PurchaseReturnCreateForm extends Component
 
         // Dispatch event to notify PurchaseReturnTable to refresh
         $this->dispatch('supplierUpdated', $this->supplier_id);
-    }
-
-    public function handleLocationDropdownSelected($name, $value): void
-    {
-        if ($name === 'location_id') {
-            $this->location_id = $value;
-            $location = \Modules\Setting\Entities\Location::find($value);
-            $this->locationName = $location?->name;
-            $this->dispatch('locationUpdated', $this->location_id);
-        }
     }
 
     public function handleUpdatedRows($updatedRows): void
@@ -109,7 +96,6 @@ class PurchaseReturnCreateForm extends Component
                     'supplier_id' => $this->supplier_id,
                     'supplier_name' => optional($supplier)->supplier_name ?? '-',
                     'setting_id' => session('setting_id'),
-                    'location_id' => $this->location_id,
                     'tax_percentage' => 0,
                     'tax_amount' => 0,
                     'discount_percentage' => 0,
@@ -172,7 +158,6 @@ class PurchaseReturnCreateForm extends Component
         $data = [
             'supplier_id' => $this->supplier_id,
             'date' => $this->date,
-            'location_id' => $this->location_id,
             'rows' => $this->rows,
         ];
 

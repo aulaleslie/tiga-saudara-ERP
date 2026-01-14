@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\ProductSerialNumber;
-use Modules\Product\Entities\ProductStock;
 use Modules\Purchase\Entities\Purchase;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
@@ -30,7 +29,6 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
             'purchaseReturnDetails.product',
             'purchaseReturnDetails.purchase',
             'supplier',
-            'location.setting',
         ]);
 
         $this->formTitle = 'Ubah Retur Pembelian';
@@ -46,20 +44,10 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
         $this->date = $date instanceof Carbon
             ? $date->format('Y-m-d')
             : ($date ?: now()->format('Y-m-d'));
-        $this->location_id = $this->purchaseReturn->location_id;
-        $location = $this->purchaseReturn->location;
-        $company = $location?->setting?->company_name;
-        $this->locationName = $location
-            ? trim($location->name . ($company ? ' - ' . $company : ''))
-            : null;
         $this->note = $this->purchaseReturn->note;
 
         $this->rows = $this->mapRowsFromPurchaseReturn();
         $this->grand_total = $this->calculateReturnTotal();
-
-        if ($this->location_id) {
-            $this->dispatch('locationUpdated', $this->location_id);
-        }
     }
 
     public function submit()
@@ -88,7 +76,6 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
                     'date' => $this->date,
                     'supplier_id' => $this->supplier_id,
                     'supplier_name' => optional($supplier)->supplier_name ?? '-',
-                    'location_id' => $this->location_id,
                     'total_amount' => round($prepared['total'], 2),
                     'paid_amount' => round($prepared['paidAmount'], 2),
                     'due_amount' => round($prepared['dueAmount'], 2),
@@ -164,20 +151,8 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
             ? collect()
             : ProductSerialNumber::query()->whereIn('id', $serialIds)->get()->keyBy('id');
 
-        $productIds = $details->pluck('product_id')->filter()->unique()->values();
-
-        $stocks = [];
-        if ($this->location_id && $productIds->isNotEmpty()) {
-            $stocks = ProductStock::query()
-                ->where('location_id', $this->location_id)
-                ->whereIn('product_id', $productIds)
-                ->get()
-                ->keyBy('product_id');
-        }
-
-        return $details->map(function (PurchaseReturnDetail $detail) use ($serials, $stocks) {
+        return $details->map(function (PurchaseReturnDetail $detail) use ($serials) {
             $product = $detail->product;
-            $stock = $stocks[$detail->product_id] ?? null;
             $serialNumbers = collect($detail->serial_number_ids ?? [])
                 ->map(function ($id) use ($serials) {
                     $serial = $serials[$id] ?? null;
@@ -209,8 +184,8 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
                 'serial_numbers' => $serialNumbers,
                 'serial_number_required' => (bool) optional($product)->serial_number_required,
                 'total' => (float) ($detail->sub_total ?? (($detail->unit_price ?? 0) * $detail->quantity)),
-                'available_quantity_tax' => (int) ($stock->quantity_tax ?? 0),
-                'available_quantity_non_tax' => (int) ($stock->quantity_non_tax ?? 0),
+                'available_quantity_tax' => 0,
+                'available_quantity_non_tax' => 0,
             ];
         })->values()->toArray();
     }

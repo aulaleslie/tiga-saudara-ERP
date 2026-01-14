@@ -26,11 +26,11 @@
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-white border-0 pb-0">
                 <h5 class="mb-1">Informasi Retur</h5>
-                <p class="text-muted small mb-0">Pilih pemasok, tanggal transaksi, dan lokasi penyerahan sebelum menambahkan produk.</p>
+                <p class="text-muted small mb-0">Pilih pemasok dan tanggal transaksi sebelum menambahkan produk.</p>
             </div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-lg-4 mb-3">
+                    <div class="col-lg-6 mb-3">
                         <label class="form-label fw-semibold" for="supplier">Pemasok</label>
                         @if ($this->approvalLocked)
                             <input type="text" class="form-control" value="{{ $this->supplierName ?? '-' }}" disabled>
@@ -50,30 +50,10 @@
                         @enderror
                     </div>
 
-                    <div class="col-lg-4 mb-3">
+                    <div class="col-lg-6 mb-3">
                         <label class="form-label fw-semibold" for="date">Tanggal Retur</label>
                         <input type="date" id="date" class="form-control" wire:model.defer="date" required>
                         @error('date')
-                            <div class="invalid-feedback d-block">{{ $message }}</div>
-                        @enderror
-                    </div>
-
-                    <div class="col-lg-4 mb-3">
-                        <label class="form-label fw-semibold" for="location">Lokasi</label>
-                        @if ($this->approvalLocked)
-                            <input type="text" id="location" class="form-control" value="{{ $this->locationName ?? '-' }}" disabled>
-                            <div class="form-text">Lokasi tidak dapat diubah setelah retur disetujui.</div>
-                        @else
-                            <livewire:modules.setting.location-search-dropdown
-                                name="location_id"
-                                placeholder="Pilih lokasi..."
-                                :allow-create="false"
-                                :selected="$location_id"
-                                :error="$errors->first('location_id')"
-                                wire:key="purchase-return-location-dropdown"
-                            />
-                        @endif
-                        @error('location_id')
                             <div class="invalid-feedback d-block">{{ $message }}</div>
                         @enderror
                     </div>
@@ -85,7 +65,7 @@
             <div class="card-header bg-white border-0 d-flex align-items-center">
                 <div>
                     <h5 class="mb-1">Detail Produk</h5>
-                    <p class="text-muted small mb-0">Daftar produk yang akan diretur beserta informasi ketersediaan stok di lokasi terpilih.</p>
+                    <p class="text-muted small mb-0">Daftar produk yang akan diretur beserta informasi ketersediaan stok.</p>
                 </div>
                 <div class="ms-auto small text-muted">
                     @error('rows')
@@ -94,7 +74,7 @@
                 </div>
             </div>
             <div class="card-body" style="overflow: visible;">
-                <livewire:purchase-return.purchase-return-table :location-id="$location_id" :rows="$rows" :supplier-id="$supplier_id" />
+                <livewire:purchase-return.purchase-return-table :rows="$rows" :supplier-id="$supplier_id" />
 
                 @if (!$supplier_id)
                     <div class="alert alert-light border mt-3 mb-0" role="alert">

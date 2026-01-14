@@ -13,7 +13,6 @@ trait ValidatesPurchaseReturnForm
         return [
             'supplier_id' => 'required|exists:suppliers,id',
             'date' => 'required|date',
-            'location_id' => 'required|exists:locations,id',
             'rows' => 'required|array|min:1',
             'rows.*.product_id' => 'required|exists:products,id',
             'rows.*.quantity' => 'required|integer|min:1',
@@ -28,8 +27,6 @@ trait ValidatesPurchaseReturnForm
             'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
             'date.required' => 'Tanggal retur wajib diisi.',
             'date.date' => 'Format tanggal tidak valid.',
-            'location_id.required' => 'Lokasi wajib dipilih.',
-            'location_id.exists' => 'Lokasi yang dipilih tidak valid.',
             'rows.required' => 'Setidaknya satu produk harus ditambahkan.',
             'rows.array' => 'Format produk tidak valid.',
             'rows.min' => 'Setidaknya satu produk harus ditambahkan.',
@@ -59,17 +56,6 @@ trait ValidatesPurchaseReturnForm
 
         foreach ($this->rows as $index => $row) {
             $productId = $row['product_id'] ?? null;
-            $qty = (int) ($row['quantity'] ?? 0);
-            $availableTax = (int) ($row['available_quantity_tax'] ?? 0);
-            $availableNonTax = (int) ($row['available_quantity_non_tax'] ?? 0);
-            $totalAvailable = $availableTax + $availableNonTax;
-
-            if ($qty > $totalAvailable) {
-                $validator->errors()->add(
-                    "rows.$index.quantity",
-                    "Jumlah retur tidak boleh melebihi stok tersedia ({$totalAvailable})."
-                );
-            }
 
             if (! empty($row['serial_number_required']) && empty($row['serial_numbers'])) {
                 $validator->errors()->add("rows.$index.serial_numbers", 'Produk memerlukan nomor seri.');
@@ -94,7 +80,6 @@ trait ValidatesPurchaseReturnForm
                 $existing = ProductSerialNumber::query()
                     ->whereIn('serial_number', $serialNumbers)
                     ->where('product_id', $productId)
-                    ->when($this->location_id, fn($q) => $q->where('location_id', $this->location_id))
                     ->pluck('serial_number')
                     ->unique()
                     ->values()
@@ -106,7 +91,7 @@ trait ValidatesPurchaseReturnForm
                 if (! empty($missing)) {
                     $validator->errors()->add(
                         "rows.$index.serial_numbers",
-                        'Nomor seri tidak valid atau tidak ditemukan pada lokasi ini: ' . implode(', ', $missing)
+                        'Nomor seri tidak valid atau tidak ditemukan: ' . implode(', ', $missing)
                     );
                 }
             }

@@ -183,7 +183,6 @@ class PurchaseReturnTable extends Component
         }
 
         if (! $this->locationId) {
-            Log::warning('PurchaseReturnTable: populateStockForRow - No locationId set', ['index' => $index]);
             $this->rows[$index]['available_quantity_tax'] = 0;
             $this->rows[$index]['available_quantity_non_tax'] = 0;
             return;
