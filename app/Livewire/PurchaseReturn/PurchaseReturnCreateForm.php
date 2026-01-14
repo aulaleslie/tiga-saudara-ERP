@@ -8,6 +8,7 @@ use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
@@ -38,6 +39,7 @@ class PurchaseReturnCreateForm extends Component
 
     public function mount(): void
     {
+        $this->authorizeCreate();
         $this->date = now()->format('Y-m-d');
         $this->formTitle = 'Buat Retur Pembelian';
         $this->submitLabel = 'Proses Retur';
@@ -81,6 +83,7 @@ class PurchaseReturnCreateForm extends Component
      */
     public function submit()
     {
+        $this->authorizeCreate();
         Log::info('Submitting purchase return form', get_object_vars($this));
 
         $this->dispatch('purchase-return:submit-start');
@@ -151,6 +154,15 @@ class PurchaseReturnCreateForm extends Component
         }
 
         return null;
+    }
+
+    protected function authorizeCreate(): void
+    {
+        if (property_exists($this, 'purchaseReturn')) {
+            return;
+        }
+
+        abort_if(Gate::denies('purchaseReturns.create'), 403, 'Anda tidak memiliki izin untuk membuat retur pembelian.');
     }
 
     protected function validateAndPrepare(): array
