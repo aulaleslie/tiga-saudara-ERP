@@ -16,6 +16,7 @@ trait ValidatesPurchaseReturnForm
             'rows' => 'required|array|min:1',
             'rows.*.product_id' => 'required|exists:products,id',
             'rows.*.quantity' => 'required|integer|min:1',
+            'rows.*.location_id' => 'required|exists:locations,id',
             'rows.*.purchase_order_id' => 'nullable|exists:purchases,id',
         ];
     }
@@ -35,6 +36,8 @@ trait ValidatesPurchaseReturnForm
             'rows.*.quantity.required' => 'Jumlah produk harus diisi.',
             'rows.*.quantity.integer' => 'Jumlah produk harus berupa angka.',
             'rows.*.quantity.min' => 'Jumlah produk minimal 1.',
+            'rows.*.location_id.required' => 'Lokasi wajib dipilih.',
+            'rows.*.location_id.exists' => 'Lokasi yang dipilih tidak valid.',
             'rows.*.purchase_order_id.exists' => 'Nomor purchase order tidak valid.',
         ];
     }
@@ -52,20 +55,22 @@ trait ValidatesPurchaseReturnForm
 
     protected function applyPurchaseReturnAfterValidation(LaravelValidator $validator): void
     {
-        $productIds = [];
+        $lineCombinations = [];
 
         foreach ($this->rows as $index => $row) {
             $productId = $row['product_id'] ?? null;
+            $locationId = $row['location_id'] ?? null;
 
             if (! empty($row['serial_number_required']) && empty($row['serial_numbers'])) {
                 $validator->errors()->add("rows.$index.serial_numbers", 'Produk memerlukan nomor seri.');
             }
 
-            if ($productId !== null) {
-                if (in_array($productId, $productIds)) {
-                    $validator->errors()->add("rows.$index.product_id", 'Produk ini sudah dipilih sebelumnya.');
+            if ($productId !== null && $locationId !== null) {
+                $combination = $productId . '-' . $locationId;
+                if (in_array($combination, $lineCombinations)) {
+                    $validator->errors()->add("rows.$index.product_id", 'Kombinasi produk dan lokasi ini sudah ada.');
                 } else {
-                    $productIds[] = $productId;
+                    $lineCombinations[] = $combination;
                 }
             }
 

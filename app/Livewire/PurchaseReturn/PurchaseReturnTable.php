@@ -26,6 +26,7 @@ class PurchaseReturnTable extends Component
         'productSelected' => 'updateProductRow',
         'purchaseOrderSelected' => 'updatePurchaseOrderRow',
         'serialNumberSelected' => 'updateSerialNumberRow',
+        'locationSelected' => 'updateLocationRow',
         'updateTableErrors' => 'handleValidationErrors',
         'supplierUpdated' => 'handleSupplierUpdated',
     ];
@@ -63,6 +64,8 @@ class PurchaseReturnTable extends Component
             'product_name' => '',
             'product_code' => '',
             'quantity' => 0,
+            'location_id' => null,
+            'location_name' => '',
             'purchase_order_id' => null,
             'purchase_order_date' => '',
             'purchase_price' => null,
@@ -96,6 +99,8 @@ class PurchaseReturnTable extends Component
             $this->rows[$index]['product_code'] = $product['product_code'] ?? '';
             $this->rows[$index]['serial_number_required'] = $product['serial_number_required'];
             $this->rows[$index]['serial_numbers'] = [];
+            $this->rows[$index]['location_id'] = null;
+            $this->rows[$index]['location_name'] = '';
             $this->computeRowTotal($this->rows[$index]);
             $this->populateStockForRow($index);
         }
@@ -112,6 +117,16 @@ class PurchaseReturnTable extends Component
             $purchase_detail = PurchaseDetail::where('purchase_id', $purchase['id'])->where('product_id', $this->rows[$index]['product_id'])->first();
             $this->rows[$index]['purchase_price'] = optional($purchase_detail)->price ?? 0;
             $this->computeRowTotal($this->rows[$index]);
+        }
+
+        $this->dispatch('updateRows', $this->rows);
+    }
+
+    public function updateLocationRow($index, $location): void
+    {
+        if (isset($this->rows[$index])) {
+            $this->rows[$index]['location_id'] = $location['id'];
+            $this->rows[$index]['location_name'] = $location['name'];
         }
 
         $this->dispatch('updateRows', $this->rows);

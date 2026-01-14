@@ -18,11 +18,17 @@ class PurchaseReturnDetail extends BaseModel
         'product_discount_amount' => 'decimal:2',
         'product_tax_amount'      => 'decimal:2',
         'serial_number_ids'       => 'array',
+        'location_id'             => 'integer',
     ];
 
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id', 'id');
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Location::class, 'location_id', 'id');
     }
 
     public function purchaseReturn(): BelongsTo

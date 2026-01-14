@@ -25,6 +25,7 @@
                 <thead class="table-light">
                     <tr class="text-center text-uppercase small text-muted">
                         <th style="width: 22%">Produk</th>
+                        <th style="width: 15%">Lokasi</th>
                         <th style="width: 9%">Tersedia Non Pajak</th>
                         <th style="width: 9%">Tersedia Pajak</th>
                         <th style="width: 9%">Jumlah Retur</th>
@@ -51,10 +52,25 @@
                                     :error="$validationErrors['rows.'.$index.'.product_id'][0] ?? null"
                                     wire:key="product-{{ $index }}" />
                                 @if(!empty($validationErrors["rows.$index.product_id"]))
-                                    <span class="invalid-feedback d-block">{{ $validationErrors["rows.$index.product_id"][0] }}</span>
+                                    <span class="invalid-feedback d-block text-start">{{ $validationErrors["rows.$index.product_id"][0] }}</span>
                                 @endif
                                 @if(!empty($validationErrors["rows.$index.serial_numbers"]))
-                                    <span class="invalid-feedback d-block">{{ $validationErrors["rows.$index.serial_numbers"][0] }}</span>
+                                    <span class="invalid-feedback d-block text-start">{{ $validationErrors["rows.$index.serial_numbers"][0] }}</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if (!empty($row['product_id']))
+                                    <livewire:purchase-return.location-search-dropdown-per-line
+                                        :index="$index"
+                                        :product_id="$row['product_id']"
+                                        :selected="$row['location_id']"
+                                        :error="$validationErrors['rows.'.$index.'.location_id'][0] ?? null"
+                                        wire:key="location-{{ $index }}" />
+                                    @if(!empty($validationErrors["rows.$index.location_id"]))
+                                        <span class="invalid-feedback d-block text-start">{{ $validationErrors["rows.$index.location_id"][0] }}</span>
+                                    @endif
+                                @else
+                                    <span class="text-muted small">Pilih produk dahulu</span>
                                 @endif
                             </td>
                             <td class="text-center">
@@ -119,7 +135,7 @@
 
                         @if (!empty($row['serial_number_required']))
                             <tr class="bg-light">
-                                <td colspan="9">
+                                <td colspan="10">
                                     <div class="p-3 rounded border">
                                         <livewire:purchase-return.purchase-order-serial-number-loader
                                             :index="$index"
@@ -166,7 +182,7 @@
                         @endif
                     @empty
                         <tr>
-                            <td colspan="9" class="text-center text-muted py-4">Belum ada produk yang ditambahkan.</td>
+                            <td colspan="10" class="text-center text-muted py-4">Belum ada produk yang ditambahkan.</td>
                         </tr>
                     @endforelse
                 </tbody>
