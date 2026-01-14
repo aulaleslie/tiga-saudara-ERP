@@ -21,8 +21,6 @@ class PurchaseReturnTable extends Component
     public $rows = [];
     public $validationErrors = [];
     
-    #[Reactive]
-    public $locationId = null;
 
     protected $listeners = [
         'productSelected' => 'updateProductRow',
@@ -48,32 +46,10 @@ class PurchaseReturnTable extends Component
         $this->dispatch('updateRows', $this->rows);
     }
 
-    public function updatedLocationId($value): void
-    {
-        Log::info('PurchaseReturnTable: updatedLocationId called', ['locationId' => $value]);
-        
-        foreach (array_keys($this->rows) as $index) {
-            $this->populateStockForRow($index);
-            
-            // Clear serial numbers on location change as they are location-specific
-            if (!empty($this->rows[$index]['serial_numbers'])) {
-                $this->rows[$index]['serial_numbers'] = [];
-            }
-            
-            // If serials are required, reset quantity to match serial count (0)
-            if (!empty($this->rows[$index]['serial_number_required'])) {
-                 $this->rows[$index]['quantity'] = 0;
-                 $this->computeRowTotal($this->rows[$index]);
-            }
-        }
 
-        $this->dispatch('updateRows', $this->rows);
-    }
-
-    public function mount($rows = [], $locationId = null, $supplierId = null)
+    public function mount($rows = [], $supplierId = null)
     {
         $this->rows = $rows;
-        $this->locationId = $locationId;
     }
 
     public function addProductRow(): void
@@ -156,17 +132,6 @@ class PurchaseReturnTable extends Component
         $this->validationErrors = $errors;
     }
 
-    public function setLocation($locationId): void
-    {
-        Log::info('PurchaseReturnTable: setLocation called', ['locationId' => $locationId]);
-        $this->locationId = $locationId;
-
-        foreach (array_keys($this->rows) as $index) {
-            $this->populateStockForRow($index);
-        }
-
-        $this->dispatch('updateRows', $this->rows);
-    }
 
     public function emitUpdatedQuantity($index): void
     {
@@ -182,30 +147,8 @@ class PurchaseReturnTable extends Component
             return;
         }
 
-        if (! $this->locationId) {
-            $this->rows[$index]['available_quantity_tax'] = 0;
-            $this->rows[$index]['available_quantity_non_tax'] = 0;
-            return;
-        }
-
-        $stock = ProductStock::query()
-            ->where('product_id', $this->rows[$index]['product_id'])
-            ->where('location_id', (int) $this->locationId)
-            ->first();
-
-        Log::info('PurchaseReturnTable: populateStockForRow', [
-            'index' => $index,
-            'product_id' => $this->rows[$index]['product_id'],
-            'location_id' => $this->locationId,
-            'stock_found' => (bool) $stock,
-            'qty_tax' => $stock->quantity_tax ?? 0,
-            'broken_tax' => $stock->broken_quantity_tax ?? 0,
-            'qty_non_tax' => $stock->quantity_non_tax ?? 0,
-            'broken_non_tax' => $stock->broken_quantity_non_tax ?? 0
-        ]);
-
-        $this->rows[$index]['available_quantity_tax'] = (int) (($stock->quantity_tax ?? 0) + ($stock->broken_quantity_tax ?? 0));
-        $this->rows[$index]['available_quantity_non_tax'] = (int) (($stock->quantity_non_tax ?? 0) + ($stock->broken_quantity_non_tax ?? 0));
+        $this->rows[$index]['available_quantity_tax'] = 0;
+        $this->rows[$index]['available_quantity_non_tax'] = 0;
     }
 
     public function updateSerialNumberRow($index, $serialNumber): void

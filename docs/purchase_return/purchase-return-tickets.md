@@ -8,7 +8,7 @@
 - Approval happens in `PurchasesReturnController@approve` with no stock revalidation; stock mutation occurs later in `dispatchReturn` using global `Product::product_quantity`.
 - Purchase create UI uses Livewire `Purchase/CreateForm` + `Purchase/ProductCart`, which displays and edits purchase price.
 
-## Ticket 1
+## Ticket 1 (Completed)
 Title: Gate purchase return create by permission
 
 Description:
@@ -30,7 +30,7 @@ Edge cases:
 - User has UI access but API denies due to stale permission cache.
 - Role changes mid-session.
 
-## Ticket 2
+## Ticket 2 (Completed)
 Title: Update purchase return header (supplier required, remove header location)
 
 Description:

@@ -94,6 +94,11 @@ class PurchaseReturn extends BaseModel
         return $this->hasMany(PurchaseReturnGood::class, 'purchase_return_id');
     }
 
+    /**
+     * @deprecated Header-level location removed in Ticket 2.
+     * Use PurchaseReturnDetail::location() for per-line location (Ticket 3).
+     * Kept for legacy data compatibility.
+     */
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class, 'location_id');

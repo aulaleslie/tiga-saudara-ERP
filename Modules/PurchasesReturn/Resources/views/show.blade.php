@@ -169,8 +169,10 @@
                                     <dl class="row mb-0 small">
                                         <dt class="col-5 text-muted">Invoice</dt>
                                         <dd class="col-7 fw-semibold">INV/{{ $purchase_return->reference }}</dd>
-                                        <dt class="col-5 text-muted">Lokasi</dt>
-                                        <dd class="col-7 fw-semibold">{{ $purchase_return->location->name ?? '-' }}</dd>
+                                        @if($purchase_return->location_id)
+                                            <dt class="col-5 text-muted">Lokasi</dt>
+                                            <dd class="col-7 fw-semibold">{{ $purchase_return->location->name ?? '-' }}</dd>
+                                        @endif
                                         <dt class="col-5 text-muted">Metode</dt>
                                         <dd class="col-7 fw-semibold">{{ $purchase_return->return_type ? ucfirst($purchase_return->return_type) : 'Belum ditentukan' }}</dd>
                                         <dt class="col-5 text-muted">Status Penyelesaian</dt>

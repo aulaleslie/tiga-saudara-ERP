@@ -206,7 +206,7 @@ class PurchasesReturnSettlementController extends Controller
                                     // Reactivate/Update
                                     $existingSn->update([
                                         'status' => 'active', 
-                                        'location_id' => $purchaseReturn->location_id
+                                        'location_id' => $purchaseReturn->location_id ?? null // TODO: Update to per-line location in Ticket 3
                                     ]);
                                 } else {
                                     // Create New
@@ -214,7 +214,7 @@ class PurchasesReturnSettlementController extends Controller
                                         'product_id' => $product->id,
                                         'serial_number' => $sn,
                                         'status' => 'active',
-                                        'location_id' => $purchaseReturn->location_id,
+                                        'location_id' => $purchaseReturn->location_id ?? null, // TODO: Update to per-line location in Ticket 3
                                     ]);
                                 }
                             }
