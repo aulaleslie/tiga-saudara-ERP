@@ -1097,9 +1097,12 @@ class Checkout extends Component
             'tier_2_price' => $baseTier2Price,
         ];
 
+        // Skip DB query if product already has tier prices from joined data (e.g., from ProductList/SearchProduct)
+        $hasPreResolvedPrices = $baseTier1Price !== null || $baseTier2Price !== null;
+
         $settingId = session('setting_id');
 
-        if ($productId > 0 && $settingId) {
+        if (!$hasPreResolvedPrices && $productId > 0 && $settingId) {
             $tenantPrice = ProductPrice::query()
                 ->forProduct($productId)
                 ->forSetting((int) $settingId)

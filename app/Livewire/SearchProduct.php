@@ -436,11 +436,14 @@ class SearchProduct extends Component
 
         /*
          * Query filters to only show products that have been purchased before.
-         * We use INNER JOIN with a subquery of distinct purchased product IDs
-         * which is evaluated once and then joined, rather than EXISTS which
-         * would be evaluated per-row in each UNION segment.
+         * We use a CTE (WITH clause) to compute the purchased product IDs ONCE,
+         * then reference it in each UNION segment. This is much faster than
+         * having each UNION segment scan purchase_details independently.
          */
         $sql = "
+    WITH purchased_prods AS (
+        SELECT DISTINCT product_id FROM purchase_details WHERE product_id IS NOT NULL
+    )
     SELECT * FROM (
         /* Base rows - non-serial products matched by name/code/barcode */
         SELECT
@@ -469,8 +472,7 @@ class SearchProduct extends Component
             END AS has_bundle
         FROM products p
         /* Only include products that have been purchased at least once */
-        INNER JOIN (SELECT DISTINCT product_id FROM purchase_details WHERE product_id IS NOT NULL) purchased_prods
-            ON purchased_prods.product_id = p.id
+        INNER JOIN purchased_prods ON purchased_prods.product_id = p.id
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_base
         LEFT JOIN (
             SELECT product_id,
@@ -517,8 +519,7 @@ class SearchProduct extends Component
         FROM product_unit_conversions puc
         JOIN products p ON p.id = puc.product_id
         /* Only include products that have been purchased at least once */
-        INNER JOIN (SELECT DISTINCT product_id FROM purchase_details WHERE product_id IS NOT NULL) purchased_prods
-            ON purchased_prods.product_id = p.id
+        INNER JOIN purchased_prods ON purchased_prods.product_id = p.id
         LEFT JOIN product_unit_conversion_prices pucp
             ON pucp.product_unit_conversion_id = puc.id
            AND pucp.setting_id = :settingId_conversion_pucp
@@ -568,8 +569,7 @@ class SearchProduct extends Component
         FROM product_serial_numbers psn
         JOIN products p ON p.id = psn.product_id
         /* Only include products that have been purchased at least once */
-        INNER JOIN (SELECT DISTINCT product_id FROM purchase_details WHERE product_id IS NOT NULL) purchased_prods
-            ON purchased_prods.product_id = p.id
+        INNER JOIN purchased_prods ON purchased_prods.product_id = p.id
         LEFT JOIN product_prices pp ON pp.product_id = p.id AND pp.setting_id = :settingId_serial
         LEFT JOIN (
             SELECT product_id,

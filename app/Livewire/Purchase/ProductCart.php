@@ -315,6 +315,13 @@ class ProductCart extends Component
         $this->recalculateCart();
     }
 
+    public function updateQuantityDirect($row_id, $product_id, $value): void
+    {
+        $newQty = max(1, (int) $value);
+        $this->quantity[$product_id] = $newQty;
+        $this->updateQuantity($row_id, $product_id);
+    }
+
     public function updateQuantity($row_id, $product_id): void
     {
         if ($this->quantity[$product_id] <= 0) {
