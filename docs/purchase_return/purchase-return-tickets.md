@@ -130,7 +130,7 @@ Edge cases:
 - Serial exists but location is inactive.
 - Serial lookup timeout or temporary failure.
 
-## Ticket 6
+## Ticket 6 (Completed)
 Title: Enforce serial uniqueness and consistency per return
 
 Description:

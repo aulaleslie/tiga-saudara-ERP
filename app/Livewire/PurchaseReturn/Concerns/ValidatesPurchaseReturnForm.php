@@ -56,10 +56,16 @@ trait ValidatesPurchaseReturnForm
     protected function applyPurchaseReturnAfterValidation(LaravelValidator $validator): void
     {
         $lineCombinations = [];
+        $allSerials = []; // Track all serials across rows: normalized_serial => row_index
 
         foreach ($this->rows as $index => $row) {
             $productId = $row['product_id'] ?? null;
             $locationId = $row['location_id'] ?? null;
+
+            // Validate: serial entry on non-serial-tracked product
+            if (empty($row['serial_number_required']) && !empty($row['serial_numbers'])) {
+                $validator->errors()->add("rows.$index.serial_numbers", 'Produk ini tidak memerlukan nomor seri.');
+            }
 
             if (! empty($row['serial_number_required']) && empty($row['serial_numbers'])) {
                 $validator->errors()->add("rows.$index.serial_numbers", 'Produk memerlukan nomor seri.');
@@ -91,6 +97,19 @@ trait ValidatesPurchaseReturnForm
                     ->unique()
                     ->values()
                     ->all();
+
+                // Check for duplicate serials across all rows (case-insensitive)
+                foreach ($serialNumbers as $serial) {
+                    $normalized = strtolower(trim($serial));
+                    if (isset($allSerials[$normalized])) {
+                        $validator->errors()->add(
+                            "rows.$index.serial_numbers",
+                            "Nomor seri '$serial' sudah digunakan pada baris lain."
+                        );
+                    } else {
+                        $allSerials[$normalized] = $index;
+                    }
+                }
 
                 // Validate each serial's location matches the row location
                 if ($locationId !== null) {
