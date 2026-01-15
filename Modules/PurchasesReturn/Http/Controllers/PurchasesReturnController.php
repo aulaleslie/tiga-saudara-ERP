@@ -287,6 +287,15 @@ class PurchasesReturnController extends Controller
             return back();
         }
 
+        $errors = $this->validateStockForApproval($purchase_return);
+
+        if (!empty($errors)) {
+            foreach ($errors as $error) {
+                toast($error, 'error');
+            }
+            return back();
+        }
+
         $purchase_return->update([
             'approval_status' => 'approved',
             'approved_by' => auth()->id(),
@@ -371,5 +380,54 @@ class PurchasesReturnController extends Controller
         toast('Retur berhasil didispatch!', 'success');
 
         return back();
+    }
+
+    private function validateStockForApproval(PurchaseReturn $purchase_return): array
+    {
+        $errors = [];
+        $purchase_return->loadMissing('purchaseReturnDetails.product');
+
+        foreach ($purchase_return->purchaseReturnDetails as $detail) {
+            $product = $detail->product;
+            $locationId = $detail->location_id;
+            $quantity = $detail->quantity;
+
+            if (!$product) {
+                $errors[] = "Produk pada baris #{$detail->id} tidak ditemukan.";
+                continue;
+            }
+
+            // Check stock availability
+            $stock = \Modules\Product\Entities\ProductStock::where('product_id', $product->id)
+                ->where('location_id', $locationId)
+                ->first();
+
+            if (!$stock || $stock->quantity < $quantity) {
+                $currentQty = $stock ? $stock->quantity : 0;
+                $errors[] = "Stok tidak mencukupi untuk '{$product->product_name}' di lokasi yang dipilih. (Diminta: {$quantity}, Tersedia: {$currentQty})";
+            }
+
+            // Validate serial numbers if applicable
+            if (!empty($detail->serial_number_ids)) {
+                $serialsWithWrongLocation = ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
+                    ->where('product_id', $product->id)
+                    ->get();
+
+                foreach ($serialsWithWrongLocation as $serial) {
+                    if ($serial->location_id != $locationId) {
+                        $errors[] = "Nomor seri '{$serial->serial_number}' sekarang berada di lokasi yang berbeda.";
+                    }
+                    if ($serial->status !== 'active') {
+                        $errors[] = "Nomor seri '{$serial->serial_number}' sudah tidak aktif ({$serial->status}).";
+                    }
+                }
+                
+                if ($serialsWithWrongLocation->count() < count($detail->serial_number_ids)) {
+                    $errors[] = "Beberapa nomor seri untuk '{$product->product_name}' tidak ditemukan.";
+                }
+            }
+        }
+
+        return $errors;
     }
 }
