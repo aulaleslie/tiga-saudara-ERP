@@ -34,3 +34,9 @@
 ## Approval Permissions
 - As an approver, I want to approve or reject returns only if I have approval permission.
 - As a non-approver, I want approve/reject actions hidden or blocked.
+
+## Role Management
+- As an admin, I want the new purchase return permissions available when creating or updating roles.
+
+## Edit Consistency
+- As a return editor, I want the edit form to match the create form behavior and UI, so I can edit with the same rules.

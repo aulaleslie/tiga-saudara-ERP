@@ -150,6 +150,16 @@ Given a user has `purchaseReturns.viewPrice`
 When the user opens a purchase return detail page
 Then line prices, discounts, taxes, and totals are visible
 
+Scenario: Permission assignment available
+Given an admin manages roles
+When the admin opens role create or update
+Then `purchaseReturns.viewPrice` is available for assignment
+
+Scenario: Permission seeded
+Given the permissions seeder runs
+When permissions are created
+Then `purchaseReturns.viewPrice` exists in the permissions list
+
 ## Ticket 12: Require approval permission to approve or reject
 Scenario: Approve/reject without approval permission
 Given a user lacks `purchaseReturns.approval`
@@ -160,3 +170,24 @@ Scenario: Approve/reject with approval permission
 Given a user has `purchaseReturns.approval`
 When the user approves or rejects a pending return
 Then the action succeeds and the status updates accordingly
+
+Scenario: Permission assignment available
+Given an admin manages roles
+When the admin opens role create or update
+Then `purchaseReturns.approval` is available for assignment
+
+Scenario: Permission seeded
+Given the permissions seeder runs
+When permissions are created
+Then `purchaseReturns.approval` exists in the permissions list
+
+## Ticket 13: Edit flow matches create behavior and UI
+Scenario: Edit uses same rules as create
+Given a user opens a purchase return edit page
+When the edit form renders
+Then the UI and validation rules match the create form (line-level location, serial locking, price hidden)
+
+Scenario: Edit locked after approval
+Given a purchase return is approved
+When a user opens the edit page
+Then fields that are locked in create are also locked in edit

@@ -16,6 +16,9 @@
 - Create pending return documents without inventory mutation.
 - Gate price-related columns in list and detail views by a price-view permission.
 - Restrict approve/reject actions to users with an approval permission.
+- Ensure role create/update screens include the new purchase return permissions.
+- Ensure the permission seeder includes the new purchase return permissions.
+- Keep edit flow aligned with create behavior and UI.
 
 ### Non-goals
 - Removing `purchase_returns.location_id` from the schema or migrating legacy data.
@@ -37,6 +40,8 @@
   - Only users with `purchaseReturns.create` permission can access the create page and submit.
   - Only users with `purchaseReturns.approval` permission can approve or reject purchase returns.
   - Only users with `purchaseReturns.viewPrice` permission can see price-related columns in list and detail views.
+  - Role create/update UIs must expose `purchaseReturns.viewPrice` and `purchaseReturns.approval` for assignment.
+  - Permission seeder must include `purchaseReturns.viewPrice` and `purchaseReturns.approval`.
 - Return header:
   - Supplier is required.
   - Date is required and defaults to today.
@@ -67,6 +72,9 @@
 - Lifecycle:
   - Created returns are `approval_status = pending` and `status = Pending Approval`.
   - No inventory mutation or serial status changes occur during creation.
+- Edit flow:
+  - Edit uses the same UI and validation rules as create (line-level location, serial locking, price hidden).
+  - Edits are locked when approval status is approved.
 - List and detail visibility:
   - Price-related columns (total, paid, due) are hidden in the purchase return list for users without `purchaseReturns.viewPrice`.
   - Price-related fields (unit price, discount, tax, subtotal, totals, and cash/deposit values) are hidden in the detail view for users without `purchaseReturns.viewPrice`.
@@ -89,6 +97,7 @@
 - Location dropdown results are capped (10 results per search query).
 - Purchase price is hidden in the create UI.
 - Price-related fields must not be rendered or returned for users without `purchaseReturns.viewPrice`.
+- Edit flow must remain consistent with create UI and validation rules.
 
 ## 9. Open Questions
 - None at this time.

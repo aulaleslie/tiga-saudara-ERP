@@ -10,8 +10,10 @@
 - Create sets `approval_status = pending` with no inventory mutation; approval re-validates stock.
 - Create UI hides purchase price, but totals are computed using the last purchase price.
 - Legacy controller `store` exists but is deprecated in favor of Livewire.
+- Edit flow uses `PurchaseReturnEditForm` (extends create) and renders the same UI and validations.
 - Purchase return list and detail views always show price-related fields (no price-view permission gating).
 - Approve/reject actions are gated by `purchaseReturns.edit` (no separate approval permission).
+- Role create/update screens and permission seeder do not yet include the new purchase return permissions.
 
 ## Ticket Status
 
@@ -88,9 +90,19 @@ Title: Gate price-related columns in list and detail views
 Implementation:
 - Add `purchaseReturns.viewPrice` permission and gate price-related columns in the list (total/paid/due) and detail view (unit price, discount, tax, subtotal, totals, and cash/deposit values).
 - Ensure exports/print paths also respect the permission.
+- Update permissions seeder to include `purchaseReturns.viewPrice` and expose it in role create/update.
 
 ## Ticket 12 (Not Implemented)
 Title: Require approval permission to approve or reject
 
 Implementation:
 - Add `purchaseReturns.approval` permission and enforce it in approve/reject endpoints and UI actions.
+- Update permissions seeder to include `purchaseReturns.approval` and expose it in role create/update.
+
+## Ticket 13 (Done)
+Title: Align edit flow with create behavior and UI
+
+Implementation:
+- `PurchaseReturnEditForm` extends the create form and renders the same UI.
+- Edit uses the same line-level location, serial handling, and price-hidden behavior.
+- Approved returns are locked from edits.
