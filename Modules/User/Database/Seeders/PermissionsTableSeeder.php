@@ -159,6 +159,7 @@ class PermissionsTableSeeder extends Seeder
             'purchaseReturns.edit',
             'purchaseReturns.delete',
             'purchaseReturns.show',
+            'purchaseReturns.viewPrice',
             'purchaseReturnPayments.access',
             'purchaseReturnPayments.create',
             'purchaseReturnPayments.edit',

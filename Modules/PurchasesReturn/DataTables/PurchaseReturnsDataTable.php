@@ -3,6 +3,7 @@
 namespace Modules\PurchasesReturn\DataTables;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Gate;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Exceptions\Exception;
@@ -18,7 +19,9 @@ class PurchaseReturnsDataTable extends DataTable
      */
     public function dataTable($query): EloquentDataTable
     {
-        return datatables()
+        $canViewPrice = Gate::allows('purchaseReturns.viewPrice');
+
+        $table = datatables()
             ->eloquent($query)
             ->editColumn('reference', function ($data) {
                 $details = $data->purchaseReturnDetails->map(function($detail) {
@@ -26,15 +29,6 @@ class PurchaseReturnsDataTable extends DataTable
                 })->implode("\n");
 
                 return '<a href="' . route('purchase-returns.show', $data->id) . '" target="_blank" title="' . $details . '">' . $data->reference . '</a>';
-            })
-            ->addColumn('total_amount', function ($data) {
-                return format_currency($data->total_amount);
-            })
-            ->addColumn('paid_amount', function ($data) {
-                return format_currency($data->paid_amount);
-            })
-            ->addColumn('due_amount', function ($data) {
-                return format_currency($data->due_amount);
             })
             ->addColumn('supplier_name', function ($data) {
                 return optional($data->supplier)->supplier_name ?? '-';
@@ -49,6 +43,20 @@ class PurchaseReturnsDataTable extends DataTable
                 return view('purchasesreturn::partials.actions', compact('data'));
             })
             ->rawColumns(['reference', 'status', 'settlement_status', 'action']);
+
+        if ($canViewPrice) {
+            $table->addColumn('total_amount', function ($data) {
+                return format_currency($data->total_amount);
+            })
+                ->addColumn('paid_amount', function ($data) {
+                    return format_currency($data->paid_amount);
+                })
+                ->addColumn('due_amount', function ($data) {
+                    return format_currency($data->due_amount);
+                });
+        }
+
+        return $table;
     }
 
     public function query(PurchaseReturn $model): Builder
@@ -62,6 +70,8 @@ class PurchaseReturnsDataTable extends DataTable
 
     public function html(): \Yajra\DataTables\Html\Builder
     {
+        $orderByIndex = Gate::allows('purchaseReturns.viewPrice') ? 8 : 5;
+
         return $this->builder()
             ->setTableId('purchase-returns-table')
             ->columns($this->getColumns())
@@ -69,7 +79,7 @@ class PurchaseReturnsDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(8)
+            ->orderBy($orderByIndex)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -84,7 +94,9 @@ class PurchaseReturnsDataTable extends DataTable
 
     protected function getColumns(): array
     {
-        return [
+        $canViewPrice = Gate::allows('purchaseReturns.viewPrice');
+
+        return array_filter([
             Column::make('reference')
                 ->title('Nomor Retur')
                 ->className('text-center align-middle'),
@@ -96,17 +108,17 @@ class PurchaseReturnsDataTable extends DataTable
             Column::computed('status')
                 ->className('text-center align-middle'),
 
-            Column::computed('total_amount')
+            $canViewPrice ? Column::computed('total_amount')
                 ->title('Total')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle') : null,
 
-            Column::computed('paid_amount')
+            $canViewPrice ? Column::computed('paid_amount')
                 ->title('Terbayar')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle') : null,
 
-            Column::computed('due_amount')
+            $canViewPrice ? Column::computed('due_amount')
                 ->title('Sisa Tagihan')
-                ->className('text-center align-middle'),
+                ->className('text-center align-middle') : null,
 
             Column::computed('settlement_status')
                 ->title('Penyelesaian')
@@ -120,7 +132,7 @@ class PurchaseReturnsDataTable extends DataTable
 
             Column::make('created_at')
                 ->visible(false)
-        ];
+        ]);
     }
 
     protected function filename(): string {

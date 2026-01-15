@@ -18,11 +18,22 @@ class CheckUserRoleForSetting
                 return $next($request);
             }
 
+            if (!session()->has('setting_id')) {
+                $settingId = $user->settings()->orderBy('settings.id')->value('settings.id');
+                if ($settingId) {
+                    session(['setting_id' => $settingId]);
+                }
+            }
+
             // Assign roles dynamically based on the current setting
             $role = $user->getCurrentSettingRole();
-            if ($role && !$user->hasRole($role->name)) {
-                session(['temporary_role' => $role->name]);
-                $user->syncRoles([$role->name]);
+            if ($role) {
+                $currentRoles = $user->getRoleNames();
+                if ($currentRoles->count() !== 1 || ! $currentRoles->contains($role->name)) {
+                    $user->syncRoles([$role->name]);
+                }
+            } elseif ($user->roles->isNotEmpty()) {
+                $user->syncRoles([]);
             }
         }
 

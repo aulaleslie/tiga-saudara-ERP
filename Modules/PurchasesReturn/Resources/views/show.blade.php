@@ -189,66 +189,97 @@
                         </div>
 
                         <div class="table-responsive">
-                            <table class="table table-sm table-striped table-hover align-middle">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Produk</th>
-                                        <th class="text-center">Harga Satuan</th>
-                                        <th class="text-center">Jumlah</th>
-                                        <th class="text-end">Diskon</th>
-                                        <th class="text-end">Pajak</th>
-                                        <th class="text-end">Subtotal</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach($purchase_return->purchaseReturnDetails as $item)
+                            @can('purchaseReturns.viewPrice')
+                                <table class="table table-sm table-striped table-hover align-middle">
+                                    <thead class="table-light">
                                         <tr>
-                                            <td>
-                                                <div class="fw-semibold">{{ $item->product_name }}</div>
-                                                <small class="badge bg-success">{{ $item->product_code }}</small>
-                                                @if($item->getSerialNumbers()->isNotEmpty())
-                                                    <div class="mt-1">
-                                                        @foreach($item->getSerialNumbers() as $serial)
-                                                            <span class="badge bg-secondary">{{ $serial }}</span>
-                                                        @endforeach
-                                                    </div>
-                                                @endif
-                                            </td>
-                                            <td class="text-center">{{ format_currency($item->unit_price) }}</td>
-                                            <td class="text-center">{{ $item->quantity }}</td>
-                                            <td class="text-end">{{ format_currency($item->product_discount_amount) }}</td>
-                                            <td class="text-end">{{ format_currency($item->product_tax_amount) }}</td>
-                                            <td class="text-end fw-semibold">{{ format_currency($item->sub_total) }}</td>
+                                            <th>Produk</th>
+                                            <th class="text-center">Harga Satuan</th>
+                                            <th class="text-center">Jumlah</th>
+                                            <th class="text-end">Diskon</th>
+                                            <th class="text-end">Pajak</th>
+                                            <th class="text-end">Subtotal</th>
                                         </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($purchase_return->purchaseReturnDetails as $item)
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold">{{ $item->product_name }}</div>
+                                                    <small class="badge bg-success">{{ $item->product_code }}</small>
+                                                    @if($item->getSerialNumbers()->isNotEmpty())
+                                                        <div class="mt-1">
+                                                            @foreach($item->getSerialNumbers() as $serial)
+                                                                <span class="badge bg-secondary">{{ $serial }}</span>
+                                                            @endforeach
+                                                        </div>
+                                                    @endif
+                                                </td>
+                                                <td class="text-center">{{ format_currency($item->unit_price) }}</td>
+                                                <td class="text-center">{{ $item->quantity }}</td>
+                                                <td class="text-end">{{ format_currency($item->product_discount_amount) }}</td>
+                                                <td class="text-end">{{ format_currency($item->product_tax_amount) }}</td>
+                                                <td class="text-end fw-semibold">{{ format_currency($item->sub_total) }}</td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            @else
+                                <table class="table table-sm table-striped table-hover align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Produk</th>
+                                            <th class="text-center">Jumlah</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($purchase_return->purchaseReturnDetails as $item)
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold">{{ $item->product_name }}</div>
+                                                    <small class="badge bg-success">{{ $item->product_code }}</small>
+                                                    @if($item->getSerialNumbers()->isNotEmpty())
+                                                        <div class="mt-1">
+                                                            @foreach($item->getSerialNumbers() as $serial)
+                                                                <span class="badge bg-secondary">{{ $serial }}</span>
+                                                            @endforeach
+                                                        </div>
+                                                    @endif
+                                                </td>
+                                                <td class="text-center">{{ $item->quantity }}</td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            @endcan
                         </div>
 
-                        <div class="row justify-content-end mt-4">
-                            <div class="col-md-6 col-lg-4">
-                                <div class="border rounded p-3 bg-light">
-                                    <ul class="list-unstyled mb-0">
-                                        <li class="d-flex justify-content-between py-1">
-                                            <span>Diskon ({{ $purchase_return->discount_percentage }}%)</span>
-                                            <span>{{ format_currency($purchase_return->discount_amount) }}</span>
-                                        </li>
-                                        <li class="d-flex justify-content-between py-1">
-                                            <span>Pajak ({{ $purchase_return->tax_percentage }}%)</span>
-                                            <span>{{ format_currency($purchase_return->tax_amount) }}</span>
-                                        </li>
-                                        <li class="d-flex justify-content-between py-1">
-                                            <span>Biaya Pengiriman</span>
-                                            <span>{{ format_currency($purchase_return->shipping_amount) }}</span>
-                                        </li>
-                                        <li class="d-flex justify-content-between py-2 border-top mt-2 fw-semibold">
-                                            <span>Total</span>
-                                            <span>{{ format_currency($purchase_return->total_amount) }}</span>
-                                        </li>
-                                    </ul>
+                        @can('purchaseReturns.viewPrice')
+                            <div class="row justify-content-end mt-4">
+                                <div class="col-md-6 col-lg-4">
+                                    <div class="border rounded p-3 bg-light">
+                                        <ul class="list-unstyled mb-0">
+                                            <li class="d-flex justify-content-between py-1">
+                                                <span>Diskon ({{ $purchase_return->discount_percentage }}%)</span>
+                                                <span>{{ format_currency($purchase_return->discount_amount) }}</span>
+                                            </li>
+                                            <li class="d-flex justify-content-between py-1">
+                                                <span>Pajak ({{ $purchase_return->tax_percentage }}%)</span>
+                                                <span>{{ format_currency($purchase_return->tax_amount) }}</span>
+                                            </li>
+                                            <li class="d-flex justify-content-between py-1">
+                                                <span>Biaya Pengiriman</span>
+                                                <span>{{ format_currency($purchase_return->shipping_amount) }}</span>
+                                            </li>
+                                            <li class="d-flex justify-content-between py-2 border-top mt-2 fw-semibold">
+                                                <span>Total</span>
+                                                <span>{{ format_currency($purchase_return->total_amount) }}</span>
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        @endcan
 
                         @if(!$purchase_return->return_type && $approvalStatus === 'approved')
                             <div class="alert alert-warning mt-4" role="alert">
@@ -260,51 +291,88 @@
                             <div class="mt-4">
                                 <h5 class="mb-3">Detail Penggantian Produk</h5>
                                 <div class="table-responsive">
-                                    <table class="table table-sm table-bordered align-middle">
-                                        <thead class="table-light">
-                                            <tr class="text-center">
-                                                <th>Produk</th>
-                                                <th>Jumlah</th>
-                                                <th>Nilai Satuan</th>
-                                                <th>Subtotal</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach($purchase_return->goods as $good)
-                                                <tr>
-                                                    <td>
-                                                        <div class="fw-semibold">{{ $good->product_name }}</div>
-                                                        <small class="text-muted">{{ $good->product_code }}</small>
-                                                    </td>
-                                                    <td class="text-center">{{ $good->quantity }}</td>
-                                                    <td class="text-end">{{ format_currency($good->unit_value) }}</td>
-                                                    <td class="text-end">{{ format_currency($good->sub_total) }}</td>
+                                    @can('purchaseReturns.viewPrice')
+                                        <table class="table table-sm table-bordered align-middle">
+                                            <thead class="table-light">
+                                                <tr class="text-center">
+                                                    <th>Produk</th>
+                                                    <th>Jumlah</th>
+                                                    <th>Nilai Satuan</th>
+                                                    <th>Subtotal</th>
                                                 </tr>
-                                            @endforeach
-                                        </tbody>
-                                    </table>
+                                            </thead>
+                                            <tbody>
+                                                @foreach($purchase_return->goods as $good)
+                                                    <tr>
+                                                        <td>
+                                                            <div class="fw-semibold">{{ $good->product_name }}</div>
+                                                            <small class="text-muted">{{ $good->product_code }}</small>
+                                                        </td>
+                                                        <td class="text-center">{{ $good->quantity }}</td>
+                                                        <td class="text-end">{{ format_currency($good->unit_value) }}</td>
+                                                        <td class="text-end">{{ format_currency($good->sub_total) }}</td>
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+                                    @else
+                                        <table class="table table-sm table-bordered align-middle">
+                                            <thead class="table-light">
+                                                <tr class="text-center">
+                                                    <th>Produk</th>
+                                                    <th>Jumlah</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach($purchase_return->goods as $good)
+                                                    <tr>
+                                                        <td>
+                                                            <div class="fw-semibold">{{ $good->product_name }}</div>
+                                                            <small class="text-muted">{{ $good->product_code }}</small>
+                                                        </td>
+                                                        <td class="text-center">{{ $good->quantity }}</td>
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+                                    @endcan
                                 </div>
                             </div>
                         @endif
 
-                        @if($purchase_return->return_type === 'deposit' && $purchase_return->supplierCredit)
-                            <div class="alert alert-info mt-4" role="alert">
-                                Kredit pemasok sebesar <strong>{{ format_currency($purchase_return->supplierCredit->amount) }}</strong> telah dibuat.
-                                Sisa kredit: <strong>{{ format_currency($purchase_return->supplierCredit->remaining_amount) }}</strong> (Status: {{ ucfirst($purchase_return->supplierCredit->status) }}).
-                            </div>
-                        @endif
+                        @can('purchaseReturns.viewPrice')
+                            @if($purchase_return->return_type === 'deposit' && $purchase_return->supplierCredit)
+                                <div class="alert alert-info mt-4" role="alert">
+                                    Kredit pemasok sebesar <strong>{{ format_currency($purchase_return->supplierCredit->amount) }}</strong> telah dibuat.
+                                    Sisa kredit: <strong>{{ format_currency($purchase_return->supplierCredit->remaining_amount) }}</strong> (Status: {{ ucfirst($purchase_return->supplierCredit->status) }}).
+                                </div>
+                            @endif
 
-                        @if($purchase_return->return_type === 'cash')
-                            <div class="mt-4">
-                                <h5 class="mb-3">Pengembalian Tunai</h5>
-                                <p class="mb-2">Total dikembalikan: <strong>{{ format_currency($purchase_return->total_amount) }}</strong></p>
-                                @if($purchase_return->cash_proof_path)
-                                    <a href="{{ Storage::url($purchase_return->cash_proof_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                                        <i class="bi bi-paperclip"></i> Lihat Bukti Pengembalian
-                                    </a>
-                                @endif
-                            </div>
-                        @endif
+                            @if($purchase_return->return_type === 'cash')
+                                <div class="mt-4">
+                                    <h5 class="mb-3">Pengembalian Tunai</h5>
+                                    <p class="mb-2">Total dikembalikan: <strong>{{ format_currency($purchase_return->total_amount) }}</strong></p>
+                                    @if($purchase_return->cash_proof_path)
+                                        <a href="{{ Storage::url($purchase_return->cash_proof_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                            <i class="bi bi-paperclip"></i> Lihat Bukti Pengembalian
+                                        </a>
+                                    @endif
+                                </div>
+                            @endif
+                        @else
+                            @if($purchase_return->return_type === 'deposit' && $purchase_return->supplierCredit)
+                                <div class="alert alert-info mt-4" role="alert">
+                                    Kredit pemasok telah dibuat (Status: {{ ucfirst($purchase_return->supplierCredit->status) }}).
+                                </div>
+                            @endif
+
+                            @if($purchase_return->return_type === 'cash')
+                                <div class="mt-4">
+                                    <h5 class="mb-3">Pengembalian Tunai</h5>
+                                    <p class="mb-2">Pengembalian tunai telah diproses.</p>
+                                </div>
+                            @endif
+                        @endcan
                     </div>
                 </div>
             </div>
@@ -399,4 +467,3 @@
         });
     </script>
     @endpush
-

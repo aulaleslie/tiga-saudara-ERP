@@ -86,73 +86,102 @@
                     </div>
 
                     <div class="table-responsive-sm" style="margin-top: 30px;">
-                        <table class="table table-striped">
-                            <thead>
-                            <tr>
-                                <th class="align-middle">Product</th>
-                                <th class="align-middle">Net Unit Price</th>
-                                <th class="align-middle">Quantity</th>
-                                <th class="align-middle">Discount</th>
-                                <th class="align-middle">Tax</th>
-                                <th class="align-middle">Sub Total</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            @foreach($purchase_return->purchaseReturnDetails as $item)
+                        @can('purchaseReturns.viewPrice')
+                            <table class="table table-striped">
+                                <thead>
                                 <tr>
-                                    <td class="align-middle">
-                                        {{ $item->product_name }} <br>
-                                        <span class="badge badge-success">
-                                                {{ $item->product_code }}
-                                            </span>
-                                    </td>
-
-                                    <td class="align-middle">{{ format_currency($item->unit_price) }}</td>
-
-                                    <td class="align-middle">
-                                        {{ $item->quantity }}
-                                    </td>
-
-                                    <td class="align-middle">
-                                        {{ format_currency($item->product_discount_amount) }}
-                                    </td>
-
-                                    <td class="align-middle">
-                                        {{ format_currency($item->product_tax_amount) }}
-                                    </td>
-
-                                    <td class="align-middle">
-                                        {{ format_currency($item->sub_total) }}
-                                    </td>
+                                    <th class="align-middle">Product</th>
+                                    <th class="align-middle">Net Unit Price</th>
+                                    <th class="align-middle">Quantity</th>
+                                    <th class="align-middle">Discount</th>
+                                    <th class="align-middle">Tax</th>
+                                    <th class="align-middle">Sub Total</th>
                                 </tr>
-                            @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="row">
-                        <div class="col-xs-4 col-xs-offset-8">
-                            <table class="table">
+                                </thead>
                                 <tbody>
-                                <tr>
-                                    <td class="left"><strong>Discount ({{ $purchase_return->discount_percentage }}%)</strong></td>
-                                    <td class="right">{{ format_currency($purchase_return->discount_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="left"><strong>Tax ({{ $purchase_return->tax_percentage }}%)</strong></td>
-                                    <td class="right">{{ format_currency($purchase_return->tax_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="left"><strong>Shipping)</strong></td>
-                                    <td class="right">{{ format_currency($purchase_return->shipping_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="left"><strong>Grand Total</strong></td>
-                                    <td class="right"><strong>{{ format_currency($purchase_return->total_amount) }}</strong></td>
-                                </tr>
+                                @foreach($purchase_return->purchaseReturnDetails as $item)
+                                    <tr>
+                                        <td class="align-middle">
+                                            {{ $item->product_name }} <br>
+                                            <span class="badge badge-success">
+                                                    {{ $item->product_code }}
+                                                </span>
+                                        </td>
+
+                                        <td class="align-middle">{{ format_currency($item->unit_price) }}</td>
+
+                                        <td class="align-middle">
+                                            {{ $item->quantity }}
+                                        </td>
+
+                                        <td class="align-middle">
+                                            {{ format_currency($item->product_discount_amount) }}
+                                        </td>
+
+                                        <td class="align-middle">
+                                            {{ format_currency($item->product_tax_amount) }}
+                                        </td>
+
+                                        <td class="align-middle">
+                                            {{ format_currency($item->sub_total) }}
+                                        </td>
+                                    </tr>
+                                @endforeach
                                 </tbody>
                             </table>
-                        </div>
+                        @else
+                            <table class="table table-striped">
+                                <thead>
+                                <tr>
+                                    <th class="align-middle">Product</th>
+                                    <th class="align-middle">Quantity</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                @foreach($purchase_return->purchaseReturnDetails as $item)
+                                    <tr>
+                                        <td class="align-middle">
+                                            {{ $item->product_name }} <br>
+                                            <span class="badge badge-success">
+                                                    {{ $item->product_code }}
+                                                </span>
+                                        </td>
+
+                                        <td class="align-middle">
+                                            {{ $item->quantity }}
+                                        </td>
+                                    </tr>
+                                @endforeach
+                                </tbody>
+                            </table>
+                        @endcan
                     </div>
+                    @can('purchaseReturns.viewPrice')
+                        <div class="row">
+                            <div class="col-xs-4 col-xs-offset-8">
+                                <table class="table">
+                                    <tbody>
+                                    <tr>
+                                        <td class="left"><strong>Discount ({{ $purchase_return->discount_percentage }}%)</strong></td>
+                                        <td class="right">{{ format_currency($purchase_return->discount_amount) }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="left"><strong>Tax ({{ $purchase_return->tax_percentage }}%)</strong></td>
+                                        <td class="right">{{ format_currency($purchase_return->tax_amount) }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="left"><strong>Shipping)</strong></td>
+                                        <td class="right">{{ format_currency($purchase_return->shipping_amount) }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="left"><strong>Grand Total</strong></td>
+                                        <td class="right"><strong>{{ format_currency($purchase_return->total_amount) }}</strong></td>
+                                    </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    @endcan
                     <div class="row" style="margin-top: 25px;">
                         <div class="col-xs-12">
                             <p style="font-style: italic;text-align: center">{{ settings()->company_name }} &copy; {{ date('Y') }}.</p>

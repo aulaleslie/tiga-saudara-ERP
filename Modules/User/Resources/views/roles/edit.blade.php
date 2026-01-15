@@ -143,7 +143,29 @@
                                             'purchaseReturns.edit'   => 'Ubah',
                                             'purchaseReturns.delete' => 'Hapus',
                                             'purchaseReturns.show'   => 'Lihat',
+                                            'purchaseReturns.viewPrice' => 'Lihat Harga',
                                         ],
+
+                                        'Pembayaran Retur Pembelian' => [
+                                            'purchaseReturnPayments.access' => 'Akses Pembayaran Retur Pembelian',
+                                            'purchaseReturnPayments.create' => 'Buat Pembayaran Retur Pembelian',
+                                            'purchaseReturnPayments.edit'   => 'Ubah Pembayaran Retur Pembelian',
+                                            'purchaseReturnPayments.delete' => 'Hapus Pembayaran Retur Pembelian',
+                                            'purchaseReturnPayments.show'   => 'Lihat Pembayaran Retur Pembelian',
+                                        ],
+
+                                        'Settlement Retur Pembelian' => [
+                                            'purchaseReturnSettlements.access'   => 'Akses Settlement',
+                                            'purchaseReturnSettlements.submit'   => 'Submit Settlement',
+                                            'purchaseReturnSettlements.approve'  => 'Approve/Reject Settlement',
+                                            'purchaseReturnSettlements.execute'  => 'Execute Settlement',
+                                            'purchaseReturnSettlements.dispatch' => 'Dispatch Return',
+                                            'purchaseReturnSettlements.receive'  => 'Receive Replacement',
+                                        ],
+
+                                        'Penyesuaian Stok' => [
+                                            'adjustments.access'               => 'Hak Akses',
+                                            'adjustments.create'               => 'Buat',
                                             'adjustments.edit'                 => 'Ubah',
                                             'adjustments.delete'               => 'Hapus',
                                             'adjustments.show'                 => 'Lihat',

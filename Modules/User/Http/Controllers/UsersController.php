@@ -73,7 +73,6 @@ class UsersController extends Controller
         foreach ($validatedData['settings'] as $settingId) {
             $roleName = $validatedData['roles'][$settingId];
             $role = Role::where('name', $roleName)->first();
-            $user->assignRole($role);
 
             // Attach the setting with the associated role to the user
             $user->settings()->attach($settingId, ['role_id' => $role->id]);
@@ -139,6 +138,7 @@ class UsersController extends Controller
         $user->update($updateData);
 
         // Sync user settings and roles
+        $wasSuperAdmin = $user->hasRole('Super Admin');
         $userSettings = [];
         foreach ($validatedData['settings'] as $settingId) {
             $roleName = $validatedData['roles'][$settingId];
@@ -146,6 +146,9 @@ class UsersController extends Controller
             $userSettings[$settingId] = ['role_id' => $roleId];
         }
         $user->settings()->sync($userSettings);
+        if (! $wasSuperAdmin) {
+            $user->syncRoles([]);
+        }
 
         // Handle image upload
         if ($request->has('image')) {
