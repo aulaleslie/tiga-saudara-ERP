@@ -38,9 +38,13 @@ class PurchasesReturnController extends Controller
     }
 
 
+    /**
+     * @deprecated Use Livewire PurchaseReturnCreateForm instead.
+     * Ticket 7: Creation only creates a pending document without mutation.
+     */
     public function store(StorePurchaseReturnRequest $request) {
         abort_if(Gate::denies('purchaseReturns.create'), 403);
-        Log::info('Purchase Return store request', [
+        Log::info('Purchase Return store request (LEGACY)', [
             'request' => $request->all()
         ]);
         DB::transaction(function () use ($request) {
@@ -65,7 +69,7 @@ class PurchasesReturnController extends Controller
                 'total_amount' => $request->total_amount * 100,
                 'due_amount' => $due_amount * 100,
                 'approval_status' => 'pending',
-                'status' => $request->status,
+                'status' => 'Pending Approval',
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,

@@ -14,6 +14,8 @@ use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Location;
+use Modules\Product\Entities\ProductStock;
 use Tests\TestCase;
 use App\Livewire\PurchaseReturn\PurchaseReturnCreateForm;
 
@@ -31,6 +33,7 @@ class PurchaseReturnHeaderTest extends TestCase
     private Setting $setting;
     private Currency $currency;
     private Supplier $supplier;
+    private Location $location;
 
     protected function setUp(): void
     {
@@ -63,6 +66,10 @@ class PurchaseReturnHeaderTest extends TestCase
 
         $this->user = User::factory()->create();
         $this->supplier = Supplier::factory()->create(['setting_id' => $this->setting->id]);
+        $this->location = Location::create([
+            'name' => 'Main Warehouse',
+            'setting_id' => $this->setting->id,
+        ]);
         
         session(['setting_id' => $this->setting->id]);
     }
@@ -96,6 +103,17 @@ class PurchaseReturnHeaderTest extends TestCase
             'setting_id' => $this->setting->id,
         ]);
 
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
         Livewire::actingAs($this->user)
             ->test(PurchaseReturnCreateForm::class)
             ->set('supplier_id', $this->supplier->id)
@@ -106,6 +124,7 @@ class PurchaseReturnHeaderTest extends TestCase
                     'product_name' => $product->product_name,
                     'product_code' => $product->product_code,
                     'quantity' => 5,
+                    'location_id' => $this->location->id,
                     'purchase_price' => 10000,
                     'total' => 50000,
                     'serial_number_required' => false,
@@ -167,6 +186,17 @@ class PurchaseReturnHeaderTest extends TestCase
             'setting_id' => $this->setting->id,
         ]);
 
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+        ]);
+
         // Even if we try to set location_id (which doesn't exist on the component)
         // verify that the persisted model has null location_id
         
@@ -180,6 +210,7 @@ class PurchaseReturnHeaderTest extends TestCase
                     'product_name' => $product->product_name,
                     'product_code' => $product->product_code,
                     'quantity' => 1,
+                    'location_id' => $this->location->id,
                     'purchase_price' => 1000,
                     'total' => 1000,
                     'serial_number_required' => false,

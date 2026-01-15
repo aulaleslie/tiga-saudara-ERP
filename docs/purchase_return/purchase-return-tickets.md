@@ -152,7 +152,7 @@ Edge cases:
 - Same serial entered with different casing or whitespace.
 - Serial entered on a non-serial-tracked product.
 
-## Ticket 7
+## Ticket 7 (Completed)
 Title: Create pending return document without inventory mutation
 
 Description:
