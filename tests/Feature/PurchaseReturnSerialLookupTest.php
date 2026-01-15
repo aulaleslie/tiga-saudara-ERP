@@ -136,26 +136,22 @@ class PurchaseReturnSerialLookupTest extends TestCase
                 'location_id' => $this->location->id,
                 'location_name' => 'LOCATION 1',
                 'location_label' => 'TENANT A - LOCATION 1',
+                'purchase_order_id' => 123,
+                'purchase_order_reference' => 'PO-123',
+                'purchase_order_date' => '2025-01-15',
             ])
             ->assertSet('rows.0.location_id', $this->location->id)
             ->assertSet('rows.0.location_name', 'TENANT A - LOCATION 1')
-            ->assertSet('rows.0.location_locked', true);
+            ->assertSet('rows.0.location_locked', true)
+            ->assertSet('rows.0.purchase_order_id', 123)
+            ->assertSet('rows.0.purchase_order_locked', true);
     }
 
     /**
      * Scenario: Location unlocks when all serials removed
      */
-    public function test_location_unlocks_when_serials_removed(): void
+    public function test_location_remains_locked_for_serial_products(): void
     {
-        $serialObj = ProductSerialNumber::where('serial_number', 'SN123')->first();
-        $serial = [
-            'id' => $serialObj->id,
-            'serial_number' => 'SN123',
-            'location_id' => $this->location->id,
-            'location_name' => 'LOCATION 1',
-            'location_label' => 'TENANT A - LOCATION 1',
-        ];
-
         Livewire::test(PurchaseReturnTable::class, ['supplierId' => $this->supplier->id])
             ->set('supplierId', $this->supplier->id)
             ->call('addProductRow')
@@ -166,18 +162,58 @@ class PurchaseReturnSerialLookupTest extends TestCase
                 'last_purchase_price' => 5000,
                 'serial_number_required' => true,
             ])
-            ->dispatch('serialNumberSelected', 0, $serial)
             ->assertSet('rows.0.location_locked', true)
-            ->call('removeSerialNumber', 0, 0)
-            ->assertSet('rows.0.location_locked', false);
+            ->assertSet('rows.0.purchase_order_locked', true);
     }
 
     /**
-     * Scenario: Serial loader finds serial and emits location
+     * Scenario: Serial loader finds serial and emits location and PO
      */
-    public function test_serial_loader_finds_serial_and_emits_location(): void
+    public function test_serial_loader_finds_serial_and_emits_location_and_po(): void
     {
+        $purchase = \Modules\Purchase\Entities\Purchase::create([
+            'date' => now(),
+            'supplier_id' => $this->supplier->id,
+            'setting_id' => $this->setting->id,
+            'status' => 'RECEIVED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'Cash',
+            'supplier_name' =>'Supplier Test',
+            'due_date' => now(),
+            'total_amount' => 50000,
+            'paid_amount' => 50000,
+            'due_amount' => 0,
+        ]);
+
+        $rn = \Modules\Purchase\Entities\ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now(),
+            'location_id' => $this->location->id,
+            'status' => 'APPROVED',
+        ]);
+
+        $pod = \Modules\Purchase\Entities\PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'quantity' => 1,
+            'price' => 5000,
+            'unit_price' => 5000,
+            'sub_total' => 5000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+        ]);
+
+        $rnd = \Modules\Purchase\Entities\ReceivedNoteDetail::create([
+            'received_note_id' => $rn->id,
+            'po_detail_id' => $pod->id,
+            'quantity_received' => 1,
+        ]);
+
         $serialObj = ProductSerialNumber::where('serial_number', 'SN123')->first();
+        $serialObj->update(['received_note_detail_id' => $rnd->id]);
+
         Livewire::test(PurchaseOrderSerialNumberLoader::class, [
                 'index' => 0,
                 'product_id' => $this->product->id
@@ -190,6 +226,49 @@ class PurchaseReturnSerialLookupTest extends TestCase
                 'location_id' => $this->location->id,
                 'location_name' => 'LOCATION 1',
                 'location_label' => 'TENANT A - LOCATION 1',
+                'purchase_order_id' => $purchase->id,
+                'purchase_order_reference' => $purchase->reference,
+                'purchase_order_date' => \Carbon\Carbon::parse($purchase->date)->format('Y-m-d'),
             ]);
+    }
+
+    /**
+     * Scenario: Serial from different location triggers validation error
+     */
+    public function test_serial_from_different_location_shows_error(): void
+    {
+        // Create two locations
+        $location2 = Location::create([
+            'name' => 'Location 2',
+            'setting_id' => $this->setting->id
+        ]);
+
+        // Create serial at location2
+        $serial2 = ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $location2->id,
+            'serial_number' => 'SN456',
+            'status' => 'active',
+        ]);
+
+        // Existing serials in the row (from first location)
+        $existingSerials = [
+            [
+                'id' => 1,
+                'serial_number' => 'SN123',
+                'location_id' => $this->location->id,
+                'purchase_order_id' => 1,
+            ]
+        ];
+
+        Livewire::test(PurchaseOrderSerialNumberLoader::class, [
+                'index' => 0,
+                'product_id' => $this->product->id,
+                'existingSerials' => $existingSerials,
+            ])
+            ->set('query', 'SN456')
+            ->call('addSerial')
+            ->assertSet('error_message', 'Nomor seri berasal dari lokasi yang berbeda, tambahkan baris baru dan scan ulang nomor seri.')
+            ->assertNotDispatched('serialNumberSelected');
     }
 }

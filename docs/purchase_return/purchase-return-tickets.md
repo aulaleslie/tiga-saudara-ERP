@@ -68,7 +68,8 @@ Scope:
 Technical notes:
 - Add `location_id` to `purchase_return_details` and a relation on `PurchaseReturnDetail`.
 - Update Livewire row data in `PurchaseReturnTable`, `PurchaseReturnCreateForm`, and `PurchaseReturnEditForm` to persist `location_id`.
-- Update `ValidatesPurchaseReturnForm` to allow duplicate `product_id` when `location_id` differs and require `location_id` per line.
+- Update `ValidatesPurchaseReturnForm` to allow duplicate `product_id` when `location_id` or `purchase_order_id` differs, and require `location_id` per line.
+- Row Uniqueness Key: `(product_id, location_id, purchase_order_id)`.
 
 Dependencies:
 - Product master data.
@@ -220,3 +221,20 @@ Dependencies:
 Edge cases:
 - User role with broader permissions still should not see price on purchase return create.
 - Cached frontend data that includes price fields.
+
+## Ticket 10
+Title: Serial lookup to auto-select and lock location and purchase order
+
+Description:
+For serial-tracked products, entering a serial number should auto-populate and lock both the location and the original purchase order.
+
+Scope:
+- Auto-fill `location_id` and `purchase_order_id` on serial scan.
+- Lock both fields as read-only once a serial is scanned.
+- Validate that all serials in the same row belong to the same location and same purchase order.
+- Display Indonesian error messages for mismatches.
+
+Technical notes:
+- Update `PurchaseOrderSerialNumberLoader` to resolve `purchase_order_id` from `received_note_details`.
+- Enforce Brazilian-level row uniqueness: a new row is required if a serial comes from a different location OR different purchase order.
+- Validation message: "Nomor seri berasal dari lokasi/pembelian yang berbeda, tambahkan baris baru dan scan ulang nomor seri."

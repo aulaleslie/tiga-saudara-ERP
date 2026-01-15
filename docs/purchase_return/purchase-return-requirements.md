@@ -11,6 +11,8 @@
 - Allow duplicate product lines when locations differ.
 - Remove header-level location from purchase return.
 - Hide purchase price on purchase return create.
+- Display readonly stock at location under product details.
+- Remove subtotal column from create form.
 - Create return documents without inventory mutation until approval.
 
 ### Non-goals
@@ -41,12 +43,15 @@
   - Each line has product, quantity, and location.
   - Location is searchable and formatted `Tenant Name - Location Name`.
   - Location list shows only locations with positive stock for the selected product across tenants.
-  - Duplicate product lines are allowed when location differs.
+- Duplicate product lines are allowed when location or purchase order differs.
+- Row Uniqueness: Each line is unique by `(product_id, location_id, purchase_order_id)`.
 - Serial handling:
   - Serial-tracked products require serial input.
   - Serial lookup uses the global serial registry.
   - If serial resolves to a location, location is auto-set and read-only.
-  - If no location match, submission is blocked with a clear error.
+  - If serial resolves to a purchase order, purchase order is auto-set and read-only.
+  - If no location/purchase match, submission is blocked with a clear error.
+  - All serials in a single row must originate from the same location and same purchase order.
   - Serial values must be unique per return and validated for consistency.
 - Document lifecycle:
   - Submission creates a return document in a pending approval state.

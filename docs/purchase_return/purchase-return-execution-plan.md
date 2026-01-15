@@ -10,6 +10,7 @@
 7) Ticket 8: Re-validate stock at approval (hook).
 8) Ticket 1: Gate purchase return create by permission.
 9) Ticket 9: Hide purchase price on purchase return create.
+10) Ticket 10: Serial lookup to auto-select and lock location and purchase order.
 
 Rationale: Build the core return data model and UI first, then add serial logic and validations, then lifecycle controls. Permissions and purchase return price visibility can proceed in parallel but are placed after core flow to minimize rework.
 

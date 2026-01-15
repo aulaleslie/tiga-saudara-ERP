@@ -61,6 +61,7 @@ trait ValidatesPurchaseReturnForm
         foreach ($this->rows as $index => $row) {
             $productId = $row['product_id'] ?? null;
             $locationId = $row['location_id'] ?? null;
+            $purchaseOrderId = $row['purchase_order_id'] ?? null;
 
             // Validate: serial entry on non-serial-tracked product
             if (empty($row['serial_number_required']) && !empty($row['serial_numbers'])) {
@@ -72,9 +73,9 @@ trait ValidatesPurchaseReturnForm
             }
 
             if ($productId !== null && $locationId !== null) {
-                $combination = $productId . '-' . $locationId;
+                $combination = $productId . '-' . $locationId . '-' . ($purchaseOrderId ?: 'none');
                 if (in_array($combination, $lineCombinations)) {
-                    $validator->errors()->add("rows.$index.product_id", 'Kombinasi produk dan lokasi ini sudah ada.');
+                    $validator->errors()->add("rows.$index.product_id", 'Kombinasi produk, lokasi, dan purchase order ini sudah ada.');
                 } else {
                     $lineCombinations[] = $combination;
                 }
@@ -111,19 +112,30 @@ trait ValidatesPurchaseReturnForm
                     }
                 }
 
-                // Validate each serial's location matches the row location
+                // Validate each serial's location and purchase match the row location and purchase
                 if ($locationId !== null) {
-                    $serialsWithWrongLocation = ProductSerialNumber::whereIn('serial_number', $serialNumbers)
+                    $serialsWithMismatches = ProductSerialNumber::whereIn('serial_number', $serialNumbers)
                         ->where('product_id', $productId)
-                        ->where('location_id', '!=', $locationId)
-                        ->pluck('serial_number')
-                        ->all();
+                        ->with(['receivedNoteDetail.receivedNote'])
+                        ->get();
 
-                    if (!empty($serialsWithWrongLocation)) {
-                        $validator->errors()->add(
-                            "rows.$index.serial_numbers",
-                            'Nomor seri berada di lokasi yang berbeda: ' . implode(', ', $serialsWithWrongLocation)
-                        );
+                    foreach ($serialsWithMismatches as $psn) {
+                        if ($psn->location_id != $locationId) {
+                            $validator->errors()->add(
+                                "rows.$index.serial_numbers",
+                                "Nomor seri '{$psn->serial_number}' berada di lokasi yang berbeda."
+                            );
+                        }
+                        
+                        if ($purchaseOrderId !== null) {
+                            $serialPurchaseId = $psn->receivedNoteDetail->receivedNote->po_id ?? null;
+                            if ($serialPurchaseId != $purchaseOrderId) {
+                                $validator->errors()->add(
+                                    "rows.$index.serial_numbers",
+                                    "Nomor seri '{$psn->serial_number}' berasal dari pembelian yang berbeda."
+                                );
+                            }
+                        }
                     }
                 }
 
@@ -136,7 +148,6 @@ trait ValidatesPurchaseReturnForm
                     ->all();
 
                 $missing = array_diff($serialNumbers, $existing);
-                $extra = array_diff($existing, $serialNumbers);
 
                 if (! empty($missing)) {
                     $validator->errors()->add(

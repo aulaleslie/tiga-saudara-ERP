@@ -74,7 +74,7 @@
                 </div>
             </div>
             <div class="card-body" style="overflow: visible;">
-                <livewire:purchase-return.purchase-return-table :rows="$rows" :supplier-id="$supplier_id" />
+                <livewire:purchase-return.purchase-return-table :rows="$rows" :supplier-id="$supplier_id" :hide-price="true" />
 
                 @if (!$supplier_id)
                     <div class="alert alert-light border mt-3 mb-0" role="alert">

@@ -59,4 +59,12 @@ class ProductSerialNumber extends BaseModel
     {
         return $this->belongsTo(Tax::class);
     }
+
+    /**
+     * Get the received note detail associated with the serial number.
+     */
+    public function receivedNoteDetail(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Purchase\Entities\ReceivedNoteDetail::class, 'received_note_detail_id');
+    }
 }

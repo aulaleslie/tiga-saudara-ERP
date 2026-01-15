@@ -85,7 +85,7 @@ class ProductSearchDropdown extends Component
             $this->selectedLabel = "$product->product_code | $product->product_name";
             
             // Populate additional data needed by parent
-            $product->last_purchase_price = (float) ($product->lastPurchasePrice(session('setting_id')) ?? 0);
+            $product->last_purchase_price = (float) ($product->lastPurchasePrice() ?? 0);
             $product->serial_number_required = (bool) $product->serial_number_required;
             
             $this->dispatch('productSelected', $this->index, $product);
@@ -115,7 +115,6 @@ class ProductSearchDropdown extends Component
                 ->from('purchases as p')
                 ->leftJoin('purchase_details as pd', 'p.id', '=', 'pd.purchase_id')
                 ->where('p.supplier_id', $this->supplier_id)
-                ->where('p.setting_id', session('setting_id'))
                 ->whereIn('p.status', ['RECEIVED PARTIALLY', 'RECEIVED']);
         })
         ->where(function ($query) {

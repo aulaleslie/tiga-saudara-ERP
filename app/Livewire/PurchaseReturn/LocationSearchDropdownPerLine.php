@@ -32,6 +32,7 @@ class LocationSearchDropdownPerLine extends Component
         $this->dispatch('locationSelected', $this->index, [
             'id' => $location->id,
             'name' => $location->name,
+            'label' => ($location->setting->company_name ?? 'N/A') . ' - ' . $location->name,
         ])->to(PurchaseReturnTable::class);
     }
 

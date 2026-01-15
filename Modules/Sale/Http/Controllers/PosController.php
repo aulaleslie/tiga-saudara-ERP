@@ -2,7 +2,6 @@
 
 namespace Modules\Sale\Http\Controllers;
 
-use App\Events\PrintJobEvent;
 use App\Support\PosLocationResolver;
 use App\Support\PosSessionManager;
 use App\Models\PosReceipt;
@@ -30,7 +29,6 @@ use Modules\Sale\Entities\SalePayment;
 use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Sale\Http\Requests\StorePosSaleRequest;
 use Modules\Setting\Entities\PaymentMethod;
-use Throwable;
 
 class PosController extends Controller
 {
@@ -346,9 +344,6 @@ class PosController extends Controller
 
             DB::commit();
 
-            $posReceipt->loadMissing(['sales.saleDetails.product.conversions.unit', 'sales.saleDetails.product.conversions.prices', 'sales.saleDetails.product.baseUnit', 'sales.saleDetails.product.prices', 'sales.tenantSetting', 'sales.customer']);
-
-            $this->triggerReceiptPrint($posReceipt);
         } catch (Exception $e) {
             DB::rollBack();
 
@@ -1209,31 +1204,6 @@ class PosController extends Controller
         }
     }
 
-    private function triggerReceiptPrint(?PosReceipt $receipt): void
-    {
-        $userId = auth()->id();
-
-        if (! $userId || ! $receipt) {
-            return;
-        }
-
-        try {
-            $receipt->loadMissing(['sales.saleDetails.product.conversions.unit', 'sales.saleDetails.product.conversions.prices', 'sales.saleDetails.product.baseUnit', 'sales.saleDetails.product.prices', 'sales.tenantSetting', 'sales.customer']);
-            $htmlContent = view('sale::print-pos', [
-                'receipt' => $receipt,
-            ])->render();
-        } catch (Throwable $throwable) {
-            Log::error('Failed to render POS sale receipt for printing', [
-                'receipt_id' => $receipt->id,
-                'error' => $throwable->getMessage(),
-            ]);
-
-            return;
-        }
-
-        event(new PrintJobEvent($htmlContent, 'pos-sale', (int) $userId));
-    }
-
     private function normalizeCartOptions($options): array
     {
         if ($options instanceof \Illuminate\Support\Collection) {
@@ -1366,20 +1336,7 @@ class PosController extends Controller
             return back()->withErrors(['receipt' => 'Tidak ada transaksi POS sebelumnya untuk dicetak ulang']);
         }
 
-        $this->triggerReceiptPrint($lastReceipt);
-
-        // Store print content for direct browser printing (kiosk mode)
-        try {
-            $printHtml = view('sale::print-pos', [
-                'receipt' => $lastReceipt,
-            ])->render();
-            session()->flash('pos_print_content', $printHtml);
-        } catch (Throwable $e) {
-            Log::warning('Failed to generate reprint content for session', [
-                'receipt_id' => $lastReceipt->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        session()->flash('pos_receipt_id', $lastReceipt->id);
 
         return back()->with('success', 'Struk transaksi terakhir telah dikirim ke printer');
     }
