@@ -136,15 +136,10 @@ class PurchaseReturnSerialLookupTest extends TestCase
                 'location_id' => $this->location->id,
                 'location_name' => 'LOCATION 1',
                 'location_label' => 'TENANT A - LOCATION 1',
-                'purchase_order_id' => 123,
-                'purchase_order_reference' => 'PO-123',
-                'purchase_order_date' => '2025-01-15',
             ])
             ->assertSet('rows.0.location_id', $this->location->id)
             ->assertSet('rows.0.location_name', 'TENANT A - LOCATION 1')
-            ->assertSet('rows.0.location_locked', true)
-            ->assertSet('rows.0.purchase_order_id', 123)
-            ->assertSet('rows.0.purchase_order_locked', true);
+            ->assertSet('rows.0.location_locked', true);
     }
 
     /**
@@ -162,8 +157,7 @@ class PurchaseReturnSerialLookupTest extends TestCase
                 'last_purchase_price' => 5000,
                 'serial_number_required' => true,
             ])
-            ->assertSet('rows.0.location_locked', true)
-            ->assertSet('rows.0.purchase_order_locked', true);
+            ->assertSet('rows.0.location_locked', true);
     }
 
     /**
@@ -226,9 +220,6 @@ class PurchaseReturnSerialLookupTest extends TestCase
                 'location_id' => $this->location->id,
                 'location_name' => 'LOCATION 1',
                 'location_label' => 'TENANT A - LOCATION 1',
-                'purchase_order_id' => $purchase->id,
-                'purchase_order_reference' => $purchase->reference,
-                'purchase_order_date' => \Carbon\Carbon::parse($purchase->date)->format('Y-m-d'),
             ]);
     }
 
@@ -257,7 +248,6 @@ class PurchaseReturnSerialLookupTest extends TestCase
                 'id' => 1,
                 'serial_number' => 'SN123',
                 'location_id' => $this->location->id,
-                'purchase_order_id' => 1,
             ]
         ];
 

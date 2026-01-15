@@ -83,12 +83,7 @@
                 @endif
             </div>
 
-            @if ($grand_total > 0)
-                <div class="card-footer bg-light d-flex justify-content-between align-items-center">
-                    <span class="fw-semibold">Total Retur</span>
-                    <span class="h5 mb-0 text-primary">Rp {{ number_format($grand_total, 2, ',', '.') }}</span>
-                </div>
-            @endif
+
         </div>
 
         <div class="alert alert-info d-flex align-items-center gap-2 mb-4" role="alert">

@@ -178,6 +178,7 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
                 'product_id' => $detail->product_id,
                 'product_name' => $detail->product_name ?? optional($product)->product_name,
                 'product_code' => $detail->product_code ?? optional($product)->product_code,
+                'unit_name' => optional($product)->baseUnit->short_name ?? '-',
                 'quantity' => (int) $detail->quantity,
                 'location_id' => $detail->location_id,
                 'location_name' => optional($detail->location)->name ?? '-',

@@ -17,7 +17,6 @@ trait ValidatesPurchaseReturnForm
             'rows.*.product_id' => 'required|exists:products,id',
             'rows.*.quantity' => 'required|integer|min:1',
             'rows.*.location_id' => 'required|exists:locations,id',
-            'rows.*.purchase_order_id' => 'nullable|exists:purchases,id',
         ];
     }
 
@@ -38,7 +37,6 @@ trait ValidatesPurchaseReturnForm
             'rows.*.quantity.min' => 'Jumlah produk minimal 1.',
             'rows.*.location_id.required' => 'Lokasi wajib dipilih.',
             'rows.*.location_id.exists' => 'Lokasi yang dipilih tidak valid.',
-            'rows.*.purchase_order_id.exists' => 'Nomor purchase order tidak valid.',
         ];
     }
 
@@ -73,9 +71,9 @@ trait ValidatesPurchaseReturnForm
             }
 
             if ($productId !== null && $locationId !== null) {
-                $combination = $productId . '-' . $locationId . '-' . ($purchaseOrderId ?: 'none');
+                $combination = $productId . '-' . $locationId;
                 if (in_array($combination, $lineCombinations)) {
-                    $validator->errors()->add("rows.$index.product_id", 'Kombinasi produk, lokasi, dan purchase order ini sudah ada.');
+                    $validator->errors()->add("rows.$index.product_id", 'Kombinasi produk dan lokasi ini sudah ada.');
                 } else {
                     $lineCombinations[] = $combination;
                 }
@@ -125,16 +123,6 @@ trait ValidatesPurchaseReturnForm
                                 "rows.$index.serial_numbers",
                                 "Nomor seri '{$psn->serial_number}' berada di lokasi yang berbeda."
                             );
-                        }
-                        
-                        if ($purchaseOrderId !== null) {
-                            $serialPurchaseId = $psn->receivedNoteDetail->receivedNote->po_id ?? null;
-                            if ($serialPurchaseId != $purchaseOrderId) {
-                                $validator->errors()->add(
-                                    "rows.$index.serial_numbers",
-                                    "Nomor seri '{$psn->serial_number}' berasal dari pembelian yang berbeda."
-                                );
-                            }
                         }
                     }
                 }

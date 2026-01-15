@@ -44,7 +44,7 @@
   - Location is searchable and formatted `Tenant Name - Location Name`.
   - Location list shows only locations with positive stock for the selected product across tenants.
 - Duplicate product lines are allowed when location or purchase order differs.
-- Row Uniqueness: Each line is unique by `(product_id, location_id, purchase_order_id)`.
+- Row Uniqueness: Each line is unique by `(product_id, location_id)`.
 - Serial handling:
   - Serial-tracked products require serial input.
   - Serial lookup uses the global serial registry.

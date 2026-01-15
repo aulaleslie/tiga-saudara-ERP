@@ -1,6 +1,7 @@
 <div class="position-relative"
      x-data
-     x-on:clear-input.window="if ($event.detail[0].index == {{ $index }}) $refs.serialInput.value = ''">
+     x-on:clear-input.window="if ($event.detail[0].index == {{ $index }}) { $refs.serialInput.value = ''; $refs.serialInput.focus(); }"
+     x-on:error-occurred.window="if ($event.detail[0].index == {{ $index }}) { $refs.serialInput.focus(); $refs.serialInput.select(); }">
     <div class="input-group mb-2">
         <input type="text"
                class="form-control"

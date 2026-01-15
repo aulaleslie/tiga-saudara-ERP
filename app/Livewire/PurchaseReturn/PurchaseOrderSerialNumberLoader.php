@@ -57,41 +57,37 @@ class PurchaseOrderSerialNumberLoader extends Component
         // Validate serial number
         $serial = ProductSerialNumber::where('product_id', $this->product_id)
             ->where('serial_number', $serial_number_input)
-            ->with(['location.setting', 'receivedNoteDetail.receivedNote.purchase'])
+            ->with(['location.setting'])
             ->first();
 
         if (!$serial) {
             $this->error_message = 'Serial number tidak ditemukan.';
+            $this->dispatch('error-occurred', ['index' => $this->index]);
+            return;
+        }
+
+        // Check if already in existing serials (current row)
+        $alreadyExists = collect($this->existingSerials)->contains('serial_number', $serial->serial_number);
+        if ($alreadyExists) {
+            $this->error_message = 'Nomor seri ini sudah ditambahkan di baris ini.';
+            $this->dispatch('error-occurred', ['index' => $this->index]);
             return;
         }
 
         if ($serial->dispatch_detail_id) {
             $this->error_message = 'Serial number sudah terjual/keluar.';
+            $this->dispatch('error-occurred', ['index' => $this->index]);
             return;
         }
 
-        // Resolve purchase order from serial
-        $purchase = $serial->receivedNoteDetail->receivedNote->purchase ?? null;
-        $purchaseIdFromSerial = $purchase->id ?? null;
-        $purchaseReference = $purchase->reference ?? null;
-        $purchaseDate = $purchase && $purchase->date ? \Carbon\Carbon::parse($purchase->date)->format('Y-m-d') : null;
-
-        // Validation: All serials in the same row must belong to the same location and same purchase order
+        // Validation: All serials in the same row must belong to the same location
         if (!empty($this->existingSerials)) {
             $firstSerial = $this->existingSerials[0];
             
             if ($serial->location_id != ($firstSerial['location_id'] ?? null)) {
                 $this->error_message = 'Nomor seri berasal dari lokasi yang berbeda, tambahkan baris baru dan scan ulang nomor seri.';
+                $this->dispatch('error-occurred', ['index' => $this->index]);
                 return;
-            }
-
-            // Also check purchase order if both have it
-            $firstPurchaseOrderId = $firstSerial['purchase_order_id'] ?? null;
-            if ($purchaseIdFromSerial && $firstPurchaseOrderId) {
-                if ($purchaseIdFromSerial != $firstPurchaseOrderId) {
-                    $this->error_message = 'Nomor seri berasal dari pembelian yang berbeda, tambahkan baris baru dan scan ulang nomor seri.';
-                    return;
-                }
             }
         }
         
@@ -102,9 +98,6 @@ class PurchaseOrderSerialNumberLoader extends Component
             'location_id' => $serial->location_id,
             'location_name' => $serial->location->name ?? null,
             'location_label' => ($serial->location->setting->company_name ?? 'N/A') . ' - ' . ($serial->location->name ?? 'N/A'),
-            'purchase_order_id' => $purchaseIdFromSerial,
-            'purchase_order_reference' => $purchaseReference,
-            'purchase_order_date' => $purchaseDate,
         ]);
         
         // Clear input

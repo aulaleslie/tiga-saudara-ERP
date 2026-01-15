@@ -24,15 +24,11 @@
             <table class="table table-hover align-middle mb-0" style="min-width: 1300px;">
                 <thead class="table-light">
                     <tr class="text-center text-uppercase small text-muted">
-                        <th style="width: 22%">Produk</th>
+                        <th style="width: 25%">Produk</th>
                         <th style="width: 15%">Lokasi</th>
-                        <th style="width: 18%">Jumlah di Lokasi</th>
-                        <th style="width: 9%">Jumlah Retur</th>
-                        <th style="width: 18%">Nomor Pembelian</th>
-                        <th style="width: 10%">Tanggal Purchase</th>
-                        @if(!$hidePrice)
-                            <th style="width: 11%">Harga Beli</th>
-                        @endif
+                        <th style="width: 10%">Satuan</th>
+                        <th style="width: 15%">Jumlah di Lokasi</th>
+                        <th style="width: 10%">Jumlah Retur</th>
                         <th style="width: 3%;" class="sticky-action-header text-center">
                             <button type="button" class="btn btn-outline-primary btn-sm rounded-circle"
                                     wire:click="addProductRow">
@@ -85,6 +81,9 @@
                                 @endif
                             </td>
                             <td class="text-center">
+                                <span class="fw-bold text-dark">{{ $row['unit_name'] ?? '-' }}</span>
+                            </td>
+                            <td class="text-center">
                                 <span class="badge bg-light text-primary fw-semibold">{{ $row['stock_at_location'] ?? 0 }}</span>
                             </td>
                             <td class="text-center">
@@ -106,40 +105,7 @@
                                     <span class="invalid-feedback d-block">{{ $validationErrors["rows.$index.quantity"][0] }}</span>
                                 @endif
                             </td>
-                            <td>
-                                @if (!empty($row['product_id']))
-                                    @if (!empty($row['purchase_order_locked']))
-                                        {{-- Read-only display for serial-locked POs --}}
-                                        <div class="form-control form-control-sm bg-light text-muted" style="cursor: not-allowed;">
-                                            <i class="bi bi-lock-fill me-1"></i>
-                                            {{ $row['purchase_order_reference'] ?? 'Pilih purchase order...' }}
-                                        </div>
-                                    @else
-                                        <livewire:purchase-return.purchase-order-search-dropdown
-                                            :index="$index"
-                                            :supplier_id="$supplierId"
-                                            :product_id="$row['product_id']"
-                                            :selected="$row['purchase_order_id']"
-                                            :error="$validationErrors['rows.'.$index.'.purchase_order_id'][0] ?? null"
-                                            wire:key="po-{{ $index }}" />
-                                    @endif
-                                    @error("rows.".$index.".purchase_order_id")
-                                        <span class="invalid-feedback d-block">{{ $message }}</span>
-                                    @enderror
-                                @else
-                                    <span class="text-muted small">Pilih produk terlebih dahulu</span>
-                                @endif
-                            </td>
-                            <td class="text-center text-muted">
-                                {{ $row['purchase_order_date'] ?? '-' }}
-                            </td>
-                            @if(!$hidePrice)
-                                <td class="text-center">
-                                    <span class="fw-semibold text-success">
-                                        {{ !empty($row['purchase_price']) ? 'Rp ' . number_format($row['purchase_price'], 0, ',', '.') . ',-' : '-' }}
-                                    </span>
-                                </td>
-                            @endif
+
                             <td class="text-center sticky-action-col">
                                 <button type="button" class="btn btn-outline-danger btn-sm rounded-circle"
                                         wire:click="removeProductRow({{ $index }})">
@@ -150,7 +116,7 @@
 
                         @if (!empty($row['serial_number_required']))
                             <tr class="bg-light">
-                                <td colspan="{{ $hidePrice ? 7 : 8 }}">
+                                <td colspan="6">
                                     <div class="p-3 rounded border">
                                         <livewire:purchase-return.purchase-order-serial-number-loader
                                             :index="$index"
@@ -197,7 +163,7 @@
                         @endif
                     @empty
                         <tr>
-                            <td colspan="{{ $hidePrice ? 7 : 8 }}" class="text-center text-muted py-4">Belum ada produk yang ditambahkan.</td>
+                            <td colspan="6" class="text-center text-muted py-4">Belum ada produk yang ditambahkan.</td>
                         </tr>
                     @endforelse
                 </tbody>

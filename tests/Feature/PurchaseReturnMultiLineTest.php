@@ -169,22 +169,8 @@ class PurchaseReturnMultiLineTest extends TestCase
         $this->assertEquals(3, $details[1]->quantity);
     }
 
-    public function test_create_purchase_return_blocks_duplicate_product_location_and_po(): void
+    public function test_create_purchase_return_blocks_duplicate_product_and_location(): void
     {
-        $purchase = \Modules\Purchase\Entities\Purchase::create([
-            'date' => now(),
-            'supplier_id' => $this->supplier->id,
-            'setting_id' => $this->setting->id,
-            'status' => 'RECEIVED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'Cash',
-            'supplier_name' => $this->supplier->name,
-            'due_date' => now(),
-            'total_amount' => 50000,
-            'paid_amount' => 50000,
-            'due_amount' => 0,
-        ]);
-
         Livewire::actingAs($this->user)
             ->test(PurchaseReturnCreateForm::class)
             ->set('supplier_id', $this->supplier->id)
@@ -195,7 +181,6 @@ class PurchaseReturnMultiLineTest extends TestCase
                     'product_code' => $this->product->product_code,
                     'quantity' => 2,
                     'location_id' => $this->location1->id,
-                    'purchase_order_id' => $purchase->id,
                     'purchase_price' => 10000,
                     'total' => 20000,
                     'serial_number_required' => false,
@@ -206,7 +191,6 @@ class PurchaseReturnMultiLineTest extends TestCase
                     'product_code' => $this->product->product_code,
                     'quantity' => 3,
                     'location_id' => $this->location1->id,
-                    'purchase_order_id' => $purchase->id,
                     'purchase_price' => 10000,
                     'total' => 30000,
                     'serial_number_required' => false,
@@ -214,70 +198,6 @@ class PurchaseReturnMultiLineTest extends TestCase
             ])
             ->call('submit')
             ->assertHasErrors(['rows.1.product_id']);
-    }
-
-    /**
-     * Scenario: Duplicate product and location but different PO
-     */
-    public function test_create_purchase_return_allows_duplicate_product_and_location_with_different_po(): void
-    {
-        $purchase1 = \Modules\Purchase\Entities\Purchase::create([
-            'date' => now(),
-            'supplier_id' => $this->supplier->id,
-            'setting_id' => $this->setting->id,
-            'status' => 'RECEIVED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'Cash',
-            'supplier_name' => $this->supplier->name,
-            'due_date' => now(),
-            'total_amount' => 50000,
-            'paid_amount' => 50000,
-            'due_amount' => 0,
-        ]);
-
-        $purchase2 = \Modules\Purchase\Entities\Purchase::create([
-            'date' => now(),
-            'supplier_id' => $this->supplier->id,
-            'setting_id' => $this->setting->id,
-            'status' => 'RECEIVED',
-            'payment_status' => 'PAID',
-            'payment_method' => 'Cash',
-            'supplier_name' => $this->supplier->name,
-            'due_date' => now(),
-            'total_amount' => 50000,
-            'paid_amount' => 50000,
-            'due_amount' => 0,
-        ]);
-
-        Livewire::actingAs($this->user)
-            ->test(PurchaseReturnCreateForm::class)
-            ->set('supplier_id', $this->supplier->id)
-            ->set('rows', [
-                [
-                    'product_id' => $this->product->id,
-                    'product_name' => $this->product->product_name,
-                    'product_code' => $this->product->product_code,
-                    'quantity' => 2,
-                    'location_id' => $this->location1->id,
-                    'purchase_order_id' => $purchase1->id,
-                    'purchase_price' => 10000,
-                    'total' => 20000,
-                    'serial_number_required' => false,
-                ],
-                [
-                    'product_id' => $this->product->id,
-                    'product_name' => $this->product->product_name,
-                    'product_code' => $this->product->product_code,
-                    'quantity' => 3,
-                    'location_id' => $this->location1->id,
-                    'purchase_order_id' => $purchase2->id,
-                    'purchase_price' => 10000,
-                    'total' => 30000,
-                    'serial_number_required' => false,
-                ]
-            ])
-            ->call('submit')
-            ->assertHasNoErrors();
     }
 
     /**
