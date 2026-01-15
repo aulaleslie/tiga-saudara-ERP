@@ -1,38 +1,33 @@
-# Purchase Return Acceptance Criteria
+# Purchase Return Acceptance Criteria (Current Implementation)
 
 ## Ticket 1: Gate purchase return create by permission
 Scenario: Access with permission
-Given a user has the purchase-return-create permission
+Given a user has the `purchaseReturns.create` permission
 When the user opens the purchase return create page
-Then the page loads and the create API is accessible
+Then the page loads and the create flow is accessible
 
 Scenario: Access without permission
-Given a user lacks the purchase-return-create permission
-When the user opens the purchase return create page or calls the create API
-Then access is blocked and the API returns 403 with a permission error
+Given a user lacks the `purchaseReturns.create` permission
+When the user opens the purchase return create page or submits the form
+Then access is blocked with a 403 authorization error
 
 Scenario: Permission revoked mid-session
 Given a user previously had permission but it is revoked
 When the user submits a purchase return
-Then the API denies the request with 403 and the UI shows an authorization error
+Then the request is denied with a 403 authorization error
 
-## Ticket 2: Update purchase return header (supplier required, remove header location)
+## Ticket 2: Supplier required; header location not set
 Scenario: Create with supplier
 Given the user is creating a purchase return
-When the user selects a supplier and submits without a header location
-Then the return is created and no header location is stored
+When the user selects a supplier and submits
+Then the return is created and header location is not set
 
 Scenario: Missing supplier
 Given the user is creating a purchase return
 When the user submits without selecting a supplier
 Then submission fails with a supplier-required validation error
 
-Scenario: Legacy header location payload
-Given a client includes a header location field in the create payload
-When the create API processes the request
-Then the header location value is ignored and not persisted
-
-## Ticket 3: Implement multi-line return items with per-line location
+## Ticket 3: Multi-line return items with per-line location
 Scenario: Multiple valid lines
 Given a return with multiple product lines including quantity and location
 When the user submits the return
@@ -48,37 +43,37 @@ Given a return contains the same product on two lines with the same location
 When the user submits the return
 Then submission fails with a duplicate-line validation error
 
-## Ticket 4: Location search dropdown filtered by positive stock across tenants
+## Ticket 4: Location dropdown filtered by positive stock
 Scenario: Locations filtered by positive stock
 Given a product is selected and some locations have positive stock
 When the user searches for a location
-Then only positive-stock locations are listed with labels formatted `Tenant Name - Location Name`
+Then only positive-stock locations are listed with labels `Tenant Name - Location Name`
 
 Scenario: No positive stock locations
 Given a product has zero stock across all locations
 When the user opens the location dropdown
 Then the dropdown shows an empty state and no selection can be made
 
-Scenario: Stock becomes unavailable before submit
-Given a user selected a location that had positive stock
-When the user submits after stock has dropped to zero
-Then the server rejects the submission with a stock-unavailable error
+Scenario: Stock unavailable at submit
+Given a user selected a location with no stock
+When the user submits the return
+Then submission fails with a stock-unavailable validation error
 
 ## Ticket 5: Serial lookup to auto-select and lock location
 Scenario: Serial lookup succeeds
-Given a serial-tracked product and a valid serial in the global registry
+Given a serial-tracked product and a valid serial in the registry
 When the user enters the serial
 Then the line location auto-fills and becomes read-only
 
 Scenario: Serial lookup fails
-Given a serial-tracked product and a serial that does not exist in the registry
-When the user enters the serial and submits
-Then submission is blocked with a serial-not-found error
+Given a serial-tracked product and a serial that does not exist or is dispatched
+When the user enters the serial
+Then the row shows an error and submission is blocked until corrected
 
-Scenario: Serial belongs to a different product
-Given a serial is linked to a different product in the registry
-When the user enters the serial on this product line
-Then the system shows a mismatch error and blocks submission
+Scenario: Serials from different locations in one row
+Given a serial-tracked product and an existing serial already selected
+When the user adds a serial from a different location
+Then the row shows an error and the serial is not added
 
 ## Ticket 6: Enforce serial uniqueness and consistency per return
 Scenario: Unique serials per return
@@ -87,59 +82,81 @@ When the user submits the return
 Then submission succeeds
 
 Scenario: Duplicate serials with casing differences
-Given a return includes serials "abc123" and "ABC123"
+Given a return includes serials "abc123" and "ABC123" on different rows
 When the user submits the return
 Then submission fails with a duplicate-serial validation error
 
 Scenario: Serial entered on non-serial product
 Given a product that is not serial-tracked
 When a serial is submitted on that line
-Then submission fails with a serial-not-allowed error
+Then submission fails with a serial-not-allowed validation error
 
 ## Ticket 7: Create pending return document without inventory mutation
 Scenario: Create pending document
 Given a valid return submission
 When the user submits the return
-Then a pending return document is created and no inventory mutation or reservation occurs
+Then a pending return document is created and no inventory mutation occurs
 
-Scenario: Verify no ledger changes
-Given a return has been created in pending status
-When inventory ledgers are checked
-Then no mutation or reservation entries exist for the return
+Scenario: Verify line persistence
+Given a return submission with line locations and serials
+When the return is created
+Then line items store `location_id` and `serial_number_ids`
 
-Scenario: Atomic persistence on failure
-Given a database error occurs while saving return lines
-When the submission is processed
-Then no partial return records are persisted
-
-## Ticket 8: Re-validate stock at approval (hook)
+## Ticket 8: Re-validate stock at approval
 Scenario: Approval succeeds with sufficient stock
 Given a pending return and current stock is sufficient
 When approval is executed
-Then approval succeeds and the return status updates to approved (stock mutation remains handled by dispatch flow)
+Then approval succeeds and the return status updates to approved
 
 Scenario: Approval fails with insufficient stock
 Given a pending return and current stock is insufficient
 When approval is executed
 Then approval fails with a stock-validation error and status remains pending
 
-Scenario: Serial location mismatch at approval
-Given a pending return with serials whose locations changed
+Scenario: Serial location or status mismatch at approval
+Given a pending return with serials whose locations or status changed
 When approval is executed
-Then approval fails with a serial-location-mismatch error
+Then approval fails with a serial-validation error
 
 ## Ticket 9: Hide purchase price on purchase return create
 Scenario: Price fields hidden on create form
 Given a user opens the purchase return create page
 When the form renders
-Then no purchase price fields are visible
+Then no purchase price or subtotal fields are visible
 
-Scenario: Create succeeds without price
-Given a user submits a purchase return create request without price fields
-When the API processes the request
-Then the purchase return is created and the response excludes price data
+Scenario: Totals still computed on create
+Given a user submits a purchase return
+When the return is saved
+Then totals are computed from the last purchase price even though price is hidden
 
-Scenario: Price provided on create
-Given a client submits a purchase return create request with price fields
-When the API validates the request
-Then the request is rejected with a price-not-allowed-on-return-create error
+## Ticket 11: Gate price-related columns in list and detail views
+Scenario: List view without price permission
+Given a user lacks `purchaseReturns.viewPrice`
+When the user opens the purchase return list
+Then total, paid, and due columns are hidden and not exported
+
+Scenario: List view with price permission
+Given a user has `purchaseReturns.viewPrice`
+When the user opens the purchase return list
+Then total, paid, and due columns are visible
+
+Scenario: Detail view without price permission
+Given a user lacks `purchaseReturns.viewPrice`
+When the user opens a purchase return detail page
+Then line prices, discounts, taxes, and totals are hidden
+
+Scenario: Detail view with price permission
+Given a user has `purchaseReturns.viewPrice`
+When the user opens a purchase return detail page
+Then line prices, discounts, taxes, and totals are visible
+
+## Ticket 12: Require approval permission to approve or reject
+Scenario: Approve/reject without approval permission
+Given a user lacks `purchaseReturns.approval`
+When the user attempts to approve or reject a return
+Then the action is blocked with a 403 authorization error and buttons are hidden
+
+Scenario: Approve/reject with approval permission
+Given a user has `purchaseReturns.approval`
+When the user approves or rejects a pending return
+Then the action succeeds and the status updates accordingly

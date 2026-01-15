@@ -1,86 +1,94 @@
-# Purchase Return Requirements
+# Purchase Return Requirements (Create Flow - Current Implementation)
 
 ## 1. Overview
-- This document defines the requirements for the redesigned purchase return creation flow and the removal of purchase price display on purchase return create.
-- Scope focuses on document creation only; inventory mutation happens after approval.
+- The purchase return create flow is Livewire-driven (`PurchaseReturnCreateForm` and `PurchaseReturnTable`).
+- Scope covers creation of a pending purchase return document with line-level location and serial handling; inventory mutation happens later in the dispatch flow.
 
 ## 2. Goals & Non-goals
 ### Goals
-- Move location selection to the line item and filter to positive stock across tenants.
-- Enforce serial-based location assignment from the global serial registry.
-- Allow duplicate product lines when locations differ.
-- Remove header-level location from purchase return.
-- Hide purchase price on purchase return create.
-- Display readonly stock at location under product details.
-- Remove subtotal column from create form.
-- Create return documents without inventory mutation until approval.
+- Require a supplier before adding return lines.
+- Filter product selection to items previously received from the selected supplier.
+- Support multiple return lines with required per-line location.
+- Allow duplicate products only when the location differs.
+- Filter locations to positive stock for the selected product and show `Tenant Name - Location Name` labels.
+- Enforce serial-driven location locking for serial-tracked products.
+- Hide purchase price in the create UI while still calculating totals.
+- Create pending return documents without inventory mutation.
+- Gate price-related columns in list and detail views by a price-view permission.
+- Restrict approve/reject actions to users with an approval permission.
 
 ### Non-goals
-- Return approval UX/workflow design (beyond creating a pending document).
-- Dispatch/settlement/receive flow changes.
-- Return edit/history features.
-- Reporting or analytics changes.
-- Inventory valuation logic changes.
-- Handling serial location changes between creation and approval (defined in next iteration).
+- Removing `purchase_returns.location_id` from the schema or migrating legacy data.
+- Purchase order selection or auto-locking purchase order from serials in the create flow.
+- Inventory reservation or stock deduction during creation.
+- Editing pricing, discounts, or taxes during creation.
 
 ## 3. Personas
-- Return Creator: creates purchase return documents; needs accurate per-line location and should not see purchase price on return create.
-- Inventory Controller: ensures returns map to correct tenant location and serials.
+- Return Creator: creates purchase return documents and needs accurate line locations without seeing purchase prices.
+- Inventory Controller: ensures returns map to correct locations and serials before approval.
 
 ## 4. User Journeys
-- Create return with non-serial product: select supplier, add product rows, choose tenant locations with positive stock, submit, document created in pending approval.
-- Create return with serial-tracked product: enter serial, system finds location via global registry, locks location, submit; if no match, submission blocked.
-- Create return with duplicate product lines: add same product multiple times with different locations; system accepts duplicates when locations differ.
-- Create purchase return: user creates purchase return without any purchase price visible in the UI.
+- Create return with non-serial product: select supplier, add product rows, choose locations with positive stock, enter quantities, submit to create a pending return.
+- Create return with serial-tracked product: scan/enter serials, system auto-fills and locks location, quantity auto-syncs to serial count, submit to create a pending return.
+- Create return with duplicate product lines: add the same product on multiple rows with different locations; submission is allowed.
 
 ## 5. Functional Requirements
-- Access control: only users with return creation permission can access purchase return create.
+- Access control:
+  - Only users with `purchaseReturns.create` permission can access the create page and submit.
+  - Only users with `purchaseReturns.approval` permission can approve or reject purchase returns.
+  - Only users with `purchaseReturns.viewPrice` permission can see price-related columns in list and detail views.
 - Return header:
-  - Supplier required; one supplier per return.
-  - No header-level location stored.
+  - Supplier is required.
+  - Date is required and defaults to today.
+  - Header-level location is not set during create.
+- Product selection:
+  - Product list is limited to items with purchases for the selected supplier where purchase status is `RECEIVED` or `RECEIVED PARTIALLY`.
 - Return lines:
-  - Multiple product lines per return.
-  - Each line has product, quantity, and location.
-  - Location is searchable and formatted `Tenant Name - Location Name`.
-  - Location list shows only locations with positive stock for the selected product across tenants.
-- Duplicate product lines are allowed when location or purchase order differs.
-- Row Uniqueness: Each line is unique by `(product_id, location_id)`.
+  - Each line requires `product_id`, `quantity`, and `location_id`.
+  - Lines are unique by `(product_id, location_id)`.
+  - Quantity is manual for non-serial products; for serial products it is derived from serial count.
+  - Stock at the selected location is displayed per line.
+- Location selection:
+  - Location list is filtered by `ProductStock` with `quantity > 0` for the selected product.
+  - Labels are formatted as `Tenant Name - Location Name` and searchable by tenant or location name.
 - Serial handling:
-  - Serial-tracked products require serial input.
-  - Serial lookup uses the global serial registry.
-  - If serial resolves to a location, location is auto-set and read-only.
-  - If serial resolves to a purchase order, purchase order is auto-set and read-only.
-  - If no location/purchase match, submission is blocked with a clear error.
-  - All serials in a single row must originate from the same location and same purchase order.
-  - Serial values must be unique per return and validated for consistency.
-- Document lifecycle:
-  - Submission creates a return document in a pending approval state.
-  - No inventory mutation or reservation occurs at creation time.
-  - Approval re-validates stock against actual availability; reservation/mutation timing is handled in the next iteration (current flow mutates on dispatch).
-- Purchase return create:
-  - Purchase price is not displayed in the create UI.
+  - Serial input is required when `serial_number_required` is true.
+  - Serials must exist in `ProductSerialNumber`, match the product, and not be dispatched.
+  - All serials in a row must share the same location.
+  - Location is auto-filled and locked from the first serial entry.
+  - Serials are unique across the return (case-insensitive).
+- Validation and totals:
+  - The return total must be greater than 0.
+  - Totals use the product last purchase price even though price is hidden in the UI.
+  - Create-time stock validation checks that the selected location has positive stock (no quantity comparison).
+- Persistence:
+  - Header fields include supplier, date, totals, and pending approval status.
+  - Detail rows store `location_id` and `serial_number_ids`.
+- Lifecycle:
+  - Created returns are `approval_status = pending` and `status = Pending Approval`.
+  - No inventory mutation or serial status changes occur during creation.
+- List and detail visibility:
+  - Price-related columns (total, paid, due) are hidden in the purchase return list for users without `purchaseReturns.viewPrice`.
+  - Price-related fields (unit price, discount, tax, subtotal, totals, and cash/deposit values) are hidden in the detail view for users without `purchaseReturns.viewPrice`.
+  - UI and backend must both enforce permission gating.
 
 ## 6. Non-Functional Requirements
-- Performance: location lookup and serial resolution respond quickly under expected load.
-- Data integrity: prevent returns with invalid serials or zero-stock locations.
-- Security: enforce tenant-aware visibility and permission checks.
-- Auditability: actions are logged for return creation and validation failures.
-- UX: location search is responsive and clear; serial errors are explicit.
+- Performance: product, location, and serial lookups respond quickly for expected load.
+- Data integrity: validations prevent invalid serials, duplicate lines, or zero-stock locations.
+- Auditability: create and validation failures are logged.
 
 ## 7. Assumptions
-- Global serial registry exists and reliably maps serials to tenant locations.
-- Positive stock data is available per product per location.
-- Location visibility is global for all return creators.
-- Approval flow exists and can accept pending documents.
+- `ProductStock` and `ProductSerialNumber` are authoritative sources.
+- Session `setting_id` exists and is required when creating return headers.
+- Supplier master data is valid and available.
+- New permissions (`purchaseReturns.viewPrice` and `purchaseReturns.approval`) are defined and assigned via roles.
 
 ## 8. Constraints
-- No inventory mutation or reservation at create stage.
-- Location must be line-level only; header-level location removed.
-- Serial must have a system-resolved location; manual override not allowed.
-- Locations shown must have positive stock only.
-- Migration integrity must be preserved during schema changes.
-- Purchase return create must not display purchase price.
-- No legacy compatibility layer is required for header-level location removal.
+- Location is strictly line-level and required for every row.
+- Serial-tracked rows cannot manually set location; location is derived from serials.
+- Location dropdown results are capped (10 results per search query).
+- Purchase price is hidden in the create UI.
+- Price-related fields must not be rendered or returned for users without `purchaseReturns.viewPrice`.
 
 ## 9. Open Questions
 - None at this time.

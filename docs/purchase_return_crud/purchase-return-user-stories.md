@@ -1,27 +1,36 @@
-# Purchase Return User Stories
+# Purchase Return User Stories (Create Flow)
 
 ## Access & Permissions
-- As a return creator, I want to access the purchase return creation form, so that I can submit return documents.
+- As a return creator, I want access to the purchase return create form only if I have `purchaseReturns.create` permission.
 
-## Return Header
-- As a return creator, I want to select a single supplier for the return, so that all lines are associated to the correct supplier.
+## Supplier & Product Selection
+- As a return creator, I want to select a supplier before adding lines, so the product list is scoped correctly.
+- As a return creator, I want the product list to show only items previously received from the selected supplier.
 
 ## Return Lines & Location Selection
-- As a return creator, I want to add multiple product lines to a return, so that I can return several items in one document.
-- As a return creator, I want to select a location per product line, so that each item is returned from the correct tenant location.
-- As a return creator, I want the location list to show only locations with positive stock for the selected product, so that I can only choose valid locations.
-- As a return creator, I want to see locations labeled as `Tenant Name - Location Name`, so that I can distinguish same-named locations across tenants.
-- As a return creator, I want to add duplicate product lines when the locations differ, so that I can return the same product from multiple locations.
+- As a return creator, I want to add multiple product lines, so I can return several items in one document.
+- As a return creator, I want to select a location per line, so the return maps to the correct stock location.
+- As a return creator, I want the location list to show only locations with positive stock for that product.
+- As a return creator, I want location labels formatted as `Tenant Name - Location Name` to avoid ambiguity.
+- As a return creator, I want to see the current stock at the selected location per line.
+- As a return creator, I want duplicate product lines allowed only when locations differ.
 
 ## Serial-Tracked Products
-- As a return creator, I want the system to look up serials in the global serial registry, so that the correct location is identified.
-- As a return creator, I want the location to auto-fill and become read-only after entering a serial, so that the return stays consistent with the registry.
-- As a return creator, I want the system to block submission when a serial has no matched location, so that invalid returns are prevented.
-- As a return creator, I want serials on a return to be unique and consistent, so that I avoid duplicate or conflicting serial entries.
+- As a return creator, I want to scan or enter serial numbers, so the system can verify and capture serial-tracked returns.
+- As a return creator, I want the location to auto-fill and lock after the first serial, so the row stays consistent.
+- As a return creator, I want the quantity to auto-sync to the number of serials I add.
+- As a return creator, I want errors when a serial is invalid, dispatched, or belongs to a different location.
+- As a return creator, I want serials to be unique across the entire return.
 
-## Submission & Approval Lifecycle
-- As a return creator, I want to submit a return and create a pending document, so that approval can be completed before inventory changes.
-- As an inventory controller, I want stock to be re-validated at approval, so that the final decision reflects actual availability.
+## Submission & Lifecycle
+- As a return creator, I want to submit a return and create a pending document without inventory mutation.
+- As an inventory controller, I want approval-time validation of stock and serial status before approval proceeds.
 
-## Purchase Return (Price Visibility)
-- As a return creator, I want purchase prices hidden on the purchase return create form, so that pricing is not exposed during return creation.
+## Pricing Visibility
+- As a return creator, I want purchase prices hidden on the create form, even though totals are calculated in the background.
+- As a user without price-view permission, I want price-related columns hidden on the purchase return list and detail pages.
+- As a user with price-view permission, I want to see totals and line pricing on the purchase return list and detail pages.
+
+## Approval Permissions
+- As an approver, I want to approve or reject returns only if I have approval permission.
+- As a non-approver, I want approve/reject actions hidden or blocked.
