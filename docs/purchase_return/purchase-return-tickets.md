@@ -6,7 +6,7 @@
 - Line items are stored in `purchase_return_details` with `serial_number_ids` but no `location_id`.
 - Serial entry uses `PurchaseOrderSerialNumberLoader` and `SerialNumberController@validatePurchaseReturnSerial`, both expecting a `location_id`.
 - Approval happens in `PurchasesReturnController@approve` with no stock revalidation; stock mutation occurs later in `dispatchReturn` using global `Product::product_quantity`.
-- Purchase create UI uses Livewire `Purchase/CreateForm` + `Purchase/ProductCart`, which displays and edits purchase price.
+- Purchase return create table (`resources/views/livewire/purchase-return/purchase-return-table.blade.php`) displays the `Harga Beli` column sourced from `purchase_price`.
 
 ## Ticket 1 (Completed)
 Title: Gate purchase return create by permission
@@ -176,7 +176,7 @@ Edge cases:
 - Duplicate submissions creating multiple pending documents.
 - Partial failure after header save but before line save.
 
-## Ticket 8
+## Ticket 8 (Completed)
 Title: Re-validate stock at approval (hook)
 
 Description:
@@ -200,23 +200,23 @@ Edge cases:
 - Serial moved to a different location before approval.
 
 ## Ticket 9
-Title: Hide purchase price on purchase create
+Title: Hide purchase price on purchase return create
 
 Description:
-Remove purchase price visibility from the purchase create UI and ensure API responses do not expose it during creation.
+Remove purchase price visibility from the purchase return create UI and ensure API responses do not expose it during creation.
 
 Scope:
-- UI: remove/hide price fields on create form.
-- API: do not return or require price on create.
+- UI: remove/hide price fields on purchase return create form.
+- API: do not return or require price on purchase return create.
 
 Technical notes:
-- Purchase create UI is `resources/views/livewire/purchase/product-cart.blade.php`; remove the `Harga Beli` column and inline edit there only.
-- Keep backend calculations in `Purchase/ProductCart` intact; do not affect purchase edit/view screens.
+- Purchase return create UI is `resources/views/livewire/purchase-return/purchase-return-table.blade.php`; remove the `Harga Beli` column display there only.
+- Keep backend calculations in `PurchaseReturnTable` intact; do not affect purchase return edit/settlement screens.
 
 Dependencies:
-- Purchase create form components.
-- Purchase create API endpoint.
+- Purchase return create form components.
+- Purchase return create API endpoint.
 
 Edge cases:
-- User role with broader permissions still should not see price on create.
+- User role with broader permissions still should not see price on purchase return create.
 - Cached frontend data that includes price fields.

@@ -1,7 +1,7 @@
 # Purchase Return Requirements
 
 ## 1. Overview
-- This document defines the requirements for the redesigned purchase return creation flow and the removal of purchase price display on purchase create.
+- This document defines the requirements for the redesigned purchase return creation flow and the removal of purchase price display on purchase return create.
 - Scope focuses on document creation only; inventory mutation happens after approval.
 
 ## 2. Goals & Non-goals
@@ -10,7 +10,7 @@
 - Enforce serial-based location assignment from the global serial registry.
 - Allow duplicate product lines when locations differ.
 - Remove header-level location from purchase return.
-- Hide purchase price on purchase create.
+- Hide purchase price on purchase return create.
 - Create return documents without inventory mutation until approval.
 
 ### Non-goals
@@ -22,15 +22,14 @@
 - Handling serial location changes between creation and approval (defined in next iteration).
 
 ## 3. Personas
-- Return Creator: creates purchase return documents; needs accurate per-line location.
+- Return Creator: creates purchase return documents; needs accurate per-line location and should not see purchase price on return create.
 - Inventory Controller: ensures returns map to correct tenant location and serials.
-- Purchasing Staff: creates purchases; should not see purchase price on create.
 
 ## 4. User Journeys
 - Create return with non-serial product: select supplier, add product rows, choose tenant locations with positive stock, submit, document created in pending approval.
 - Create return with serial-tracked product: enter serial, system finds location via global registry, locks location, submit; if no match, submission blocked.
 - Create return with duplicate product lines: add same product multiple times with different locations; system accepts duplicates when locations differ.
-- Create purchase: user creates purchase without any purchase price visible in the UI.
+- Create purchase return: user creates purchase return without any purchase price visible in the UI.
 
 ## 5. Functional Requirements
 - Access control: only users with return creation permission can access purchase return create.
@@ -53,7 +52,7 @@
   - Submission creates a return document in a pending approval state.
   - No inventory mutation or reservation occurs at creation time.
   - Approval re-validates stock against actual availability; reservation/mutation timing is handled in the next iteration (current flow mutates on dispatch).
-- Purchase create:
+- Purchase return create:
   - Purchase price is not displayed in the create UI.
 
 ## 6. Non-Functional Requirements
@@ -75,7 +74,7 @@
 - Serial must have a system-resolved location; manual override not allowed.
 - Locations shown must have positive stock only.
 - Migration integrity must be preserved during schema changes.
-- Purchase create must not display purchase price.
+- Purchase return create must not display purchase price.
 - No legacy compatibility layer is required for header-level location removal.
 
 ## 9. Open Questions

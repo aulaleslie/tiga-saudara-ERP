@@ -23,5 +23,5 @@
 - As a return creator, I want to submit a return and create a pending document, so that approval can be completed before inventory changes.
 - As an inventory controller, I want stock to be re-validated at approval, so that the final decision reflects actual availability.
 
-## Purchase Create (Price Visibility)
-- As a purchasing staff member, I want purchase prices hidden on the purchase create form, so that pricing is not exposed during creation.
+## Purchase Return (Price Visibility)
+- As a return creator, I want purchase prices hidden on the purchase return create form, so that pricing is not exposed during return creation.

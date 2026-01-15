@@ -128,18 +128,18 @@ Given a pending return with serials whose locations changed
 When approval is executed
 Then approval fails with a serial-location-mismatch error
 
-## Ticket 9: Hide purchase price on purchase create
+## Ticket 9: Hide purchase price on purchase return create
 Scenario: Price fields hidden on create form
-Given a user opens the purchase create page
+Given a user opens the purchase return create page
 When the form renders
 Then no purchase price fields are visible
 
 Scenario: Create succeeds without price
-Given a user submits a purchase create request without price fields
+Given a user submits a purchase return create request without price fields
 When the API processes the request
-Then the purchase is created and the response excludes price data
+Then the purchase return is created and the response excludes price data
 
 Scenario: Price provided on create
-Given a client submits a purchase create request with price fields
+Given a client submits a purchase return create request with price fields
 When the API validates the request
-Then the request is rejected with a price-not-allowed-on-create error
+Then the request is rejected with a price-not-allowed-on-return-create error
