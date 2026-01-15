@@ -12,7 +12,7 @@
             @endif
         @endcan
 
-        @can('purchaseReturns.edit')
+        @can('purchaseReturns.approval')
             @if($approvalStatus === 'pending')
                 <form method="POST" action="{{ route('purchase-returns.approve', $data->id) }}" class="m-0">
                     @csrf

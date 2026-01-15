@@ -12,7 +12,7 @@
     </ol>
 @endsection
 
-@can('purchaseReturns.edit')
+@can('purchaseReturns.approval')
     @if($approvalStatus === 'pending')
         @push('page_scripts')
             <script>
@@ -26,6 +26,10 @@
                 }
             </script>
         @endpush
+    @endif
+@endcan
+@can('purchaseReturns.edit')
+    @if($approvalStatus === 'pending')
         @if($purchase_return->settlement && $purchase_return->settlement->status === 'pending')
             <script>
                 function settlementReject{{ $purchase_return->settlement->id }}() {
@@ -54,11 +58,13 @@
                         <div class="ms-auto d-flex flex-wrap align-items-center">
                             <span class="badge bg-secondary text-uppercase me-2 mb-1">{{ $purchase_return->status }}</span>
                             <span class="badge {{ $approvalStatus === 'approved' ? 'bg-success' : ($approvalStatus === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase me-2 mb-1">{{ $purchase_return->approval_status }}</span>
-                            @can('purchaseReturns.edit')
-                                @if($approvalStatus === 'pending')
+                            @if($approvalStatus === 'pending')
+                                @can('purchaseReturns.edit')
                                     <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.edit', $purchase_return) }}">
                                         <i class="bi bi-pencil"></i> Edit
                                     </a>
+                                @endcan
+                                @can('purchaseReturns.approval')
                                     <form method="POST" action="{{ route('purchase-returns.approve', $purchase_return) }}" class="me-2 mb-1 d-inline">
                                         @csrf
                                         <button type="submit" class="btn btn-success btn-sm d-print-none" onclick="return confirm('Setujui retur pembelian ini?')">
@@ -72,7 +78,9 @@
                                     <button type="button" class="btn btn-outline-danger btn-sm d-print-none me-2 mb-1" onclick="purchaseReturnReject{{ $purchase_return->id }}()">
                                         <i class="bi bi-x-circle"></i> Tolak
                                     </button>
-                                @elseif($approvalStatus === 'approved')
+                                @endcan
+                            @elseif($approvalStatus === 'approved')
+                                @can('purchaseReturns.edit')
                                     @if(!$purchase_return->return_dispatched_at)
                                         <form method="POST" action="{{ route('purchase-returns.dispatch', $purchase_return) }}" class="d-inline">
                                             @csrf
@@ -133,8 +141,8 @@
                                             <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
                                         </a>
                                     @endif
-                                @endif
-                            @endcan
+                                @endcan
+                            @endif
                             <a target="_blank" class="btn btn-outline-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.pdf', $purchase_return->id) }}">
                                 <i class="bi bi-printer"></i> Cetak
                             </a>

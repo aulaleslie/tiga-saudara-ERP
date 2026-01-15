@@ -84,7 +84,7 @@ Title: Auto-lock purchase order from serials
 Implementation:
 - The create flow does not capture or lock purchase order IDs from serials.
 
-## Ticket 11 (Not Implemented)
+## Ticket 11 (Done)
 Title: Gate price-related columns in list and detail views
 
 Implementation:
@@ -92,7 +92,7 @@ Implementation:
 - Ensure exports/print paths also respect the permission.
 - Update permissions seeder to include `purchaseReturns.viewPrice` and expose it in role create/update.
 
-## Ticket 12 (Not Implemented)
+## Ticket 12 (Done)
 Title: Require approval permission to approve or reject
 
 Implementation:

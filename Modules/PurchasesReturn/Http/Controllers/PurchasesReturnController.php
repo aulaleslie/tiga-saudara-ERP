@@ -278,7 +278,7 @@ class PurchasesReturnController extends Controller
 
     public function approve(PurchaseReturn $purchase_return)
     {
-        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+        abort_if(Gate::denies('purchaseReturns.approval'), 403);
 
         $status = Str::lower($purchase_return->approval_status ?? '');
 
@@ -315,7 +315,7 @@ class PurchasesReturnController extends Controller
 
     public function reject(Request $request, PurchaseReturn $purchase_return)
     {
-        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+        abort_if(Gate::denies('purchaseReturns.approval'), 403);
 
         $status = Str::lower($purchase_return->approval_status ?? '');
 

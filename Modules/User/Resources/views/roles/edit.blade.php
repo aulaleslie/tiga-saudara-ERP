@@ -144,6 +144,7 @@
                                             'purchaseReturns.delete' => 'Hapus',
                                             'purchaseReturns.show'   => 'Lihat',
                                             'purchaseReturns.viewPrice' => 'Lihat Harga',
+                                            'purchaseReturns.approval' => 'Persetujuan',
                                         ],
 
                                         'Pembayaran Retur Pembelian' => [

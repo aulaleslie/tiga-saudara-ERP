@@ -7,24 +7,21 @@
 - Creation saves a pending document without inventory mutation.
 - Approval re-validates stock and serials before status changes.
 - Purchase price is hidden on the create UI but used for totals.
-- Price-related columns are not yet permission-gated on list/detail views.
-- Approve/reject currently relies on `purchaseReturns.edit` instead of a dedicated approval permission.
+- Price-related columns are permission-gated on list/detail views.
+- Approve/reject uses the dedicated `purchaseReturns.approval` permission.
 - Edit flow already uses the same UI and validation as create.
-- Role create/update and permission seeder do not yet include the new permissions.
+- Role create/update and permission seeder include the new purchase return permissions.
 
 ## 2. Ticket Status Overview
 - Tickets 1-9: Implemented.
 - Ticket 10 (purchase order auto-lock from serials): Not implemented.
-- Tickets 11-12 (price-view gating and approval permission): Not implemented.
+- Tickets 11-12 (price-view gating and approval permission): Implemented.
 - Ticket 13 (edit alignment): Implemented.
 
 ## 3. Remaining Work (Optional Enhancements)
 - Decide whether to add purchase order selection and serial-to-PO locking in create.
 - Decide whether to enforce quantity <= stock at create time (currently only checks stock > 0).
 - Review legacy header location usage in read/settlement views if deprecation is desired.
-- Add `purchaseReturns.viewPrice` gating for list/detail price fields.
-- Add `purchaseReturns.approval` gating for approve/reject actions and endpoints.
-- Update permission seeder and role create/update screens to include the new permissions.
 
 ## 4. Verification Checklist
 - Create return with non-serial product and confirm location/stock validation.
