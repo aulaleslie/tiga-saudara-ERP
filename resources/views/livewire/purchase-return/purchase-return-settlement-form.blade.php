@@ -87,18 +87,49 @@
                                                     $methodLabel = $methods[$line['method']] ?? ($line['method'] ?: 'Belum ditentukan');
                                                 @endphp
                                                 <span class="fw-semibold text-dark">{{ $methodLabel }}</span>
+                                                @if($line['method'] === 'MODIFY_PURCHASE' && $line['target_purchase_id'])
+                                                    @php
+                                                        $targetPurchase = collect($unpaidPurchases)->firstWhere('id', $line['target_purchase_id']);
+                                                    @endphp
+                                                    <div class="small text-muted mt-1">
+                                                        <i class="bi bi-file-text me-1"></i>
+                                                        {{ $targetPurchase['label'] ?? 'Nota #'. $line['target_purchase_id'] }}
+                                                    </div>
+                                                @endif
                                             </div>
                                         @else
-                                            <select class="form-select @error('settlementLines.'.$index.'.method') is-invalid @enderror" 
-                                                wire:model.defer="settlementLines.{{ $index }}.method">
-                                                <option value="">-- Pilih Metode --</option>
-                                                @foreach($methods as $value => $label)
-                                                    <option value="{{ $value }}">{{ $label }}</option>
-                                                @endforeach
-                                            </select>
-                                            @error('settlementLines.'.$index.'.method')
-                                                <div class="invalid-feedback">{{ $message }}</div>
-                                            @enderror
+                                            <div class="d-flex flex-column gap-2">
+                                                <select class="form-select @error('settlementLines.'.$index.'.method') is-invalid @enderror" 
+                                                    wire:model.live="settlementLines.{{ $index }}.method">
+                                                    <option value="">-- Pilih Metode --</option>
+                                                    @foreach($methods as $value => $label)
+                                                        <option value="{{ $value }}">{{ $label }}</option>
+                                                    @endforeach
+                                                </select>
+                                                @error('settlementLines.'.$index.'.method')
+                                                    <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                @enderror
+
+                                                {{-- MODIFY_PURCHASE: Show purchase selection dropdown --}}
+                                                @if(strtoupper($line['method'] ?? '') === 'MODIFY_PURCHASE')
+                                                    <select class="form-select form-select-sm @error('settlementLines.'.$index.'.target_purchase_id') is-invalid @enderror"
+                                                        wire:model.defer="settlementLines.{{ $index }}.target_purchase_id">
+                                                        <option value="">-- Pilih Nota Pembelian --</option>
+                                                        @foreach($unpaidPurchases as $purchase)
+                                                            <option value="{{ $purchase['id'] }}">{{ $purchase['label'] }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                    @error('settlementLines.'.$index.'.target_purchase_id')
+                                                        <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                    @enderror
+                                                    @if(empty($unpaidPurchases))
+                                                        <div class="text-warning small">
+                                                            <i class="bi bi-exclamation-triangle me-1"></i>
+                                                            Tidak ada nota pembelian dengan sisa pembayaran untuk pemasok ini.
+                                                        </div>
+                                                    @endif
+                                                @endif
+                                            </div>
                                         @endif
                                     </td>
                                 </tr>

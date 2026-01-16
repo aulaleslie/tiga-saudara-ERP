@@ -99,9 +99,11 @@
                                                     </button>
                                                 </form>
                                             @endcan
+                                        @elseif($purchase_return->settlement->status === 'executing')
+                                            <span class="badge bg-info text-dark me-2 mb-1">Settlement Executing (Awaiting Replacement)</span>
                                             
                                             {{-- Batch 7: Receive Replacement --}}
-                                            @if($purchase_return->settlement->status === 'executing' && $purchase_return->return_dispatched_at && $purchase_return->goods->where('received_quantity', '<', 'quantity')->isNotEmpty())
+                                            @if($purchase_return->return_dispatched_at && $purchase_return->goods->where('received_quantity', '<', 'quantity')->isNotEmpty())
                                                 @can('purchaseReturnSettlements.receive')
                                                     <button type="button" class="btn btn-success btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#receiveReplacementModal">
                                                         <i class="bi bi-box-seam"></i> Terima Barang Pengganti

@@ -21,6 +21,7 @@ use Modules\PurchasesReturn\Entities\PurchaseReturnGood;
 use Modules\PurchasesReturn\Entities\PurchaseReturnPayment;
 use Modules\PurchasesReturn\Entities\SupplierCredit;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Purchase\Entities\Purchase;
 
 class PurchaseReturnSettlementForm extends Component
 {
@@ -31,6 +32,7 @@ class PurchaseReturnSettlementForm extends Component
     public array $settlementLines = [];
     public $cash_proof;
     public bool $isReadOnly = false;
+    public array $unpaidPurchases = [];
 
     public function mount(int $purchaseReturnId): void
     {
@@ -94,20 +96,88 @@ class PurchaseReturnSettlementForm extends Component
                 ];
             }
         }
+
+        // Load unpaid purchases for MODIFY_PURCHASE method
+        $this->loadUnpaidPurchases();
+    }
+
+    protected function loadUnpaidPurchases(): void
+    {
+        if (!$this->purchaseReturn->supplier_id) {
+            $this->unpaidPurchases = [];
+            return;
+        }
+
+        $this->unpaidPurchases = Purchase::where('supplier_id', $this->purchaseReturn->supplier_id)
+            ->where('due_amount', '>', 0)
+            ->whereIn('status', [
+                Purchase::STATUS_RECEIVED,
+                Purchase::STATUS_RECEIVED_PARTIALLY,
+                Purchase::STATUS_APPROVED,
+            ])
+            ->select(['id', 'reference', 'due_amount', 'total_amount'])
+            ->orderBy('date', 'desc')
+            ->limit(50)
+            ->get()
+            ->map(function ($purchase) {
+                return [
+                    'id' => $purchase->id,
+                    'label' => $purchase->reference . ' - Sisa: ' . format_currency($purchase->due_amount),
+                    'due_amount' => $purchase->due_amount,
+                ];
+            })
+            ->toArray();
+    }
+
+    /**
+     * Check if any settlement line uses the CASH method.
+     */
+    public function hasCashMethod(): bool
+    {
+        return collect($this->settlementLines)->contains(function ($line) {
+            return strtoupper($line['method'] ?? '') === PurchaseReturnDetail::METHOD_CASH;
+        });
+    }
+
+    /**
+     * Check if any settlement line uses the MODIFY_PURCHASE method.
+     */
+    public function hasModifyPurchaseMethod(): bool
+    {
+        return collect($this->settlementLines)->contains(function ($line) {
+            return strtoupper($line['method'] ?? '') === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE;
+        });
     }
 
     protected function rules(): array
     {
-        return [
+        $rules = [
             'settlementLines.*.method' => 'required|string',
             'cash_proof' => 'nullable|file|max:4096|mimes:jpg,jpeg,png,pdf',
         ];
+
+        // Add conditional validation for MODIFY_PURCHASE method
+        foreach ($this->settlementLines as $index => $line) {
+            if (strtoupper($line['method'] ?? '') === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE) {
+                $rules["settlementLines.{$index}.target_purchase_id"] = 'required|exists:purchases,id';
+            }
+        }
+
+        // Require cash_proof if any line uses CASH method
+        if ($this->hasCashMethod()) {
+            $rules['cash_proof'] = 'required|file|max:4096|mimes:jpg,jpeg,png,pdf';
+        }
+
+        return $rules;
     }
 
     protected function messages(): array
     {
         return [
             'settlementLines.*.method.required' => 'Pilih metode penyelesaian.',
+            'settlementLines.*.target_purchase_id.required' => 'Pilih nota pembelian untuk metode Ubah Nota Pembelian.',
+            'settlementLines.*.target_purchase_id.exists' => 'Nota pembelian tidak valid.',
+            'cash_proof.required' => 'Bukti pengembalian tunai wajib diunggah jika ada item dengan metode Pengembalian Tunai.',
             'cash_proof.max' => 'Ukuran bukti maksimal 4MB.',
         ];
     }
@@ -178,6 +248,7 @@ class PurchaseReturnSettlementForm extends Component
         return view('livewire.purchase-return.purchase-return-settlement-form', [
             'methods' => PurchaseReturnDetail::settlementMethods(),
             'total' => $this->purchaseReturn->total_amount,
+            'unpaidPurchases' => $this->unpaidPurchases,
         ]);
     }
 }

@@ -6,14 +6,14 @@ Phase 1: Foundations (Completed)
 2) Ticket 2: Serial vs Non-serial Settlement Rules
 3) Ticket 8: Validation Rules & Blocking Save
 
-Phase 2: Settlement Methods
+Phase 2: Settlement Methods (Completed)
 4) Ticket 3: Perbaikan Produk
 5) Ticket 4: Kembali Barang Rusak
 6) Ticket 5: Ubah Nota Pembelian
 7) Ticket 6: Simpan Sebagai Kredit
 8) Ticket 7: Pengembalian Tunai
 
-Phase 3: Approval & Effects
+Phase 3: Approval & Effects (Completed)
 9) Ticket 10: Approval & Locking
 10) Ticket 11: Inventory & Financial Effects on Approval
 

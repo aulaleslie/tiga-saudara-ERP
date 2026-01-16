@@ -36,7 +36,7 @@ class PurchasesReturnSettlementController extends Controller
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.approve'), 403);
 
-        if ($settlement->status !== 'pending') {
+        if (\Illuminate\Support\Str::lower($settlement->status) !== 'pending') {
             return back()->with('error', 'Hanya penyelesaian dengan status Pending yang dapat disetujui.');
         }
 
@@ -53,7 +53,7 @@ class PurchasesReturnSettlementController extends Controller
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.approve'), 403);
 
-        if ($settlement->status !== 'pending') {
+        if (\Illuminate\Support\Str::lower($settlement->status) !== 'pending') {
             return back()->with('error', 'Hanya penyelesaian dengan status Pending yang dapat ditolak.');
         }
 
@@ -77,63 +77,112 @@ class PurchasesReturnSettlementController extends Controller
 
         try {
             \Illuminate\Support\Facades\DB::transaction(function () use ($settlement) {
-                $purchaseReturn = $settlement->purchaseReturn;
-                $method = \Illuminate\Support\Str::lower($settlement->method);
+                $purchaseReturn = $settlement->purchaseReturn->load(['settlementItems.detail', 'purchaseReturnDetails']);
+                $totalCashAmount = 0;
+                $totalCreditAmount = 0;
+                $hasExecutingState = false;
 
-                if ($method === 'cash') {
-                    // Create Payment
-                     \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
-                        'date'               => now(),
-                        'reference'          => 'REF/' . $purchaseReturn->reference . '/SETTLEMENT', // Improved reference
-                        'amount'             => $purchaseReturn->total_amount,
-                        'purchase_return_id' => $purchaseReturn->id,
-                        'payment_method'     => 'Cash',
-                        'note'               => 'Settlement execution (Cash)',
-                    ]);
+                foreach ($purchaseReturn->settlementItems as $item) {
+                    $method = strtoupper($item->method);
+                    // Use nominal from settlement item if set (> 0), otherwise fall back to detail sub_total
+                    $itemAmount = $item->nominal > 0 ? (float) $item->nominal : ($item->detail ? (float) $item->detail->sub_total : 0);
 
-                    $purchaseReturn->update([
-                        'payment_status' => 'Paid',
-                        'paid_amount' => $purchaseReturn->total_amount,
-                        'settled_at' => now(),
-                        'settled_by' => auth()->id(),
-                        'status' => 'Completed',
-                    ]);
+                    switch ($method) {
+                        case 'PRODUCT_REPAIR':
+                            // Mark for execution (repairing)
+                            $hasExecutingState = true;
+                            break;
 
-                    $settlement->update(['status' => 'completed']);
+                        case 'BROKEN_STOCK':
+                            // Broken stock is essentially a financial write-off in terms of settlement
+                            // No further logical steps needed after execution
+                            break;
 
-                } elseif ($method === 'deposit') {
-                    // Create Supplier Credit
+                        case 'MODIFY_PURCHASE':
+                            // Reduce outstanding balance on target purchase
+                            if ($item->target_purchase_id) {
+                                $purchase = \Modules\Purchase\Entities\Purchase::findOrFail($item->target_purchase_id);
+                                
+                                // Ensure we don't reduce more than the due amount
+                                $amountToReduce = min($itemAmount, (float) $purchase->due_amount);
+                                
+                                if ($amountToReduce > 0) {
+                                    $purchase->decrement('due_amount', $amountToReduce);
+                                    $purchase->increment('paid_amount', $amountToReduce);
+                                    
+                                    // Update purchase payment status if fully paid
+                                    if ($purchase->fresh()->due_amount <= 0) {
+                                        $purchase->update(['payment_status' => 'Paid']);
+                                    }
+                                }
+                            }
+                            break;
+
+                        case 'CREDIT':
+                            // Accumulate for single supplier credit record
+                            $totalCreditAmount += $itemAmount;
+                            break;
+
+                        case 'CASH':
+                            // Accumulate for single payment record
+                            $totalCashAmount += $itemAmount;
+                            break;
+                    }
+                }
+
+                // Create single supplier credit record if there are CREDIT items
+                if ($totalCreditAmount > 0) {
                     \Modules\PurchasesReturn\Entities\SupplierCredit::create([
                         'supplier_id'        => $purchaseReturn->supplier_id,
                         'purchase_return_id' => $purchaseReturn->id,
-                        'amount'             => $purchaseReturn->total_amount,
-                        'reason'             => 'Purchase Return Settlement ' . $purchaseReturn->reference,
-                        'created_by'         => auth()->id(),
+                        'amount'             => $totalCreditAmount,
+                        'remaining_amount'   => $totalCreditAmount,
+                        'status'             => 'open',
                     ]);
-
-                    $purchaseReturn->update([
-                        'payment_status' => 'Paid', // Technically settled via credit
-                        'paid_amount' => $purchaseReturn->total_amount,
-                        'settled_at' => now(),
-                        'settled_by' => auth()->id(),
-                        'status' => 'Completed',
-                    ]);
-
-                    $settlement->update(['status' => 'completed']);
-
-                } elseif ($method === 'exchange') {
-                    // Start execution flow for exchange
-                    $settlement->update(['status' => 'executing']);
-                    
-                    // Note: Actual stock movement happens in Dispatch/Receive steps.
-                    // We just mark it as started here.
                 }
+
+                // Create single payment record if there are CASH items
+                if ($totalCashAmount > 0) {
+                    \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
+                        'date'               => now(),
+                        'reference'          => 'REF/' . $purchaseReturn->reference . '/CASH',
+                        'amount'             => $totalCashAmount,
+                        'purchase_return_id' => $purchaseReturn->id,
+                        'payment_method'     => 'Cash',
+                        'note'               => 'Settlement execution (Cash refund)',
+                    ]);
+                }
+
+                // Calculate total settled amount (sum of all settlement items)
+                $totalSettled = 0;
+                foreach ($purchaseReturn->settlementItems as $item) {
+                     $totalSettled += $item->nominal > 0 ? (float) $item->nominal : ($item->detail ? (float) $item->detail->sub_total : 0);
+                }
+                
+                // Update purchase return
+                $isFullySettled = $totalSettled >= $purchaseReturn->total_amount;
+                $purchaseReturn->update([
+                    'payment_status' => $isFullySettled ? 'Paid' : 'Partial',
+                    'paid_amount'    => $totalSettled,
+                    'settled_at'     => $isFullySettled ? now() : null,
+                    'settled_by'     => $isFullySettled ? auth()->id() : null,
+                    'status'         => $isFullySettled ? 'Completed' : $purchaseReturn->status,
+                ]);
+
+                // Update settlement status
+                // If there's a repair, it goes to 'executing' to allow 'receiveStock'
+                // Otherwise it's 'completed'
+                $newSettlementStatus = $hasExecutingState ? 'executing' : 'completed';
+                $settlement->update(['status' => $newSettlementStatus]);
             });
 
             return back()->with('success', 'Penyelesaian berhasil dieksekusi.');
 
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Settlement execution failed: ' . $e->getMessage());
+            \Illuminate\Support\Facades\Log::error('Settlement execution failed: ' . $e->getMessage(), [
+                'settlement_id' => $settlement->id,
+                'trace' => $e->getTraceAsString(),
+            ]);
             return back()->with('error', 'Terjadi kesalahan saat mengeksekusi penyelesaian: ' . $e->getMessage());
         }
     }
