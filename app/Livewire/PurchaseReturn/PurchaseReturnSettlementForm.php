@@ -113,6 +113,7 @@ class PurchaseReturnSettlementForm extends Component
             return;
         }
 
+        // Purchases for MODIFY_PURCHASE (Unpaid/Partial)
         $this->unpaidPurchases = Purchase::where('supplier_id', $this->purchaseReturn->supplier_id)
             ->where('due_amount', '>', 0)
             ->whereIn('status', [
@@ -120,15 +121,53 @@ class PurchaseReturnSettlementForm extends Component
                 Purchase::STATUS_RECEIVED_PARTIALLY,
                 Purchase::STATUS_APPROVED,
             ])
-            ->select(['id', 'reference', 'due_amount', 'total_amount'])
+            ->select(['id', 'reference', 'supplier_purchase_number', 'due_amount', 'total_amount', 'date'])
             ->orderBy('date', 'desc')
             ->limit(50)
             ->get()
             ->map(function ($purchase) {
+                $ref = $purchase->supplier_purchase_number ?? $purchase->reference;
                 return [
                     'id' => $purchase->id,
-                    'label' => $purchase->reference . ' - Sisa: ' . format_currency($purchase->due_amount),
+                    'label' => $ref . ' - Sisa: ' . format_currency($purchase->due_amount),
+                    'text' => $ref, // For searchable text
                     'due_amount' => $purchase->due_amount,
+                ];
+            })
+            ->toArray();
+    }
+
+    public function getCreditPurchasesProperty(): array
+    {
+         if (!$this->purchaseReturn->supplier_id) {
+            return [];
+        }
+
+        // Purchases for CREDIT (Not Unpaid i.e. Paid or others)
+        // Requirement: "show purchase dropdown that is not unpaid"
+        // We assume this means purchases that don't have outstanding debt OR simply all valid purchases that are "Paid".
+        // If we strictly follow "not unpaid", it excludes those that are wholly unpaid.
+        // But usually "Credit" can be applied generally.
+        // Let's assume we want to show purchases that are PAID (due_amount = 0) or generally all history.
+        // Given "Modify Purchase" handles the debt reduction, "Credit" likely handles the refund on Paid items.
+        // So we fetch purchases with due_amount = 0 (Paid).
+        
+        return Purchase::where('supplier_id', $this->purchaseReturn->supplier_id)
+            ->where('due_amount', '=', 0) // Paid
+            ->whereIn('status', [
+                Purchase::STATUS_RECEIVED,
+                'Completed',
+            ])
+            ->select(['id', 'reference', 'supplier_purchase_number', 'total_amount', 'date'])
+            ->orderBy('date', 'desc')
+            ->limit(50)
+            ->get()
+            ->map(function ($purchase) {
+                $ref = $purchase->supplier_purchase_number ?? $purchase->reference;
+                return [
+                    'id' => $purchase->id,
+                    'label' => $ref . ' (Paid)',
+                    'text' => $ref,
                 ];
             })
             ->toArray();
@@ -167,7 +206,10 @@ class PurchaseReturnSettlementForm extends Component
             $maxNominal = $line['max_nominal'] ?? 0;
             $rules["settlementLines.{$index}.nominal"] = "required|numeric|min:0|max:{$maxNominal}";
 
-            if (strtoupper($line['method'] ?? '') === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE) {
+            if (in_array(strtoupper($line['method'] ?? ''), [
+                PurchaseReturnDetail::METHOD_MODIFY_PURCHASE,
+                PurchaseReturnDetail::METHOD_CREDIT
+            ])) {
                 $rules["settlementLines.{$index}.target_purchase_id"] = 'required|exists:purchases,id';
             }
         }
@@ -178,6 +220,61 @@ class PurchaseReturnSettlementForm extends Component
         }
 
         return $rules;
+    }
+
+    public function updatedSettlementLines($value, $key)
+    {
+        // Check if the update is on a method field
+        if (Str::endsWith($key, '.method')) {
+            // Get the index
+            $index = explode('.', $key)[0];
+            
+            // Check the new method
+            $method = $this->settlementLines[$index]['method'] ?? '';
+            
+            // If the method implies hidden nominal (not CREDIT or CASH), reset nominal to max
+            // Adjust logic based on business rule. Usually "Repair" = No refund? Or Full Refund?
+            // "Modify Purchase" = Full Refund (reduction).
+            // "Credit" = Editable.
+            // "Cash" = Editable.
+            // "Repair" = 0? Or user shouldn't care?
+            // "Broken Stock" = ?
+            
+            // Based on View, we hide input for !CREDIT && !CASH.
+            // If hidden, we assume it's "Automatic".
+            // For MODIFY_PURCHASE -> Max Nominal.
+            // For REPAIR/BROKEN_STOCK -> ?
+            // Let's assume Max Nominal for now or 0 if it's not a financial settlement?
+            // Actually, "Product Repair" might involve NO money back. So 0.
+            // "Broken Stock" might be replacement -> 0.
+            // "Modify Purchase" -> Money back (Modify Invoice) -> Max Nominal.
+            
+            if ($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE) {
+                // Return full value for modification
+                 $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
+            } elseif (!in_array($method, [PurchaseReturnDetail::METHOD_CREDIT, PurchaseReturnDetail::METHOD_CASH])) {
+                // For Repair/Broken maybe 0?
+                // Let's safe bet check existing logic:
+                // Existing logic initialized nominal to `unit_price`.
+                // If I repair, I don't get money back. I get a repaired item.
+                // So nominal SHOULD be 0?
+                // But if I change to MODIFY, I want full value.
+                // Re-initializing to max_nominal is safer for debt reduction/refunds.
+                // If Repair, maybe set to 0.
+                
+                if (in_array($method, [PurchaseReturnDetail::METHOD_PRODUCT_REPAIR, PurchaseReturnDetail::METHOD_BROKEN_STOCK])) {
+                     $this->settlementLines[$index]['nominal'] = 0;
+                } else {
+                     $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
+                }
+            } else {
+                // CREDIT or CASH -> Keep existing or Max? 
+                // Usually reset to Max to be helpful.
+                if (empty($this->settlementLines[$index]['nominal'])) {
+                    $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
+                }
+            }
+        }
     }
 
     protected function messages(): array
@@ -260,10 +357,22 @@ class PurchaseReturnSettlementForm extends Component
 
     public function render(): View
     {
+        $detailCounts = collect($this->settlementLines)
+            ->groupBy('detail_id')
+            ->map
+            ->count()
+            ->toArray();
+
+        // Ensure creditPurchases is available
+        $creditPurchases = $this->getCreditPurchasesProperty();
+
         return view('livewire.purchase-return.purchase-return-settlement-form', [
             'methods' => PurchaseReturnDetail::settlementMethods(),
             'total' => $this->purchaseReturn->total_amount,
             'unpaidPurchases' => $this->unpaidPurchases,
+            'creditPurchases' => $creditPurchases, // Pass it explicitly
+            'displayReturnType' => 'Per-Item / Mixed',
+            'detailCounts' => $detailCounts,
         ]);
     }
 }
