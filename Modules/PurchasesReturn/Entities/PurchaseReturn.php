@@ -106,6 +106,11 @@ class PurchaseReturn extends BaseModel implements HasMedia
         return $this->hasMany(PurchaseReturnGood::class, 'purchase_return_id');
     }
 
+    public function settlementItems()
+    {
+        return $this->hasMany(PurchaseReturnItemSettlement::class, 'purchase_return_id');
+    }
+
     /**
      * @deprecated Header-level location removed in Ticket 2.
      * Use PurchaseReturnDetail::location() for per-line location (Ticket 3).

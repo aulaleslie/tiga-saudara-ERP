@@ -50,204 +50,94 @@
 
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-white border-0">
-                <h5 class="mb-1">Pilih Metode Penyelesaian</h5>
-                <p class="text-muted small mb-0">Tentukan tindak lanjut retur bersama pemasok.</p>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-4 mb-3">
-                        <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'exchange') border-primary bg-light @endif">
-                            <input class="form-check-input" type="radio" name="return_type" id="settlement_exchange" value="exchange" wire:model.live="return_type" @disabled($isReadOnly)>
-                            <label class="form-check-label ms-2" for="settlement_exchange">
-                                <span class="d-block fw-semibold">Penggantian Produk</span>
-                                <small class="text-muted">Produk diganti dengan barang baru setara.</small>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="col-md-4 mb-3">
-                        <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'deposit') border-primary bg-light @endif">
-                            <input class="form-check-input" type="radio" name="return_type" id="settlement_deposit" value="deposit" wire:model.live="return_type" @disabled($isReadOnly)>
-                            <label class="form-check-label ms-2" for="settlement_deposit">
-                                <span class="d-block fw-semibold">Simpan Sebagai Kredit</span>
-                                <small class="text-muted">Nilai retur dijadikan uang muka untuk transaksi berikutnya.</small>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="col-md-4 mb-3">
-                        <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'cash') border-primary bg-light @endif">
-                            <input class="form-check-input" type="radio" name="return_type" id="settlement_cash" value="cash" wire:model.live="return_type" @disabled($isReadOnly)>
-                            <label class="form-check-label ms-2" for="settlement_cash">
-                                <span class="d-block fw-semibold">Pengembalian Tunai</span>
-                                <small class="text-muted">Pemasok mengembalikan dana sesuai nilai retur.</small>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                @error('return_type')
-                    <div class="invalid-feedback d-block">{{ $message }}</div>
-                @enderror
-            </div>
-        </div>
-
-        @if($return_type === 'exchange')
-            <div class="card shadow-sm mb-4">
-                <div class="card-header bg-white border-0 d-flex align-items-center">
-                    <h5 class="mb-0">Produk Pengganti</h5>
-                    <button type="button" class="btn btn-sm btn-outline-primary ms-auto" wire:click="addReplacementGood" @disabled($isReadOnly)>
-                        <i class="bi bi-plus-circle"></i> Tambah Produk
-                    </button>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive border rounded">
-                        <table class="table table-sm table-hover mb-0">
-                            <thead class="table-light">
-                                <tr class="text-center">
-                                    <th style="width: 35%">Produk</th>
-                                    <th style="width: 15%">Jumlah</th>
-                                    <th style="width: 20%">Nilai Satuan</th>
-                                    <th style="width: 20%">Subtotal</th>
-                                    <th style="width: 10%"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($replacement_goods as $index => $replacement)
-                                    <tr>
-                                        <td class="align-top">
-                                            @if($isReadOnly)
-                                                <div class="fw-semibold">{{ $replacement['product_name'] }}</div>
-                                                <div class="small text-muted">{{ $replacement['product_code'] }}</div>
-                                                @if(!empty($replacement['serial_number']))
-                                                    <div class="small text-primary mt-1">SN: {{ $replacement['serial_number'] }}</div>
-                                                @endif
-                                            @else
-                                                <livewire:purchase-return.replacement-product-search :index="$index" wire:key="replacement-{{ $index }}" />
-                                                @error("replacement_goods.$index.product_id")
-                                                    <span class="invalid-feedback d-block">{{ $message }}</span>
-                                                @enderror
-
-                                                @if(!empty($replacement['serial_number_required']))
-                                                    <div class="mt-2">
-                                                        <input type="text" class="form-control form-control-sm" placeholder="Masukkan Nomor Seri" wire:model.defer="replacement_goods.{{ $index }}.serial_number">
-                                                        @error("replacement_goods.$index.serial_number")
-                                                            <span class="invalid-feedback d-block">{{ $message }}</span>
-                                                        @enderror
-                                                    </div>
-                                                @endif
-                                            @endif
-                                        </td>
-                                        <td class="text-center align-top">
-                                            <input type="number" min="0" class="form-control text-center" wire:model.lazy="replacement_goods.{{ $index }}.quantity" wire:change="recalculateReplacement({{ $index }})" @disabled($isReadOnly)>
-                                            @error("replacement_goods.$index.quantity")
-                                                <span class="invalid-feedback d-block">{{ $message }}</span>
-                                            @enderror
-                                        </td>
-                                        <td class="align-top">
-                                            <input type="number" step="0.01" min="0" class="form-control text-end" wire:model.lazy="replacement_goods.{{ $index }}.unit_value" wire:change="recalculateReplacement({{ $index }})" @disabled($isReadOnly)>
-                                        </td>
-                                        <td class="text-end align-top">
-                                            <span class="fw-semibold">Rp {{ number_format($replacement['sub_total'] ?? 0, 2, ',', '.') }}</span>
-                                        </td>
-                                        <td class="text-center align-top">
-                                            <button type="button" class="btn btn-outline-danger btn-sm" wire:click="removeReplacementGood({{ $index }})" @disabled($isReadOnly)>
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="5" class="text-center text-muted py-4">Belum ada produk pengganti.</td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-
-                    @error('replacement_goods')
-                        <div class="invalid-feedback d-block mt-2">{{ $message }}</div>
-                    @enderror
-                </div>
-            </div>
-        @elseif($return_type === 'deposit')
-            <div class="alert alert-info d-flex align-items-center gap-2 mb-4" role="alert">
-                <i class="bi bi-piggy-bank"></i>
-                <span>Nilai kredit pemasok yang akan dibuat: <strong>{{ format_currency($creditAmount) }}</strong>.</span>
-            </div>
-        @elseif($return_type === 'cash')
-            <div class="card shadow-sm mb-4">
-                <div class="card-header bg-white border-0">
-                    <h5 class="mb-1">Bukti Pengembalian Tunai</h5>
-                    <p class="text-muted small mb-0">Unggah dokumen pendukung seperti bukti transfer atau kuitansi.</p>
-                </div>
-                <div class="card-body">
-                    <input type="file" id="cash_proof" class="form-control" wire:model="cash_proof" accept=".jpg,.jpeg,.png,.pdf" @disabled($isReadOnly)>
-                    <small class="text-muted">Format yang diperbolehkan: JPG, PNG, atau PDF (maks. 4MB).</small>
-                    @error('cash_proof')
-                        <div class="invalid-feedback d-block">{{ $message }}</div>
-                    @enderror
-
-                    @if($purchaseReturn->cash_proof_path)
-                        <a href="{{ Storage::url($purchaseReturn->cash_proof_path) }}" target="_blank" class="btn btn-link mt-3">
-                            <i class="bi bi-paperclip"></i> Lihat bukti saat ini
-                        </a>
-                    @endif
-                </div>
-            </div>
-        @endif
-
-        <div class="card shadow-sm mb-4">
-            <div class="card-header bg-white border-0">
-                <h5 class="mb-1">Detail Produk Retur</h5>
-                <p class="text-muted small mb-0">Daftar barang yang dikembalikan dari pemasok.</p>
+                <h5 class="mb-1">Penyelesaian Per Item</h5>
+                <p class="text-muted small mb-0">Tentukan metode penyelesaian untuk setiap produk atau nomor seri.</p>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
                         <thead class="table-light text-muted text-uppercase small">
                             <tr class="text-center">
-                                <th style="width: 50%" class="text-start">Produk</th>
-                                <th style="width: 15%">Jumlah</th>
-                                <th style="width: 15%" class="text-end">Harga Beli</th>
-                                <th style="width: 20%" class="text-end">Subtotal</th>
+                                <th style="width: 40%" class="text-start">Produk / Nomor Seri</th>
+                                <th style="width: 60%" class="text-start">Metode Penyelesaian</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @forelse($details as $detail)
+                            @foreach($settlementLines as $index => $line)
                                 <tr>
                                     <td>
-                                        <div class="fw-semibold">{{ $detail->product_name }}</div>
-                                        @if($detail->product_code)
-                                            <span class="badge bg-light text-secondary border">{{ $detail->product_code }}</span>
-                                        @endif
-                                        @if(!empty($detail->serial_number_ids))
-                                            <div class="small text-muted mt-1">
-                                                SN:
-                                                @foreach($detail->getSerialNumbers() as $sn)
-                                                    <span class="badge bg-secondary">{{ $sn }}</span>
-                                                @endforeach
+                                        <div class="fw-semibold">{{ $line['product_name'] }}</div>
+                                        <div class="small text-muted">{{ $line['product_code'] }}</div>
+                                        @if($line['serial_number'])
+                                            <div class="mt-1 text-primary">
+                                                <i class="bi bi-tag-fill me-1 small"></i>
+                                                <span class="badge bg-light text-primary border border-primary">SN: {{ $line['serial_number'] }}</span>
+                                            </div>
+                                        @else
+                                            <div class="mt-1 small text-muted">
+                                                <i class="bi bi-box-seam me-1"></i>
+                                                Jumlah: <strong>{{ $line['quantity'] }}</strong> unit
                                             </div>
                                         @endif
                                     </td>
-                                    <td class="text-center">
-                                        <span class="fw-semibold">{{ $detail->quantity }}</span>
+                                    <td>
+                                        @if($isReadOnly)
+                                            <div class="p-2 border rounded bg-light border-dashed">
+                                                @php
+                                                    $methodLabel = $methods[$line['method']] ?? ($line['method'] ?: 'Belum ditentukan');
+                                                @endphp
+                                                <span class="fw-semibold text-dark">{{ $methodLabel }}</span>
+                                            </div>
+                                        @else
+                                            <select class="form-select @error('settlementLines.'.$index.'.method') is-invalid @enderror" 
+                                                wire:model.defer="settlementLines.{{ $index }}.method">
+                                                <option value="">-- Pilih Metode --</option>
+                                                @foreach($methods as $value => $label)
+                                                    <option value="{{ $value }}">{{ $label }}</option>
+                                                @endforeach
+                                            </select>
+                                            @error('settlementLines.'.$index.'.method')
+                                                <div class="invalid-feedback">{{ $message }}</div>
+                                            @enderror
+                                        @endif
                                     </td>
-                                    <td class="text-end">{{ format_currency($detail->unit_price) }}</td>
-                                    <td class="text-end">{{ format_currency($detail->sub_total) }}</td>
                                 </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="4" class="text-center text-muted py-4">Tidak ada detail produk retur.</td>
-                                </tr>
-                            @endforelse
+                            @endforeach
                         </tbody>
-                        <tfoot class="table-light">
-                            <tr>
-                                <th colspan="3" class="text-end text-muted">Total Retur</th>
-                                <th class="text-end fw-semibold">{{ format_currency($total) }}</th>
-                            </tr>
-                        </tfoot>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white border-0">
+                <h5 class="mb-1">Bukti Pengembalian Tunai (Opsional)</h5>
+                <p class="text-muted small mb-0">Unggah bukti jika ada penyelesaian berupa pengembalian dana.</p>
+            </div>
+            <div class="card-body">
+                <input type="file" id="cash_proof" class="form-control mb-2" wire:model="cash_proof" accept=".jpg,.jpeg,.png,.pdf" @disabled($isReadOnly)>
+                <small class="text-muted d-block mb-3">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Hanya diperlukan jika salah satu atau lebih item diselesaikan dengan <strong>Pengembalian Tunai</strong>.
+                </small>
+                @error('cash_proof')
+                    <div class="invalid-feedback d-block">{{ $message }}</div>
+                @enderror
+
+                @if($purchaseReturn->settlement?->cash_proof_path)
+                    <div class="mt-3 p-3 border rounded bg-light d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-file-earmark-check text-success fs-4"></i>
+                            <div>
+                                <small class="text-muted d-block">Bukti Saat Ini:</small>
+                                <span class="fw-semibold">Tersedia di Server</span>
+                            </div>
+                        </div>
+                        <a href="{{ Storage::url($purchaseReturn->settlement->cash_proof_path) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-eye"></i> Lihat Bukti
+                        </a>
+                    </div>
+                @endif
             </div>
         </div>
 
