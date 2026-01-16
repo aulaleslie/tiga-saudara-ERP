@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductStock;
 use Modules\Purchase\Entities\Purchase;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
@@ -27,6 +28,8 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
 
         $this->purchaseReturn = $purchaseReturn->loadMissing([
             'purchaseReturnDetails.product',
+            'purchaseReturnDetails.product.baseUnit',
+            'purchaseReturnDetails.location.setting',
             'purchaseReturnDetails.purchase',
             'supplier',
         ]);
@@ -150,14 +153,24 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
 
         $serials = empty($serialIds)
             ? collect()
-            : ProductSerialNumber::query()->whereIn('id', $serialIds)->get()->keyBy('id');
+            : ProductSerialNumber::query()
+                ->with(['location.setting'])
+                ->whereIn('id', $serialIds)
+                ->get()
+                ->keyBy('id');
 
         return $details->map(function (PurchaseReturnDetail $detail) use ($serials) {
             $product = $detail->product;
             $serialNumbers = collect($detail->serial_number_ids ?? [])
                 ->map(function ($id) use ($serials) {
                     $serial = $serials[$id] ?? null;
-                    return $serial ? ['id' => $serial->id, 'serial_number' => $serial->serial_number] : null;
+                    return $serial ? [
+                        'id' => $serial->id,
+                        'serial_number' => $serial->serial_number,
+                        'location_id' => $serial->location_id,
+                        'location_name' => $serial->location->name ?? null,
+                        'location_label' => ($serial->location->setting->company_name ?? 'N/A') . ' - ' . ($serial->location->name ?? 'N/A'),
+                    ] : null;
                 })
                 ->filter()
                 ->values()
@@ -174,20 +187,44 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
                 }
             }
 
+            $rowLocationId = $detail->location_id;
+            $rowLocationLabel = null;
+            if ($detail->location) {
+                $companyName = $detail->location->setting->company_name ?? 'N/A';
+                $rowLocationLabel = $companyName . ' - ' . $detail->location->name;
+            }
+            if (!empty($serialNumbers)) {
+                if (!$rowLocationId) {
+                    $rowLocationId = $serialNumbers[0]['location_id'] ?? null;
+                }
+                $rowLocationLabel = $serialNumbers[0]['location_label'] ?? $rowLocationLabel;
+            }
+
+            $stockAtLocation = 0;
+            if ($detail->product_id && $rowLocationId) {
+                $stockAtLocation = ProductStock::where('product_id', $detail->product_id)
+                    ->where('location_id', $rowLocationId)
+                    ->value('quantity') ?? 0;
+            }
+
+            $serialRequired = (bool) optional($product)->serial_number_required;
+
             return [
                 'product_id' => $detail->product_id,
                 'product_name' => $detail->product_name ?? optional($product)->product_name,
                 'product_code' => $detail->product_code ?? optional($product)->product_code,
                 'unit_name' => optional($product)->baseUnit->short_name ?? '-',
                 'quantity' => (int) $detail->quantity,
-                'location_id' => $detail->location_id,
-                'location_name' => optional($detail->location)->name ?? '-',
+                'location_id' => $rowLocationId,
+                'location_name' => $rowLocationLabel ?? '-',
+                'location_locked' => $serialRequired,
                 'purchase_order_id' => $detail->po_id,
                 'purchase_order_date' => $purchaseDate,
                 'purchase_price' => (float) ($detail->unit_price ?? $detail->price ?? 0),
                 'serial_numbers' => $serialNumbers,
-                'serial_number_required' => (bool) optional($product)->serial_number_required,
+                'serial_number_required' => $serialRequired,
                 'total' => (float) ($detail->sub_total ?? (($detail->unit_price ?? 0) * $detail->quantity)),
+                'stock_at_location' => $stockAtLocation,
                 'available_quantity_tax' => 0,
                 'available_quantity_non_tax' => 0,
             ];

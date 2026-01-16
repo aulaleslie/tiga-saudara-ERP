@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   soketi:
     image: quay.io/soketi/soketi:1.0-16-alpine

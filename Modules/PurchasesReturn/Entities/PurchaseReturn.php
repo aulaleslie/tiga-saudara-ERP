@@ -11,9 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\People\Entities\Supplier;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
 
-class PurchaseReturn extends BaseModel
+class PurchaseReturn extends BaseModel implements HasMedia
 {
+    use InteractsWithMedia;
     protected $guarded = [];
 
     // ✅ Cast money & dates
@@ -24,12 +27,21 @@ class PurchaseReturn extends BaseModel
         'total_amount'     => 'decimal:2',
         'paid_amount'      => 'decimal:2',
         'due_amount'       => 'decimal:2',
+        'return_shipping_amount' => 'decimal:2',
         'date'             => 'date',
         'approved_at'      => 'datetime',
         'rejected_at'      => 'datetime',
         'settled_at'       => 'datetime',
         'return_dispatched_at' => 'datetime',
+        'dispatch_requested_at' => 'datetime',
+        'dispatch_approved_at' => 'datetime',
+        'dispatch_rejected_at' => 'datetime',
     ];
+
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('return_awb_attachments');
+    }
 
     public function purchaseReturnDetails(): Builder|HasMany|PurchaseReturn
     {

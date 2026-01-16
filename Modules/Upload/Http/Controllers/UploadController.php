@@ -75,6 +75,25 @@ class UploadController extends Controller
         ]);
     }
 
+    public function dropzoneUploadDocuments(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:jpg,jpeg,png,pdf|max:10240', // 10MB
+        ]);
+
+        $file = $request->file('file');
+
+        $ext = $file->getClientOriginalExtension();
+        $name = Str::uuid()->toString() . '.' . $ext;
+
+        Storage::putFileAs('temp/dropzone', $file, $name);
+
+        return response()->json([
+            'name'          => $name,
+            'original_name' => $file->getClientOriginalName(),
+        ]);
+    }
+
     public function dropzoneDelete(Request $request)
     {
         $request->validate([

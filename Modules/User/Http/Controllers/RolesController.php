@@ -8,6 +8,7 @@ use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 class RolesController extends Controller
@@ -44,7 +45,12 @@ class RolesController extends Controller
             'name' => $request->name
         ]);
 
-        $role->givePermissionTo($request->permissions);
+        $permissions = Permission::query()
+            ->whereIn('name', $request->permissions)
+            ->pluck('name')
+            ->all();
+
+        $role->givePermissionTo($permissions);
 
         toast('Role Created With Selected Permissions!', 'success');
 
@@ -71,7 +77,12 @@ class RolesController extends Controller
             'name' => $request->name
         ]);
 
-        $role->syncPermissions($request->permissions);
+        $permissions = Permission::query()
+            ->whereIn('name', $request->permissions)
+            ->pluck('name')
+            ->all();
+
+        $role->syncPermissions($permissions);
 
         toast('Hak Akses Peran telah diperbarui!', 'success');
 

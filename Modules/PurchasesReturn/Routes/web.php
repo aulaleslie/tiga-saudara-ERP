@@ -30,11 +30,17 @@ Route::group(['middleware' => ['auth', 'role.setting']], function() {
     Route::get('purchase-returns/{purchase_return}/settlement', 'PurchasesReturnController@settlement')
         ->name('purchase-returns.settlement');
     Route::resource('purchase-returns', 'PurchasesReturnController');
-    Route::post('purchase-returns/{purchase_return}/approve', 'PurchasesReturnController@approve')
+    Route::post('purchase-returns/{purchase_return}/approve', 'PurchaseReturnApprovalController@approve')
         ->name('purchase-returns.approve');
-    Route::post('purchase-returns/{purchase_return}/reject', 'PurchasesReturnController@reject')
+    Route::post('purchase-returns/{purchase_return}/reject', 'PurchaseReturnApprovalController@reject')
         ->name('purchase-returns.reject');
-    Route::post('purchase-returns/{purchase_return}/dispatch', 'PurchasesReturnController@dispatchReturn')
+    Route::post('purchase-returns/{purchase_return}/dispatch-request', 'PurchaseReturnDispatchController@requestDispatch')
+        ->name('purchase-returns.dispatch-request');
+    Route::post('purchase-returns/{purchase_return}/dispatch-approve', 'PurchaseReturnDispatchController@approveDispatch')
+        ->name('purchase-returns.dispatch-approve');
+    Route::post('purchase-returns/{purchase_return}/dispatch-reject', 'PurchaseReturnDispatchController@rejectDispatch')
+        ->name('purchase-returns.dispatch-reject');
+    Route::post('purchase-returns/{purchase_return}/dispatch', 'PurchaseReturnDispatchController@dispatchReturn')
         ->name('purchase-returns.dispatch');
     
     //Settlements

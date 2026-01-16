@@ -124,6 +124,18 @@ trait ValidatesPurchaseReturnForm
                                 "Nomor seri '{$psn->serial_number}' berada di lokasi yang berbeda."
                             );
                         }
+                        if ($psn->status !== 'active') {
+                            $validator->errors()->add(
+                                "rows.$index.serial_numbers",
+                                "Nomor seri '{$psn->serial_number}' tidak aktif ({$psn->status})."
+                            );
+                        }
+                        if ($psn->is_in_return_process) {
+                            $validator->errors()->add(
+                                "rows.$index.serial_numbers",
+                                "Nomor seri '{$psn->serial_number}' sedang dalam proses retur."
+                            );
+                        }
                     }
                 }
 

@@ -80,6 +80,18 @@ class PurchaseOrderSerialNumberLoader extends Component
             return;
         }
 
+        if ($serial->status !== 'active') {
+            $this->error_message = "Serial number tidak aktif ({$serial->status}).";
+            $this->dispatch('error-occurred', ['index' => $this->index]);
+            return;
+        }
+
+        if ($serial->is_in_return_process) {
+            $this->error_message = 'Serial number sedang dalam proses retur.';
+            $this->dispatch('error-occurred', ['index' => $this->index]);
+            return;
+        }
+
         // Validation: All serials in the same row must belong to the same location
         if (!empty($this->existingSerials)) {
             $firstSerial = $this->existingSerials[0];

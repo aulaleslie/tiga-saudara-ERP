@@ -95,7 +95,14 @@ class SerialNumberController extends Controller
                 'message' => 'Serial number sudah dikirim/terpakai.',
             ], 200);
         }
-        
+
+        if ($serial->status !== 'active') {
+            return response()->json([
+                'valid' => false,
+                'message' => "Serial number tidak aktif ({$serial->status}).",
+            ], 200);
+        }
+
          if ($serial->is_broken) {
             return response()->json([
                 'valid' => false,
@@ -191,6 +198,20 @@ class SerialNumberController extends Controller
             return response()->json([
                 'valid' => false,
                 'message' => 'Serial number sudah terjual/keluar.',
+            ], 200);
+        }
+
+        if ($serial->status !== 'active') {
+            return response()->json([
+                'valid' => false,
+                'message' => "Serial number tidak aktif ({$serial->status}).",
+            ], 200);
+        }
+
+        if ($serial->is_in_return_process) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sedang dalam proses retur.',
             ], 200);
         }
         

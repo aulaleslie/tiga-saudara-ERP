@@ -145,6 +145,9 @@
                                             'purchaseReturns.show'   => 'Lihat',
                                             'purchaseReturns.viewPrice' => 'Lihat Harga',
                                             'purchaseReturns.approval' => 'Persetujuan',
+                                            'purchaseReturns.dispatchRequest' => 'Ajukan Dispatch',
+                                            'purchaseReturns.dispatchApproval' => 'Persetujuan Dispatch',
+                                            'purchaseReturns.dispatchExecute' => 'Eksekusi Dispatch',
                                         ],
 
                                         'Pembayaran Retur Pembelian' => [
@@ -344,6 +347,8 @@
                                             'roles.delete' => 'Hapus Peran',
                                         ],
                                     ];
+                                    $rolePermissionNames = $role->permissions()->pluck('name')->all();
+                                    $oldPermissions = old('permissions', []);
                                 @endphp
 
                                 @foreach($permissionGroups as $groupName => $perms)
@@ -361,8 +366,10 @@
                                                     <div class="custom-control custom-switch mb-2">
                                                         @php
                                                             $inputId = str_replace(['.', '_'], '_', $perm);
+                                                            $isChecked = in_array($perm, $rolePermissionNames, true)
+                                                                || in_array($perm, $oldPermissions, true);
                                                         @endphp
-                                                        <input type="checkbox" class="custom-control-input group-member" id="{{ $inputId }}" name="permissions[]" value="{{ $perm }}" {{ $role->hasPermissionTo($perm) ? 'checked' : (in_array($perm, old('permissions', [])) ? 'checked' : '') }}>
+                                                        <input type="checkbox" class="custom-control-input group-member" id="{{ $inputId }}" name="permissions[]" value="{{ $perm }}" {{ $isChecked ? 'checked' : '' }}>
                                                         <label class="custom-control-label" for="{{ $inputId }}">{{ $label }}</label>
                                                     </div>
                                                 @endforeach

@@ -79,7 +79,12 @@ class SerialNumberLoader extends Component
                     ! is_null($this->is_broken),
                     fn($query) => $query->where('is_broken', (bool) $this->is_broken)
                 )
-                ->when($this->is_dispatch, fn($query) => $query->whereNull('dispatch_detail_id'));
+                ->when(
+                    $this->is_dispatch,
+                    fn($query) => $query->whereNull('dispatch_detail_id')
+                        ->where('status', 'active')
+                        ->where('is_in_return_process', false)
+                );
 
             $this->query_count = $baseQuery->count();
 
@@ -96,6 +101,12 @@ class SerialNumberLoader extends Component
             ->when(
                 $this->location_id,
                 fn($query) => $query->where('location_id', $this->location_id)
+            )
+            ->when(
+                $this->is_dispatch,
+                fn($query) => $query->whereNull('dispatch_detail_id')
+                    ->where('status', 'active')
+                    ->where('is_in_return_process', false)
             )
             ->first();
 

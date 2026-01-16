@@ -2,7 +2,6 @@
 
 namespace Modules\PurchasesReturn\Http\Controllers;
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\PurchasesReturn\DataTables\PurchaseReturnsDataTable;
@@ -14,7 +13,6 @@ use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
-use Modules\Product\Entities\ProductSerialNumber;
 use Modules\PurchasesReturn\Entities\PurchaseReturnPayment;
 use Modules\PurchasesReturn\Http\Requests\StorePurchaseReturnRequest;
 use Modules\PurchasesReturn\Http\Requests\UpdatePurchaseReturnRequest;
@@ -125,7 +123,15 @@ class PurchasesReturnController extends Controller
     public function show(PurchaseReturn $purchase_return) {
         abort_if(Gate::denies('purchaseReturns.show'), 403);
 
-        $purchase_return->loadMissing(['purchaseReturnDetails.product', 'goods.product', 'supplierCredit', 'purchaseReturnPayments', 'location', 'settlement']);
+        $purchase_return->loadMissing([
+            'purchaseReturnDetails.product',
+            'purchaseReturnDetails.location.setting',
+            'goods.product',
+            'supplierCredit',
+            'purchaseReturnPayments',
+            'location',
+            'settlement',
+        ]);
         $supplier = Supplier::findOrFail($purchase_return->supplier_id);
 
         return view('purchasesreturn::show', compact('purchase_return', 'supplier'));
@@ -134,7 +140,7 @@ class PurchasesReturnController extends Controller
 
     public function settlement(PurchaseReturn $purchase_return)
     {
-        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+        abort_if(Gate::denies('purchaseReturnSettlements.submit'), 403);
 
         $status = Str::lower($purchase_return->approval_status ?? '');
 
@@ -274,160 +280,5 @@ class PurchasesReturnController extends Controller
         toast('Retur Pembelian Dihapus!', 'warning');
 
         return redirect()->route('purchase-returns.index');
-    }
-
-    public function approve(PurchaseReturn $purchase_return)
-    {
-        abort_if(Gate::denies('purchaseReturns.approval'), 403);
-
-        $status = Str::lower($purchase_return->approval_status ?? '');
-
-        if ($status === 'approved') {
-            toast('Retur pembelian sudah disetujui.', 'info');
-            return back();
-        }
-
-        $errors = $this->validateStockForApproval($purchase_return);
-
-        if (!empty($errors)) {
-            foreach ($errors as $error) {
-                toast($error, 'error');
-            }
-            return back();
-        }
-
-        $purchase_return->update([
-            'approval_status' => 'approved',
-            'approved_by' => auth()->id(),
-            'approved_at' => now(),
-            'status' => 'Awaiting Settlement',
-            'rejected_by' => null,
-            'rejected_at' => null,
-            'rejection_reason' => null,
-            'settled_at' => null,
-            'settled_by' => null,
-        ]);
-
-        toast('Retur pembelian disetujui.', 'success');
-
-        return back();
-    }
-
-    public function reject(Request $request, PurchaseReturn $purchase_return)
-    {
-        abort_if(Gate::denies('purchaseReturns.approval'), 403);
-
-        $status = Str::lower($purchase_return->approval_status ?? '');
-
-        if ($status === 'approved') {
-            toast('Retur yang sudah disetujui tidak dapat ditolak.', 'error');
-            return back();
-        }
-
-        $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:1000'],
-        ]);
-
-        $purchase_return->update([
-            'approval_status' => 'rejected',
-            'status' => 'Rejected',
-            'rejected_by' => auth()->id(),
-            'rejected_at' => now(),
-            'rejection_reason' => $data['reason'] ?? null,
-        ]);
-
-        toast('Retur pembelian ditolak.', 'warning');
-
-        return back();
-    }
-
-    public function dispatchReturn(PurchaseReturn $purchase_return)
-    {
-        abort_if(Gate::denies('purchaseReturns.edit'), 403);
-
-        $status = Str::lower($purchase_return->approval_status ?? '');
-        if ($status !== 'approved') {
-            toast('Dispatch hanya dapat diproses setelah retur disetujui.', 'error');
-            return back();
-        }
-
-        if ($purchase_return->return_dispatched_at) {
-            toast('Retur sudah didispatch.', 'warning');
-            return back();
-        }
-
-        DB::transaction(function () use ($purchase_return) {
-            foreach ($purchase_return->purchaseReturnDetails as $detail) {
-                // Update Serial Numbers Status
-                if (!empty($detail->serial_number_ids)) {
-                    ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
-                        ->update(['status' => 'returned']);
-                }
-
-                // Reduce Product Stock
-                $product = Product::findOrFail($detail->product_id);
-                $product->update([
-                    'product_quantity' => $product->product_quantity - $detail->quantity
-                ]);
-            }
-
-            $purchase_return->update([
-                'status' => 'Return Dispatched',
-                'return_dispatched_at' => now(),
-            ]);
-        });
-
-        toast('Retur berhasil didispatch!', 'success');
-
-        return back();
-    }
-
-    private function validateStockForApproval(PurchaseReturn $purchase_return): array
-    {
-        $errors = [];
-        $purchase_return->loadMissing('purchaseReturnDetails.product');
-
-        foreach ($purchase_return->purchaseReturnDetails as $detail) {
-            $product = $detail->product;
-            $locationId = $detail->location_id;
-            $quantity = $detail->quantity;
-
-            if (!$product) {
-                $errors[] = "Produk pada baris #{$detail->id} tidak ditemukan.";
-                continue;
-            }
-
-            // Check stock availability
-            $stock = \Modules\Product\Entities\ProductStock::where('product_id', $product->id)
-                ->where('location_id', $locationId)
-                ->first();
-
-            if (!$stock || $stock->quantity < $quantity) {
-                $currentQty = $stock ? $stock->quantity : 0;
-                $errors[] = "Stok tidak mencukupi untuk '{$product->product_name}' di lokasi yang dipilih. (Diminta: {$quantity}, Tersedia: {$currentQty})";
-            }
-
-            // Validate serial numbers if applicable
-            if (!empty($detail->serial_number_ids)) {
-                $serialsWithWrongLocation = ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
-                    ->where('product_id', $product->id)
-                    ->get();
-
-                foreach ($serialsWithWrongLocation as $serial) {
-                    if ($serial->location_id != $locationId) {
-                        $errors[] = "Nomor seri '{$serial->serial_number}' sekarang berada di lokasi yang berbeda.";
-                    }
-                    if ($serial->status !== 'active') {
-                        $errors[] = "Nomor seri '{$serial->serial_number}' sudah tidak aktif ({$serial->status}).";
-                    }
-                }
-                
-                if ($serialsWithWrongLocation->count() < count($detail->serial_number_ids)) {
-                    $errors[] = "Beberapa nomor seri untuk '{$product->product_name}' tidak ditemukan.";
-                }
-            }
-        }
-
-        return $errors;
     }
 }

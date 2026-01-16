@@ -701,9 +701,15 @@ class SaleController extends Controller
 
                 if ($product->serial_number_required) {
                     foreach ($serialNumbers as $serial) {
-                        ProductSerialNumber::where('product_id', $productId)
+                        $updated = ProductSerialNumber::where('product_id', $productId)
                             ->where('serial_number', $serial)
+                            ->where('status', 'active')
+                            ->where('is_in_return_process', false)
                             ->update(['dispatch_detail_id' => $dispatchDetail->id]);
+
+                        if ($updated === 0) {
+                            throw new Exception("Serial number {$serial} tidak tersedia untuk dispatch.");
+                        }
                     }
                 }
             }

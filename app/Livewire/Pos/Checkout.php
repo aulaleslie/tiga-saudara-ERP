@@ -1042,7 +1042,9 @@ class Checkout extends Component
             $query = ProductSerialNumber::query()
                 ->where('id', $serialId)
                 ->where('product_id', $productId)
-                ->whereNull('dispatch_detail_id');
+                ->whereNull('dispatch_detail_id')
+                ->where('status', 'active')
+                ->where('is_in_return_process', false);
 
             if (! empty($locationIds)) {
                 $query->whereIn('location_id', $locationIds);
@@ -1418,6 +1420,8 @@ class Checkout extends Component
                     ->where('product_id', $productId)
                     ->whereIn('location_id', $locationIds)
                     ->whereNull('dispatch_detail_id')
+                    ->where('status', 'active')
+                    ->where('is_in_return_process', false)
                     ->where('is_broken', false)
                     ->groupBy('location_id', 'tax_id')
                     ->get();

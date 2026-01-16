@@ -106,3 +106,19 @@ Implementation:
 - `PurchaseReturnEditForm` extends the create form and renders the same UI.
 - Edit uses the same line-level location, serial handling, and price-hidden behavior.
 - Approved returns are locked from edits.
+
+## Ticket 14 (Done)
+Title: Lock stock on purchase return approval
+
+Implementation:
+- Approval now locks stock by reducing `ProductStock` and `Product` quantity for each line.
+- Serial numbers are flagged with `is_in_return_process` on approval and finalized on dispatch.
+- Serial validation blocks non-active or in-return serials.
+
+## Ticket 15 (Done)
+Title: Dispatch request approval + AWB attachments
+
+Implementation:
+- Dispatch requires a request with AWB number, shipping cost (metadata), and multiple attachments.
+- Added dispatch approval/rejection flow before execution.
+- Dispatch execution updates serial status and marks dispatch timestamps.
