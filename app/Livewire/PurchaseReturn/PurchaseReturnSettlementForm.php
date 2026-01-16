@@ -36,6 +36,7 @@ class PurchaseReturnSettlementForm extends Component
 
     public function mount(int $purchaseReturnId): void
     {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.submit'), 403);
         $this->purchaseReturnId = $purchaseReturnId;
         $this->loadPurchaseReturn();
     }
@@ -71,12 +72,14 @@ class PurchaseReturnSettlementForm extends Component
                     
                     $this->settlementLines[] = [
                         'detail_id' => $detail->id,
+                        'product_id' => $detail->product_id,
                         'product_name' => $detail->product->product_name,
                         'product_code' => $detail->product->product_code,
                         'serial_number' => $snEntity->serial_number,
                         'serial_number_id' => $snEntity->id,
                         'method' => $existing->method ?? '',
-                        'nominal' => (float) ($existing->nominal ?? 0),
+                        'nominal' => (float) ($existing->nominal ?? $detail->unit_price),
+                        'max_nominal' => (float) $detail->unit_price,
                         'target_purchase_id' => $existing->target_purchase_id ?? null,
                     ];
                 }
@@ -85,12 +88,14 @@ class PurchaseReturnSettlementForm extends Component
                 
                 $this->settlementLines[] = [
                     'detail_id' => $detail->id,
+                    'product_id' => $detail->product_id,
                     'product_name' => $detail->product->product_name,
                     'product_code' => $detail->product->product_code,
                     'serial_number' => null,
                     'serial_number_id' => null,
                     'method' => $existing->method ?? '',
-                    'nominal' => (float) ($existing->nominal ?? 0),
+                    'nominal' => (float) ($existing->nominal ?? $detail->sub_total),
+                    'max_nominal' => (float) $detail->sub_total,
                     'target_purchase_id' => $existing->target_purchase_id ?? null,
                     'quantity' => $detail->quantity,
                 ];
@@ -153,11 +158,15 @@ class PurchaseReturnSettlementForm extends Component
     {
         $rules = [
             'settlementLines.*.method' => 'required|string',
+            'settlementLines.*.nominal' => 'required|numeric|min:0',
             'cash_proof' => 'nullable|file|max:4096|mimes:jpg,jpeg,png,pdf',
         ];
 
-        // Add conditional validation for MODIFY_PURCHASE method
+        // Add conditional validation for MODIFY_PURCHASE and nominal max value
         foreach ($this->settlementLines as $index => $line) {
+            $maxNominal = $line['max_nominal'] ?? 0;
+            $rules["settlementLines.{$index}.nominal"] = "required|numeric|min:0|max:{$maxNominal}";
+
             if (strtoupper($line['method'] ?? '') === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE) {
                 $rules["settlementLines.{$index}.target_purchase_id"] = 'required|exists:purchases,id';
             }
@@ -175,6 +184,10 @@ class PurchaseReturnSettlementForm extends Component
     {
         return [
             'settlementLines.*.method.required' => 'Pilih metode penyelesaian.',
+            'settlementLines.*.nominal.required' => 'Nilai penyelesaian wajib diisi.',
+            'settlementLines.*.nominal.numeric' => 'Nilai penyelesaian harus berupa angka.',
+            'settlementLines.*.nominal.min' => 'Nilai penyelesaian tidak boleh negatif.',
+            'settlementLines.*.nominal.max' => 'Nilai penyelesaian tidak boleh melebihi nilai barang.',
             'settlementLines.*.target_purchase_id.required' => 'Pilih nota pembelian untuk metode Ubah Nota Pembelian.',
             'settlementLines.*.target_purchase_id.exists' => 'Nota pembelian tidak valid.',
             'cash_proof.required' => 'Bukti pengembalian tunai wajib diunggah jika ada item dengan metode Pengembalian Tunai.',
@@ -189,6 +202,8 @@ class PurchaseReturnSettlementForm extends Component
 
     public function submit()
     {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.submit'), 403);
+
         if ($this->isReadOnly) {
             session()->flash('info', 'Penyelesaian sudah dikunci.');
             return null;

@@ -58,8 +58,11 @@
                     <table class="table table-hover align-middle mb-0">
                         <thead class="table-light text-muted text-uppercase small">
                             <tr class="text-center">
-                                <th style="width: 40%" class="text-start">Produk / Nomor Seri</th>
-                                <th style="width: 60%" class="text-start">Metode Penyelesaian</th>
+                                <th style="width: 35%" class="text-start">Produk / Nomor Seri</th>
+                                <th style="width: 40%" class="text-start">Metode Penyelesaian</th>
+                                @can('purchaseReturns.viewPrice')
+                                    <th style="width: 25%" class="text-end">Nilai Penyelesaian</th>
+                                @endcan
                             </tr>
                         </thead>
                         <tbody>
@@ -132,6 +135,24 @@
                                             </div>
                                         @endif
                                     </td>
+                                    @can('purchaseReturns.viewPrice')
+                                        <td class="text-end">
+                                            @if($isReadOnly)
+                                                <span class="fw-semibold">{{ format_currency($line['nominal']) }}</span>
+                                                <div class="small text-muted">Maks: {{ format_currency($line['max_nominal']) }}</div>
+                                            @else
+                                                <div class="input-group input-group-sm">
+                                                    <span class="input-group-text">Rp</span>
+                                                    <input type="number" step="0.01" class="form-control text-end @error('settlementLines.'.$index.'.nominal') is-invalid @enderror" 
+                                                        wire:model.defer="settlementLines.{{ $index }}.nominal">
+                                                </div>
+                                                <div class="small text-muted mt-1">Maks: {{ format_currency($line['max_nominal']) }}</div>
+                                                @error('settlementLines.'.$index.'.nominal')
+                                                    <div class="invalid-feedback d-block text-start">{{ $message }}</div>
+                                                @enderror
+                                            @endif
+                                        </td>
+                                    @endcan
                                 </tr>
                             @endforeach
                         </tbody>
