@@ -75,6 +75,9 @@
         .badge-soft-primary { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
         .badge-soft-success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
         .badge-soft-secondary { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
+        .badge-soft-warning { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+        .badge-soft-danger { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+        .badge-soft-info { background: #ecfeff; color: #083344; border: 1px solid #a5f3fc; }
         
         .proof-upload-area {
             border: 2px dashed #e2e8f0;
@@ -206,20 +209,45 @@
                                     @endif
                                     
                                     <td>
-                                        @if($line['serial_number'])
-                                            <div class="d-inline-flex align-items-center px-2 py-1 rounded bg-light border text-primary small fw-semibold">
-                                                <i class="bi bi-upc-scan me-1"></i>
-                                                {{ $line['serial_number'] }}
-                                            </div>
-                                        @else
-                                            <div class="d-inline-flex align-items-center text-muted small">
-                                                <i class="bi bi-box-seam me-1"></i>
-                                                Jumlah: <span class="fw-bold ms-1 text-dark">{{ $line['quantity'] ?? 1 }}</span>
-                                            </div>
-                                        @endif
+                                        <div class="d-flex flex-column gap-2">
+                                            @if($line['serial_number'])
+                                                <div class="d-inline-flex align-items-center px-2 py-1 rounded bg-light border text-primary small fw-semibold" style="width: fit-content;">
+                                                    <i class="bi bi-upc-scan me-1"></i>
+                                                    {{ $line['serial_number'] }}
+                                                </div>
+                                            @else
+                                                <div class="d-inline-flex align-items-center text-muted small">
+                                                    <i class="bi bi-box-seam me-1"></i>
+                                                    Jumlah: <span class="fw-bold ms-1 text-dark">{{ $line['quantity'] ?? 1 }}</span>
+                                                </div>
+                                            @endif
+
+                                            @php
+                                                $statusClass = match($line['status']) {
+                                                    'SUBMITTED' => 'badge-soft-warning',
+                                                    'APPROVED' => 'badge-soft-success',
+                                                    'REJECTED' => 'badge-soft-danger',
+                                                    default => 'badge-soft-secondary',
+                                                };
+                                                $statusLabel = match($line['status']) {
+                                                    'SUBMITTED' => 'Menunggu Persetujuan',
+                                                    'APPROVED' => 'Disetujui',
+                                                    'REJECTED' => 'Ditolak',
+                                                    default => 'Draft',
+                                                };
+                                            @endphp
+                                            <span class="badge {{ $statusClass }} px-2 py-1" style="width: fit-content; font-size: 0.7rem;">
+                                                {{ $statusLabel }}
+                                            </span>
+                                        </div>
                                     </td>
                                     <td>
-                                        @if($isReadOnly)
+                                        @php
+                                            $isLineReadOnly = $isReadOnly || in_array($line['status'], ['SUBMITTED', 'APPROVED']);
+                                            $isRejected = $line['status'] === 'REJECTED';
+                                        @endphp
+                                        
+                                        @if($isLineReadOnly && !$isRejected)
                                             <div class="p-2 rounded bg-light border border-dashed">
                                                 @php
                                                     $methodLabel = $methods[$line['method']] ?? ($line['method'] ?: 'Belum ditentukan');
@@ -228,7 +256,16 @@
                                                 @if(in_array($line['method'], ['MODIFY_PURCHASE', 'CREDIT']) && $line['target_purchase_id'])
                                                     @php
                                                         $sourceList = $line['method'] === 'MODIFY_PURCHASE' ? $unpaidPurchases : $creditPurchases;
-                                                        $targetPurchase = collect($sourceList)->firstWhere('id', $line['target_purchase_id']);
+                                                        // Look for target in all unpaid purchases since it might be grouped by product
+                                                        $targetPurchase = null;
+                                                        if ($line['method'] === 'MODIFY_PURCHASE') {
+                                                            foreach ($unpaidPurchases as $prodPurchases) {
+                                                                $found = collect($prodPurchases)->firstWhere('id', $line['target_purchase_id']);
+                                                                if ($found) { $targetPurchase = $found; break; }
+                                                            }
+                                                        } else {
+                                                            $targetPurchase = collect($creditPurchases)->firstWhere('id', $line['target_purchase_id']);
+                                                        }
                                                     @endphp
                                                     <div class="small text-muted mt-1">
                                                         <i class="bi bi-file-earmark-text me-1"></i>
@@ -238,17 +275,46 @@
                                             </div>
                                         @else
                                             <div class="d-flex flex-column gap-2" style="position: relative;">
-                                                <select class="form-select form-select-premium form-select-sm @error('settlementLines.'.$index.'.method') is-invalid @enderror" 
-                                                    wire:model.live="settlementLines.{{ $index }}.method">
-                                                    <option value="">-- Pilih Metode --</option>
-                                                    @foreach($methods as $value => $label)
-                                                        <option value="{{ $value }}">{{ $label }}</option>
-                                                    @endforeach
-                                                </select>
-                                                @error('settlementLines.'.$index.'.method')
-                                                    <div class="invalid-feedback d-block">{{ $message }}</div>
-                                                @enderror
+                                                @if($isRejected)
+                                                    <div class="alert alert-danger py-2 px-3 mb-2 small rounded-3 border-0 d-flex align-items-center justify-content-between">
+                                                        <div>
+                                                            <i class="bi bi-exclamation-octagon me-2"></i>
+                                                            <strong>Ditolak:</strong> {{ $line['rejection_reason'] ?: 'Tidak ada alasan' }}
+                                                        </div>
+                                                        <button type="button" wire:click="resetLine({{ $index }})" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.7rem;">
+                                                            Reset
+                                                        </button>
+                                                    </div>
+                                                @endif
 
+                                                <div class="d-flex gap-2">
+                                                    <div class="flex-grow-1">
+                                                        <select class="form-select form-select-premium form-select-sm @error('settlementLines.'.$index.'.method') is-invalid @enderror" 
+                                                            wire:model.live="settlementLines.{{ $index }}.method">
+                                                            <option value="">-- Pilih Metode --</option>
+                                                            @foreach($methods as $value => $label)
+                                                                <option value="{{ $value }}">{{ $label }}</option>
+                                                            @endforeach
+                                                        </select>
+                                                        @error('settlementLines.'.$index.'.method')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+                                                    
+                                                    @if(!empty($line['method']) && ($line['status'] === 'DRAFT' || $line['status'] === 'REJECTED'))
+                                                        <button type="button" 
+                                                            wire:click="submitLine({{ $index }})" 
+                                                            wire:loading.attr="disabled"
+                                                            class="btn btn-sm btn-outline-primary px-3 d-flex align-items-center"
+                                                            title="Kirim untuk persetujuan">
+                                                            <span wire:loading.remove wire:target="submitLine({{ $index }})">
+                                                                <i class="bi bi-send-fill"></i>
+                                                            </span>
+                                                            <span wire:loading wire:target="submitLine({{ $index }})" class="spinner-border spinner-border-sm" role="status"></span>
+                                                        </button>
+                                                    @endif
+                                                </div>
+                                                
                                                 <!-- Searchable Dropdown Integration via Alpine -->
                                                 @php
                                                     $currentMethod = $settlementLines[$index]['method'] ?? '';
@@ -265,7 +331,7 @@
                                                     };
                                                     $isLocked = !empty($line['serial_number_id']) && $currentMethod === 'MODIFY_PURCHASE';
                                                 @endphp
-
+                                                
                                                 @if($showDropdown)
                                                     <div class="" 
                                                          wire:key="dropdown-{{ $index }}-{{ $currentMethod }}"
@@ -395,14 +461,14 @@
                                             </div>
                                         @endif
                                     </td>
-                                    @can('purchaseReturns.viewPrice')
                                         <td class="text-end">
                                             @php
                                                 $currentMethod = $settlementLines[$index]['method'] ?? '';
                                                 $showNominal = in_array($currentMethod, ['CREDIT', 'CASH']); // Only visible for Credit & Cash
+                                                $isLineReadOnly = $isReadOnly || in_array($line['status'], ['submitted', 'approved']);
                                             @endphp
                                             
-                                            @if($isReadOnly)
+                                            @if($isLineReadOnly)
                                                 @if($showNominal)
                                                     <div class="fw-bold text-dark fs-5">{{ format_currency($line['nominal']) }}</div>
                                                     <div class="small text-muted">Batas: {{ format_currency($line['max_nominal']) }}</div>
@@ -444,7 +510,6 @@
                                                 @endif
                                             @endif
                                         </td>
-                                    @endcan
                                 </tr>
                             @endforeach
                         </tbody>
@@ -460,7 +525,7 @@
                 @unless($isReadOnly)
                     <button type="submit" class="btn btn-premium-primary" wire:loading.attr="disabled">
                         <span wire:loading.remove>
-                            <i class="bi bi-check2-circle me-1"></i> Simpan Penyelesaian
+                            <i class="bi bi-save me-1"></i> Simpan Draft
                         </span>
                         <span wire:loading class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                     </button>

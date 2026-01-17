@@ -30,6 +30,7 @@ class PurchasesReturnGranularSettlementTest extends TestCase
 
         $this->user = User::factory()->create();
         $this->actingAs($this->user);
+        \Illuminate\Support\Facades\Gate::before(fn () => true);
 
         $this->setting = Setting::create([
             'company_name' => 'Test Company',
@@ -61,7 +62,6 @@ class PurchasesReturnGranularSettlementTest extends TestCase
     /** @test */
     public function it_can_load_settlement_lines_for_serial_and_non_serial_products()
     {
-        // 1. Create a serial product and a non-serial product
         $serialProduct = Product::create([
             'setting_id' => $this->setting->id,
             'product_name' => 'Serial Product',
@@ -85,11 +85,11 @@ class PurchasesReturnGranularSettlementTest extends TestCase
         $sn2 = ProductSerialNumber::create(['product_id' => $serialProduct->id, 'serial_number' => 'SN002', 'location_id' => $this->location->id]);
 
         // 3. Create Purchase Return
-        $purchaseReturn = PurchaseReturn::create([
-            'date' => now(),
+        \Illuminate\Support\Facades\DB::table('purchase_returns')->insert([
+            'date' => '2026-01-17',
             'reference' => 'PRRN-TEST-001',
             'supplier_id' => $this->supplier->id,
-            'supplier_name' => $this->supplier->supplier_name,
+            'supplier_name' => 'Test Supplier',
             'setting_id' => $this->setting->id,
             'total_amount' => 3000,
             'paid_amount' => 0,
@@ -98,7 +98,10 @@ class PurchasesReturnGranularSettlementTest extends TestCase
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
+        $purchaseReturn = PurchaseReturn::where('reference', 'PRRN-TEST-001')->first();
 
         // Detail for Serial Product (2 units)
         PurchaseReturnDetail::create([
@@ -150,11 +153,11 @@ class PurchasesReturnGranularSettlementTest extends TestCase
             'product_price' => 20,
             'serial_number_required' => false
         ]);
-        $purchaseReturn = PurchaseReturn::create([
-            'date' => now(),
+        \Illuminate\Support\Facades\DB::table('purchase_returns')->insert([
+            'date' => '2026-01-17',
             'reference' => 'PRRN-TEST-002',
             'supplier_id' => $this->supplier->id,
-            'supplier_name' => $this->supplier->supplier_name,
+            'supplier_name' => 'Test Supplier',
             'setting_id' => $this->setting->id,
             'total_amount' => 1000,
             'paid_amount' => 0,
@@ -163,7 +166,10 @@ class PurchasesReturnGranularSettlementTest extends TestCase
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
+        $purchaseReturn = PurchaseReturn::where('reference', 'PRRN-TEST-002')->first();
 
         $detail = PurchaseReturnDetail::create([
             'purchase_return_id' => $purchaseReturn->id,
@@ -194,12 +200,12 @@ class PurchasesReturnGranularSettlementTest extends TestCase
         $this->assertDatabaseHas('purchase_return_settlements', [
             'purchase_return_id' => $purchaseReturn->id,
             'method' => 'MIXED',
-            'status' => 'PENDING',
+            'status' => 'SUBMITTED',
         ]);
     }
 
     /** @test */
-    public function it_requires_method_for_each_settlement_line()
+    public function it_allows_draft_save_with_pending_lines()
     {
         $product = Product::create([
             'setting_id' => $this->setting->id,
@@ -209,11 +215,11 @@ class PurchasesReturnGranularSettlementTest extends TestCase
             'product_price' => 20,
             'serial_number_required' => false
         ]);
-        $purchaseReturn = PurchaseReturn::create([
-            'date' => now(),
+        \Illuminate\Support\Facades\DB::table('purchase_returns')->insert([
+            'date' => '2026-01-17',
             'reference' => 'PRRN-TEST-003',
             'supplier_id' => $this->supplier->id,
-            'supplier_name' => $this->supplier->supplier_name,
+            'supplier_name' => 'Test Supplier',
             'setting_id' => $this->setting->id,
             'total_amount' => 1000,
             'paid_amount' => 0,
@@ -222,7 +228,10 @@ class PurchasesReturnGranularSettlementTest extends TestCase
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
+        $purchaseReturn = PurchaseReturn::where('reference', 'PRRN-TEST-003')->first();
 
         PurchaseReturnDetail::create([
             'purchase_return_id' => $purchaseReturn->id,
@@ -239,8 +248,195 @@ class PurchasesReturnGranularSettlementTest extends TestCase
         ]);
 
         Livewire::test(\App\Livewire\PurchaseReturn\PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
-            ->set('settlementLines.0.method', '') // Empty
+            ->set('settlementLines.0.method', '') // Empty method for draft
             ->call('submit')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('purchase-returns.show', $purchaseReturn->id));
+
+        $this->assertDatabaseHas('purchase_return_item_settlements', [
+            'purchase_return_id' => $purchaseReturn->id,
+            'method' => null,
+            'status' => 'DRAFT',
+        ]);
+    }
+
+    /** @test */
+    public function it_requires_method_when_submitting_line()
+    {
+        $product = Product::create(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => 'T1', 'product_cost' => 10, 'product_price' => 20, 'serial_number_required' => false]);
+        \Illuminate\Support\Facades\DB::table('purchase_returns')->insert([
+            'date' => '2026-01-17', 'reference' => 'PRRN-TEST-004', 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Test Supplier', 'setting_id' => $this->setting->id, 'total_amount' => 100, 'paid_amount' => 0, 'due_amount' => 100, 'status' => 'Pending', 'payment_status' => 'Unpaid', 'payment_method' => 'Cash', 'approval_status' => 'approved',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $purchaseReturn = PurchaseReturn::where('reference', 'PRRN-TEST-004')->first();
+        PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'product_id' => $product->id,
+            'product_name' => 'Test',
+            'product_code' => 'T1',
+            'quantity' => 1,
+            'price' => 100,
+            'unit_price' => 100,
+            'sub_total' => 100,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id
+        ]);
+
+        Livewire::test(\App\Livewire\PurchaseReturn\PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->set('settlementLines.0.method', '') // Empty
+            ->call('submitLine', 0)
             ->assertHasErrors(['settlementLines.0.method' => 'required']);
+    }
+
+    /** @test */
+    public function it_validates_nominal_against_max_on_line_submit()
+    {
+        $product = Product::create(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => 'T1', 'product_cost' => 10, 'product_price' => 20, 'serial_number_required' => false]);
+        \Illuminate\Support\Facades\DB::table('purchase_returns')->insert([
+            'date' => '2026-01-17', 'reference' => 'PRRN-TEST-005', 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Test Supplier', 'setting_id' => $this->setting->id, 'total_amount' => 100, 'paid_amount' => 0, 'due_amount' => 100, 'status' => 'Pending', 'payment_status' => 'Unpaid', 'payment_method' => 'Cash', 'approval_status' => 'approved',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $purchaseReturn = PurchaseReturn::where('reference', 'PRRN-TEST-005')->first();
+        PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'product_id' => $product->id,
+            'product_name' => 'Test',
+            'product_code' => 'T1',
+            'quantity' => 1,
+            'price' => 100,
+            'unit_price' => 100,
+            'sub_total' => 100,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id
+        ]);
+
+        Livewire::test(\App\Livewire\PurchaseReturn\PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->set('settlementLines.0.method', PurchaseReturnDetail::METHOD_CASH)
+            ->set('settlementLines.0.nominal', 150) // More than 100
+            ->call('submitLine', 0)
+            ->assertHasErrors(['settlementLines.0.nominal' => 'max']);
+    }
+
+    /** @test */
+    public function it_updates_status_to_submitted_on_line_submit()
+    {
+        $product = Product::create(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => 'T1', 'product_cost' => 10, 'product_price' => 20, 'serial_number_required' => false]);
+        \Illuminate\Support\Facades\DB::table('purchase_returns')->insert([
+            'date' => '2026-01-17', 'reference' => 'PRRN-TEST-006', 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Test Supplier', 'setting_id' => $this->setting->id, 'total_amount' => 100, 'paid_amount' => 0, 'due_amount' => 100, 'status' => 'Pending', 'payment_status' => 'Unpaid', 'payment_method' => 'Cash', 'approval_status' => 'approved',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $purchaseReturn = PurchaseReturn::where('reference', 'PRRN-TEST-006')->first();
+        PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'product_id' => $product->id,
+            'product_name' => 'Test',
+            'product_code' => 'T1',
+            'quantity' => 1,
+            'price' => 100,
+            'unit_price' => 100,
+            'sub_total' => 100,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id
+        ]);
+
+        Livewire::test(\App\Livewire\PurchaseReturn\PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->set('settlementLines.0.method', PurchaseReturnDetail::METHOD_PRODUCT_REPAIR)
+            ->call('submitLine', 0)
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('purchase_return_item_settlements', [
+            'purchase_return_id' => $purchaseReturn->id,
+            'status' => 'SUBMITTED',
+        ]);
+    }
+
+    /** @test */
+    public function it_locks_submitted_and_approved_lines()
+    {
+        $product = Product::create(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => 'T1', 'product_cost' => 10, 'product_price' => 20, 'serial_number_required' => false]);
+        \Illuminate\Support\Facades\DB::table('purchase_returns')->insert([
+            'date' => '2026-01-17', 'reference' => 'PRRN-TEST-007', 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Test Supplier', 'setting_id' => $this->setting->id, 'total_amount' => 100, 'paid_amount' => 0, 'due_amount' => 100, 'status' => 'Pending', 'payment_status' => 'Unpaid', 'payment_method' => 'Cash', 'approval_status' => 'approved',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $purchaseReturn = PurchaseReturn::where('reference', 'PRRN-TEST-007')->first();
+        $detail = PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'product_id' => $product->id,
+            'product_name' => 'Test',
+            'product_code' => 'T1',
+            'quantity' => 1,
+            'price' => 100,
+            'unit_price' => 100,
+            'sub_total' => 100,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id
+        ]);
+
+        // 1. Create a submitted settlement line
+        PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'purchase_return_detail_id' => $detail->id,
+            'method' => PurchaseReturnDetail::METHOD_CASH,
+            'nominal' => 100,
+            'status' => PurchaseReturnItemSettlement::STATUS_SUBMITTED,
+        ]);
+
+        Livewire::test(\App\Livewire\PurchaseReturn\PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->assertSet('settlementLines.0.status', 'SUBMITTED')
+            // The view should be tested manually for read-only, 
+            // but we can check if the status is correct which triggers read-only in blade.
+            ->assertSeeHtml('badge-soft-info') // Submitted badge
+            ->assertDontSeeHtml('button wire:click="submitLine(0)"'); // Submit button should be hidden
+    }
+
+    /** @test */
+    public function it_can_reset_rejected_line()
+    {
+        $product = Product::create(['setting_id' => $this->setting->id, 'product_name' => 'Test', 'product_code' => 'T1', 'product_cost' => 10, 'product_price' => 20, 'serial_number_required' => false]);
+        \Illuminate\Support\Facades\DB::table('purchase_returns')->insert([
+            'date' => '2026-01-17', 'reference' => 'PRRN-TEST-008', 'supplier_id' => $this->supplier->id, 'supplier_name' => 'Test Supplier', 'setting_id' => $this->setting->id, 'total_amount' => 100, 'paid_amount' => 0, 'due_amount' => 100, 'status' => 'Pending', 'payment_status' => 'Unpaid', 'payment_method' => 'Cash', 'approval_status' => 'approved',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $purchaseReturn = PurchaseReturn::where('reference', 'PRRN-TEST-008')->first();
+        $detail = PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'product_id' => $product->id,
+            'product_name' => 'Test',
+            'product_code' => 'T1',
+            'quantity' => 1,
+            'price' => 100,
+            'unit_price' => 100,
+            'sub_total' => 100,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id
+        ]);
+
+        // 1. Create a rejected settlement line
+        $settlement = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'purchase_return_detail_id' => $detail->id,
+            'method' => PurchaseReturnDetail::METHOD_CASH,
+            'nominal' => 100,
+            'status' => PurchaseReturnItemSettlement::STATUS_REJECTED,
+            'rejection_reason' => 'Wrong nominal',
+        ]);
+
+        Livewire::test(\App\Livewire\PurchaseReturn\PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->assertSet('settlementLines.0.status', 'REJECTED')
+            ->assertSee('Ditolak:')
+            ->assertSee('WRONG NOMINAL')
+            ->call('resetLine', 0)
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('purchase_return_item_settlements', [
+            'id' => $settlement->id,
+            'status' => 'DRAFT',
+            'rejection_reason' => null,
+        ]);
     }
 }

@@ -71,6 +71,7 @@ class PurchaseReturnSettlementForm extends Component
                     $originPurchaseId = $snEntity->receivedNoteDetail?->purchaseDetail?->purchase_id;
                     
                     $this->settlementLines[] = [
+                        'id' => $existing->id ?? null, // Track existing DB ID
                         'detail_id' => $detail->id,
                         'product_id' => $detail->product_id,
                         'product_name' => $detail->product->product_name,
@@ -82,12 +83,15 @@ class PurchaseReturnSettlementForm extends Component
                         'max_nominal' => (float) $detail->unit_price,
                         'target_purchase_id' => $existing->target_purchase_id ?? null,
                         'origin_purchase_id' => $originPurchaseId,
+                        'status' => $existing->status ?? \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT,
+                        'rejection_reason' => $existing->rejection_reason ?? null,
                     ];
                 }
             } else {
                 $existing = $existingSettlements->whereNull('product_serial_number_id')->first();
                 
                 $this->settlementLines[] = [
+                    'id' => $existing->id ?? null, // Track existing DB ID
                     'detail_id' => $detail->id,
                     'product_id' => $detail->product_id,
                     'product_name' => $detail->product->product_name,
@@ -100,6 +104,8 @@ class PurchaseReturnSettlementForm extends Component
                     'target_purchase_id' => $existing->target_purchase_id ?? null,
                     'quantity' => $detail->quantity,
                     'origin_purchase_id' => null,
+                    'status' => $existing->status ?? \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT,
+                    'rejection_reason' => $existing->rejection_reason ?? null,
                 ];
             }
         }
@@ -204,23 +210,35 @@ class PurchaseReturnSettlementForm extends Component
     protected function rules(): array
     {
         $rules = [
-            'settlementLines.*.method' => 'required|string',
+            'settlementLines.*.method' => 'nullable|string',
             'settlementLines.*.nominal' => 'required|numeric|min:0',
         ];
 
-        // Add conditional validation for MODIFY_PURCHASE and nominal max value
+        // Add conditional validation for nominal max value
         foreach ($this->settlementLines as $index => $line) {
             $maxNominal = $line['max_nominal'] ?? 0;
             $rules["settlementLines.{$index}.nominal"] = "required|numeric|min:0|max:{$maxNominal}";
-
-            if (in_array(strtoupper($line['method'] ?? ''), [
-                PurchaseReturnDetail::METHOD_MODIFY_PURCHASE,
-                PurchaseReturnDetail::METHOD_CREDIT
-            ])) {
-                $rules["settlementLines.{$index}.target_purchase_id"] = 'required|exists:purchases,id';
-            }
         }
 
+        return $rules;
+    }
+
+    protected function rulesForLineSubmit(int $index): array
+    {
+        $line = $this->settlementLines[$index];
+        $maxNominal = $line['max_nominal'] ?? 0;
+
+        $rules = [
+            "settlementLines.{$index}.method" => 'required|string',
+            "settlementLines.{$index}.nominal" => "required|numeric|min:0|max:{$maxNominal}",
+        ];
+
+        if (in_array(strtoupper($line['method'] ?? ''), [
+            PurchaseReturnDetail::METHOD_MODIFY_PURCHASE,
+            PurchaseReturnDetail::METHOD_CREDIT
+        ])) {
+            $rules["settlementLines.{$index}.target_purchase_id"] = 'required|exists:purchases,id';
+        }
 
         return $rules;
     }
@@ -336,6 +354,96 @@ class PurchaseReturnSettlementForm extends Component
         return (float) $this->purchaseReturn->total_amount;
     }
 
+    /**
+     * Submit a single line for approval.
+     */
+    public function submitLine(int $index)
+    {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.submit'), 403);
+
+        $this->validate($this->rulesForLineSubmit($index));
+
+        try {
+            DB::transaction(function () use ($index) {
+                $line = $this->settlementLines[$index];
+                
+                // Update specific settlement item
+                $settlement = \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::updateOrCreate(
+                    [
+                        'purchase_return_id' => $this->purchaseReturn->id,
+                        'purchase_return_detail_id' => $line['detail_id'],
+                        'product_serial_number_id' => $line['serial_number_id'],
+                    ],
+                    [
+                        'method' => $line['method'],
+                        'nominal' => $line['nominal'],
+                        'target_purchase_id' => $line['target_purchase_id'],
+                        'status' => \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_SUBMITTED,
+                        'submitted_at' => now(),
+                        'submitted_by' => Auth::id(),
+                        'rejected_at' => null,
+                        'rejected_by' => null,
+                        'rejection_reason' => null,
+                    ]
+                );
+
+                $this->settlementLines[$index]['id'] = $settlement->id;
+                $this->settlementLines[$index]['status'] = $settlement->status;
+            });
+
+            session()->flash('success', 'Baris penyelesaian dikirim untuk persetujuan.');
+        } catch (Exception $e) {
+            Log::error('Failed to submit purchase return settlement line', [
+                'purchase_return_id' => $this->purchaseReturn->id,
+                'index' => $index,
+                'message' => $e->getMessage(),
+            ]);
+            session()->flash('error', 'Terjadi kesalahan saat mengirim baris penyelesaian.');
+        }
+    }
+
+    /**
+     * Reset a rejected line to draft.
+     */
+    public function resetLine(int $index)
+    {
+        $line = $this->settlementLines[$index];
+        if ($line['status'] !== \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_REJECTED) {
+            return;
+        }
+
+        try {
+            DB::transaction(function () use ($index) {
+                $line = $this->settlementLines[$index];
+                
+                \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::where([
+                    'purchase_return_id' => $this->purchaseReturn->id,
+                    'purchase_return_detail_id' => $line['detail_id'],
+                    'product_serial_number_id' => $line['serial_number_id'],
+                ])->update([
+                    'status' => \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT,
+                    'method' => null,
+                    'nominal' => $line['max_nominal'],
+                    'target_purchase_id' => null,
+                    'rejection_reason' => null,
+                ]);
+
+                $this->settlementLines[$index]['status'] = \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT;
+                $this->settlementLines[$index]['method'] = '';
+                $this->settlementLines[$index]['nominal'] = $line['max_nominal'];
+                $this->settlementLines[$index]['target_purchase_id'] = null;
+                $this->settlementLines[$index]['rejection_reason'] = null;
+            });
+        } catch (Exception $e) {
+            Log::error('Failed to reset purchase return settlement line', [
+                'purchase_return_id' => $this->purchaseReturn->id,
+                'index' => $index,
+                'message' => $e->getMessage(),
+            ]);
+            session()->flash('error', 'Terjadi kesalahan saat mereset baris penyelesaian.');
+        }
+    }
+
     public function submit()
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.submit'), 403);
@@ -349,40 +457,49 @@ class PurchaseReturnSettlementForm extends Component
 
         try {
             DB::transaction(function () {
-                // Delete existing granular settlements
-                \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::where('purchase_return_id', $this->purchaseReturn->id)->delete();
-
                 foreach ($this->settlementLines as $line) {
-                    \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::create([
-                        'purchase_return_id' => $this->purchaseReturn->id,
-                        'purchase_return_detail_id' => $line['detail_id'],
-                        'product_serial_number_id' => $line['serial_number_id'],
-                        'method' => $line['method'],
-                        'nominal' => $line['nominal'],
-                        'target_purchase_id' => $line['target_purchase_id'],
-                    ]);
+                    // Only update editable lines (Draft or Rejected)
+                    if ($line['status'] !== \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT && 
+                        $line['status'] !== \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_REJECTED) {
+                        continue;
+                    }
+
+                    \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::updateOrCreate(
+                        [
+                            'purchase_return_id' => $this->purchaseReturn->id,
+                            'purchase_return_detail_id' => $line['detail_id'],
+                            'product_serial_number_id' => $line['serial_number_id'],
+                        ],
+                        [
+                            'method' => $line['method'] ?: null,
+                            'nominal' => $line['nominal'],
+                            'target_purchase_id' => $line['target_purchase_id'],
+                            'status' => \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT,
+                        ]
+                    );
                 }
 
                 // Update or create header settlement record
+                // Status derivation will be handled in Ticket 4, for now keep it consistent
                 $this->purchaseReturn->settlement()->updateOrCreate(
                     ['purchase_return_id' => $this->purchaseReturn->id],
                     [
                         'method' => 'mixed',
-                        'status' => 'pending',
+                        'status' => \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_SUBMITTED,
                         'submitted_by' => Auth::id(),
                         'submitted_at' => now(),
                     ]
                 );
             });
 
-            session()->flash('success', 'Penyelesaian berhasil disimpan.');
+            session()->flash('success', 'Penyelesaian berhasil disimpan sebagai draft.');
             return redirect()->route('purchase-returns.show', $this->purchaseReturn->id);
         } catch (Exception $e) {
-            Log::error('Failed to save purchase return settlement lines', [
+            Log::error('Failed to save purchase return settlement lines as draft', [
                 'purchase_return_id' => $this->purchaseReturn->id,
                 'message' => $e->getMessage(),
             ]);
-            session()->flash('error', 'Terjadi kesalahan saat menyimpan penyelesaian.');
+            session()->flash('error', 'Terjadi kesalahan saat menyimpan draft penyelesaian.');
         }
 
         return null;

@@ -31,8 +31,6 @@ return new class extends Migration
             }
         });
 
-        // DEBUG
-        dump('Driver: ' . DB::getDriverName());
         if (DB::getDriverName() !== 'sqlite') {
 
             DB::statement("ALTER TABLE `transfers` MODIFY `status` ENUM('PENDING','APPROVED','REJECTED','DISPATCHED','RECEIVED','RETURN_DISPATCHED','RETURN_RECEIVED') NOT NULL DEFAULT 'PENDING'");

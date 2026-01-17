@@ -14,10 +14,10 @@ class PurchaseReturnItemSettlement extends BaseModel
     protected $guarded = [];
 
     // Status constants for per-line approval workflow
-    public const STATUS_DRAFT = 'draft';
-    public const STATUS_SUBMITTED = 'submitted';
-    public const STATUS_APPROVED = 'approved';
-    public const STATUS_REJECTED = 'rejected';
+    public const STATUS_DRAFT = 'DRAFT';
+    public const STATUS_SUBMITTED = 'SUBMITTED';
+    public const STATUS_APPROVED = 'APPROVED';
+    public const STATUS_REJECTED = 'REJECTED';
 
     protected $casts = [
         'nominal' => 'decimal:2',
