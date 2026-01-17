@@ -29,11 +29,13 @@ class PurchaseReturnSettlementForm extends Component
     public int $purchaseReturnId;
     public array $settlementLines = [];
     public bool $isReadOnly = false;
+    public bool $canViewPrice = false;
     public array $unpaidPurchases = [];
 
     public function mount(int $purchaseReturnId): void
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.submit'), 403);
+        $this->canViewPrice = \Illuminate\Support\Facades\Gate::allows('purchaseReturns.viewPrice');
         $this->purchaseReturnId = $purchaseReturnId;
         $this->loadPurchaseReturn();
     }

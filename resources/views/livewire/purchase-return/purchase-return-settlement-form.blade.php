@@ -461,6 +461,7 @@
                                             </div>
                                         @endif
                                     </td>
+                                    @if($canViewPrice)
                                         <td class="text-end">
                                             @php
                                                 $currentMethod = $settlementLines[$index]['method'] ?? '';
@@ -510,6 +511,7 @@
                                                 @endif
                                             @endif
                                         </td>
+                                    @endif
                                 </tr>
                             @endforeach
                         </tbody>
