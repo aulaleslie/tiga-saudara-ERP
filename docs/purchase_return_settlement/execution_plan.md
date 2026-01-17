@@ -24,7 +24,7 @@
 ## Risks Per Phase
 - Phase 1 (Ticket 1): Data migration/backfill may misclassify existing settlements; ensure safe defaults and rollback path. (Completed)
 - Phase 2 (Ticket 2): Validation changes may allow incomplete lines to be submitted; ensure submit enforces method-specific rules. (Completed)
-- Phase 3 (Ticket 3): Double-posting or race conditions on approvals; must enforce idempotent approval and transactional updates.
+- Phase 3 (Ticket 3): Double-posting or race conditions on approvals; must enforce idempotent approval and transactional updates. (Completed)
 - Phase 4 (Tickets 4–5): Roll-up statuses can conflict with existing header-level labels or reports; ensure consistent mapping and avoid updating `payment_status` and `settled_at`.
 - Phase 5 (Tickets 6–7): Permission gaps or missing test coverage may allow unauthorized approvals; ensure server-side Gate checks in all endpoints.
 

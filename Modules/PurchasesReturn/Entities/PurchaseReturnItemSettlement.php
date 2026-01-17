@@ -84,5 +84,16 @@ class PurchaseReturnItemSettlement extends BaseModel
     {
         return $this->status === self::STATUS_SUBMITTED;
     }
+
+    /**
+     * Get the effective nominal for this settlement item.
+     * Falls back to detail sub_total if nominal is zero or null.
+     */
+    public function getEffectiveNominal(): float
+    {
+        return $this->nominal > 0
+            ? (float) $this->nominal
+            : (float) ($this->detail?->sub_total ?? 0);
+    }
 }
 

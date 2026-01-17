@@ -53,6 +53,12 @@ Route::group(['middleware' => ['auth', 'role.setting']], function() {
         Route::post('/{settlement}/execute', 'PurchasesReturnSettlementController@execute')->name('execute');
         Route::post('/{settlement}/dispatch', 'PurchasesReturnSettlementController@dispatchStock')->name('dispatch');
         Route::post('/{settlement}/receive', 'PurchasesReturnSettlementController@receiveStock')->name('receive');
+
+        // Per-item settlement approval routes
+        Route::post('/item/{itemSettlement}/approve', 'PurchasesReturnSettlementController@approveItemSettlement')
+            ->name('item.approve');
+        Route::post('/item/{itemSettlement}/reject', 'PurchasesReturnSettlementController@rejectItemSettlement')
+            ->name('item.reject');
     });
 
     //Payments

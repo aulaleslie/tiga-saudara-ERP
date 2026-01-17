@@ -180,6 +180,8 @@
 
                         @include('purchasesreturn::partials.dispatch-info')
 
+                        @include('purchasesreturn::partials.settlement-items-table')
+
                         <div class="table-responsive">
                             @can('purchaseReturns.viewPrice')
                                 <table class="table table-sm table-striped table-hover align-middle" style="min-width: 1200px;">
@@ -453,6 +455,10 @@
         </div>
     </div>
     
+@endsection
+
+@section('after-content')
+    @include('purchasesreturn::partials.reject-item-modal')
 @endsection
 
     @include('purchasesreturn::partials.dispatch-request-scripts')
