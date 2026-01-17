@@ -127,7 +127,11 @@ class Checkout extends Component
 
     public function hydrate()
     {
-        $this->refreshPosLocationContext();
+        // Only refresh location context if not already populated
+        // This avoids redundant cache/DB lookups on every Livewire request
+        if (empty($this->posLocationIds)) {
+            $this->refreshPosLocationContext();
+        }
         $this->resetChangeComputedCache();
         $this->refreshTotals();
         $this->dispatch('pos-mask-money-init');
@@ -337,9 +341,11 @@ class Checkout extends Component
 
     public function productSelected($product)
     {
-        // Refresh location context to ensure we have current POS location IDs
-        // This prevents intermittent stock validation errors during Livewire hydration
-        $this->refreshPosLocationContext();
+        // Only refresh location context if not already populated
+        // This prevents redundant cache/DB lookups on product selection
+        if (empty($this->posLocationIds)) {
+            $this->refreshPosLocationContext();
+        }
 
         [$product, $pendingSerials] = $this->normalizeProductInput($product);
 
@@ -674,6 +680,13 @@ class Checkout extends Component
             if (!isset($hydrated['serial_number_required'])) {
                 $hydrated['serial_number_required'] = (bool) $model->serial_number_required;
             }
+        }
+
+        // Skip bundle lookup if product explicitly marked as non-bundle (from ProductList/SearchProduct)
+        // is_bundle/has_bundle flag is set in the query to avoid N+1
+        $isBundleProduct = $product['is_bundle'] ?? $product['has_bundle'] ?? null;
+        if ($isBundleProduct === false || $isBundleProduct === 0 || $isBundleProduct === '0') {
+            return [$hydrated, collect()];
         }
 
         // Use cached bundle resolver (already batched during search)
@@ -1205,25 +1218,52 @@ class Checkout extends Component
         $settingId = session('setting_id');
         $settingId = $settingId !== null ? (int) $settingId : null;
 
-        // Use cached conversions if available
+        // Use cached conversions - check session cache first (survives Livewire requests)
         $cacheKey = $productId . '_' . ($settingId ?? 'null');
+        
+        // Try to restore from session cache if not in memory
         if (!isset($this->conversionCache[$cacheKey])) {
-            $relations = [
-                'unit',
-                'baseUnit',
-            ];
-
-            if ($settingId) {
-                $relations['prices'] = fn ($query) => $query->forSetting($settingId);
+            $sessionCacheKey = 'pos_unit_conversions_' . $cacheKey;
+            $cachedData = session($sessionCacheKey);
+            
+            if ($cachedData !== null) {
+                // Restore from session cache (already serialized array format)
+                $this->conversionCache[$cacheKey] = collect($cachedData);
             } else {
-                $relations[] = 'prices';
-            }
+                // Fetch from database
+                $relations = [
+                    'unit',
+                    'baseUnit',
+                ];
 
-            $this->conversionCache[$cacheKey] = ProductUnitConversion::query()
-                ->with($relations)
-                ->where('product_id', $productId)
-                ->orderByDesc('conversion_factor')
-                ->get();
+                if ($settingId) {
+                    $relations['prices'] = fn ($query) => $query->forSetting($settingId);
+                } else {
+                    $relations[] = 'prices';
+                }
+
+                $conversions = ProductUnitConversion::query()
+                    ->with($relations)
+                    ->where('product_id', $productId)
+                    ->orderByDesc('conversion_factor')
+                    ->get();
+                
+                $this->conversionCache[$cacheKey] = $conversions;
+                
+                // Store in session cache for subsequent requests (5 minute TTL via session expiry)
+                // Convert to array format for serialization
+                $cacheableData = $conversions->map(function ($conv) use ($settingId) {
+                    return [
+                        'conversion_factor' => (int) $conv->conversion_factor,
+                        'price' => $conv->price !== null ? (float) $conv->price : null,
+                        'unit_name' => optional($conv->unit)->name ?? 'unit',
+                        'base_unit_name' => optional($conv->baseUnit)->name ?? 'pc',
+                        'setting_price' => $settingId ? $conv->priceValueForSetting($settingId) : null,
+                    ];
+                })->all();
+                
+                session([$sessionCacheKey => $cacheableData]);
+            }
         }
 
         $conversions = $this->conversionCache[$cacheKey];
@@ -1233,19 +1273,38 @@ class Checkout extends Component
         $remaining = max(0, (int) $quantity);
         $segments = [];
 
+        // Handle both Eloquent collection and cached array format
+        $isArrayFormat = is_array($conversions->first() ?? null);
+
         foreach ($conversions as $conv) {
-            $factor = (int) $conv->conversion_factor;
-
-            $price = null;
-
-            if ($settingId) {
-                $resolvedPrice = $conv->priceValueForSetting($settingId);
-
-                if ($resolvedPrice > 0) {
-                    $price = (float) $resolvedPrice;
+            if ($isArrayFormat) {
+                // Cached array format
+                $factor = (int) ($conv['conversion_factor'] ?? 0);
+                $price = null;
+                
+                if ($settingId && isset($conv['setting_price']) && $conv['setting_price'] > 0) {
+                    $price = (float) $conv['setting_price'];
+                } elseif (isset($conv['price']) && $conv['price'] !== null && (float) $conv['price'] > 0) {
+                    $price = (float) $conv['price'];
                 }
-            } elseif ($conv->price !== null && (float) $conv->price > 0) {
-                $price = (float) $conv->price;
+                
+                $unitName = $conv['unit_name'] ?? 'unit';
+            } else {
+                // Eloquent model format
+                $factor = (int) $conv->conversion_factor;
+                $price = null;
+
+                if ($settingId) {
+                    $resolvedPrice = $conv->priceValueForSetting($settingId);
+
+                    if ($resolvedPrice > 0) {
+                        $price = (float) $resolvedPrice;
+                    }
+                } elseif ($conv->price !== null && (float) $conv->price > 0) {
+                    $price = (float) $conv->price;
+                }
+                
+                $unitName = optional($conv->unit)->name ?? 'unit';
             }
 
             if ($factor < 1 || $price === null || $remaining <= 0) {
@@ -1261,7 +1320,7 @@ class Checkout extends Component
             $segmentCost = $unit_count * $price;
 
             $segments[] = [
-                'unit_name' => optional($conv->unit)->name ?? 'unit',
+                'unit_name' => $unitName,
                 'count' => $unit_count,
                 'quantity_per_segment' => $factor,
                 'line_quantity' => $segmentQuantity,
@@ -1275,9 +1334,15 @@ class Checkout extends Component
         }
 
         if ($remaining > 0) {
-            $baseUnitName = $conversions->first()?->baseUnit->name
-                ?? $conversions->first()?->unit->name
-                ?? 'pc';
+            // Get base unit name from cache format or Eloquent format
+            $firstConv = $conversions->first();
+            if ($isArrayFormat) {
+                $baseUnitName = $firstConv['base_unit_name'] ?? $firstConv['unit_name'] ?? 'pc';
+            } else {
+                $baseUnitName = $firstConv?->baseUnit->name
+                    ?? $firstConv?->unit->name
+                    ?? 'pc';
+            }
             $segmentCost = $remaining * $fallback;
 
             $segments[] = [

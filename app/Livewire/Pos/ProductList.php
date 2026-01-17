@@ -88,6 +88,8 @@ class ProductList extends Component
                 DB::raw('COALESCE(pp.tier_2_price, p.tier_2_price) as tier_2_price'),
                 DB::raw('COALESCE(pp.last_purchase_price, p.last_purchase_price) as last_purchase_price'),
                 DB::raw('COALESCE(pp.average_purchase_price, p.average_purchase_price) as average_purchase_price'),
+                'p.serial_number_required',
+                DB::raw('(SELECT COUNT(*) > 0 FROM product_bundles WHERE parent_product_id = p.id) as is_bundle'),
             ])
             ->when($this->category_id, fn ($q) => $q->where('p.category_id', $this->category_id))
             ->when($this->searchTerm !== '', function ($q) {
