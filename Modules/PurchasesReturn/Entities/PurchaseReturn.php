@@ -162,4 +162,32 @@ class PurchaseReturn extends BaseModel implements HasMedia
     {
         return $this->belongsTo(User::class, 'return_dispatched_by');
     }
+
+    /**
+     * Compute roll-up settlement status from per-line item states.
+     * Returns: 'Awaiting Settlement', 'Settled Partially', or 'Settled'
+     * 
+     * @return string
+     */
+    public function getSettlementStatusAttribute(): string
+    {
+        $items = $this->relationLoaded('settlementItems') 
+            ? $this->settlementItems 
+            : $this->settlementItems()->get();
+        
+        if ($items->isEmpty()) {
+            return 'Awaiting Settlement';
+        }
+        
+        $allApproved = $items->every(fn($i) => strtoupper($i->status) === 'APPROVED');
+        $anyApproved = $items->contains(fn($i) => strtoupper($i->status) === 'APPROVED');
+        
+        if ($allApproved) {
+            return 'Settled';
+        } elseif ($anyApproved) {
+            return 'Settled Partially';
+        }
+        
+        return 'Awaiting Settlement';
+    }
 }

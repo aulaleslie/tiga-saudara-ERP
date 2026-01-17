@@ -10,33 +10,40 @@
 </head>
 <body>
 @php
-    $methodMap = [
-        'Cash' => 'Pengembalian Tunai',
-        'Replacement' => 'Penggantian Produk',
-        'Supplier Credit' => 'Kredit Pemasok',
-    ];
+    // Load settlement items for status derivation
+    $items = $purchase_return->relationLoaded('settlementItems') 
+        ? $purchase_return->settlementItems 
+        : $purchase_return->settlementItems()->get();
 
-    $settlementLabel = 'Belum Diproses';
-    $settlementDetail = null;
+    $allApproved = $items->isNotEmpty() && $items->every(fn($i) => strtoupper($i->status) === 'APPROVED');
+    $anyApproved = $items->contains(fn($i) => strtoupper($i->status) === 'APPROVED');
+    $anySubmitted = $items->contains(fn($i) => strtoupper($i->status) === 'SUBMITTED');
     $approvalStatus = strtolower($purchase_return->approval_status ?? '');
 
-    if ($purchase_return->settled_at) {
+    // Derive settlement label
+    if ($allApproved) {
         $settlementLabel = 'Selesai';
-        if ($purchase_return->payment_method) {
-            $settlementDetail = 'Metode: ' . ($methodMap[$purchase_return->payment_method] ?? $purchase_return->payment_method);
-        }
+        $methods = $items->pluck('method')->unique()->filter()->map(fn($m) => str_replace('_', ' ', $m))->implode(', ');
+        $settlementDetail = $methods ? 'Metode: ' . $methods : null;
+    } elseif ($anyApproved) {
+        $settlementLabel = 'Selesai Sebagian';
+        $approvedCount = $items->filter(fn($i) => strtoupper($i->status) === 'APPROVED')->count();
+        $settlementDetail = $approvedCount . ' dari ' . $items->count() . ' item disetujui';
     } elseif ($approvalStatus === 'rejected') {
         $settlementLabel = 'Ditolak';
-        if ($purchase_return->rejection_reason) {
-            $settlementDetail = 'Alasan: ' . $purchase_return->rejection_reason;
-        }
-    } elseif ($purchase_return->status === 'Awaiting Settlement' || ($approvalStatus === 'approved' && ! $purchase_return->settled_at)) {
+        $settlementDetail = $purchase_return->rejection_reason ? 'Alasan: ' . $purchase_return->rejection_reason : null;
+    } elseif ($anySubmitted) {
+        $settlementLabel = 'Menunggu Persetujuan Item';
+        $settlementDetail = null;
+    } elseif ($purchase_return->status === 'Awaiting Settlement' || ($approvalStatus === 'approved' && $items->isEmpty())) {
         $settlementLabel = 'Menunggu Penyelesaian';
-        if (empty($purchase_return->return_type)) {
-            $settlementDetail = 'Metode penyelesaian belum dipilih.';
-        }
+        $settlementDetail = null;
     } elseif ($approvalStatus !== 'approved') {
         $settlementLabel = 'Menunggu Persetujuan';
+        $settlementDetail = null;
+    } else {
+        $settlementLabel = 'Belum Diproses';
+        $settlementDetail = null;
     }
 @endphp
 
@@ -156,6 +163,72 @@
                             </table>
                         @endcan
                     </div>
+
+                    {{-- Per-Item Settlement Details --}}
+                    @if($items->isNotEmpty())
+                    <div class="table-responsive-sm" style="margin-top: 30px;">
+                        <h4 class="mb-2" style="border-bottom: 1px solid #dddddd;padding-bottom: 10px;">Penyelesaian Per Item:</h4>
+                        <table class="table table-striped">
+                            <thead>
+                            <tr>
+                                <th class="align-middle">Produk</th>
+                                <th class="align-middle">Serial Number</th>
+                                <th class="align-middle">Metode</th>
+                                @can('purchaseReturns.viewPrice')
+                                <th class="align-middle">Nominal</th>
+                                @endcan
+                                <th class="align-middle">Status</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            @foreach($items as $settlementItem)
+                                <tr>
+                                    <td class="align-middle">
+                                        {{ $settlementItem->detail?->product_name ?? 'N/A' }} <br>
+                                        <span class="badge badge-success">{{ $settlementItem->detail?->product_code ?? '-' }}</span>
+                                    </td>
+                                    <td class="align-middle">
+                                        @if($settlementItem->serialNumber)
+                                            {{ $settlementItem->serialNumber->serial_number }}
+                                        @else
+                                            N/A
+                                        @endif
+                                    </td>
+                                    <td class="align-middle">
+                                        @if($settlementItem->method)
+                                            {{ str_replace('_', ' ', $settlementItem->method) }}
+                                        @else
+                                            <em>Belum ditentukan</em>
+                                        @endif
+                                    </td>
+                                    @can('purchaseReturns.viewPrice')
+                                    <td class="align-middle">{{ format_currency($settlementItem->getEffectiveNominal()) }}</td>
+                                    @endcan
+                                    <td class="align-middle">
+                                        @switch(strtoupper($settlementItem->status))
+                                            @case('DRAFT')
+                                                Draft
+                                                @break
+                                            @case('SUBMITTED')
+                                                Menunggu Persetujuan
+                                                @break
+                                            @case('APPROVED')
+                                                Disetujui
+                                                @break
+                                            @case('REJECTED')
+                                                Ditolak
+                                                @break
+                                            @default
+                                                {{ $settlementItem->status }}
+                                        @endswitch
+                                    </td>
+                                </tr>
+                            @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                    @endif
+
                     @can('purchaseReturns.viewPrice')
                         <div class="row">
                             <div class="col-xs-4 col-xs-offset-8">

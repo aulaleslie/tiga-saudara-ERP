@@ -158,16 +158,9 @@ class PurchasesReturnSettlementController extends Controller
                     'approved_at' => now(),
                 ]);
 
-                // Update Purchase Return status roll-up (Ticket 4 will handle this more robustly)
-                // For now, we update the status if all lines are approved
+                // Update Purchase Return status roll-up using derived attribute
                 $purchaseReturn = $itemSettlement->purchaseReturn->load('settlementItems');
-                $allItemsApproved = $purchaseReturn->settlementItems->every(fn($i) => $i->status === \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_APPROVED);
-                
-                if ($allItemsApproved) {
-                    $purchaseReturn->update(['status' => 'Settled']);
-                } else {
-                    $purchaseReturn->update(['status' => 'Settled Partially']);
-                }
+                $purchaseReturn->update(['status' => $purchaseReturn->settlement_status]);
             });
 
             return back()->with('success', 'Item penyelesaian berhasil disetujui.');
@@ -200,6 +193,10 @@ class PurchasesReturnSettlementController extends Controller
             'nominal' => 0,
             'target_purchase_id' => null,
         ]);
+
+        // Update Purchase Return status roll-up
+        $purchaseReturn = $itemSettlement->purchaseReturn->load('settlementItems');
+        $purchaseReturn->update(['status' => $purchaseReturn->settlement_status]);
 
         return back()->with('success', 'Item penyelesaian ditolak.');
     }

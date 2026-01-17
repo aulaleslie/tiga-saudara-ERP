@@ -204,4 +204,77 @@ class PurchaseReturnSettlementPhase4Test extends TestCase
             ->test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $this->purchaseReturn->id])
             ->assertForbidden();
     }
+
+    public function test_roll_up_status_shows_awaiting_when_no_items()
+    {
+        // No settlement items created yet
+        $this->assertEquals('Awaiting Settlement', $this->purchaseReturn->fresh()->settlement_status);
+    }
+
+    public function test_roll_up_status_shows_partial_when_some_approved()
+    {
+        // Create two settlement items, one approved, one draft
+        \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $this->purchaseReturn->id,
+            'purchase_return_detail_id' => $this->detail->id,
+            'method' => 'CASH',
+            'nominal' => 500,
+            'status' => 'APPROVED',
+        ]);
+        
+        // Create another detail for a second settlement item
+        $detail2 = PurchaseReturnDetail::create([
+            'purchase_return_id' => $this->purchaseReturn->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 1,
+            'price' => 500,
+            'unit_price' => 500,
+            'sub_total' => 500,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id,
+        ]);
+
+        \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $this->purchaseReturn->id,
+            'purchase_return_detail_id' => $detail2->id,
+            'method' => null,
+            'nominal' => 0,
+            'status' => 'DRAFT',
+        ]);
+
+        $this->assertEquals('Settled Partially', $this->purchaseReturn->fresh()->settlement_status);
+    }
+
+    public function test_roll_up_status_shows_settled_when_all_approved()
+    {
+        // Create one settlement item as approved
+        \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $this->purchaseReturn->id,
+            'purchase_return_detail_id' => $this->detail->id,
+            'method' => 'CREDIT',
+            'nominal' => 1000,
+            'status' => 'APPROVED',
+        ]);
+
+        $this->assertEquals('Settled', $this->purchaseReturn->fresh()->settlement_status);
+    }
+
+    public function test_roll_up_status_shows_awaiting_when_submitted_but_not_approved()
+    {
+        // Create one settlement item as submitted
+        \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $this->purchaseReturn->id,
+            'purchase_return_detail_id' => $this->detail->id,
+            'method' => 'CASH',
+            'nominal' => 1000,
+            'status' => 'SUBMITTED',
+        ]);
+
+        // Awaiting Settlement until there are approved items
+        $this->assertEquals('Awaiting Settlement', $this->purchaseReturn->fresh()->settlement_status);
+    }
 }
+
