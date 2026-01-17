@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use App\Livewire\Pos\Checkout;
 use App\Livewire\Pos\ProductList;
+use App\Services\TypoTolerantSearch;
 use App\Support\ProductBundleResolver;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
@@ -419,20 +420,33 @@ class SearchProduct extends Component
     }
 
     /* ===========================
-     * Suggestions (LIKE search)
+     * Suggestions (typo-tolerant FULLTEXT search)
      * =========================== */
     private function suggestions(string $input): Collection
     {
-        $term  = '%' . mb_strtolower($input) . '%';
-        $serialTerm = '%' . mb_strtolower($input) . '%';
         $limit = (int) $this->how_many;
-
         $settingId = session('setting_id');
+
+        // Prepare search terms
+        $likeTerm  = '%' . mb_strtolower($input) . '%'; // For barcode/serial exact-ish match
+        $useFulltext = TypoTolerantSearch::isEnabled();
+        $booleanTerm = $useFulltext ? TypoTolerantSearch::prepareBooleanTerm($input) : '';
 
         $baseStockFilter = $this->buildLocationFilter('location_id', 'suggest_base', false);
         $conversionStockFilter = $this->buildLocationFilter('location_id', 'suggest_conversion', false);
         $serialStockFilter = $this->buildLocationFilter('location_id', 'suggest_serial', false);
         $serialLocationFilter = $this->buildLocationFilter('psn.location_id', 'suggest_serial_loc', false);
+
+        // Build the WHERE clause for name/code search based on typo-tolerant setting
+        if ($useFulltext) {
+            // FULLTEXT search for name/code + LIKE for barcode
+            $baseNameCodeCondition = "(MATCH(p.product_name, p.product_code) AGAINST(:ft_base IN BOOLEAN MODE) OR LOWER(p.barcode) LIKE :term_base_barcode)";
+            $convNameCodeCondition = "(MATCH(p.product_name, p.product_code) AGAINST(:ft_conv IN BOOLEAN MODE) OR LOWER(puc.barcode) LIKE :term_conv_barcode)";
+        } else {
+            // Fallback to LIKE search
+            $baseNameCodeCondition = "(LOWER(p.product_name) LIKE :term_base_name OR LOWER(p.product_code) LIKE :term_base_code OR LOWER(p.barcode) LIKE :term_base_barcode)";
+            $convNameCodeCondition = "(LOWER(p.product_name) LIKE :term_conv_name OR LOWER(p.product_code) LIKE :term_conv_code OR LOWER(puc.barcode) LIKE :term_conv_barcode)";
+        }
 
         /*
          * Query filters to only show products that have been purchased before.
@@ -483,11 +497,7 @@ class SearchProduct extends Component
         ) st ON st.product_id = p.id
         LEFT JOIN units u ON u.id = COALESCE(p.unit_id, p.base_unit_id)
         WHERE p.serial_number_required = 0
-          AND (
-              LOWER(p.product_name) LIKE :term_base_name
-              OR LOWER(p.product_code) LIKE :term_base_code
-              OR LOWER(p.barcode) LIKE :term_base_barcode
-          )
+          AND {base_name_code_condition}
 
         UNION ALL
 
@@ -533,11 +543,7 @@ class SearchProduct extends Component
         ) st ON st.product_id = p.id
         LEFT JOIN units u ON u.id = puc.unit_id
         WHERE p.serial_number_required = 0
-          AND (
-              LOWER(p.product_name) LIKE :term_conv_name
-              OR LOWER(p.product_code) LIKE :term_conv_code
-              OR LOWER(puc.barcode) LIKE :term_conv_barcode
-          )
+          AND {conv_name_code_condition}
 
         UNION ALL
 
@@ -593,26 +599,41 @@ class SearchProduct extends Component
         $sql = str_replace('{conversion_stock_filter}', $conversionStockFilter['sql'], $sql);
         $sql = str_replace('{serial_stock_filter}', $serialStockFilter['sql'], $sql);
         $sql = str_replace('{serial_location_filter}', $serialLocationFilter['sql'], $sql);
+        $sql = str_replace('{base_name_code_condition}', $baseNameCodeCondition, $sql);
+        $sql = str_replace('{conv_name_code_condition}', $convNameCodeCondition, $sql);
 
+        // Build bindings based on whether FULLTEXT is enabled
         $bindings = array_merge(
             $baseStockFilter['bindings'],
             $conversionStockFilter['bindings'],
             $serialStockFilter['bindings'],
             $serialLocationFilter['bindings'],
             [
-                'term_base_name' => $term,
-                'term_base_code' => $term,
-                'term_base_barcode' => $term,
-                'term_conv_name' => $term,
-                'term_conv_code' => $term,
-                'term_conv_barcode' => $term,
-                'term_serial'    => $serialTerm,
                 'settingId_base'            => $settingId,
                 'settingId_conversion_pucp' => $settingId,
                 'settingId_conversion_pp'   => $settingId,
                 'settingId_serial'          => $settingId,
             ]
         );
+
+        if ($useFulltext) {
+            // FULLTEXT bindings for name/code + LIKE for barcode
+            $bindings['ft_base'] = $booleanTerm;
+            $bindings['ft_conv'] = $booleanTerm;
+            $bindings['term_base_barcode'] = $likeTerm;
+            $bindings['term_conv_barcode'] = $likeTerm;
+        } else {
+            // Traditional LIKE bindings
+            $bindings['term_base_name'] = $likeTerm;
+            $bindings['term_base_code'] = $likeTerm;
+            $bindings['term_base_barcode'] = $likeTerm;
+            $bindings['term_conv_name'] = $likeTerm;
+            $bindings['term_conv_code'] = $likeTerm;
+            $bindings['term_conv_barcode'] = $likeTerm;
+        }
+
+        // Serial search always uses LIKE (no FULLTEXT on serial_number)
+        $bindings['term_serial'] = $likeTerm;
 
         $results = collect(DB::select($sql, $bindings));
 

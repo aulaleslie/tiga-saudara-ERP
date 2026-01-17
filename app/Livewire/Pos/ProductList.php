@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Pos;
 
+use App\Services\TypoTolerantSearch;
 use Illuminate\Support\Facades\DB;
 use App\Support\PosLocationResolver;
 use Livewire\Component;
@@ -93,12 +94,24 @@ class ProductList extends Component
             ])
             ->when($this->category_id, fn ($q) => $q->where('p.category_id', $this->category_id))
             ->when($this->searchTerm !== '', function ($q) {
-                $term = '%' . mb_strtolower($this->searchTerm) . '%';
-                $q->where(function ($inner) use ($term) {
-                    $inner->whereRaw('LOWER(p.product_name) LIKE ?', [$term])
-                        ->orWhereRaw('LOWER(p.product_code) LIKE ?', [$term])
-                        ->orWhereRaw('LOWER(p.barcode) LIKE ?', [$term]);
-                });
+                $term = $this->searchTerm;
+                $like = '%' . mb_strtolower($term) . '%';
+
+                if (TypoTolerantSearch::isEnabled()) {
+                    // Use FULLTEXT for name/code + LIKE for barcode
+                    $booleanTerm = TypoTolerantSearch::prepareBooleanTerm($term);
+                    $q->where(function ($inner) use ($booleanTerm, $like) {
+                        $inner->whereRaw('MATCH(p.product_name, p.product_code) AGAINST(? IN BOOLEAN MODE)', [$booleanTerm])
+                            ->orWhereRaw('LOWER(p.barcode) LIKE ?', [$like]);
+                    });
+                } else {
+                    // Fallback to LIKE search
+                    $q->where(function ($inner) use ($like) {
+                        $inner->whereRaw('LOWER(p.product_name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(p.product_code) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(p.barcode) LIKE ?', [$like]);
+                    });
+                }
             })
             // Ensure stock > 0
             ->whereRaw('COALESCE(st.stock_qty, 0) > 0');

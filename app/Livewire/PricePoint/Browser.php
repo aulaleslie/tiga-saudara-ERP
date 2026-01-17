@@ -2,6 +2,7 @@
 
 namespace App\Livewire\PricePoint;
 
+use App\Services\TypoTolerantSearch;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -94,15 +95,31 @@ class Browser extends Component
             ])
             ->when($term !== '', function ($q) use ($term) {
                 $like = "%{$term}%";
-                $q->where(function ($qq) use ($like) {
-                    $qq->where('products.product_name', 'like', $like)
-                        ->orWhere('products.product_code', 'like', $like)
-                        ->orWhere('products.barcode', 'like', $like)
-                        ->orWhereHas('brand', fn ($b) => $b->where('name', 'like', $like))
-                        ->orWhereHas('category', fn ($c) => $c->where('category_name', 'like', $like))
-                        ->orWhereHas('conversions', fn ($u) => $u->where('barcode', 'like', $like))
-                        ->orWhereHas('serialNumbers', fn ($s) => $s->where('serial_number', 'like', $like));
-                });
+
+                if (TypoTolerantSearch::isEnabled()) {
+                    // Use FULLTEXT for name/code + LIKE for barcode and relations
+                    $booleanTerm = TypoTolerantSearch::prepareBooleanTerm($term);
+
+                    $q->where(function ($qq) use ($booleanTerm, $like) {
+                        $qq->whereRaw('MATCH(products.product_name, products.product_code) AGAINST(? IN BOOLEAN MODE)', [$booleanTerm])
+                            ->orWhere('products.barcode', 'like', $like)
+                            ->orWhereHas('brand', fn ($b) => $b->where('name', 'like', $like))
+                            ->orWhereHas('category', fn ($c) => $c->where('category_name', 'like', $like))
+                            ->orWhereHas('conversions', fn ($u) => $u->where('barcode', 'like', $like))
+                            ->orWhereHas('serialNumbers', fn ($s) => $s->where('serial_number', 'like', $like));
+                    });
+                } else {
+                    // Fallback to LIKE search
+                    $q->where(function ($qq) use ($like) {
+                        $qq->where('products.product_name', 'like', $like)
+                            ->orWhere('products.product_code', 'like', $like)
+                            ->orWhere('products.barcode', 'like', $like)
+                            ->orWhereHas('brand', fn ($b) => $b->where('name', 'like', $like))
+                            ->orWhereHas('category', fn ($c) => $c->where('category_name', 'like', $like))
+                            ->orWhereHas('conversions', fn ($u) => $u->where('barcode', 'like', $like))
+                            ->orWhereHas('serialNumbers', fn ($s) => $s->where('serial_number', 'like', $like));
+                    });
+                }
             })
             ->orderBy('products.product_name')
             ->paginate(
