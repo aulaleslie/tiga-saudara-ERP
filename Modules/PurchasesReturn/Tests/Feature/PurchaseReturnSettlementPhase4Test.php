@@ -129,8 +129,9 @@ class PurchaseReturnSettlementPhase4Test extends TestCase
 
         Livewire::actingAs($this->user)
             ->test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $this->purchaseReturn->id])
+            ->set('settlementLines.0.method', 'CREDIT')
             ->assertSee('Nilai Penyelesaian')
-            ->assertSee('type="number"', false);
+            ->assertSee('type="text"', false);
     }
 
     public function test_user_without_view_price_cannot_see_settlement_values()
@@ -141,7 +142,7 @@ class PurchaseReturnSettlementPhase4Test extends TestCase
         Livewire::actingAs($this->user)
             ->test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $this->purchaseReturn->id])
             ->assertDontSee('Nilai Penyelesaian')
-            ->assertDontSee('type="number"');
+            ->assertDontSee('type="text"');
     }
 
     public function test_settlement_nominal_cannot_exceed_item_value()
@@ -152,6 +153,7 @@ class PurchaseReturnSettlementPhase4Test extends TestCase
         Livewire::actingAs($this->user)
             ->test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $this->purchaseReturn->id])
             ->set('settlementLines.0.method', 'CREDIT')
+            ->set('settlementLines.0.target_purchase_id', 999) // Non-existent but triggers max check before exists? Actually exists might trigger first.
             ->set('settlementLines.0.nominal', 1200) // Exceeds 1000
             ->call('submit')
             ->assertHasErrors(['settlementLines.0.nominal' => 'max']);
@@ -162,9 +164,25 @@ class PurchaseReturnSettlementPhase4Test extends TestCase
         \Spatie\Permission\Models\Permission::findOrCreate('purchaseReturnSettlements.submit');
         $this->user->givePermissionTo(['purchaseReturnSettlements.submit']);
 
+        // Create a purchase to satisfy exists rule
+        $purchase = \Modules\Purchase\Entities\Purchase::create([
+            'date' => now(),
+            'reference' => 'PO-1',
+            'supplier_id' => $this->supplier->id,
+            'setting_id' => $this->setting->id,
+            'status' => 'RECEIVED',
+            'payment_status' => 'UNPAID',
+            'payment_method' => 'Cash',
+            'due_date' => now(),
+            'due_amount' => 1000,
+            'paid_amount' => 0,
+            'total_amount' => 1000,
+        ]);
+
         Livewire::actingAs($this->user)
             ->test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $this->purchaseReturn->id])
             ->set('settlementLines.0.method', 'CREDIT')
+            ->set('settlementLines.0.target_purchase_id', $purchase->id)
             ->set('settlementLines.0.nominal', 800)
             ->call('submit')
             ->assertHasNoErrors()

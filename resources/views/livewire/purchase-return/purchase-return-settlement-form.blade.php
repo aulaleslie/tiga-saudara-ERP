@@ -254,7 +254,7 @@
                                                     $currentMethod = $settlementLines[$index]['method'] ?? '';
                                                     $showDropdown = in_array($currentMethod, ['MODIFY_PURCHASE', 'CREDIT']);
                                                     $purchaseList = match($currentMethod) {
-                                                        'MODIFY_PURCHASE' => $unpaidPurchases,
+                                                        'MODIFY_PURCHASE' => $unpaidPurchases[$line['product_id']] ?? [],
                                                         'CREDIT' => $creditPurchases,
                                                         default => []
                                                     };
@@ -263,6 +263,7 @@
                                                         'CREDIT' => 'Cari Nota (Referensi)...',
                                                         default => 'Cari...'
                                                     };
+                                                    $isLocked = !empty($line['serial_number_id']) && $currentMethod === 'MODIFY_PURCHASE';
                                                 @endphp
 
                                                 @if($showDropdown)
@@ -273,6 +274,8 @@
                                                             search: '',
                                                             selectedId: @entangle('settlementLines.'.$index.'.target_purchase_id'),
                                                             options: {{ json_encode($purchaseList) }},
+                                                            locked: {{ $isLocked ? 'true' : 'false' }},
+                                                            excludedId: {{ $line['origin_purchase_id'] ?? 'null' }},
                                                             dropdownStyles: {},
                                                             init() {
                                                                 this.handleScroll = this.handleScroll.bind(this);
@@ -323,8 +326,12 @@
                                                                 });
                                                             },
                                                             get filteredOptions() {
-                                                                if (this.search === '') return this.options;
-                                                                return this.options.filter(option => 
+                                                                let filtered = this.options;
+                                                                if (this.excludedId) {
+                                                                    filtered = filtered.filter(o => o.id != this.excludedId);
+                                                                }
+                                                                if (this.search === '') return filtered;
+                                                                return filtered.filter(option => 
                                                                     option.text.toLowerCase().includes(this.search.toLowerCase())
                                                                 );
                                                             },
@@ -333,6 +340,7 @@
                                                                 return opt ? opt.text : '';
                                                             },
                                                             select(id) {
+                                                                if (this.locked) return;
                                                                 this.selectedId = id;
                                                                 this.open = false;
                                                                 this.search = '';
@@ -341,9 +349,17 @@
                                                     >
                                                         <label class="small fw-bold text-muted mb-1">{{ ($currentMethod == 'MODIFY_PURCHASE') ? 'Nota Pembelian Sisa :' : 'Referensi Nota :' }}</label>
                                                         <div class="position-relative">
-                                                            <div x-ref="trigger" @click="open = !open" class="form-control form-control-premium form-control-sm d-flex justify-content-between align-items-center cursor-pointer" :class="{'is-invalid': @error('settlementLines.'.$index.'.target_purchase_id') true @else false @enderror}">
+                                                            <div x-ref="trigger" 
+                                                                 @click="if(!locked) open = !open" 
+                                                                 class="form-control form-control-premium form-control-sm d-flex justify-content-between align-items-center" 
+                                                                 :class="{
+                                                                    'is-invalid': @error('settlementLines.'.$index.'.target_purchase_id') true @else false @enderror,
+                                                                    'bg-light cursor-not-allowed': locked,
+                                                                    'cursor-pointer': !locked
+                                                                 }">
                                                                 <span x-text="selectedLabel || '{{ $placeholder }}'" :class="{'text-muted': !selectedLabel}"></span>
-                                                                <i class="bi bi-chevron-down small text-muted"></i>
+                                                                <i x-show="!locked" class="bi bi-chevron-down small text-muted"></i>
+                                                                <i x-show="locked" class="bi bi-lock-fill small text-muted"></i>
                                                             </div>
                                                             
                                                             <div x-show="open" 
@@ -436,47 +452,6 @@
                 </div>
             </div>
 
-            <div class="card settlement-card mb-4 overflow-hidden">
-                <div class="card-header bg-white py-3 border-0">
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 28px; height: 28px; font-size: 0.8rem;">
-                            <i class="bi bi-image"></i>
-                        </div>
-                        <h5 class="mb-0 fw-bold">Bukti Pengembalian Tunai</h5>
-                    </div>
-                </div>
-                <div class="card-body">
-                    @if(!$isReadOnly)
-                        <div class="proof-upload-area mb-3" onclick="document.getElementById('cash_proof').click()">
-                            <i class="bi bi-cloud-arrow-up text-primary fs-1 mb-2 d-block"></i>
-                            <h6 class="fw-bold mb-1">Klik untuk unggah berkas</h6>
-                            <p class="text-muted small mb-0">Hanya diperlukan untuk metode Pengembalian Tunai. (JPG, PNG, PDF)</p>
-                            <input type="file" id="cash_proof" class="d-none" wire:model="cash_proof" accept=".jpg,.jpeg,.png,.pdf">
-                        </div>
-                    @endif
-
-                    @error('cash_proof')
-                        <div class="alert alert-danger p-2 small mb-3">{{ $message }}</div>
-                    @enderror
-
-                    @if($purchaseReturn->settlement?->cash_proof_path)
-                        <div class="p-4 rounded border bg-light d-flex align-items-center justify-content-between">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="bg-success text-white rounded p-3">
-                                    <i class="bi bi-file-earmark-check fs-3"></i>
-                                </div>
-                                <div>
-                                    <h6 class="mb-1 fw-bold text-dark">Berkas Terlampir</h6>
-                                    <span class="text-muted small">Bukti pengembalian telah tersimpan dengan aman di server.</span>
-                                </div>
-                            </div>
-                            <a href="{{ Storage::url($purchaseReturn->settlement->cash_proof_path) }}" target="_blank" class="btn btn-premium-light">
-                                <i class="bi bi-eye-fill me-1"></i> Lihat Dokumen
-                            </a>
-                        </div>
-                    @endif
-                </div>
-            </div>
 
             <div class="d-flex justify-content-end gap-3 pb-5">
                 <a href="{{ route('purchase-returns.show', $purchaseReturn->id) }}" class="btn btn-premium-light">

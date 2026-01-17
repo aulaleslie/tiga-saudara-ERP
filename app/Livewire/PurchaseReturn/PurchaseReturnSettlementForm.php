@@ -14,7 +14,6 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
-use Livewire\WithFileUploads;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturnGood;
@@ -25,12 +24,10 @@ use Modules\Purchase\Entities\Purchase;
 
 class PurchaseReturnSettlementForm extends Component
 {
-    use WithFileUploads;
 
     public PurchaseReturn $purchaseReturn;
     public int $purchaseReturnId;
     public array $settlementLines = [];
-    public $cash_proof;
     public bool $isReadOnly = false;
     public array $unpaidPurchases = [];
 
@@ -65,10 +62,13 @@ class PurchaseReturnSettlementForm extends Component
 
             if ($detail->product->serial_number_required) {
                 // Get ProductSerialNumber entities to get their IDs
-                $snEntities = \Modules\Product\Entities\ProductSerialNumber::whereIn('id', $detail->serial_number_ids ?? [])->get();
+                $snEntities = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail'])
+                    ->whereIn('id', $detail->serial_number_ids ?? [])
+                    ->get();
                 
                 foreach ($snEntities as $snEntity) {
                     $existing = $existingSettlements->where('product_serial_number_id', $snEntity->id)->first();
+                    $originPurchaseId = $snEntity->receivedNoteDetail?->purchaseDetail?->purchase_id;
                     
                     $this->settlementLines[] = [
                         'detail_id' => $detail->id,
@@ -81,6 +81,7 @@ class PurchaseReturnSettlementForm extends Component
                         'nominal' => (float) ($existing->nominal ?? $detail->unit_price),
                         'max_nominal' => (float) $detail->unit_price,
                         'target_purchase_id' => $existing->target_purchase_id ?? null,
+                        'origin_purchase_id' => $originPurchaseId,
                     ];
                 }
             } else {
@@ -98,6 +99,7 @@ class PurchaseReturnSettlementForm extends Component
                     'max_nominal' => (float) $detail->sub_total,
                     'target_purchase_id' => $existing->target_purchase_id ?? null,
                     'quantity' => $detail->quantity,
+                    'origin_purchase_id' => null,
                 ];
             }
         }
@@ -114,27 +116,37 @@ class PurchaseReturnSettlementForm extends Component
         }
 
         // Purchases for MODIFY_PURCHASE (Unpaid/Partial)
-        $this->unpaidPurchases = Purchase::where('supplier_id', $this->purchaseReturn->supplier_id)
-            ->where('due_amount', '>', 0)
-            ->whereIn('status', [
-                Purchase::STATUS_RECEIVED,
-                Purchase::STATUS_RECEIVED_PARTIALLY,
-                Purchase::STATUS_APPROVED,
-            ])
-            ->select(['id', 'reference', 'supplier_purchase_number', 'due_amount', 'total_amount', 'date'])
-            ->orderBy('date', 'desc')
-            ->limit(50)
-            ->get()
-            ->map(function ($purchase) {
-                $ref = $purchase->supplier_purchase_number ?? $purchase->reference;
-                return [
-                    'id' => $purchase->id,
-                    'label' => $ref . ' - Sisa: ' . format_currency($purchase->due_amount),
-                    'text' => $ref, // For searchable text
-                    'due_amount' => $purchase->due_amount,
-                ];
-            })
-            ->toArray();
+        // Grouped by product_id to show only relevant purchases per line
+        $productIds = $this->purchaseReturn->purchaseReturnDetails->pluck('product_id')->unique();
+        
+        $this->unpaidPurchases = [];
+        
+        foreach ($productIds as $productId) {
+            $this->unpaidPurchases[$productId] = Purchase::where('supplier_id', $this->purchaseReturn->supplier_id)
+                ->where('due_amount', '>', 0)
+                ->whereIn('status', [
+                    Purchase::STATUS_RECEIVED,
+                    Purchase::STATUS_RECEIVED_PARTIALLY,
+                    Purchase::STATUS_APPROVED,
+                ])
+                ->whereHas('purchaseDetails', function ($query) use ($productId) {
+                    $query->where('product_id', $productId);
+                })
+                ->select(['id', 'reference', 'supplier_purchase_number', 'due_amount', 'total_amount', 'date'])
+                ->orderBy('date', 'desc')
+                ->limit(50)
+                ->get()
+                ->map(function ($purchase) {
+                    $ref = $purchase->supplier_purchase_number ?: $purchase->reference;
+                    return [
+                        'id' => $purchase->id,
+                        'label' => $ref . ' - Sisa: ' . format_currency($purchase->due_amount),
+                        'text' => $ref, // For searchable text
+                        'due_amount' => $purchase->due_amount,
+                    ];
+                })
+                ->toArray();
+        }
     }
 
     public function getCreditPurchasesProperty(): array
@@ -143,30 +155,26 @@ class PurchaseReturnSettlementForm extends Component
             return [];
         }
 
-        // Purchases for CREDIT (Not Unpaid i.e. Paid or others)
-        // Requirement: "show purchase dropdown that is not unpaid"
-        // We assume this means purchases that don't have outstanding debt OR simply all valid purchases that are "Paid".
-        // If we strictly follow "not unpaid", it excludes those that are wholly unpaid.
-        // But usually "Credit" can be applied generally.
-        // Let's assume we want to show purchases that are PAID (due_amount = 0) or generally all history.
-        // Given "Modify Purchase" handles the debt reduction, "Credit" likely handles the refund on Paid items.
-        // So we fetch purchases with due_amount = 0 (Paid).
+        // Purchases for CREDIT (Suggested as debt deduction/offset)
+        // Requirement: "any unpaid purchase number that belong to the same supplier"
         
         return Purchase::where('supplier_id', $this->purchaseReturn->supplier_id)
-            ->where('due_amount', '=', 0) // Paid
+            ->where('due_amount', '>', 0) // Unpaid
             ->whereIn('status', [
                 Purchase::STATUS_RECEIVED,
+                Purchase::STATUS_RECEIVED_PARTIALLY,
+                Purchase::STATUS_APPROVED,
                 'Completed',
             ])
-            ->select(['id', 'reference', 'supplier_purchase_number', 'total_amount', 'date'])
+            ->select(['id', 'reference', 'supplier_purchase_number', 'due_amount', 'total_amount', 'date'])
             ->orderBy('date', 'desc')
             ->limit(50)
             ->get()
             ->map(function ($purchase) {
-                $ref = $purchase->supplier_purchase_number ?? $purchase->reference;
+                $ref = $purchase->supplier_purchase_number ?: $purchase->reference;
                 return [
                     'id' => $purchase->id,
-                    'label' => $ref . ' (Paid)',
+                    'label' => $ref . ' - Sisa: ' . format_currency($purchase->due_amount),
                     'text' => $ref,
                 ];
             })
@@ -198,7 +206,6 @@ class PurchaseReturnSettlementForm extends Component
         $rules = [
             'settlementLines.*.method' => 'required|string',
             'settlementLines.*.nominal' => 'required|numeric|min:0',
-            'cash_proof' => 'nullable|file|max:4096|mimes:jpg,jpeg,png,pdf',
         ];
 
         // Add conditional validation for MODIFY_PURCHASE and nominal max value
@@ -214,10 +221,6 @@ class PurchaseReturnSettlementForm extends Component
             }
         }
 
-        // Require cash_proof if any line uses CASH method
-        if ($this->hasCashMethod()) {
-            $rules['cash_proof'] = 'required|file|max:4096|mimes:jpg,jpeg,png,pdf';
-        }
 
         return $rules;
     }
@@ -252,6 +255,21 @@ class PurchaseReturnSettlementForm extends Component
             if ($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE) {
                 // Return full value for modification
                  $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
+
+                 // Auto-select purchase for serial number
+                 $serialNumberId = $this->settlementLines[$index]['serial_number_id'] ?? null;
+                 if ($serialNumberId) {
+                     $sn = ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail.purchase'])
+                         ->find($serialNumberId);
+                     
+                     $purchase = $sn?->receivedNoteDetail?->purchaseDetail?->purchase ?? null;
+                     if ($purchase) {
+                         $this->settlementLines[$index]['target_purchase_id'] = $purchase->id;
+                         
+                         // Ensure it's in the list
+                         $this->ensurePurchaseInList($purchase, $method, $this->settlementLines[$index]['product_id']);
+                     }
+                 }
             } elseif (!in_array($method, [PurchaseReturnDetail::METHOD_CREDIT, PurchaseReturnDetail::METHOD_CASH])) {
                 // For Repair/Broken maybe 0?
                 // Let's safe bet check existing logic:
@@ -277,6 +295,29 @@ class PurchaseReturnSettlementForm extends Component
         }
     }
 
+    protected function ensurePurchaseInList($purchase, $method, $productId = null): void
+    {
+        $ref = $purchase->supplier_purchase_number ?: $purchase->reference;
+        $newItem = [
+            'id' => $purchase->id,
+            'label' => $ref . ($purchase->due_amount > 0 ? ' - Sisa: ' . format_currency($purchase->due_amount) : ' (Paid)'),
+            'text' => $ref,
+            'due_amount' => $purchase->due_amount,
+        ];
+
+        if ($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE && $productId) {
+            if (!isset($this->unpaidPurchases[$productId])) {
+                $this->unpaidPurchases[$productId] = [];
+            }
+            if (!collect($this->unpaidPurchases[$productId])->contains('id', $purchase->id)) {
+                $this->unpaidPurchases[$productId][] = $newItem;
+            }
+        }
+        // Note: For CREDIT, it's a dynamic property and usually includes Paid items
+        // which the auto-select purchase might be. If we need to support CREDIT auto-select,
+        // we'd need to modify getCreditPurchasesProperty.
+    }
+
     protected function messages(): array
     {
         return [
@@ -287,8 +328,6 @@ class PurchaseReturnSettlementForm extends Component
             'settlementLines.*.nominal.max' => 'Nilai penyelesaian tidak boleh melebihi nilai barang.',
             'settlementLines.*.target_purchase_id.required' => 'Pilih nota pembelian untuk metode Ubah Nota Pembelian.',
             'settlementLines.*.target_purchase_id.exists' => 'Nota pembelian tidak valid.',
-            'cash_proof.required' => 'Bukti pengembalian tunai wajib diunggah jika ada item dengan metode Pengembalian Tunai.',
-            'cash_proof.max' => 'Ukuran bukti maksimal 4MB.',
         ];
     }
 
@@ -308,13 +347,8 @@ class PurchaseReturnSettlementForm extends Component
 
         $this->validate();
 
-        $storedProof = null;
-        if ($this->cash_proof && !is_string($this->cash_proof)) {
-            $storedProof = $this->cash_proof->store('purchase-returns/proofs', 'public');
-        }
-
         try {
-            DB::transaction(function () use ($storedProof) {
+            DB::transaction(function () {
                 // Delete existing granular settlements
                 \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::where('purchase_return_id', $this->purchaseReturn->id)->delete();
 
@@ -337,7 +371,6 @@ class PurchaseReturnSettlementForm extends Component
                         'status' => 'pending',
                         'submitted_by' => Auth::id(),
                         'submitted_at' => now(),
-                        'cash_proof_path' => $storedProof ?: ($this->purchaseReturn->settlement->cash_proof_path ?? null),
                     ]
                 );
             });

@@ -354,11 +354,6 @@
                                 <div class="mt-4">
                                     <h5 class="mb-3">Pengembalian Tunai</h5>
                                     <p class="mb-2">Total dikembalikan: <strong>{{ format_currency($purchase_return->total_amount) }}</strong></p>
-                                    @if($purchase_return->cash_proof_path)
-                                        <a href="{{ Storage::url($purchase_return->cash_proof_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                                            <i class="bi bi-paperclip"></i> Lihat Bukti Pengembalian
-                                        </a>
-                                    @endif
                                 </div>
                             @endif
                         @else
