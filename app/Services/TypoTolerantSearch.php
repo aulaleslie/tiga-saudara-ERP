@@ -2,20 +2,39 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Schema;
+
 /**
  * Provides typo-tolerant search functionality using MySQL FULLTEXT with ngram parser.
  *
  * This service builds search queries that can match partial and misspelled terms
  * like "katrid" -> "CATRIDGE" or "n150 512" -> "ACER ASPIRE LITE AL14 N150 8GB 512GB SSD".
+ *
+ * Note: Falls back to LIKE search on non-MySQL databases (e.g., SQLite for testing).
  */
 class TypoTolerantSearch
 {
     /**
      * Check if typo-tolerant search is enabled.
+     * Returns false on non-MySQL databases since FULLTEXT isn't available.
      */
     public static function isEnabled(): bool
     {
+        // FULLTEXT with ngram only works on MySQL/MariaDB
+        if (!self::isMySql()) {
+            return false;
+        }
+
         return config('search.typo_tolerant', true);
+    }
+
+    /**
+     * Check if we're running on MySQL/MariaDB.
+     */
+    public static function isMySql(): bool
+    {
+        $driver = Schema::getConnection()->getDriverName();
+        return in_array($driver, ['mysql', 'mariadb']);
     }
 
     /**
