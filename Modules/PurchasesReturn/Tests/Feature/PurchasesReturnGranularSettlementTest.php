@@ -390,7 +390,9 @@ class PurchasesReturnGranularSettlementTest extends TestCase
             // The view should be tested manually for read-only, 
             // but we can check if the status is correct which triggers read-only in blade.
             ->assertSeeHtml('badge-soft-info') // Submitted badge
-            ->assertDontSeeHtml('button wire:click="submitLine(0)"'); // Submit button should be hidden
+            ->assertDontSeeHtml('button wire:click="submitLine(0)"') // Submit button should be hidden
+            // Ensure nominal input is NOT rendered (read-only mode)
+            ->assertDontSeeHtml('x-on:input="nominal = $el.value"');
     }
 
     /** @test */

@@ -466,7 +466,7 @@
                                             @php
                                                 $currentMethod = $settlementLines[$index]['method'] ?? '';
                                                 $showNominal = in_array($currentMethod, ['CREDIT', 'CASH']); // Only visible for Credit & Cash
-                                                $isLineReadOnly = $isReadOnly || in_array($line['status'], ['submitted', 'approved']);
+                                                $isLineReadOnly = $isReadOnly || in_array($line['status'], ['SUBMITTED', 'APPROVED']);
                                             @endphp
                                             
                                             @if($isLineReadOnly)

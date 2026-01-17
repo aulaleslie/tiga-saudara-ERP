@@ -131,6 +131,8 @@ class PurchasesReturnController extends Controller
             'purchaseReturnPayments',
             'location',
             'settlement',
+            'settlementItems.detail',
+            'settlementItems.serialNumber',
         ]);
         $supplier = Supplier::findOrFail($purchase_return->supplier_id);
 
