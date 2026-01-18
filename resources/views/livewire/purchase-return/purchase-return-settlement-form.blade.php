@@ -488,12 +488,12 @@
                                                                     return 'Rp ' + numberFn.format(val); 
                                                                 },
                                                                 parse(val) { 
-                                                                    // Remove non-numeric/dot chars, handle comma as decimal if needed or assume standard input
-                                                                    // For simplicity in this context, we assume user types raw numbers on focus
                                                                     return val;
                                                                 }
                                                             }"
                                                             type="text" 
+                                                            name="{{ 'settlementLines.'.$index.'.nominal' }}"
+                                                            wire:key="nominal-input-{{ $index }}"
                                                             class="form-control form-control-premium text-end @error('settlementLines.'.$index.'.nominal') is-invalid @enderror" 
                                                             x-bind:value="format(nominal)"
                                                             x-on:focus="$el.value = nominal; $el.select()"
@@ -507,7 +507,7 @@
                                                         <div class="invalid-feedback d-block text-start">{{ $message }}</div>
                                                     @enderror
                                                 @else
-                                                    <div class="text-muted small fst-italic">Otomatis</div>
+                                                    <div class="text-muted small">-</div>
                                                 @endif
                                             @endif
                                         </td>
