@@ -6,7 +6,7 @@
     </button>
     <div class="dropdown-menu dropdown-menu-right shadow-sm">
         @can('purchaseReturns.edit')
-            @if($approvalStatus === 'pending' || ($approvalStatus === 'approved' && $dispatchStatus !== 'approved'))
+            @if($dispatchStatus !== 'approved')
                 <a href="{{ route('purchase-returns.edit', $data->id) }}" class="dropdown-item d-flex align-items-center">
                     <i class="bi bi-pencil text-primary me-2"></i> <span>Edit</span>
                 </a>

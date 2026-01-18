@@ -26,7 +26,7 @@
                         <div class="ml-auto d-flex flex-wrap align-items-center">
                             <span class="badge bg-secondary text-uppercase mr-2 mb-1">{{ $purchase_return->status }}</span>
                             <span class="badge {{ $approvalStatus === 'approved' ? 'bg-success' : ($approvalStatus === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase mr-2 mb-1">{{ $purchase_return->approval_status }}</span>
-                            @if($approvalStatus === 'pending' || ($approvalStatus === 'approved' && $dispatchStatus !== 'approved'))
+                            @if($dispatchStatus !== 'approved')
                                 @can('purchaseReturns.edit')
                                     <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.edit', $purchase_return) }}">
                                         <i class="bi bi-pencil"></i> Edit
