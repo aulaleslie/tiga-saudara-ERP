@@ -3,8 +3,6 @@
 
 @livewireScripts
 
-<script defer src="{{ asset('vendor/pdfmake/pdfmake.min.js') }}"></script>
-<script defer src="{{ asset('vendor/pdfmake/vfs_fonts.js') }}"></script>
 <script defer src="{{ asset('vendor/datatables/datatables.min.js') }}"></script>
 <script defer src="{{ asset('vendor/datatables/buttons.server-side.js') }}"></script>
 <script defer src="{{ asset('vendor/perfect-scrollbar/perfect-scrollbar.min.js') }}"></script>
