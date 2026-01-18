@@ -89,7 +89,11 @@
                 <i class="bi bi-bell" style="font-size: 20px;"></i>
                 <span class="badge badge-pill badge-danger">
             @php
-                $low_quantity_products = Product::select('id', 'product_quantity', 'product_stock_alert', 'product_code')->whereColumn('product_quantity', '<=', 'product_stock_alert')->get();
+                $low_quantity_products = Cache::remember('low_stock_products_' . session('setting_id'), 300, function() {
+                    return Modules\Product\Entities\Product::select('id', 'product_quantity', 'product_stock_alert', 'product_code')
+                        ->whereColumn('product_quantity', '<=', 'product_stock_alert')
+                        ->get();
+                });
                 echo $low_quantity_products->count();
             @endphp
             </span>

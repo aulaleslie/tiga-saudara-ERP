@@ -11,9 +11,7 @@ $(function () {
     $('[data-toggle="tooltip"]').tooltip()
 })
 
-// Start Alpine after Livewire is ready so $wire is available
+// Start Alpine immediately
 if (window.Alpine && typeof window.Alpine.start === 'function') {
-    window.addEventListener('livewire:load', () => {
-        window.Alpine.start();
-    });
+    window.Alpine.start();
 }

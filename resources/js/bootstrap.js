@@ -14,9 +14,6 @@ try {
 
 window.Alpine = Alpine;
 
-// Let Livewire control when Alpine starts so $wire is always defined
-window.deferLoadingAlpine = (callback) => {
-    window.addEventListener('livewire:load', callback);
-};
+window.Alpine = Alpine;
 
 export { Alpine };
