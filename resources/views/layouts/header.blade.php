@@ -7,11 +7,13 @@
 <ul class="c-header-nav ml-auto">
 </ul>
 <ul class="c-header-nav ml-auto mr-4">
-    <li class="c-header-nav-item mr-2">
-        <a class="btn btn-primary btn-pill" href="{{ route('home') }}">
-            <i class="bi bi-house mr-1"></i> Home
-        </a>
-    </li>
+    @if(request()->routeIs('app.pos.*'))
+        <li class="c-header-nav-item mr-2">
+            <a class="btn btn-primary btn-pill" href="{{ route('home') }}">
+                <i class="bi bi-house mr-1"></i> Home
+            </a>
+        </li>
+    @endif
     @can('pricePoints.access')
         <li class="c-header-nav-item mr-2">
             <a class="btn btn-primary btn-pill" href="{{ route('price-points.index') }}" target="_blank">
