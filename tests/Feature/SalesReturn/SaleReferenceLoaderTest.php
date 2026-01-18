@@ -27,6 +27,7 @@ class SaleReferenceLoaderTest extends TestCase
 
     private function createSettingWithCurrency(): array
     {
+        $suffix = Str::upper(Str::random(6));
         $currency = Currency::create([
             'currency_name' => 'Rupiah',
             'code' => 'IDR',
@@ -37,12 +38,12 @@ class SaleReferenceLoaderTest extends TestCase
         ]);
 
         $setting = Setting::create([
-            'company_name' => 'CV Tiga Computer',
-            'company_email' => 'info@example.com',
+            'company_name' => 'CV Tiga Computer ' . $suffix,
+            'company_email' => "info+{$suffix}@example.com",
             'company_phone' => '080000000',
             'default_currency_id' => $currency->id,
             'default_currency_position' => 'before',
-            'notification_email' => 'notif@example.com',
+            'notification_email' => "notif+{$suffix}@example.com",
             'footer_text' => 'Test Footer',
             'company_address' => 'Jl. Test 123',
             'document_prefix' => 'TS',
@@ -61,10 +62,12 @@ class SaleReferenceLoaderTest extends TestCase
 
     private function createProduct(Setting $setting, array $overrides = []): Product
     {
+        $suffix = Str::upper(Str::random(6));
+
         return Product::create(array_merge([
             'setting_id' => $setting->id,
             'product_name' => 'Produk Bundle',
-            'product_code' => 'PRD-001',
+            'product_code' => 'PRD-' . $suffix,
             'product_quantity' => 50,
             'serial_number_required' => 1,
             'broken_quantity' => 0,
@@ -219,7 +222,7 @@ class SaleReferenceLoaderTest extends TestCase
 
         Livewire::test(SaleReferenceLoader::class)
             ->set('query', $queryFragment)
-            ->call('updatedQuery')
+            ->call('searchSales')
             ->assertSet('search_results', function ($results) use ($sale) {
                 $collection = $this->normaliseResults($results);
                 $match = $collection->firstWhere('id', $sale->id);
@@ -244,7 +247,7 @@ class SaleReferenceLoaderTest extends TestCase
 
         Livewire::test(SaleReferenceLoader::class)
             ->set('query', $queryFragment)
-            ->call('updatedQuery')
+            ->call('searchSales')
             ->assertSet('search_results', function ($results) use ($eligible, $ineligible) {
                 $collection = $this->normaliseResults($results);
 
@@ -260,7 +263,7 @@ class SaleReferenceLoaderTest extends TestCase
 
         Livewire::test(SaleReferenceLoader::class)
             ->set('query', $data['sale']->reference)
-            ->call('updatedQuery')
+            ->call('searchSales')
             ->assertSet('search_results', function ($results) use ($data) {
                 $collection = $this->normaliseResults($results);
                 $match = $collection->firstWhere('id', $data['sale']->id);
@@ -277,7 +280,7 @@ class SaleReferenceLoaderTest extends TestCase
 
         Livewire::test(SaleReferenceLoader::class)
             ->set('query', $sale->reference)
-            ->call('updatedQuery')
+            ->call('searchSales')
             ->call('selectSale', $sale->id)
             ->assertDispatched('saleReferenceSelected', function ($payload) use ($sale, $dispatchDetail): bool {
                 return is_array($payload)
@@ -302,7 +305,7 @@ class SaleReferenceLoaderTest extends TestCase
 
         Livewire::test(SaleReferenceLoader::class)
             ->set('query', $sale->reference)
-            ->call('updatedQuery')
+            ->call('searchSales')
             ->set('highlightedIndex', -1)
             ->call('selectExactMatch')
             ->assertDispatched('saleReferenceSelected', function ($payload) use ($sale): bool {

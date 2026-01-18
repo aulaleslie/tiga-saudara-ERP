@@ -7,6 +7,7 @@ use App\Livewire\Sale\CreateForm;
 use App\Models\User;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
@@ -22,7 +23,7 @@ use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
 use Modules\Setting\Entities\ChartOfAccount;
-use Modules\Setting\Entities\Currency;
+use Modules\Currency\Entities\Currency;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
@@ -78,6 +79,7 @@ class SaleMonetaryValuesTest extends TestCase
         ]);
 
         Session::put('setting_id', $this->setting->id);
+        Session::put('user_settings', collect([$this->setting]));
 
         $unit = Unit::create([
             'name' => 'PCS',
@@ -110,6 +112,8 @@ class SaleMonetaryValuesTest extends TestCase
         $category = Category::create([
             'category_code' => 'CAT001',
             'category_name' => 'Category',
+            'created_by' => $user->id,
+            'setting_id' => $this->setting->id,
         ]);
 
         $this->product = Product::create([
@@ -168,7 +172,7 @@ class SaleMonetaryValuesTest extends TestCase
             'quantity' => 2,
         ]);
 
-        $chartOfAccount = ChartOfAccount::create([
+        $chartOfAccountId = DB::table('chart_of_accounts')->insertGetId([
             'name' => 'Kas',
             'account_number' => '1000',
             'category' => 'Kas & Bank',
@@ -176,11 +180,13 @@ class SaleMonetaryValuesTest extends TestCase
             'tax_id' => null,
             'description' => null,
             'setting_id' => $this->setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         $this->paymentMethod = PaymentMethod::create([
             'name' => 'Cash',
-            'coa_id' => $chartOfAccount->id,
+            'coa_id' => $chartOfAccountId,
             'is_cash' => true,
             'is_available_in_pos' => true,
         ]);

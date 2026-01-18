@@ -133,6 +133,10 @@ class ProductUnitConversionPriceTest extends TestCase
         $product = Product::create([
             'product_name'       => 'Existing Product',
             'product_code'       => 'EXIST-001',
+            'product_quantity'   => 0,
+            'product_cost'       => 0,
+            'product_price'      => 0,
+            'product_stock_alert'=> 0,
             'base_unit_id'       => $baseUnit->id,
             'unit_id'            => $baseUnit->id,
             'stock_managed'      => 1,
@@ -163,6 +167,8 @@ class ProductUnitConversionPriceTest extends TestCase
         $payload = [
             'product_name'  => 'Existing Product',
             'product_code'  => 'EXIST-001',
+            'category_id'   => null,
+            'brand_id'      => null,
             'stock_managed' => true,
             'base_unit_id'  => $baseUnit->id,
             'conversions'   => [

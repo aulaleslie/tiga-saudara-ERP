@@ -9,6 +9,7 @@ use App\Models\PosSession;
 use App\Models\User;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Session;
 use Livewire\Livewire;
@@ -16,7 +17,7 @@ use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Setting\Entities\ChartOfAccount;
-use Modules\Setting\Entities\Currency;
+use Modules\Currency\Entities\Currency;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
@@ -64,6 +65,7 @@ class SaleListShowsPosSalesTest extends TestCase
         ]);
 
         Session::put('setting_id', $setting->id);
+        Session::put('user_settings', collect([$setting]));
 
         $location = Location::create([
             'setting_id' => $setting->id,
@@ -85,7 +87,7 @@ class SaleListShowsPosSalesTest extends TestCase
             'started_at' => now(),
         ]);
 
-        $chartOfAccount = ChartOfAccount::create([
+        $chartOfAccountId = DB::table('chart_of_accounts')->insertGetId([
             'name' => 'Kas',
             'account_number' => '1000',
             'category' => 'Kas & Bank',
@@ -93,11 +95,13 @@ class SaleListShowsPosSalesTest extends TestCase
             'tax_id' => null,
             'description' => null,
             'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         PaymentMethod::create([
             'name' => 'Cash',
-            'coa_id' => $chartOfAccount->id,
+            'coa_id' => $chartOfAccountId,
             'is_cash' => true,
             'is_available_in_pos' => true,
         ]);
@@ -112,6 +116,8 @@ class SaleListShowsPosSalesTest extends TestCase
         $category = Category::create([
             'category_code' => 'CAT-01',
             'category_name' => 'Category',
+            'created_by' => $user->id,
+            'setting_id' => $setting->id,
         ]);
 
         Product::create([

@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\CheckUserRoleForSetting;
 use App\Livewire\Pos\Checkout;
+use App\Models\PosSession;
 use App\Models\User;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Session;
 use Livewire\Livewire;
@@ -16,9 +18,11 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Product\Entities\ProductUnitConversionPrice;
 use Modules\Setting\Entities\ChartOfAccount;
-use Modules\Setting\Entities\Currency;
+use Modules\Currency\Entities\Currency;
+use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\Unit;
 use Tests\TestCase;
 
@@ -65,6 +69,16 @@ class PosCheckoutTest extends TestCase
 
         Session::put('setting_id', $this->setting->id);
 
+        $location = Location::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'POS Location',
+        ]);
+
+        SettingSaleLocation::updateOrCreate(
+            ['location_id' => $location->id],
+            ['setting_id' => $this->setting->id, 'is_pos' => true, 'position' => 1]
+        );
+
         $unit = Unit::create([
             'name' => 'PCS',
             'short_name' => 'PCS',
@@ -75,6 +89,8 @@ class PosCheckoutTest extends TestCase
         $category = Category::create([
             'category_code' => 'CAT-01',
             'category_name' => 'Category',
+            'created_by' => $user->id,
+            'setting_id' => $this->setting->id,
         ]);
 
         $this->product = Product::create([
@@ -98,7 +114,7 @@ class PosCheckoutTest extends TestCase
             'tier_2_price' => 10.00,
         ]);
 
-        $this->chartOfAccount = ChartOfAccount::create([
+        $chartOfAccountId = DB::table('chart_of_accounts')->insertGetId([
             'name' => 'Kas',
             'account_number' => '1000',
             'category' => 'Kas & Bank',
@@ -106,10 +122,25 @@ class PosCheckoutTest extends TestCase
             'tax_id' => null,
             'description' => null,
             'setting_id' => $this->setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
+
+        $this->chartOfAccount = ChartOfAccount::findOrFail($chartOfAccountId);
 
         $this->customer = Customer::factory()->create([
             'setting_id' => $this->setting->id,
+        ]);
+
+        PosSession::create([
+            'user_id' => $user->id,
+            'setting_id' => $this->setting->id,
+            'location_id' => $location->id,
+            'device_name' => 'TEST DEVICE',
+            'cash_float' => 0,
+            'expected_cash' => 0,
+            'status' => PosSession::STATUS_ACTIVE,
+            'started_at' => now(),
         ]);
 
         Cart::instance('sale')->destroy();
@@ -585,25 +616,26 @@ class PosCheckoutTest extends TestCase
         ]);
 
         $result = $component->instance()->calculate($this->product->fresh(), 15);
+        $context = $result['conversion_context'];
 
         $this->assertEquals(130.0, $result['sub_total']);
         $this->assertEquals(8.67, $result['unit_price']);
-        $this->assertSame('1 BOX, 3 PCS', $result['breakdown']);
+        $this->assertSame('1 BOX, 3 PCS', $context['breakdown']);
 
-        $this->assertCount(2, $result['segments']);
+        $this->assertCount(2, $context['segments']);
 
-        $firstSegment = $result['segments'][0];
+        $firstSegment = $context['segments'][0];
         $this->assertSame('BOX', $firstSegment['unit_name']);
         $this->assertSame(1, $firstSegment['count']);
         $this->assertEquals(100.0, $firstSegment['sub_total']);
 
-        $secondSegment = $result['segments'][1];
+        $secondSegment = $context['segments'][1];
         $this->assertSame('PCS', $secondSegment['unit_name']);
         $this->assertSame(3, $secondSegment['count']);
         $this->assertEquals(30.0, $secondSegment['sub_total']);
         $this->assertEquals(10.0, $secondSegment['price']);
 
-        $unitNames = collect($result['segments'])->pluck('unit_name')->all();
+        $unitNames = collect($context['segments'])->pluck('unit_name')->all();
         $this->assertNotContains('PACK', $unitNames);
     }
 }

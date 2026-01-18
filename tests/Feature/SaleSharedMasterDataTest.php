@@ -8,6 +8,7 @@ use App\Livewire\Sale\ProductCart;
 use App\Models\User;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Session;
 use Livewire\Livewire;
@@ -15,7 +16,7 @@ use Modules\People\Entities\Customer;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\ChartOfAccount;
-use Modules\Setting\Entities\Currency;
+use Modules\Currency\Entities\Currency;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
@@ -80,8 +81,9 @@ class SaleSharedMasterDataTest extends TestCase
         ]);
 
         Session::put('setting_id', $this->primarySetting->id);
+        Session::put('user_settings', collect([$this->primarySetting]));
 
-        $chartOfAccount = ChartOfAccount::create([
+        $chartOfAccountId = DB::table('chart_of_accounts')->insertGetId([
             'name' => 'Kas',
             'account_number' => '1000',
             'category' => 'Kas & Bank',
@@ -89,11 +91,13 @@ class SaleSharedMasterDataTest extends TestCase
             'tax_id' => null,
             'description' => null,
             'setting_id' => $this->primarySetting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         $this->sharedMethod = PaymentMethod::create([
             'name' => 'Shared Cash',
-            'coa_id' => $chartOfAccount->id,
+            'coa_id' => $chartOfAccountId,
             'is_cash' => true,
             'is_available_in_pos' => true,
         ]);

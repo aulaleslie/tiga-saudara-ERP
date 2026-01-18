@@ -4,10 +4,12 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\CheckUserRoleForSetting;
 use App\Livewire\Pos\Checkout;
+use App\Models\PosSession;
 use App\Models\User;
 use App\Support\PosLocationResolver;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Session;
 use Livewire\Livewire;
@@ -16,7 +18,7 @@ use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\ChartOfAccount;
-use Modules\Setting\Entities\Currency;
+use Modules\Currency\Entities\Currency;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
@@ -69,7 +71,7 @@ class PosMultiLocationInventoryTest extends TestCase
 
         Session::put('setting_id', $this->setting->id);
 
-        $chartOfAccount = ChartOfAccount::create([
+        $chartOfAccountId = DB::table('chart_of_accounts')->insertGetId([
             'name' => 'Kas',
             'account_number' => '1000',
             'category' => 'Kas & Bank',
@@ -77,11 +79,13 @@ class PosMultiLocationInventoryTest extends TestCase
             'tax_id' => null,
             'description' => null,
             'setting_id' => $this->setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         $this->cashMethod = PaymentMethod::create([
             'name' => 'Cash',
-            'coa_id' => $chartOfAccount->id,
+            'coa_id' => $chartOfAccountId,
             'is_cash' => true,
             'is_available_in_pos' => true,
         ]);
@@ -112,6 +116,17 @@ class PosMultiLocationInventoryTest extends TestCase
 
         PosLocationResolver::forget($this->setting->id);
 
+        PosSession::create([
+            'user_id' => $user->id,
+            'setting_id' => $this->setting->id,
+            'location_id' => $this->primaryLocation->id,
+            'device_name' => 'TEST DEVICE',
+            'cash_float' => 0,
+            'expected_cash' => 0,
+            'status' => PosSession::STATUS_ACTIVE,
+            'started_at' => now(),
+        ]);
+
         $unit = Unit::create([
             'name' => 'PCS',
             'short_name' => 'PCS',
@@ -122,6 +137,8 @@ class PosMultiLocationInventoryTest extends TestCase
         $category = Category::create([
             'category_code' => 'CAT-01',
             'category_name' => 'Category',
+            'created_by' => $user->id,
+            'setting_id' => $this->setting->id,
         ]);
 
         $this->product = Product::create([

@@ -6,6 +6,7 @@ use App\Http\Middleware\CheckUserRoleForSetting;
 use App\Http\Middleware\VerifyCsrfToken;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Livewire;
 use Modules\Currency\Entities\Currency;
@@ -129,26 +130,36 @@ class PurchaseReturnSerialUniquenessTest extends TestCase
         }
 
         // Create serial numbers for location 1
-        ProductSerialNumber::create([
-            'product_id' => $this->serialProduct->id,
-            'location_id' => $this->location1->id,
-            'serial_number' => 'SN001',
-            'status' => 'active',
-        ]);
-
-        ProductSerialNumber::create([
-            'product_id' => $this->serialProduct->id,
-            'location_id' => $this->location1->id,
-            'serial_number' => 'SN002',
-            'status' => 'active',
+        DB::table('product_serial_numbers')->insert([
+            [
+                'product_id' => $this->serialProduct->id,
+                'location_id' => $this->location1->id,
+                'serial_number' => 'SN001',
+                'status' => 'active',
+                'is_in_return_process' => false,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'product_id' => $this->serialProduct->id,
+                'location_id' => $this->location1->id,
+                'serial_number' => 'SN002',
+                'status' => 'active',
+                'is_in_return_process' => false,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
         ]);
 
         // Create serial numbers for location 2
-        ProductSerialNumber::create([
+        DB::table('product_serial_numbers')->insert([
             'product_id' => $this->serialProduct->id,
             'location_id' => $this->location2->id,
             'serial_number' => 'SN003',
             'status' => 'active',
+            'is_in_return_process' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         session(['setting_id' => $this->setting->id]);
@@ -223,11 +234,14 @@ class PurchaseReturnSerialUniquenessTest extends TestCase
     public function test_duplicate_serials_case_insensitive_fail(): void
     {
         // Create serials with different casing (simulating registry)
-        $serial1 = ProductSerialNumber::create([
+        $serial1Id = DB::table('product_serial_numbers')->insertGetId([
             'product_id' => $this->serialProduct->id,
             'location_id' => $this->location1->id,
             'serial_number' => 'ABC123',
             'status' => 'active',
+            'is_in_return_process' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         $rows = [
@@ -241,7 +255,7 @@ class PurchaseReturnSerialUniquenessTest extends TestCase
                 'purchase_order_id' => null,
                 'purchase_price' => 5000,
                 'serial_numbers' => [
-                    ['id' => $serial1->id, 'serial_number' => 'ABC123']
+                    ['id' => $serial1Id, 'serial_number' => 'ABC123']
                 ],
                 'serial_number_required' => true,
                 'total' => 5000,
@@ -256,7 +270,7 @@ class PurchaseReturnSerialUniquenessTest extends TestCase
                 'purchase_order_id' => null,
                 'purchase_price' => 5000,
                 'serial_numbers' => [
-                    ['id' => $serial1->id, 'serial_number' => 'abc123'] // Same serial, different casing
+                    ['id' => $serial1Id, 'serial_number' => 'abc123'] // Same serial, different casing
                 ],
                 'serial_number_required' => true,
                 'total' => 5000,

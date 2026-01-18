@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\WithFaker;
+use Illuminate\Support\Facades\Gate;
+use App\Http\Middleware\CheckUserRoleForSetting;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
@@ -14,6 +16,7 @@ use App\Models\User;
 use Modules\People\Entities\Supplier;
 use Modules\Setting\Entities\Location;
 use Modules\Product\Entities\Product;
+use Modules\Currency\Entities\Currency;
 
 class PurchaseReturnLazyLoadingTest extends TestCase
 {
@@ -22,10 +25,13 @@ class PurchaseReturnLazyLoadingTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Enforce strict mode to catch lazy loading
         Model::preventLazyLoading(true);
-        
+
+        Gate::before(fn () => true);
+        $this->withoutMiddleware(CheckUserRoleForSetting::class);
+
         $this->user = User::factory()->create();
         $this->actingAs($this->user);
     }
@@ -35,15 +41,29 @@ class PurchaseReturnLazyLoadingTest extends TestCase
     {
         // 1. Setup Data
         // Create a setting first as it is required for multitenancy/global scope usually
+        $currency = Currency::create([
+            'currency_name' => 'Rupiah',
+            'code' => 'IDR',
+            'symbol' => 'Rp',
+            'thousand_separator' => '.',
+            'decimal_separator' => ',',
+            'exchange_rate' => 1,
+        ]);
+
         $setting = \Modules\Setting\Entities\Setting::create([
              'company_name' => 'Test Company',
              'company_email' => 'test@company.com',
              'company_phone' => '123456789',
              'company_address' => 'Test Address',
-             'default_currency_id' => 1,
+             'default_currency_id' => $currency->id,
              'default_currency_position' => 'prefix',
              'notification_email' => 'notification@test.com',
              'footer_text' => 'Test Footer',
+        ]);
+
+        session([
+            'setting_id' => $setting->id,
+            'user_settings' => collect([$setting]),
         ]);
         
         

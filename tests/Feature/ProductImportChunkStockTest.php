@@ -62,6 +62,7 @@ class ProductImportChunkStockTest extends TestCase
         $batch = ProductImportBatch::create([
             'user_id' => $user->id,
             'location_id' => $location->id,
+            'source_csv_path' => 'imports/test-products.csv',
             'status' => 'queued',
             'total_rows' => 1,
             'processed_rows' => 0,
@@ -90,7 +91,7 @@ class ProductImportChunkStockTest extends TestCase
                 'serial_required' => false,
                 'conversions' => [],
             ],
-            'status' => 'pending',
+            'status' => null,
         ]);
 
         (new ProcessProductImportChunk($batch->id, [$row->id]))->handle();

@@ -22,6 +22,8 @@ class ProductPriceViewTest extends TestCase
     {
         parent::setUp();
 
+        Gate::before(fn () => true);
+
         $this->currency = Currency::create([
             'currency_name'       => 'Rupiah',
             'code'                => 'IDR',
@@ -34,8 +36,6 @@ class ProductPriceViewTest extends TestCase
 
     public function test_show_uses_per_setting_price_row_when_available(): void
     {
-        Gate::shouldReceive('denies')->andReturnFalse();
-
         $setting = $this->createSetting('Active Co');
         $user    = User::factory()->create();
 
@@ -69,7 +69,10 @@ class ProductPriceViewTest extends TestCase
         $this->actingAs($user);
         $this->withoutMiddleware([CheckUserRoleForSetting::class]);
 
-        $response = $this->withSession(['setting_id' => $setting->id])
+        $response = $this->withSession([
+            'setting_id' => $setting->id,
+            'user_settings' => collect([$setting]),
+        ])
             ->get(route('products.show', $product));
 
         $response->assertOk();
@@ -87,8 +90,6 @@ class ProductPriceViewTest extends TestCase
 
     public function test_show_defaults_to_zero_when_price_row_missing(): void
     {
-        Gate::shouldReceive('denies')->andReturnFalse();
-
         $setting = $this->createSetting('Defaultless Co');
         $user    = User::factory()->create();
 
@@ -110,7 +111,10 @@ class ProductPriceViewTest extends TestCase
         $this->actingAs($user);
         $this->withoutMiddleware([CheckUserRoleForSetting::class]);
 
-        $response = $this->withSession(['setting_id' => $setting->id])
+        $response = $this->withSession([
+            'setting_id' => $setting->id,
+            'user_settings' => collect([$setting]),
+        ])
             ->get(route('products.show', $product));
 
         $response->assertOk();
@@ -129,8 +133,6 @@ class ProductPriceViewTest extends TestCase
 
     public function test_edit_uses_per_setting_price_row_when_available(): void
     {
-        Gate::shouldReceive('denies')->andReturnFalse();
-
         $setting = $this->createSetting('Editable Co');
         $user    = User::factory()->create();
 
@@ -156,7 +158,10 @@ class ProductPriceViewTest extends TestCase
         $this->actingAs($user);
         $this->withoutMiddleware([CheckUserRoleForSetting::class]);
 
-        $response = $this->withSession(['setting_id' => $setting->id])
+        $response = $this->withSession([
+            'setting_id' => $setting->id,
+            'user_settings' => collect([$setting]),
+        ])
             ->get(route('products.edit', $product));
 
         $response->assertOk();
@@ -173,8 +178,6 @@ class ProductPriceViewTest extends TestCase
 
     public function test_edit_defaults_to_zero_when_price_row_missing(): void
     {
-        Gate::shouldReceive('denies')->andReturnFalse();
-
         $setting = $this->createSetting('Zero Co');
         $user    = User::factory()->create();
 
@@ -191,7 +194,10 @@ class ProductPriceViewTest extends TestCase
         $this->actingAs($user);
         $this->withoutMiddleware([CheckUserRoleForSetting::class]);
 
-        $response = $this->withSession(['setting_id' => $setting->id])
+        $response = $this->withSession([
+            'setting_id' => $setting->id,
+            'user_settings' => collect([$setting]),
+        ])
             ->get(route('products.edit', $product));
 
         $response->assertOk();
@@ -222,4 +228,3 @@ class ProductPriceViewTest extends TestCase
         ]);
     }
 }
-

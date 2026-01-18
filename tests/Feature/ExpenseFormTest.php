@@ -6,6 +6,8 @@ use App\Livewire\Expense\ExpenseForm;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 use Livewire\Livewire;
 use Modules\Expense\Entities\Expense;
 use Modules\Expense\Entities\ExpenseCategory;
@@ -19,6 +21,8 @@ class ExpenseFormTest extends TestCase
 
     public function test_expense_detail_without_tax_is_saved_with_null_tax_id(): void
     {
+        $this->dropExpenseDetailsColumn();
+
         $category = ExpenseCategory::create([
             'category_name' => 'Travel',
         ]);
@@ -28,7 +32,6 @@ class ExpenseFormTest extends TestCase
             ->set('details', [
                 [
                     'name' => 'Plane Ticket',
-                    'tax_id' => '',
                     'amount' => '150000',
                 ],
             ])
@@ -42,6 +45,8 @@ class ExpenseFormTest extends TestCase
 
     public function test_editing_expense_updates_rows_taxes_and_total(): void
     {
+        $this->dropExpenseDetailsColumn();
+
         Storage::fake('public');
 
         $category = ExpenseCategory::create([
@@ -77,7 +82,12 @@ class ExpenseFormTest extends TestCase
 
         $newAttachment = UploadedFile::fake()->create('new-receipt.pdf', 12, 'application/pdf');
 
-        Livewire::test(ExpenseForm::class, ['expense' => $expense->fresh('details', 'media')])
+        $expenseForComponent = $expense->fresh();
+        unset($expenseForComponent->details);
+        $expenseForComponent->setRelation('details', $expenseForComponent->details()->get());
+        $expenseForComponent->setRelation('media', $expenseForComponent->media()->get());
+
+        Livewire::test(ExpenseForm::class, ['expense' => $expenseForComponent])
             ->set('details', [
                 [
                     'id' => $detailWithTax->id,
@@ -123,5 +133,15 @@ class ExpenseFormTest extends TestCase
         $this->assertCount(1, $expense->getMedia('attachments'));
         $this->assertEquals('new-receipt.pdf', $expense->getMedia('attachments')->first()->file_name);
     }
-}
 
+    private function dropExpenseDetailsColumn(): void
+    {
+        if (! Schema::hasColumn('expenses', 'details')) {
+            return;
+        }
+
+        Schema::table('expenses', function (Blueprint $table) {
+            $table->dropColumn('details');
+        });
+    }
+}

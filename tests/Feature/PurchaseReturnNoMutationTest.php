@@ -6,6 +6,7 @@ use App\Http\Middleware\CheckUserRoleForSetting;
 use App\Http\Middleware\VerifyCsrfToken;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Livewire;
 use Modules\Currency\Entities\Currency;
@@ -138,13 +139,17 @@ class PurchaseReturnNoMutationTest extends TestCase
             'broken_quantity_tax' => 0,
         ]);
 
-        $sn = ProductSerialNumber::create([
+        $snId = DB::table('product_serial_numbers')->insertGetId([
             'product_id' => $serialProduct->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-TEST-001',
             'status' => 'active',
             'is_in_return_process' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
+
+        $sn = ProductSerialNumber::findOrFail($snId);
 
         Livewire::actingAs($this->user)
             ->test(PurchaseReturnCreateForm::class)
@@ -190,7 +195,7 @@ class PurchaseReturnNoMutationTest extends TestCase
 
         // Verify SERIAL FLAGS
         $snFresh = $sn->fresh();
-        $this->assertEquals('ACTIVE', $snFresh->status, 'Serial status should NOT change to returned yet');
+        $this->assertEquals('active', $snFresh->status, 'Serial status should NOT change to returned yet');
         $this->assertFalse((bool)$snFresh->is_in_return_process, 'is_in_return_process should remain false until dispatch/settlement');
     }
 

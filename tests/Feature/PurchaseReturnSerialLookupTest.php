@@ -6,6 +6,7 @@ use App\Http\Middleware\CheckUserRoleForSetting;
 use App\Http\Middleware\VerifyCsrfToken;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Livewire;
 use Modules\Currency\Entities\Currency;
@@ -98,11 +99,14 @@ class PurchaseReturnSerialLookupTest extends TestCase
             'broken_quantity' => 0,
         ]);
 
-        ProductSerialNumber::create([
+        DB::table('product_serial_numbers')->insert([
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN123',
             'status' => 'active',
+            'is_in_return_process' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         session(['setting_id' => $this->setting->id]);
@@ -235,11 +239,14 @@ class PurchaseReturnSerialLookupTest extends TestCase
         ]);
 
         // Create serial at location2
-        $serial2 = ProductSerialNumber::create([
+        DB::table('product_serial_numbers')->insert([
             'product_id' => $this->product->id,
             'location_id' => $location2->id,
             'serial_number' => 'SN456',
             'status' => 'active',
+            'is_in_return_process' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         // Existing serials in the row (from first location)
