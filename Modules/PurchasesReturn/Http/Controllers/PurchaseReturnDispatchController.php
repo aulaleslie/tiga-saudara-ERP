@@ -161,7 +161,7 @@ class PurchaseReturnDispatchController extends Controller
             $purchase_return->update([
                 'return_dispatch_status' => 'rejected',
                 'return_awb_number' => null,
-                'return_shipping_amount' => null,
+                'return_shipping_amount' => 0,
                 'return_carrier' => null,
                 'return_dispatch_note' => null,
                 'dispatch_requested_by' => null,
