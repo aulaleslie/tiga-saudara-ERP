@@ -124,6 +124,7 @@
                                         @endif
                                     @endcanany
                                 @endif
+                            @endif
                             <a target="_blank" class="btn btn-outline-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.pdf', $purchase_return->id) }}">
                                 <i class="bi bi-printer"></i> Cetak
                             </a>
