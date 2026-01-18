@@ -26,7 +26,7 @@
                         <div class="ml-auto d-flex flex-wrap align-items-center">
                             <span class="badge bg-secondary text-uppercase mr-2 mb-1">{{ $purchase_return->status }}</span>
                             <span class="badge {{ $approvalStatus === 'approved' ? 'bg-success' : ($approvalStatus === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase mr-2 mb-1">{{ $purchase_return->approval_status }}</span>
-                            @if($dispatchStatus !== 'approved')
+                            @if($dispatchStatus !== 'dispatched')
                                 @can('purchaseReturns.edit')
                                     <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.edit', $purchase_return) }}">
                                         <i class="bi bi-pencil"></i> Edit
@@ -64,14 +64,14 @@
                                                 <i class="bi bi-x-circle"></i> Tolak Dispatch
                                             </button>
                                         @endcan
-                                    @elseif($dispatchStatus === 'approved')
+                                    @elseif($dispatchStatus === 'dispatched')
                                         <span class="badge bg-success mr-2 mb-1">Dispatch Approved</span>
                                     @endif
                                 @else
                                     <span class="badge bg-info text-dark mr-2 mb-1">Dispatched: {{ $purchase_return->return_dispatched_at->format('d M Y') }}</span>
                                 @endif
 
-                                @if($dispatchStatus === 'approved')
+                                @if($dispatchStatus === 'dispatched')
                                     @canany(['purchaseReturns.edit', 'purchaseReturnSettlements.submit', 'purchaseReturnSettlements.approve', 'purchaseReturnSettlements.execute', 'purchaseReturnSettlements.receive'])
                                         @if($purchase_return->settlement)
                                             @if($purchase_return->settlement->status === 'pending')
