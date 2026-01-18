@@ -29,8 +29,41 @@ REM Step 5: Build frontend assets
 echo [4/10] Building frontend assets for production...
 call npm run build
 
-REM Step 6: Clear all caches
-echo [5/10] Clearing all caches...
+REM Step 6: Download vendor assets for offline use
+echo [5/10] Downloading vendor assets...
+
+REM Create directories
+if not exist "public\vendor\jquery" mkdir "public\vendor\jquery"
+if not exist "public\vendor\datatables" mkdir "public\vendor\datatables"
+if not exist "public\vendor\bootstrap-icons\fonts" mkdir "public\vendor\bootstrap-icons\fonts"
+if not exist "public\vendor\pdfmake" mkdir "public\vendor\pdfmake"
+if not exist "public\vendor\perfect-scrollbar" mkdir "public\vendor\perfect-scrollbar"
+if not exist "public\vendor\popperjs" mkdir "public\vendor\popperjs"
+if not exist "public\vendor\chartjs" mkdir "public\vendor\chartjs"
+if not exist "public\vendor\font-awesome\css" mkdir "public\vendor\font-awesome\css"
+if not exist "public\vendor\font-awesome\webfonts" mkdir "public\vendor\font-awesome\webfonts"
+
+REM Download files using curl -sL (silent, follow redirects)
+curl -sL -o public\vendor\jquery\jquery-3.7.0.min.js "https://code.jquery.com/jquery-3.7.0.min.js"
+curl -sL -o public\vendor\datatables\datatables.min.css "https://cdn.datatables.net/v/bs4/jszip-3.10.1/dt-1.13.5/b-2.4.1/b-html5-2.4.1/b-print-2.4.1/sl-1.7.0/datatables.min.css"
+curl -sL -o public\vendor\datatables\datatables.min.js "https://cdn.datatables.net/v/bs4/jszip-3.10.1/dt-1.13.5/b-2.4.1/b-html5-2.4.1/b-print-2.4.1/sl-1.7.0/datatables.min.js"
+curl -sL -o public\vendor\bootstrap-icons\bootstrap-icons.min.css "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+curl -sL -o public\vendor\bootstrap-icons\fonts\bootstrap-icons.woff2 "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/fonts/bootstrap-icons.woff2"
+curl -sL -o public\vendor\bootstrap-icons\fonts\bootstrap-icons.woff "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/fonts/bootstrap-icons.woff"
+curl -sL -o public\vendor\pdfmake\pdfmake.min.js "https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"
+curl -sL -o public\vendor\pdfmake\vfs_fonts.js "https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"
+curl -sL -o public\vendor\perfect-scrollbar\perfect-scrollbar.min.js "https://cdnjs.cloudflare.com/ajax/libs/jquery.perfect-scrollbar/1.4.0/perfect-scrollbar.min.js"
+curl -sL -o public\vendor\popperjs\popper.min.js "https://cdn.jsdelivr.net/npm/@popperjs/core@2.10.2/dist/umd/popper.min.js"
+curl -sL -o public\vendor\chartjs\chart.min.js "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.5.0/chart.min.js"
+curl -sL -o public\vendor\font-awesome\css\all.min.css "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.14.0/css/all.min.css"
+
+REM Font Awesome webfonts
+curl -sL -o public\vendor\font-awesome\webfonts\fa-solid-900.woff2 "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.14.0/webfonts/fa-solid-900.woff2"
+curl -sL -o public\vendor\font-awesome\webfonts\fa-regular-400.woff2 "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.14.0/webfonts/fa-regular-400.woff2"
+curl -sL -o public\vendor\font-awesome\webfonts\fa-brands-400.woff2 "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.14.0/webfonts/fa-brands-400.woff2"
+
+REM Step 7: Clear all caches
+echo [6/10] Clearing all caches...
 php artisan cache:clear
 php artisan config:clear
 php artisan route:clear
@@ -54,7 +87,7 @@ REM Step 10: Restart queue workers (if using queues)
 echo [9/10] Restarting queue workers...
 php artisan queue:restart
 
-REM Step 11: Disable maintenance mode
+REM Step 12: Disable maintenance mode
 echo [10/10] Disabling maintenance mode...
 php artisan up
 
