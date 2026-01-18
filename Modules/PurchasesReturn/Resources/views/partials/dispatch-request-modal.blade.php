@@ -28,6 +28,9 @@
                                     </div>
                                 </div>
                                 <small class="text-muted">Unggah beberapa file (jpg, png, pdf).</small>
+                                @error('return_awb_attachments')
+                                    <div class="text-danger small mt-1">{{ $message }}</div>
+                                @enderror
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Catatan <span class="text-danger">*</span></label>

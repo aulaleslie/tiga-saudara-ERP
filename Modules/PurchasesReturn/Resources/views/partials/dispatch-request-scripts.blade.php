@@ -122,6 +122,14 @@
                         form.reportValidity();
                         return;
                     }
+
+                    // Validate attachments
+                    var attachments = form.querySelectorAll('input[name="return_awb_attachments[]"]');
+                    if (attachments.length === 0) {
+                        alert('Silakan unggah setidaknya satu lampiran.');
+                        return;
+                    }
+
                     confirmModal.show();
                 });
 
@@ -154,6 +162,11 @@
                     }
                     confirmModalEl.style.zIndex = '';
                 });
+
+                @if($errors->has('return_awb_attachments') || $errors->has('return_dispatch_note') || $errors->has('return_shipping_amount'))
+                    var requestModal = bootstrap.Modal.getOrCreateInstance(requestModalEl);
+                    requestModal.show();
+                @endif
             }
 
         });

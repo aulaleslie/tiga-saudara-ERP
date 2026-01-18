@@ -30,6 +30,7 @@ class PurchaseReturnDispatchTest extends TestCase
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
 
         $permissions = [
+            'purchaseReturns.dispatchRequest',
             'purchaseReturns.dispatchApproval',
         ];
 
@@ -136,5 +137,39 @@ class PurchaseReturnDispatchTest extends TestCase
         $this->assertEquals($this->user->id, $purchaseReturn->dispatch_rejected_by);
         $this->assertNotNull($purchaseReturn->dispatch_rejected_at);
         $this->assertEquals('TEST REJECTION REASON', $purchaseReturn->dispatch_rejection_reason);
+    }
+
+    public function test_request_dispatch_requires_attachments()
+    {
+        // 1. Create a PurchaseReturn that is 'approved'
+        $purchaseReturn = PurchaseReturn::create([
+            'date' => now(),
+            'reference' => 'PRRN-DISPATCH-REQ-ERR',
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => $this->supplier->supplier_name,
+            'setting_id' => $this->setting->id,
+            'location_id' => $this->location->id,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'status' => 'Pending',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'approval_status' => 'approved',
+        ]);
+
+        // 2. Send request without attachments
+        $response = $this->post(route('purchase-returns.dispatch-request', $purchaseReturn->id), [
+            'return_dispatch_note' => 'Dispatch note without attachments',
+            'return_shipping_amount' => '50.00',
+            // 'return_awb_attachments' is missing
+        ]);
+
+        // 3. Verify validation error
+        $response->assertStatus(302);
+        $response->assertSessionHasErrors(['return_awb_attachments']);
+        
+        $purchaseReturn->refresh();
+        $this->assertNull($purchaseReturn->return_dispatch_status);
     }
 }
