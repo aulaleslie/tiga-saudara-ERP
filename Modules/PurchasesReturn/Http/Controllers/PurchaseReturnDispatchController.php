@@ -153,12 +153,26 @@ class PurchaseReturnDispatchController extends Controller
             'reason' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $purchase_return->update([
-            'return_dispatch_status' => 'rejected',
-            'dispatch_rejected_by' => auth()->id(),
-            'dispatch_rejected_at' => now(),
-            'dispatch_rejection_reason' => $data['reason'] ?? null,
-        ]);
+        DB::transaction(function () use ($purchase_return, $data) {
+            // Clear all stored attachments
+            $purchase_return->clearMediaCollection('return_awb_attachments');
+
+            // Reset dispatch status and clear all dispatch-related data
+            $purchase_return->update([
+                'return_dispatch_status' => 'rejected',
+                'return_awb_number' => null,
+                'return_shipping_amount' => null,
+                'return_carrier' => null,
+                'return_dispatch_note' => null,
+                'dispatch_requested_by' => null,
+                'dispatch_requested_at' => null,
+                'dispatch_approved_by' => null,
+                'dispatch_approved_at' => null,
+                'dispatch_rejected_by' => auth()->id(),
+                'dispatch_rejected_at' => now(),
+                'dispatch_rejection_reason' => $data['reason'] ?? null,
+            ]);
+        });
 
         toast('Dispatch retur ditolak.', 'warning');
 
