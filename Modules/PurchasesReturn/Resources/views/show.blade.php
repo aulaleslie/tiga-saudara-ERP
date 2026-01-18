@@ -116,11 +116,16 @@
                                                 </a>
                                             @endif
                                         @else
-                                            @can('purchaseReturnSettlements.submit')
-                                                <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
-                                                    <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
-                                                </a>
-                                            @endcan
+                                            @php
+                                                $hasUnapprovedItems = $purchase_return->settlementItems->whereNotIn('status', ['APPROVED', 'RECEIVED'])->isNotEmpty();
+                                            @endphp
+                                            @if($hasUnapprovedItems || $purchase_return->settlementItems->isEmpty())
+                                                @can('purchaseReturnSettlements.submit')
+                                                    <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
+                                                        <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
+                                                    </a>
+                                                @endcan
+                                            @endif
                                         @endif
                                     @endcanany
                                 @endif

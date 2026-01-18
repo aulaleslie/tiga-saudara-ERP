@@ -49,11 +49,17 @@
         @endcan
 
         @if($dispatchStatus === 'dispatched')
-            @can('purchaseReturnSettlements.submit')
-                <a href="{{ route('purchase-returns.settlement', $data->id) }}" class="dropdown-item d-flex align-items-center">
-                    <i class="bi bi-arrow-repeat text-primary me-2"></i> <span>Kelola Penyelesaian</span>
-                </a>
-            @endcan
+            @php
+                $settlementItems = $data->settlementItems ?? collect();
+                $hasUnapprovedItems = $settlementItems->whereNotIn('status', ['APPROVED', 'RECEIVED'])->isNotEmpty();
+            @endphp
+            @if($hasUnapprovedItems || $settlementItems->isEmpty())
+                @can('purchaseReturnSettlements.submit')
+                    <a href="{{ route('purchase-returns.settlement', $data->id) }}" class="dropdown-item d-flex align-items-center">
+                        <i class="bi bi-arrow-repeat text-primary me-2"></i> <span>Kelola Penyelesaian</span>
+                    </a>
+                @endcan
+            @endif
         @endif
 
         @can('purchaseReturns.delete')
