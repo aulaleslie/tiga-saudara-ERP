@@ -11,7 +11,7 @@ $(function () {
     $('[data-toggle="tooltip"]').tooltip()
 })
 
-// Start Alpine immediately
-if (window.Alpine && typeof window.Alpine.start === 'function') {
-    window.Alpine.start();
-}
+// Note: Do NOT call Alpine.start() here!
+// Livewire v3 automatically starts Alpine after @livewireScripts loads.
+// Starting Alpine before Livewire causes "entangle" errors because
+// window.Livewire is not yet available.

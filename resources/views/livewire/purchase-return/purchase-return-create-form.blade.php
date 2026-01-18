@@ -23,7 +23,7 @@
     <form id="purchase-return-form" wire:submit.prevent="submit" class="needs-validation" novalidate>
         @csrf
 
-        <div class="card shadow-sm mb-4">
+        <div class="card shadow-sm mb-4" style="overflow: visible;">
             <div class="card-header bg-white border-0 pb-0">
                 <h5 class="mb-1">Informasi Retur</h5>
                 <p class="text-muted small mb-0">Pilih pemasok dan tanggal transaksi sebelum menambahkan produk.</p>
