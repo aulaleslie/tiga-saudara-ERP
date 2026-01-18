@@ -72,7 +72,23 @@
                                 @endif
 
                                 @if($dispatchStatus === 'dispatched')
-                                    @canany(['purchaseReturns.edit', 'purchaseReturnSettlements.submit', 'purchaseReturnSettlements.approve', 'purchaseReturnSettlements.execute', 'purchaseReturnSettlements.receive'])
+                                    @php
+                                        $settlementItems = $purchase_return->settlementItems ?? collect();
+                                        $hasUnapprovedItems = $settlementItems->filter(function($item) {
+                                            return !in_array(strtoupper($item->status), ['APPROVED', 'RECEIVED']);
+                                        })->isNotEmpty();
+                                    @endphp
+                                    
+                                    {{-- Always show Kelola Penyelesaian if there are unapproved items or no items yet --}}
+                                    @if($hasUnapprovedItems || $settlementItems->isEmpty())
+                                        @can('purchaseReturnSettlements.submit')
+                                            <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
+                                                <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
+                                            </a>
+                                        @endcan
+                                    @endif
+
+                                    @canany(['purchaseReturnSettlements.approve', 'purchaseReturnSettlements.execute', 'purchaseReturnSettlements.receive'])
                                         @if($purchase_return->settlement)
                                             @if($purchase_return->settlement->status === 'pending')
                                                 <span class="badge bg-warning text-dark mr-2 mb-1">Settlement Pending</span>
@@ -90,7 +106,6 @@
                                             @elseif($purchase_return->settlement->status === 'approved')
                                                 <span class="badge bg-success mr-2 mb-1">Settlement Approved</span>
                                                 @can('purchaseReturnSettlements.execute')
-                                                    <!-- Execution button will be added in Batch 5/6 -->
                                                     <form method="POST" action="{{ route('purchase-return-settlements.execute', $purchase_return->settlement->id) }}" class="d-inline">
                                                         @csrf
                                                         <button type="submit" class="btn btn-primary btn-sm d-print-none mr-2 mb-1" onclick="return confirm('Eksekusi penyelesaian ini? Tindakan ini tidak dapat dibatalkan.')">
@@ -111,20 +126,6 @@
                                                 @endif
                                             @elseif($purchase_return->settlement->status === 'rejected')
                                                 <span class="badge bg-danger mr-2 mb-1">Settlement Rejected</span>
-                                                <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
-                                                    <i class="bi bi-arrow-repeat"></i> Ulangi Penyelesaian
-                                                </a>
-                                            @endif
-                                        @else
-                                            @php
-                                                $hasUnapprovedItems = $purchase_return->settlementItems->whereNotIn('status', ['APPROVED', 'RECEIVED'])->isNotEmpty();
-                                            @endphp
-                                            @if($hasUnapprovedItems || $purchase_return->settlementItems->isEmpty())
-                                                @can('purchaseReturnSettlements.submit')
-                                                    <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
-                                                        <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
-                                                    </a>
-                                                @endcan
                                             @endif
                                         @endif
                                     @endcanany

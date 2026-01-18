@@ -51,7 +51,9 @@
         @if($dispatchStatus === 'dispatched')
             @php
                 $settlementItems = $data->settlementItems ?? collect();
-                $hasUnapprovedItems = $settlementItems->whereNotIn('status', ['APPROVED', 'RECEIVED'])->isNotEmpty();
+                $hasUnapprovedItems = $settlementItems->filter(function($item) {
+                    return !in_array(strtoupper($item->status), ['APPROVED', 'RECEIVED']);
+                })->isNotEmpty();
             @endphp
             @if($hasUnapprovedItems || $settlementItems->isEmpty())
                 @can('purchaseReturnSettlements.submit')
