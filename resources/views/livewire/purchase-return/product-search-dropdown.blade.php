@@ -1,33 +1,10 @@
 <div class="d-flex" 
      x-data="{
         open: @entangle('open'),
-        top: -9999,
-        left: -9999,
-        width: 0,
-        init() {
-            if (this.open) {
-                this.$nextTick(() => this.updatePosition());
-            }
-            this.$watch('open', value => {
-                if (value) {
-                    this.$nextTick(() => {
-                        this.updatePosition();
-                    });
-                }
-            });
-        },
-        updatePosition() {
-            let rect = this.$refs.trigger.getBoundingClientRect();
-            this.top = rect.bottom;
-            this.left = rect.left;
-            this.width = rect.width;
-        },
         toggleDropdown() {
              this.$wire.toggleDropdown();
         }
      }"
-     @scroll.window="open = false" 
-     @resize.window="open = false"
      >
     <div class="flex-grow-1 position-relative" wire:click.away="closeDropdown">
         <button type="button"
@@ -42,8 +19,8 @@
 
         @if($open)
             <div class="dropdown-menu shadow show p-2"
-                 x-init="updatePosition()"
-                 x-bind:style="`position: fixed; top: ${top}px; left: ${left}px; width: ${width}px; z-index: 1060; max-height: 300px; overflow-y: auto;`">
+                 style="position: absolute; top: 100%; left: 0; right: 0; z-index: 1060; max-height: 300px; overflow-y: auto;">
+
                 <input
                     type="text"
                     class="form-control form-control-sm mb-2"

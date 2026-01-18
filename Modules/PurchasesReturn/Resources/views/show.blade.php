@@ -26,12 +26,14 @@
                         <div class="ms-auto d-flex flex-wrap align-items-center">
                             <span class="badge bg-secondary text-uppercase me-2 mb-1">{{ $purchase_return->status }}</span>
                             <span class="badge {{ $approvalStatus === 'approved' ? 'bg-success' : ($approvalStatus === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase me-2 mb-1">{{ $purchase_return->approval_status }}</span>
-                            @if($approvalStatus === 'pending')
+                            @if($approvalStatus === 'pending' || ($approvalStatus === 'approved' && $dispatchStatus !== 'approved'))
                                 @can('purchaseReturns.edit')
                                     <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.edit', $purchase_return) }}">
                                         <i class="bi bi-pencil"></i> Edit
                                     </a>
                                 @endcan
+                            @endif
+                            @if($approvalStatus === 'pending')
                                 @can('purchaseReturns.approval')
                                     <button type="button" class="btn btn-success btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#approvePurchaseReturnModal">
                                         <i class="bi bi-check2-circle"></i> Setujui
@@ -40,7 +42,8 @@
                                         <i class="bi bi-x-circle"></i> Tolak
                                     </button>
                                 @endcan
-                            @elseif($approvalStatus === 'approved')
+                            @endif
+                            @if($approvalStatus === 'approved')
                                 @if(!$purchase_return->return_dispatched_at)
                                     @if($dispatchStatus === '' || $dispatchStatus === 'rejected')
                                         @can('purchaseReturns.dispatchRequest')
@@ -68,63 +71,59 @@
                                     <span class="badge bg-info text-dark me-2 mb-1">Dispatched: {{ $purchase_return->return_dispatched_at->format('d M Y') }}</span>
                                 @endif
 
-                                @canany(['purchaseReturns.edit', 'purchaseReturnSettlements.submit', 'purchaseReturnSettlements.approve', 'purchaseReturnSettlements.execute', 'purchaseReturnSettlements.receive'])
-                                    @if($purchase_return->settlement)
-                                        @if($purchase_return->settlement->status === 'pending')
-                                            <span class="badge bg-warning text-dark me-2 mb-1">Settlement Pending</span>
-                                            @can('purchaseReturnSettlements.approve')
-                                                <form method="POST" action="{{ route('purchase-return-settlements.approve', $purchase_return->settlement->id) }}" class="d-inline">
-                                                    @csrf
-                                                    <button type="submit" class="btn btn-success btn-sm d-print-none me-2 mb-1" onclick="return confirm('Setujui penyelesaian ini?')">
-                                                        <i class="bi bi-check-circle"></i> Setuju
-                                                    </button>
-                                                </form>
-                                                <button type="button" class="btn btn-outline-danger btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#rejectSettlementModal">
-                                                    <i class="bi bi-x-circle"></i> Tolak
-                                                </button>
-                                            @endcan
-                                        @elseif($purchase_return->settlement->status === 'approved')
-                                            <span class="badge bg-success me-2 mb-1">Settlement Approved</span>
-                                            @can('purchaseReturnSettlements.execute')
-                                                <!-- Execution button will be added in Batch 5/6 -->
-                                                <form method="POST" action="{{ route('purchase-return-settlements.execute', $purchase_return->settlement->id) }}" class="d-inline">
-                                                    @csrf
-                                                    <button type="submit" class="btn btn-primary btn-sm d-print-none me-2 mb-1" onclick="return confirm('Eksekusi penyelesaian ini? Tindakan ini tidak dapat dibatalkan.')">
-                                                        <i class="bi bi-play-circle"></i> Eksekusi Penyelesaian
-                                                    </button>
-                                                </form>
-                                            @endcan
-                                        @elseif($purchase_return->settlement->status === 'executing')
-                                            <span class="badge bg-info text-dark me-2 mb-1">Settlement Executing (Awaiting Replacement)</span>
-                                            
-                                            {{-- Batch 7: Receive Replacement --}}
-                                            @if($purchase_return->return_dispatched_at && $purchase_return->goods->where('received_quantity', '<', 'quantity')->isNotEmpty())
-                                                @can('purchaseReturnSettlements.receive')
-                                                    <button type="button" class="btn btn-success btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#receiveReplacementModal">
-                                                        <i class="bi bi-box-seam"></i> Terima Barang Pengganti
+                                @if($dispatchStatus === 'approved')
+                                    @canany(['purchaseReturns.edit', 'purchaseReturnSettlements.submit', 'purchaseReturnSettlements.approve', 'purchaseReturnSettlements.execute', 'purchaseReturnSettlements.receive'])
+                                        @if($purchase_return->settlement)
+                                            @if($purchase_return->settlement->status === 'pending')
+                                                <span class="badge bg-warning text-dark me-2 mb-1">Settlement Pending</span>
+                                                @can('purchaseReturnSettlements.approve')
+                                                    <form method="POST" action="{{ route('purchase-return-settlements.approve', $purchase_return->settlement->id) }}" class="d-inline">
+                                                        @csrf
+                                                        <button type="submit" class="btn btn-success btn-sm d-print-none me-2 mb-1" onclick="return confirm('Setujui penyelesaian ini?')">
+                                                            <i class="bi bi-check-circle"></i> Setuju
+                                                        </button>
+                                                    </form>
+                                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#rejectSettlementModal">
+                                                        <i class="bi bi-x-circle"></i> Tolak
                                                     </button>
                                                 @endcan
+                                            @elseif($purchase_return->settlement->status === 'approved')
+                                                <span class="badge bg-success me-2 mb-1">Settlement Approved</span>
+                                                @can('purchaseReturnSettlements.execute')
+                                                    <!-- Execution button will be added in Batch 5/6 -->
+                                                    <form method="POST" action="{{ route('purchase-return-settlements.execute', $purchase_return->settlement->id) }}" class="d-inline">
+                                                        @csrf
+                                                        <button type="submit" class="btn btn-primary btn-sm d-print-none me-2 mb-1" onclick="return confirm('Eksekusi penyelesaian ini? Tindakan ini tidak dapat dibatalkan.')">
+                                                            <i class="bi bi-play-circle"></i> Eksekusi Penyelesaian
+                                                        </button>
+                                                    </form>
+                                                @endcan
+                                            @elseif($purchase_return->settlement->status === 'executing')
+                                                <span class="badge bg-info text-dark me-2 mb-1">Settlement Executing (Awaiting Replacement)</span>
+                                                
+                                                {{-- Batch 7: Receive Replacement --}}
+                                                @if($purchase_return->return_dispatched_at && $purchase_return->goods->where('received_quantity', '<', 'quantity')->isNotEmpty())
+                                                    @can('purchaseReturnSettlements.receive')
+                                                        <button type="button" class="btn btn-success btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#receiveReplacementModal">
+                                                            <i class="bi bi-box-seam"></i> Terima Barang Pengganti
+                                                        </button>
+                                                    @endcan
+                                                @endif
+                                            @elseif($purchase_return->settlement->status === 'rejected')
+                                                <span class="badge bg-danger me-2 mb-1">Settlement Rejected</span>
+                                                <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
+                                                    <i class="bi bi-arrow-repeat"></i> Ulangi Penyelesaian
+                                                </a>
                                             @endif
-                                        @elseif($purchase_return->settlement->status === 'rejected')
-                                            <span class="badge bg-danger me-2 mb-1">Settlement Rejected</span>
-                                            <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
-                                                <i class="bi bi-arrow-repeat"></i> Ulangi Penyelesaian
-                                            </a>
+                                        @else
+                                            @can('purchaseReturnSettlements.submit')
+                                                <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
+                                                    <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
+                                                </a>
+                                            @endcan
                                         @endif
-                                    @else
-                                        @can('purchaseReturnSettlements.submit')
-                                            <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
-                                                <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
-                                            </a>
-                                        @endcan
-                                    @endif
-                                @endcanany
-                            @endif
-                            @canany(['purchaseReturnSettlements.submit', 'purchaseReturnSettlements.approve', 'purchaseReturnSettlements.execute', 'purchaseReturnSettlements.receive'])
-                                <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
-                                    <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
-                                </a>
-                            @endcanany
+                                    @endcanany
+                                @endif
                             <a target="_blank" class="btn btn-outline-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.pdf', $purchase_return->id) }}">
                                 <i class="bi bi-printer"></i> Cetak
                             </a>

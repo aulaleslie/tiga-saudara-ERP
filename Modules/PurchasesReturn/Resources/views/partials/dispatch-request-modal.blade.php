@@ -15,7 +15,7 @@
                                 <input type="text" name="return_shipping_amount" id="return_shipping_amount" class="form-control" inputmode="decimal" value="{{ old('return_shipping_amount', $purchase_return->return_shipping_amount ?? 0) }}">
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label">Lampiran</label>
+                                <label class="form-label">Lampiran <span class="text-danger">*</span></label>
                                 @php $oldAttachments = old('return_awb_attachments', []); @endphp
                                 @if(is_array($oldAttachments) && count($oldAttachments))
                                     @foreach($oldAttachments as $temp)
@@ -30,8 +30,8 @@
                                 <small class="text-muted">Unggah beberapa file (jpg, png, pdf).</small>
                             </div>
                             <div class="col-12">
-                                <label class="form-label">Catatan</label>
-                                <textarea name="return_dispatch_note" class="form-control" rows="3">{{ old('return_dispatch_note', $purchase_return->return_dispatch_note) }}</textarea>
+                                <label class="form-label">Catatan <span class="text-danger">*</span></label>
+                                <textarea name="return_dispatch_note" class="form-control" rows="3" required>{{ old('return_dispatch_note', $purchase_return->return_dispatch_note) }}</textarea>
                             </div>
                         </div>
                     </div>
