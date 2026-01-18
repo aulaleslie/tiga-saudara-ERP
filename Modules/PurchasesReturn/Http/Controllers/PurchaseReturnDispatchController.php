@@ -8,7 +8,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductStock;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 
 class PurchaseReturnDispatchController extends Controller
@@ -36,8 +38,8 @@ class PurchaseReturnDispatchController extends Controller
 
         $rules = [
             'return_shipping_amount' => ['nullable', 'string'],
-            'return_dispatch_note' => ['nullable', 'string', 'max:1000'],
-            'return_awb_attachments' => ['nullable', 'array'],
+            'return_dispatch_note' => ['required', 'string', 'max:1000'],
+            'return_awb_attachments' => ['required', 'array', 'min:1'],
         ];
 
         if ($request->hasFile('return_awb_attachments')) {
@@ -104,16 +106,35 @@ class PurchaseReturnDispatchController extends Controller
             return back();
         }
 
-        $purchase_return->update([
-            'return_dispatch_status' => 'approved',
-            'dispatch_approved_by' => auth()->id(),
-            'dispatch_approved_at' => now(),
-            'dispatch_rejected_by' => null,
-            'dispatch_rejected_at' => null,
-            'dispatch_rejection_reason' => null,
-        ]);
+        DB::transaction(function () use ($purchase_return) {
+            // Lock stock when dispatch is approved
+            $this->lockReturnStock($purchase_return);
 
-        toast('Dispatch retur disetujui.', 'success');
+            // Mark serial numbers as returned
+            foreach ($purchase_return->purchaseReturnDetails as $detail) {
+                if (! empty($detail->serial_number_ids)) {
+                    ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
+                        ->update([
+                            'status' => 'returned',
+                            'is_in_return_process' => false,
+                        ]);
+                }
+            }
+
+            $purchase_return->update([
+                'return_dispatch_status' => 'dispatched',
+                'status' => 'Return Dispatched',
+                'return_dispatched_at' => now(),
+                'return_dispatched_by' => auth()->id(),
+                'dispatch_approved_by' => auth()->id(),
+                'dispatch_approved_at' => now(),
+                'dispatch_rejected_by' => null,
+                'dispatch_rejected_at' => null,
+                'dispatch_rejection_reason' => null,
+            ]);
+        });
+
+        toast('Dispatch retur disetujui dan dieksekusi.', 'success');
 
         return back();
     }
@@ -140,53 +161,6 @@ class PurchaseReturnDispatchController extends Controller
         ]);
 
         toast('Dispatch retur ditolak.', 'warning');
-
-        return back();
-    }
-
-    public function dispatchReturn(PurchaseReturn $purchase_return)
-    {
-        abort_if(Gate::denies('purchaseReturns.dispatchExecute'), 403);
-
-        $approvalStatus = Str::lower($purchase_return->approval_status ?? '');
-        if ($approvalStatus !== 'approved') {
-            toast('Dispatch hanya dapat diproses setelah retur disetujui.', 'error');
-            return back();
-        }
-
-        $dispatchStatus = Str::lower($purchase_return->return_dispatch_status ?? '');
-        if ($dispatchStatus !== 'approved') {
-            toast('Dispatch harus disetujui terlebih dahulu.', 'error');
-            return back();
-        }
-
-        if ($purchase_return->return_dispatched_at) {
-            toast('Retur sudah didispatch.', 'warning');
-            return back();
-        }
-
-        $purchase_return->loadMissing('purchaseReturnDetails');
-
-        DB::transaction(function () use ($purchase_return) {
-            foreach ($purchase_return->purchaseReturnDetails as $detail) {
-                if (! empty($detail->serial_number_ids)) {
-                    ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
-                        ->update([
-                            'status' => 'returned',
-                            'is_in_return_process' => false,
-                        ]);
-                }
-            }
-
-            $purchase_return->update([
-                'status' => 'Return Dispatched',
-                'return_dispatched_at' => now(),
-                'return_dispatched_by' => auth()->id(),
-                'return_dispatch_status' => 'dispatched',
-            ]);
-        });
-
-        toast('Retur berhasil didispatch!', 'success');
 
         return back();
     }
@@ -220,5 +194,54 @@ class PurchaseReturnDispatchController extends Controller
         }
 
         return (float) $raw;
+    }
+
+    private function lockReturnStock(PurchaseReturn $purchase_return): void
+    {
+        $purchase_return->loadMissing('purchaseReturnDetails');
+
+        foreach ($purchase_return->purchaseReturnDetails as $detail) {
+            $quantity = (int) $detail->quantity;
+            if ($quantity <= 0) {
+                continue;
+            }
+
+            $product = Product::whereKey($detail->product_id)->lockForUpdate()->first();
+            if (! $product) {
+                continue;
+            }
+
+            $stock = ProductStock::where('product_id', $detail->product_id)
+                ->where('location_id', $detail->location_id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $stock) {
+                continue;
+            }
+
+            $availableNonTax = max(0, (int) ($stock->quantity_non_tax ?? 0));
+            $nonTaxToDeduct = min($quantity, $availableNonTax);
+            $taxToDeduct = $quantity - $nonTaxToDeduct;
+
+            $stock->decrement('quantity', $quantity);
+            if ($nonTaxToDeduct > 0) {
+                $stock->decrement('quantity_non_tax', $nonTaxToDeduct);
+            }
+            if ($taxToDeduct > 0) {
+                $stock->decrement('quantity_tax', $taxToDeduct);
+            }
+
+            $newQuantity = max(0, (int) $product->product_quantity - $quantity);
+            $product->update(['product_quantity' => $newQuantity]);
+
+            if (! empty($detail->serial_number_ids)) {
+                ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
+                    ->update([
+                        'is_in_return_process' => true,
+                        'purchase_return_id' => $purchase_return->id,
+                    ]);
+            }
+        }
     }
 }

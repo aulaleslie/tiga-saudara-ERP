@@ -135,8 +135,9 @@ class PurchasesReturnController extends Controller
             'settlementItems.serialNumber',
         ]);
         $supplier = Supplier::findOrFail($purchase_return->supplier_id);
+        $locations = \Modules\Setting\Entities\Location::with('setting')->get();
 
-        return view('purchasesreturn::show', compact('purchase_return', 'supplier'));
+        return view('purchasesreturn::show', compact('purchase_return', 'supplier', 'locations'));
     }
 
 

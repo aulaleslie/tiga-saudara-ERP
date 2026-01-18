@@ -51,8 +51,18 @@ if (!function_exists('format_currency')) {
             return $value;
         }
 
+        $settings = settings();
         $numeric = (float) $value;
-        return 'IDR ' . number_format($numeric, 2, '.', ',');
+
+        if (!$settings || !$settings->currency) {
+            return 'Rp. ' . number_format($numeric, 2, ',', '.');
+        }
+
+        $symbol = $settings->currency->symbol ?? 'Rp';
+        $thousand_separator = $settings->currency->thousand_separator ?? '.';
+        $decimal_separator = $settings->currency->decimal_separator ?? ',';
+
+        return $symbol . '. ' . number_format($numeric, 2, $decimal_separator, $thousand_separator);
     }
 }
 
@@ -88,7 +98,7 @@ if (!function_exists('calculateQuantityBreakdown')) {
 
         // If no conversions, just return the quantity in base unit
         if ($conversions->isEmpty()) {
-            return "{$quantity} {$baseUnitName}(s)";
+            return "{$quantity} {$baseUnitName}";
         }
 
         $parts = [];
@@ -102,7 +112,7 @@ if (!function_exists('calculateQuantityBreakdown')) {
             $count = intdiv($remaining, $factor);
             if ($count > 0) {
                 $unitName = optional($conv->unit)->name ?? "unit";
-                $parts[] = "{$count} {$unitName}(s)";
+                $parts[] = "{$count} {$unitName}";
                 $remaining -= $count * $factor;
             }
         }
@@ -111,7 +121,7 @@ if (!function_exists('calculateQuantityBreakdown')) {
         if ($remaining > 0) {
             $fallbackBaseUnitId = $conversions->first()->base_unit_id ?? $baseUnitId;
             $baseName = optional($Unit::find($fallbackBaseUnitId))->name ?? $baseUnitName;
-            $parts[]  = "{$remaining} {$baseName}(s)";
+            $parts[]  = "{$remaining} {$baseName}";
         }
 
         return implode(', ', $parts);

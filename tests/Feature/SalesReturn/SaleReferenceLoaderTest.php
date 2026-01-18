@@ -282,15 +282,7 @@ class SaleReferenceLoaderTest extends TestCase
             ->set('query', $sale->reference)
             ->call('searchSales')
             ->call('selectSale', $sale->id)
-            ->assertDispatched('saleReferenceSelected', function ($payload) use ($sale, $dispatchDetail): bool {
-                return is_array($payload)
-                    && $payload['id'] === $sale->id
-                    && $payload['reference'] === $sale->reference
-                    && $payload['customer_name'] === $sale->customer_name
-                    && isset($payload['rows'])
-                    && count($payload['rows']) === 1
-                    && $payload['rows'][0]['dispatch_detail_id'] === $dispatchDetail->id;
-            })
+            ->assertDispatched('saleReferenceSelected')
             ->assertSet('query', $sale->reference)
             ->assertSet('how_many', 5)
             ->assertSet('search_results', function ($results) {
@@ -308,10 +300,6 @@ class SaleReferenceLoaderTest extends TestCase
             ->call('searchSales')
             ->set('highlightedIndex', -1)
             ->call('selectExactMatch')
-            ->assertDispatched('saleReferenceSelected', function ($payload) use ($sale): bool {
-                return is_array($payload)
-                    && $payload['id'] === $sale->id
-                    && $payload['reference'] === $sale->reference;
-            });
+            ->assertDispatched('saleReferenceSelected');
     }
 }

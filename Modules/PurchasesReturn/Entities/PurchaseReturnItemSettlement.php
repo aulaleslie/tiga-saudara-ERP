@@ -13,10 +13,17 @@ class PurchaseReturnItemSettlement extends BaseModel
     protected $table = 'purchase_return_item_settlements';
     protected $guarded = [];
 
+    /** Fields to skip uppercasing */
+    protected array $uppercaseExcept = [
+        'received_note', // Preserve case for notes
+    ];
+
     // Status constants for per-line approval workflow
     public const STATUS_DRAFT = 'DRAFT';
     public const STATUS_SUBMITTED = 'SUBMITTED';
     public const STATUS_APPROVED = 'APPROVED';
+    public const STATUS_APPROVED_AWAITING_RECEIVE = 'APPROVED_AWAITING_RECEIVE';
+    public const STATUS_RECEIVED = 'RECEIVED';
     public const STATUS_REJECTED = 'REJECTED';
 
     protected $casts = [

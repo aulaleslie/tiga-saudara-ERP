@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\CheckUserRoleForSetting;
 use App\Support\PosLocationResolver;
 use App\Models\PosSession;
 use App\Models\User;
@@ -208,6 +209,7 @@ class PosMixedLocationDispatchTest extends TestCase
             'name' => $this->product->product_name,
             'qty' => 2,
             'price' => 10,
+            'weight' => 1,
             'options' => [
                 'product_id' => $this->product->id,
                 'pos_location_allocations' => [
@@ -219,6 +221,8 @@ class PosMixedLocationDispatchTest extends TestCase
 
         $response = $this->post(route('app.pos.store'), [
             'customer_id' => $this->customer->id,
+            'total_amount' => 20,
+            'paid_amount' => 20,
             'payments' => [
                 ['method_id' => $this->cashMethod->id, 'amount' => 20],
             ],
@@ -232,7 +236,10 @@ class PosMixedLocationDispatchTest extends TestCase
         $sales = Sale::query()->with('saleDispatches.details')->latest('id')->take(2)->get();
 
         $this->assertCount(2, $sales);
-        $this->assertTrue($sales->pluck('setting_id')->sort()->values()->equals(collect([$this->settingA->id, $this->settingB->id])->sort()->values()));
+        $this->assertEquals(
+            collect([$this->settingA->id, $this->settingB->id])->sort()->values()->all(),
+            $sales->pluck('setting_id')->sort()->values()->all()
+        );
 
         $saleA = $sales->firstWhere('setting_id', $this->settingA->id);
         $saleB = $sales->firstWhere('setting_id', $this->settingB->id);
@@ -248,4 +255,3 @@ class PosMixedLocationDispatchTest extends TestCase
     }
 }
 
-use App\Http\Middleware\CheckUserRoleForSetting;

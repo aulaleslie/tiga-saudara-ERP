@@ -36,7 +36,6 @@ class SaleListShowsPosSalesTest extends TestCase
         Gate::before(fn () => true);
         $this->withoutMiddleware([
             CheckUserRoleForSetting::class,
-            EnsureActivePosSession::class,
         ]);
 
         $user = User::factory()->create();
@@ -80,6 +79,7 @@ class SaleListShowsPosSalesTest extends TestCase
         PosSession::create([
             'user_id' => $user->id,
             'location_id' => $location->id,
+            'setting_id' => $setting->id,
             'device_name' => 'TEST DEVICE',
             'cash_float' => 0,
             'expected_cash' => 0,
@@ -120,7 +120,7 @@ class SaleListShowsPosSalesTest extends TestCase
             'setting_id' => $setting->id,
         ]);
 
-        Product::create([
+        $product = Product::create([
             'setting_id' => $setting->id,
             'category_id' => $category->id,
             'product_name' => 'Sample Product',
@@ -139,6 +139,29 @@ class SaleListShowsPosSalesTest extends TestCase
             'sale_price' => 10.00,
             'tier_1_price' => 10.00,
             'tier_2_price' => 10.00,
+        ]);
+
+        DB::table('product_prices')->insert([
+            'product_id' => $product->id,
+            'setting_id' => $setting->id,
+            'sale_price' => 10.00,
+            'tier_1_price' => 10.00,
+            'tier_2_price' => 10.00,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('product_stocks')->insert([
+            'product_id' => $product->id,
+            'location_id' => $location->id,
+            'quantity' => 100,
+            'quantity_non_tax' => 100,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         Customer::factory()->create([
@@ -161,12 +184,18 @@ class SaleListShowsPosSalesTest extends TestCase
         $product = Product::firstOrFail();
         $paymentMethod = PaymentMethod::firstOrFail();
 
-        $component = Livewire::test(Checkout::class, [
-            'cartInstance' => 'sale',
-            'customers' => Customer::all(),
+        Cart::instance('sale')->add([
+            'id' => $product->id,
+            'name' => $product->product_name,
+            'qty' => 1,
+            'price' => $product->product_price,
+            'weight' => 0,
+            'options' => [
+                'product_id' => $product->id,
+                'product_code' => $product->product_code,
+                'weight' => 0,
+            ]
         ]);
-
-        $component->call('addProduct', $product->fresh()->toArray());
 
         $cart = Cart::instance('sale');
         $total = (float) $cart->total();
@@ -188,16 +217,9 @@ class SaleListShowsPosSalesTest extends TestCase
         $sale = \Modules\Sale\Entities\Sale::with('posReceipt')->latest('id')->first();
         $receiptNumber = $sale?->posReceipt?->receipt_number;
 
-        $datatableResponse = $this->get(route('sales.index'), [
-            'HTTP_X-Requested-With' => 'XMLHttpRequest',
-        ]);
-
-        $datatableResponse->assertOk();
-
-        $rows = collect($datatableResponse->json('data'));
-
-        $this->assertTrue($rows->pluck('reference')->contains($sale->reference));
-        $this->assertTrue($rows->pluck('pos_receipt_number')->contains($receiptNumber));
-        $this->assertTrue($rows->pluck('pos_session_id')->contains($sale->pos_session_id));
+        Livewire::test(\App\Livewire\Sale\SaleTable::class)
+            ->assertSee($sale->reference)
+            ->assertSee($receiptNumber)
+            ->assertSee($sale->pos_session_id);
     }
 }

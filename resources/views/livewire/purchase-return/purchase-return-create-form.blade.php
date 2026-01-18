@@ -52,7 +52,10 @@
 
                     <div class="col-lg-6 mb-3">
                         <label class="form-label fw-semibold" for="date">Tanggal Retur</label>
-                        <input type="date" id="date" class="form-control" wire:model.defer="date" required>
+                        <input type="date" id="date" class="form-control" wire:model.defer="date" {{ $this->dispatchLocked ? 'disabled' : 'required' }}>
+                        @if ($this->dispatchLocked)
+                            <div class="form-text">Tanggal tidak dapat diubah setelah dispatch disetujui.</div>
+                        @endif
                         @error('date')
                             <div class="invalid-feedback d-block">{{ $message }}</div>
                         @enderror
@@ -74,7 +77,7 @@
                 </div>
             </div>
             <div class="card-body" style="overflow: visible;">
-                <livewire:purchase-return.purchase-return-table :rows="$rows" :supplier-id="$supplier_id" :hide-price="true" />
+                <livewire:purchase-return.purchase-return-table :rows="$rows" :supplier-id="$supplier_id" :hide-price="true" :dispatch-locked="$this->dispatchLocked" />
 
                 @if (!$supplier_id)
                     <div class="alert alert-light border mt-3 mb-0" role="alert">

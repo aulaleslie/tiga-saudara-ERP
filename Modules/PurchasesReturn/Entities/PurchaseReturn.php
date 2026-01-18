@@ -179,8 +179,9 @@ class PurchaseReturn extends BaseModel implements HasMedia
             return 'Awaiting Settlement';
         }
         
-        $allApproved = $items->every(fn($i) => strtoupper($i->status) === 'APPROVED');
-        $anyApproved = $items->contains(fn($i) => strtoupper($i->status) === 'APPROVED');
+        $approvedStatuses = ['APPROVED', 'APPROVED_AWAITING_RECEIVE', 'RECEIVED'];
+        $allApproved = $items->every(fn($i) => in_array(strtoupper($i->status), $approvedStatuses));
+        $anyApproved = $items->contains(fn($i) => in_array(strtoupper($i->status), $approvedStatuses));
         
         if ($allApproved) {
             return 'Settled';

@@ -1378,8 +1378,7 @@ class Checkout extends Component
             ->map(function ($segment) {
                 $count = (int) ($segment['count'] ?? 0);
                 $unitName = $segment['unit_name'] ?? 'unit';
-                $plural = $count > 1 ? 's' : '';
-                return $count > 0 ? sprintf('%d %s%s', $count, $unitName, $plural) : null;
+                return $count > 0 ? sprintf('%d %s', $count, $unitName) : null;
             })
             ->filter()
             ->implode(', ');
@@ -1604,6 +1603,7 @@ class Checkout extends Component
                 $allocatedNonTax += $take;
                 $remainingQuantity -= $take;
             }
+        unset($allocation);
         }
 
         // Phase 2: Allocate from tax quantity across all locations in priority order
@@ -1623,6 +1623,7 @@ class Checkout extends Component
                 $remainingQuantity -= $take;
             }
         }
+        unset($allocation);
 
         // Handle forced allocations (override the above logic if specified)
         foreach ($forcedByLocation as $locationId => $forced) {
@@ -1663,6 +1664,7 @@ class Checkout extends Component
             }
         }
 
+        unset($allocation);
         $allocations = array_values($allocations);
 
         $availableTotal = $totalAvailableNonTax + $totalAvailableTax;
@@ -2085,7 +2087,11 @@ class Checkout extends Component
 
     protected function sanitizeCurrencyValue($value): float
     {
-        if (is_numeric($value)) {
+        if (is_numeric($value) && strpos((string)$value, '.') === false && strpos((string)$value, ',') === false) {
+            return (float) $value;
+        }
+    
+        if (is_float($value) || is_int($value)) {
             return (float) $value;
         }
 
@@ -2336,12 +2342,6 @@ class Checkout extends Component
 
     protected function formatChangeAmount(float $change): string
     {
-        $settings = settings();
-        $currency = $settings ? $settings->currency : null;
-
-        $decimalSeparator = $currency->decimal_separator ?? ',';
-        $thousandSeparator = $currency->thousand_separator ?? '.';
-
-        return number_format($change, 2, $decimalSeparator, $thousandSeparator);
+        return format_currency($change);
     }
 }

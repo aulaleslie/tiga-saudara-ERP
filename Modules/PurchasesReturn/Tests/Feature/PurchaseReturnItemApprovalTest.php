@@ -288,4 +288,119 @@ class PurchaseReturnItemApprovalTest extends TestCase
         $this->assertEquals(1, PurchaseReturnPayment::where('purchase_return_id', $pr->id)->count());
         $this->assertEquals(2000, (float) PurchaseReturnPayment::where('purchase_return_id', $pr->id)->first()->amount);
     }
+
+    /** @test */
+    public function it_approves_product_repair_and_broken_stock_with_awaiting_receive_status()
+    {
+        $pr = $this->createPurchaseReturn(1000);
+        $detail = $this->createDetail($pr, 1000);
+        
+        // Test PRODUCT_REPAIR
+        $repairItem = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $pr->id,
+            'purchase_return_detail_id' => $detail->id,
+            'method' => 'PRODUCT_REPAIR',
+            'nominal' => 500,
+            'status' => 'SUBMITTED',
+        ]);
+
+        $response = $this->post(route('purchase-return-settlements.item.approve', $repairItem->id));
+        $response->assertStatus(302);
+        $this->assertEquals('APPROVED_AWAITING_RECEIVE', $repairItem->fresh()->status);
+
+        // Test BROKEN_STOCK
+        $brokenItem = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $pr->id,
+            'purchase_return_detail_id' => $detail->id,
+            'method' => 'BROKEN_STOCK',
+            'nominal' => 500,
+            'status' => 'SUBMITTED',
+        ]);
+
+        $response = $this->post(route('purchase-return-settlements.item.approve', $brokenItem->id));
+        $response->assertStatus(302);
+        $this->assertEquals('APPROVED_AWAITING_RECEIVE', $brokenItem->fresh()->status);
+    }
+
+    /** @test */
+    public function it_can_receive_product_repair_and_broken_stock_items()
+    {
+        $pr = $this->createPurchaseReturn(1000);
+        $detail = $this->createDetail($pr, 1000);
+        
+        // Create serial numbers for testing
+        $repairSerial = \Modules\Product\Entities\ProductSerialNumber::create([
+            'product_id' => $detail->product_id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-REPAIR-123',
+            'status' => 'AVAILABLE',
+        ]);
+        
+        $brokenSerial = \Modules\Product\Entities\ProductSerialNumber::create([
+            'product_id' => $detail->product_id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-BROKEN-456',
+            'status' => 'AVAILABLE',
+        ]);
+        
+        // Create repair item
+        $repairItem = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $pr->id,
+            'purchase_return_detail_id' => $detail->id,
+            'product_serial_number_id' => $repairSerial->id,
+            'method' => 'PRODUCT_REPAIR',
+            'nominal' => 500,
+            'status' => 'APPROVED_AWAITING_RECEIVE',
+        ]);
+
+        // Create another location for receiving
+        $receiveLocation = Location::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'Repair Warehouse',
+        ]);
+
+        $response = $this->post(route('purchase-return-settlements.item.receive', $repairItem->id), [
+            'location_id' => $receiveLocation->id,
+            'received_quantity' => 1,
+            'note' => 'Repaired successfully',
+        ]);
+
+        $response->assertStatus(302);
+        $repairItem->refresh();
+        $this->assertEquals('RECEIVED', $repairItem->status);
+        $this->assertEquals($receiveLocation->id, $repairItem->received_location_id);
+        $this->assertEquals(1, $repairItem->received_quantity);
+        $this->assertEquals('Repaired successfully', $repairItem->received_note);
+        
+        // Check serial number was moved
+        $repairSerial->refresh();
+        $this->assertEquals($receiveLocation->id, $repairSerial->location_id);
+        $this->assertEquals('AVAILABLE', $repairSerial->status);
+
+        // Test BROKEN_STOCK
+        $brokenItem = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $pr->id,
+            'purchase_return_detail_id' => $detail->id,
+            'product_serial_number_id' => $brokenSerial->id,
+            'method' => 'BROKEN_STOCK',
+            'nominal' => 500,
+            'status' => 'APPROVED_AWAITING_RECEIVE',
+        ]);
+
+        $response = $this->post(route('purchase-return-settlements.item.receive', $brokenItem->id), [
+            'location_id' => $receiveLocation->id,
+            'received_quantity' => 1,
+            'note' => 'Marked as broken',
+        ]);
+
+        $response->assertStatus(302);
+        $brokenItem->refresh();
+        $this->assertEquals('RECEIVED', $brokenItem->status);
+        
+        // Check serial number was marked as broken
+        $brokenSerial->refresh();
+        $this->assertEquals($receiveLocation->id, $brokenSerial->location_id);
+        $this->assertTrue($brokenSerial->is_broken);
+        $this->assertEquals('BROKEN', $brokenSerial->status);
+    }
 }

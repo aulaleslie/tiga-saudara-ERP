@@ -63,11 +63,6 @@
                                         @endcan
                                     @elseif($dispatchStatus === 'approved')
                                         <span class="badge bg-success me-2 mb-1">Dispatch Approved</span>
-                                        @can('purchaseReturns.dispatchExecute')
-                                            <button type="button" class="btn btn-primary btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#dispatchExecuteModal">
-                                                <i class="bi bi-truck"></i> Dispatch Return
-                                            </button>
-                                        @endcan
                                     @endif
                                 @else
                                     <span class="badge bg-info text-dark me-2 mb-1">Dispatched: {{ $purchase_return->return_dispatched_at->format('d M Y') }}</span>
@@ -125,6 +120,11 @@
                                     @endif
                                 @endcanany
                             @endif
+                            @canany(['purchaseReturnSettlements.submit', 'purchaseReturnSettlements.approve', 'purchaseReturnSettlements.execute', 'purchaseReturnSettlements.receive'])
+                                <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
+                                    <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
+                                </a>
+                            @endcanany
                             <a target="_blank" class="btn btn-outline-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.pdf', $purchase_return->id) }}">
                                 <i class="bi bi-printer"></i> Cetak
                             </a>
@@ -383,7 +383,6 @@
     @include('purchasesreturn::partials.dispatch-request-modal')
     @include('purchasesreturn::partials.dispatch-request-confirm-modal')
     @include('purchasesreturn::partials.dispatch-approve-modal')
-    @include('purchasesreturn::partials.dispatch-execute-modal')
     @include('purchasesreturn::partials.dispatch-reject-modal')
     @include('purchasesreturn::partials.settlement-reject-modal')
 

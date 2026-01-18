@@ -151,9 +151,14 @@ class PurchasesReturnSettlementController extends Controller
                 // Apply effects
                 $this->applySettlementEffect($itemSettlement);
 
-                // Update item status
+                // Update item status based on method
+                $finalStatus = \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_APPROVED;
+                if (in_array(strtoupper($itemSettlement->method), ['PRODUCT_REPAIR', 'BROKEN_STOCK'])) {
+                    $finalStatus = \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_APPROVED_AWAITING_RECEIVE;
+                }
+
                 $itemSettlement->update([
-                    'status' => \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_APPROVED,
+                    'status' => $finalStatus,
                     'approved_by' => auth()->id(),
                     'approved_at' => now(),
                 ]);
@@ -199,6 +204,79 @@ class PurchasesReturnSettlementController extends Controller
         $purchaseReturn->update(['status' => $purchaseReturn->settlement_status]);
 
         return back()->with('success', 'Item penyelesaian ditolak.');
+    }
+
+    /**
+     * Receive a single item settlement (for PRODUCT_REPAIR and BROKEN_STOCK methods).
+     */
+    public function receiveItemSettlement(Request $request, \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $itemSettlement)
+    {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.receive'), 403);
+
+        if ($itemSettlement->status !== \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_APPROVED_AWAITING_RECEIVE) {
+            return back()->with('error', 'Item ini tidak dapat diterima.');
+        }
+
+        $request->validate([
+            'location_id' => 'required|exists:locations,id',
+            'received_quantity' => 'required|integer|min:1',
+            'note' => 'nullable|string|max:255',
+        ]);
+
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($request, $itemSettlement) {
+                $method = strtoupper($itemSettlement->method);
+                $locationId = $request->location_id;
+                $receivedQuantity = $request->received_quantity;
+                $note = $request->note;
+
+                // Handle stock movement based on method
+                if ($method === 'PRODUCT_REPAIR') {
+                    // Move repaired product to selected location
+                    if ($itemSettlement->serialNumber) {
+                        // Update serial number location
+                        $itemSettlement->serialNumber->update([
+                            'location_id' => $locationId,
+                            'status' => 'AVAILABLE', // Assuming repaired items are available
+                        ]);
+                    } else {
+                        // Handle non-serial stock movement
+                        // This would require integration with stock management system
+                        // For now, just log the movement
+                    }
+                } elseif ($method === 'BROKEN_STOCK') {
+                    // Mark as broken stock and move to selected location
+                    if ($itemSettlement->serialNumber) {
+                        $itemSettlement->serialNumber->update([
+                            'location_id' => $locationId,
+                            'is_broken' => true,
+                            'status' => 'BROKEN',
+                        ]);
+                    } else {
+                        // Handle non-serial broken stock
+                        // This would require integration with stock management system
+                    }
+                }
+
+                // Update item settlement status
+                $itemSettlement->update([
+                    'status' => \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_RECEIVED,
+                    'received_quantity' => $receivedQuantity,
+                    'received_location_id' => $locationId,
+                    'received_note' => $note,
+                    'received_by' => auth()->id(),
+                    'received_at' => now(),
+                ]);
+
+                // Update Purchase Return status roll-up
+                $purchaseReturn = $itemSettlement->purchaseReturn->load('settlementItems');
+                $purchaseReturn->update(['status' => $purchaseReturn->settlement_status]);
+            });
+
+            return back()->with('success', 'Item berhasil diterima.');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Gagal menerima item: ' . $e->getMessage());
+        }
     }
 
     /**

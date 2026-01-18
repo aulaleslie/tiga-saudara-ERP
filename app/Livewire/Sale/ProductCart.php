@@ -79,17 +79,6 @@ class ProductCart extends Component
             $this->global_discount = $data->discount_percentage ?? 0;
             $this->shipping = $data->shipping_amount;
             $this->is_tax_included = $data->is_tax_included;
-
-            $cart_items = Cart::instance($this->cart_instance)->content();
-
-            foreach ($cart_items as $cart_item) {
-                $this->initializeCartItemAttributes($cart_item);
-
-                $this->quantityBreakdowns[$cart_item->id] = $this->calculateConversionBreakdown(
-                    $cart_item->options->product_id,
-                    $this->quantity[$cart_item->id] ?? $cart_item->qty
-                );
-            }
         } else {
             $this->global_discount = 0;
             $this->shipping = 0.00;
@@ -99,6 +88,17 @@ class ProductCart extends Component
             $this->discount_type = [];
             $this->item_discount = [];
             $this->product_tax = [];
+        }
+
+        $cart_items = Cart::instance($this->cart_instance)->content();
+
+        foreach ($cart_items as $cart_item) {
+            $this->initializeCartItemAttributes($cart_item);
+
+            $this->quantityBreakdowns[$cart_item->id] = $this->calculateConversionBreakdown(
+                $cart_item->options->product_id,
+                $this->quantity[$cart_item->id] ?? $cart_item->qty
+            );
         }
     }
 
@@ -332,7 +332,7 @@ class ProductCart extends Component
         $this->initializeCartItemAttributes($cartItem); // Initialize per-product tax
         $this->quantityBreakdowns[$cartItem->id] = $this->calculateConversionBreakdown(
             $product['id'],
-            $this->quantity[$cartItem->id] ?? $cartItem->qty
+            $this->quantity[$cartItem->id] ?? $cart_Item->qty
         );
 
         return $cartItem->rowId;
@@ -521,7 +521,7 @@ class ProductCart extends Component
             $count = intdiv($remaining, $factor);
             if ($count > 0) {
                 $unitName = optional($conv->unit)->name ?? "unit";
-                $parts[] = "{$count} {$unitName}(s)";
+                $parts[] = "{$count} {$unitName}";
                 $remaining -= $count * $factor;
             }
         }
@@ -529,7 +529,7 @@ class ProductCart extends Component
         if ($remaining > 0) {
             $baseUnitId = $conversions->first()->base_unit_id ?? null;
             $baseName   = optional(Unit::find($baseUnitId))->name ?? "pc";
-            $parts[]    = "{$remaining} {$baseName}(s)";
+            $parts[]    = "{$remaining} {$baseName}";
         }
 
         return implode(', ', $parts);
@@ -642,7 +642,7 @@ class ProductCart extends Component
         // Validate inputs
         $price = max(0, (float)$price); // Ensure price is non-negative
         $qty = max(1, (int)$qty);
-        $discount = max(0, (int)$discount);
+        $discount = max(0, (float)$discount);
 
         $price = $price - $discount;// Ensure quantity is at least 1
         // Ensure discount is non-negative
@@ -1155,7 +1155,7 @@ class ProductCart extends Component
                 $this->global_discount = 0;
                 session()->flash('message', 'Diskon global tidak boleh kurang dari 0%');
             }
-        } else { // fixed
+        } else {
             if ($this->global_discount > $total_sub_total) {
                 $this->global_discount = $total_sub_total;
                 session()->flash('message', 'Diskon global tidak boleh melebihi total!');

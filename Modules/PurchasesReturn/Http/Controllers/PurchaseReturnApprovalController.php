@@ -25,18 +25,7 @@ class PurchaseReturnApprovalController extends Controller
             return back();
         }
 
-        $errors = $this->validateStockForApproval($purchase_return);
-
-        if (! empty($errors)) {
-            foreach ($errors as $error) {
-                toast($error, 'error');
-            }
-            return back();
-        }
-
         DB::transaction(function () use ($purchase_return) {
-            $this->lockReturnStock($purchase_return);
-
             $purchase_return->update([
                 'approval_status' => 'approved',
                 'approved_by' => auth()->id(),

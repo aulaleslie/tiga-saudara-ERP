@@ -21,6 +21,7 @@ class PurchaseReturnTable extends Component
     public $rows = [];
     public $validationErrors = [];
     public bool $hidePrice = false;
+    public bool $dispatchLocked = false;
 
     protected $listeners = [
         'productSelected' => 'updateProductRow',

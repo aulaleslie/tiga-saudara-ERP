@@ -40,6 +40,9 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
         $status = strtolower((string) $this->purchaseReturn->approval_status);
         $this->approvalLocked = $status === 'approved';
 
+        $dispatchStatus = strtolower((string) $this->purchaseReturn->return_dispatch_status);
+        $this->dispatchLocked = in_array($dispatchStatus, ['approved', 'dispatched'], true);
+
         $this->supplier_id = $this->purchaseReturn->supplier_id;
         $this->supplierName = optional($this->purchaseReturn->supplier)->supplier_name
             ?? $this->purchaseReturn->supplier_name;

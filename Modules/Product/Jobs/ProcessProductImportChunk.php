@@ -190,6 +190,7 @@ class ProcessProductImportChunk implements ShouldQueue
                     $product = Product::create([
                         'product_name'           => $name,
                         'product_code'           => $code ?: null,
+                        'setting_id'             => $settingIdForCreations,
                         'barcode'                => $p['barcode'] ?? null,
 
                         'category_id'            => $categoryId,
@@ -337,7 +338,6 @@ class ProcessProductImportChunk implements ShouldQueue
                             'quantity_tax' => $qtyTax,
                             'broken_quantity_non_tax' => 0,
                             'broken_quantity_tax' => 0,
-                            'sale_price' => $isSold ? $salePrice : 0,
                             'broken_quantity' => 0,
                         ]);
 

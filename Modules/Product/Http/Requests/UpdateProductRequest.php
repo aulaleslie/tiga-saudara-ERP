@@ -61,6 +61,7 @@ class UpdateProductRequest extends FormRequest
 
             // === Conversions (aligned with create; keep smarter update uniqueness) ===
             'conversions'                     => ['nullable', 'array'],
+            'conversions.*.id'                => ['nullable', 'integer'],
 
             'conversions.*.unit_id'           => [
                 'required_if:stock_managed,1,true,on',

@@ -165,7 +165,7 @@ class SaleSharedMasterDataTest extends TestCase
 
     public function test_livewire_components_pull_shared_master_data(): void
     {
-        Livewire::test(CreateForm::class)
+        Livewire::test(CreateForm::class, ['idempotencyToken' => 'test-token'])
             ->assertSet('paymentTerms', fn ($terms) => $terms->contains('id', $this->sharedTerm->id));
 
         Livewire::test(ProductCart::class, ['cartInstance' => 'sale'])

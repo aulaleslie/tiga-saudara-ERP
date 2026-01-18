@@ -546,11 +546,17 @@ class PosController extends Controller
                 if ($productId > 0 && ! empty($locationSettingMap)) {
                     // Find which POS location has stock for this product
                     $posLocationIds = array_keys($locationSettingMap);
+                    $orderByRaw = 'CASE location_id ';
+                    foreach ($posLocationIds as $index => $posLocationId) {
+                        $orderByRaw .= "WHEN {$posLocationId} THEN {$index} ";
+                    }
+                    $orderByRaw .= 'END';
+
                     $stockLocation = ProductStock::query()
                         ->where('product_id', $productId)
                         ->whereIn('location_id', $posLocationIds)
                         ->whereRaw('(quantity_non_tax + quantity_tax) > 0')
-                        ->orderByRaw('FIELD(location_id, ' . implode(',', $posLocationIds) . ')')
+                        ->orderByRaw($orderByRaw)
                         ->first();
 
                     if ($stockLocation) {
@@ -603,11 +609,17 @@ class PosController extends Controller
                 $productId = (int) ($options['product_id'] ?? 0);
                 if ($productId > 0 && ! empty($locationSettingMap)) {
                     $posLocationIds = array_keys($locationSettingMap);
+                    $orderByRaw = 'CASE location_id ';
+                    foreach ($posLocationIds as $index => $posLocationId) {
+                        $orderByRaw .= "WHEN {$posLocationId} THEN {$index} ";
+                    }
+                    $orderByRaw .= 'END';
+
                     $stockLocation = ProductStock::query()
                         ->where('product_id', $productId)
                         ->whereIn('location_id', $posLocationIds)
                         ->whereRaw('(quantity_non_tax + quantity_tax) > 0')
-                        ->orderByRaw('FIELD(location_id, ' . implode(',', $posLocationIds) . ')')
+                        ->orderByRaw($orderByRaw)
                         ->first();
 
                     if ($stockLocation) {

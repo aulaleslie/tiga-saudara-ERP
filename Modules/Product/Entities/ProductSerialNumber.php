@@ -24,8 +24,14 @@ class ProductSerialNumber extends BaseModel
         'received_note_detail_id',
         'dispatch_detail_id',
         'status',
+        'is_broken',
         'is_in_return_process',
         'purchase_return_id',
+    ];
+
+    protected $casts = [
+        'is_broken' => 'boolean',
+        'is_in_return_process' => 'boolean',
     ];
 
     /**

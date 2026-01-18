@@ -11,7 +11,7 @@
             <div class="modal-body text-center">
                 @if($changeModalHasPositiveChange)
                     <p class="h4 font-weight-bold text-success mb-0">
-                        {{ 'KEMBALIAN Rp. ' . $changeModalAmount . ' . JANGAN LUPA UCAPKAN TERIMA KASIH!!' }}
+                        {{ 'KEMBALIAN ' . $changeModalAmount . ' . JANGAN LUPA UCAPKAN TERIMA KASIH!!' }}
                     </p>
                 @else
                     <p class="h4 font-weight-bold text-primary mb-0">

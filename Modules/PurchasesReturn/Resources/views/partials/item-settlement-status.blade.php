@@ -9,6 +9,12 @@
     @case('APPROVED')
         <span class="badge bg-success">Disetujui</span>
         @break
+    @case('APPROVED_AWAITING_RECEIVE')
+        <span class="badge bg-warning text-dark">Menunggu Penerimaan</span>
+        @break
+    @case('RECEIVED')
+        <span class="badge bg-success">Diterima</span>
+        @break
     @case('REJECTED')
         <span class="badge bg-danger" title="{{ $item->rejection_reason }}">Ditolak</span>
         @break

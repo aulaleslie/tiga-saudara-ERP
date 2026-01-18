@@ -30,10 +30,14 @@
                         <th style="width: 15%">Jumlah di Lokasi</th>
                         <th style="width: 10%">Jumlah Retur</th>
                         <th style="width: 3%;" class="sticky-action-header text-center">
-                            <button type="button" class="btn btn-outline-primary btn-sm rounded-circle"
-                                    wire:click="addProductRow">
-                                <i class="bi bi-plus-lg"></i>
-                            </button>
+                            @if (!$dispatchLocked)
+                                <button type="button" class="btn btn-outline-primary btn-sm rounded-circle"
+                                        wire:click="addProductRow">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                            @else
+                                <span class="text-muted small">Terkunci</span>
+                            @endif
                         </th>
                     </tr>
                 </thead>
@@ -107,10 +111,14 @@
                             </td>
 
                             <td class="text-center sticky-action-col">
-                                <button type="button" class="btn btn-outline-danger btn-sm rounded-circle"
-                                        wire:click="removeProductRow({{ $index }})">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                @if (!$dispatchLocked)
+                                    <button type="button" class="btn btn-outline-danger btn-sm rounded-circle"
+                                            wire:click="removeProductRow({{ $index }})">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                @else
+                                    <span class="text-muted small">Terkunci</span>
+                                @endif
                             </td>
                         </tr>
 
@@ -142,11 +150,15 @@
                                                     <tr>
                                                         <td>{{ $serialNumber['serial_number'] }}</td>
                                                         <td class="text-center">
-                                                            <button type="button"
-                                                                    class="btn btn-outline-danger btn-sm rounded-circle"
-                                                                    wire:click="removeSerialNumber({{ $index }}, {{ $serialIndex }})">
-                                                                <i class="bi bi-trash"></i>
-                                                            </button>
+                                                            @if (!$dispatchLocked)
+                                                                <button type="button"
+                                                                        class="btn btn-outline-danger btn-sm rounded-circle"
+                                                                        wire:click="removeSerialNumber({{ $index }}, {{ $serialIndex }})">
+                                                                    <i class="bi bi-trash"></i>
+                                                                </button>
+                                                            @else
+                                                                <span class="text-muted small">Terkunci</span>
+                                                            @endif
                                                         </td>
                                                     </tr>
                                                 @endforeach

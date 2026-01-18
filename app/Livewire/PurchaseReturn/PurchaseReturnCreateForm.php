@@ -30,6 +30,7 @@ class PurchaseReturnCreateForm extends Component
     public string $formTitle = 'Buat Retur Pembelian';
     public string $submitLabel = 'Proses Retur';
     public bool $approvalLocked = false;
+    public bool $dispatchLocked = false;
     public ?string $supplierName = null;
 
     protected $listeners = [

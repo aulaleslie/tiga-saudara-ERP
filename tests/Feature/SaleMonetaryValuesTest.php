@@ -318,7 +318,7 @@ class SaleMonetaryValuesTest extends TestCase
         $bundle = [
             'bundle_id' => 1,
             'bundle_item_id' => 1,
-            'product_id' => null,
+            'product_id' => $this->bundleProduct->id,
             'name' => 'Accessory',
             'price' => 3.00,
             'quantity' => 2,
@@ -419,7 +419,7 @@ class SaleMonetaryValuesTest extends TestCase
     {
         $this->addBundleCartItem();
 
-        Livewire::test(CreateForm::class)
+        Livewire::test(CreateForm::class, ['idempotencyToken' => 'test-token'])
             ->set('customerId', $this->customer->id)
             ->set('date', '2024-04-01')
             ->set('dueDate', '2024-04-11')
@@ -478,12 +478,14 @@ class SaleMonetaryValuesTest extends TestCase
         $response = $this->put(route('sales.update', $sale), [
             'customer_id' => $this->customer->id,
             'reference' => $sale->reference,
+            'date' => $sale->date,
             'tax_percentage' => 5,
             'discount_percentage' => 0,
             'shipping_amount' => 11.65,
             'total_amount' => 61.50,
             'paid_amount' => 21.40,
             'status' => 'Pending',
+            'payment_status' => 'Partial',
             'payment_method' => 'Cash',
             'note' => 'Update decimals',
         ]);
@@ -545,7 +547,7 @@ class SaleMonetaryValuesTest extends TestCase
         $this->assertEquals(30.75, (float) $payment->amount);
         $this->assertEquals(70.75, (float) $sale->paid_amount);
         $this->assertEquals(49.25, (float) $sale->due_amount);
-        $this->assertEquals('Partial', $sale->payment_status);
+        $this->assertEquals('PARTIAL', $sale->payment_status);
     }
 
     public function test_sale_payment_update_adjusts_sale_totals(): void
@@ -599,7 +601,7 @@ class SaleMonetaryValuesTest extends TestCase
         $this->assertEquals(35.50, (float) $payment->amount);
         $this->assertEquals(35.50, (float) $sale->paid_amount);
         $this->assertEquals(64.50, (float) $sale->due_amount);
-        $this->assertEquals('Partial', $sale->payment_status);
+        $this->assertEquals('PARTIAL', $sale->payment_status);
     }
 
     public function test_sales_index_returns_unpaid_badge_for_new_sale(): void
@@ -642,6 +644,6 @@ class SaleMonetaryValuesTest extends TestCase
         $data = $response->json('data');
         $this->assertNotEmpty($data);
         $this->assertStringContainsString('badge badge-danger', $data[0]['payment_status']);
-        $this->assertStringContainsString('Unpaid', $data[0]['payment_status']);
+        $this->assertStringContainsString('UNPAID', $data[0]['payment_status']);
     }
 }

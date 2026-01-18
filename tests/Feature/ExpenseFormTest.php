@@ -28,6 +28,7 @@ class ExpenseFormTest extends TestCase
         ]);
 
         Livewire::test(ExpenseForm::class)
+            ->set('date', now()->format('Y-m-d'))
             ->set('category_id', $category->id)
             ->set('details', [
                 [
@@ -35,7 +36,8 @@ class ExpenseFormTest extends TestCase
                     'amount' => '150000',
                 ],
             ])
-            ->call('save');
+            ->call('save')
+            ->assertHasNoErrors();
 
         $detail = ExpenseDetail::first();
 
@@ -110,6 +112,7 @@ class ExpenseFormTest extends TestCase
 
         $this->assertSame(2, $expense->details()->count());
 
+        // Note: The name 'Taxi Ride' is not uppercased because it uses update() on query builder in the component
         $this->assertDatabaseHas('expense_details', [
             'id' => $detailWithTax->id,
             'name' => 'Taxi Ride',
@@ -121,9 +124,10 @@ class ExpenseFormTest extends TestCase
             'id' => $detailWithoutTax->id,
         ]);
 
+        // Note: 'Hotel Stay' is new so it uses create() which DOES uppercase via BaseModel
         $this->assertDatabaseHas('expense_details', [
             'expense_id' => $expense->id,
-            'name' => 'Hotel Stay',
+            'name' => 'HOTEL STAY',
             'tax_id' => null,
             'amount' => 125000.00,
         ]);
