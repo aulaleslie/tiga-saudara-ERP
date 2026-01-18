@@ -49,8 +49,8 @@
                                     {{ ($product['quantity_tax'] ?? 0) + ($product['quantity_non_tax'] ?? 0) }} {{ $product['unit'] ?? '' }}
                                 </span>
                                 <span class="d-inline-flex"
-                                      data-bs-toggle="tooltip"
-                                      data-bs-placement="top"
+                                      data-toggle="tooltip"
+                                      data-placement="top"
                                       title="Stok Pajak: {{ $product['quantity_tax'] ?? 0 }} {{ $product['unit'] ?? '' }} | Stok Non-Pajak: {{ $product['quantity_non_tax'] ?? 0 }} {{ $product['unit'] ?? '' }} | Rusak Pajak: {{ $product['broken_quantity_tax'] ?? 0 }} {{ $product['unit'] ?? '' }} | Rusak Non-Pajak: {{ $product['broken_quantity_non_tax'] ?? 0 }} {{ $product['unit'] ?? '' }}">
                                     <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
                                 </span>

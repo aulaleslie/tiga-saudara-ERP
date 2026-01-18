@@ -145,8 +145,8 @@
                                                 {{ $adjustedProduct->stock_info['quantity'] }} {{ $adjustedProduct->stock_info['unit'] }}
                                             </span>
                                             <span class="d-inline-block"
-                                                  data-bs-toggle="tooltip"
-                                                  data-bs-placement="top"
+                                                  data-toggle="tooltip"
+                                                  data-placement="top"
                                                   title="Stok Pajak: {{ $adjustedProduct->stock_info['quantity_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Stok Non-Pajak: {{ $adjustedProduct->stock_info['quantity_non_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Rusak Pajak: {{ $adjustedProduct->stock_info['broken_quantity_tax'] }} {{ $adjustedProduct->stock_info['unit'] }} | Rusak Non-Pajak: {{ $adjustedProduct->stock_info['broken_quantity_non_tax'] }} {{ $adjustedProduct->stock_info['unit'] }}">
                                                 <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
                                             </span>

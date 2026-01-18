@@ -40,7 +40,7 @@
                                 <span class="badge badge-success">{{ $cart_item->options->code }}</span>
                                 @if($cart_item->options->bundle_items)
                                     <br>
-                                    <a class="btn btn-link btn-sm p-0" data-bs-toggle="collapse"
+                                    <a class="btn btn-link btn-sm p-0" data-toggle="collapse"
                                        href="#bundleCollapse{{ $cart_item->id }}" role="button" aria-expanded="false"
                                        aria-controls="bundleCollapse{{ $cart_item->id }}">
                                         Lihat Paket Penjualan
@@ -49,8 +49,8 @@
 
                                 <!-- Tooltip Container -->
                                 <span class="d-inline-block"
-                                      data-bs-toggle="tooltip"
-                                      data-bs-placement="top"
+                                      data-toggle="tooltip"
+                                      data-placement="top"
                                       title="Harga Jual Terakhir: 0">
                                     <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
                                 </span>
@@ -75,8 +75,8 @@
 
                             <td class="align-middle text-right">
                                 <span class="badge badge-info"
-                                      data-bs-toggle="tooltip"
-                                      data-bs-placement="top"
+                                      data-toggle="tooltip"
+                                      data-placement="top"
                                       title="Stok Non PPN: {{ $cart_item->options->quantity_non_tax }}, Stok PPN: {{ $cart_item->options->quantity_tax }}">
                                     {{ $cart_item->options->stock . ' ' . $cart_item->options->unit }}
                                 </span>
@@ -103,7 +103,7 @@
                                 <div class="input-group input-group-sm" style="max-width: 180px;">
                                     <!-- Discount Type Dropdown Inside Input Box -->
                                     <button class="btn btn-outline-secondary btn-sm dropdown-toggle px-3" type="button"
-                                            data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false"
+                                            data-toggle="dropdown" data-display="static" aria-expanded="false"
                                             style="font-size: 0.875rem; min-width: 50px;">
                                         {{ $discount_type[$cart_item->id] == 'percentage' ? '%' : 'Rp' }}
                                     </button>
@@ -303,7 +303,7 @@
                 <div class="input-group input-group-sm">
                     <button class="btn btn-outline-secondary dropdown-toggle px-3 h-100"
                             type="button"
-                            data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false"
+                            data-toggle="dropdown" data-display="static" aria-expanded="false"
                             style="font-size: 0.875rem; min-width: 50px; min-height: 31px; padding-top: 0.25rem; padding-bottom: 0.25rem;">
                         {{ $global_discount_type == 'percentage' ? '%' : 'Rp' }}
                     </button>

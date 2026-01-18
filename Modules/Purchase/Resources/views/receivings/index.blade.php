@@ -26,8 +26,8 @@
                                     <tr>
                                         <td class="text-center">
                                             <button class="btn btn-sm btn-outline-primary toggle-details"
-                                                    data-bs-toggle="collapse"
-                                                    data-bs-target="#details-{{ $receivedNote->id }}"
+                                                    data-toggle="collapse"
+                                                    data-target="#details-{{ $receivedNote->id }}"
                                                     aria-expanded="false"
                                                     aria-controls="details-{{ $receivedNote->id }}">
                                                 <i class="bi bi-plus-circle"></i>
@@ -71,7 +71,7 @@
             // Handle Expand/Collapse
             $('#purchase-receivings-table tbody').on('click', 'button.toggle-details', function () {
                 let icon = $(this).find('i');
-                let rowId = $(this).attr('data-bs-target');
+                let rowId = $(this).attr('data-target');
 
                 if ($(rowId).hasClass('show')) {
                     icon.removeClass('bi-dash-circle').addClass('bi-plus-circle'); // Change to plus

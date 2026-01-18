@@ -4,7 +4,9 @@
              <form wire:submit.prevent="save">
                 <div class="modal-header">
                     <h5 class="modal-title" id="productQuickAddModalLabel">Tambah Produk Baru</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" wire:click="closeModal"></button>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" wire:click="closeModal">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
                 </div>
                 <div class="modal-body overflow-auto" style="max-height: 70vh;">
                     <!-- Basic Fields -->
@@ -263,7 +265,7 @@
 
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" wire:click="closeModal">Batal</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal" wire:click="closeModal">Batal</button>
                     <button type="submit" class="btn btn-primary" wire:loading.attr="disabled">Simpan Produk</button>
                 </div>
             </form>
@@ -280,18 +282,11 @@
 <script>
     document.addEventListener('livewire:initialized', () => {
         Livewire.on('openProductModal', () => {
-            const modalEl = document.getElementById('productQuickAddModal');
-            let modal = bootstrap.Modal.getInstance(modalEl);
-            if (!modal) {
-                modal = new bootstrap.Modal(modalEl);
-            }
-            modal.show();
+            $('#productQuickAddModal').modal('show');
         });
 
         Livewire.on('productCreated', () => {
-             const modalEl = document.getElementById('productQuickAddModal');
-             const modal = bootstrap.Modal.getInstance(modalEl);
-             if (modal) modal.hide();
+             $('#productQuickAddModal').modal('hide');
         });
     });
 

@@ -4,15 +4,15 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="confirmationModalLabel">{{ $title ?? 'Konfirmasi' }}</h5>
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" aria-label="Close">
-                    <i class="bi bi-x-lg"></i>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
                 </button>
             </div>
             <div class="modal-body" id="confirmationModalBody">
                 {{ $message ?? 'Apakah Anda yakin?' }}
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
                 <button type="button" class="btn btn-primary" id="confirmModalSubmit">Ya, Lanjutkan</button>
             </div>
         </div>
@@ -79,24 +79,16 @@
         confirmationCallback = callback;
         lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-        if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {
-            console.warn('Bootstrap modal is not available.');
-            return;
-        }
-
-        confirmationModalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
-        confirmationModalInstance.show();
+        $('#confirmationModal').modal('show');
     }
 
     document.addEventListener('DOMContentLoaded', function () {
         const confirmBtn = document.getElementById('confirmModalSubmit');
         const modalEl = document.getElementById('confirmationModal');
 
-        if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
-            confirmationModalElement = modalEl;
-            confirmationModalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
-            modalEl.addEventListener('hide.bs.modal', () => restoreConfirmationFocus(modalEl));
-            modalEl.addEventListener('hidden.bs.modal', () => {
+        if (modalEl) {
+            $(modalEl).on('hide.bs.modal', () => restoreConfirmationFocus(modalEl));
+            $(modalEl).on('hidden.bs.modal', () => {
                 confirmationCallback = null;
             });
         }
@@ -104,9 +96,7 @@
         if (confirmBtn) {
             confirmBtn.addEventListener('click', function () {
                 if (!confirmationCallback) {
-                    if (confirmationModalInstance) {
-                        confirmationModalInstance.hide();
-                    }
+                    $('#confirmationModal').modal('hide');
                     return;
                 }
 
@@ -119,11 +109,7 @@
                     callback();
                 }
 
-                if (confirmationModalInstance) {
-                    confirmationModalInstance.hide();
-                } else if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
-                    bootstrap.Modal.getOrCreateInstance(modalEl).hide();
-                }
+                $('#confirmationModal').modal('hide');
             });
         }
     });

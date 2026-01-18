@@ -59,7 +59,7 @@
         <button type="button"
                 class="btn btn-outline-primary btn-sm ms-1"
                 wire:click="openCreateModal"
-                data-bs-toggle="tooltip"
+                data-toggle="tooltip"
                 title="Tambah unit baru">
             <i class="bi bi-plus-circle"></i>
         </button>

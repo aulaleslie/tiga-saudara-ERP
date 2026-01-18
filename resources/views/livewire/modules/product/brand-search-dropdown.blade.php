@@ -50,7 +50,7 @@
         <button type="button"
                 class="btn btn-outline-primary btn-sm ms-1"
                 onclick="Livewire.dispatch('openBrandModal')"
-                data-bs-toggle="tooltip"
+                data-toggle="tooltip"
                 title="Tambah merek baru">
             <i class="bi bi-plus-circle"></i>
         </button>

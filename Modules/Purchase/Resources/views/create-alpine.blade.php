@@ -120,7 +120,7 @@
                                         </div>
                                         <button type="button" class="btn btn-outline-primary btn-sm ms-1"
                                                 @click="$dispatch('open-supplier-modal')"
-                                                data-bs-toggle="tooltip" title="Tambah pemasok baru">
+                                                data-toggle="tooltip" title="Tambah pemasok baru">
                                             <i class="bi bi-plus-circle"></i>
                                         </button>
                                     </div>
@@ -210,7 +210,7 @@
                                         </div>
                                         <button type="button" class="btn btn-outline-primary btn-sm ms-1"
                                                 @click="$dispatch('open-payment-term-modal')"
-                                                data-bs-toggle="tooltip" title="Tambah term pembayaran baru">
+                                                data-toggle="tooltip" title="Tambah term pembayaran baru">
                                             <i class="bi bi-plus-circle"></i>
                                         </button>
                                     </div>

@@ -41,8 +41,8 @@
 
                                 <!-- Tooltip Container -->
                                 <span class="d-inline-block"
-                                      data-bs-toggle="tooltip"
-                                      data-bs-placement="top"
+                                      data-toggle="tooltip"
+                                      data-placement="top"
                                       title="Harga Beli Rata-Rata: {{ format_currency($cart_item->options->average_purchase_price) }} | Harga Beli Terakhir: {{ format_currency($cart_item->options->last_purchase_price) }}">
                                     <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
                                 </span>
@@ -84,7 +84,7 @@
                                 <div class="input-group input-group-sm" style="max-width: 100%;">
                                     <!-- Discount Type Dropdown Inside Input Box -->
                                     <button class="btn btn-outline-secondary btn-sm dropdown-toggle px-2" type="button"
-                                            data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false"
+                                            data-toggle="dropdown" data-display="static" aria-expanded="false"
                                             style="font-size: 0.875rem; min-width: 35px;">
                                         {{ $discount_type[$cart_item->id] == 'percentage' ? '%' : 'Rp' }}
                                     </button>
@@ -249,7 +249,7 @@
                 <div class="input-group input-group-sm">
                     <button class="btn btn-outline-secondary dropdown-toggle px-3 h-100"
                             type="button"
-                            data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false"
+                            data-toggle="dropdown" data-display="static" aria-expanded="false"
                             style="font-size: 0.875rem; min-width: 50px; min-height: 31px; padding-top: 0.25rem; padding-bottom: 0.25rem;">
                         {{ $global_discount_type == 'percentage' ? '%' : 'Rp' }}
                     </button>

@@ -71,7 +71,7 @@
                     <td class="align-middle text-center position-relative">
                         <div class="input-group input-group-sm" style="max-width: 180px;">
                             <button class="btn btn-outline-secondary btn-sm dropdown-toggle px-3"
-                                    type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                                    type="button" data-toggle="dropdown" aria-expanded="false"
                                     style="font-size: 0.875rem; min-width: 50px;">
                                 <span x-text="item.discount_type == 'percentage' ? '%' : 'Rp'"></span>
                             </button>
@@ -187,7 +187,7 @@
                 <label for="global_discount">Diskon Global</label>
                 <div class="input-group">
                     <button class="btn btn-outline-secondary dropdown-toggle px-3"
-                            type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                            type="button" data-toggle="dropdown" aria-expanded="false"
                             style="min-width: 60px;">
                         <span x-text="globalDiscountType == 'percentage' ? '%' : 'Rp'"></span>
                     </button>

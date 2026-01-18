@@ -65,7 +65,7 @@
                 </div>
                 <button type="button" class="btn btn-outline-primary"
                         @click="$dispatch('open-product-modal')"
-                        data-bs-toggle="tooltip" title="Tambah produk baru">
+                        data-toggle="tooltip" title="Tambah produk baru">
                     <i class="bi bi-plus-circle"></i>
                 </button>
             </div>

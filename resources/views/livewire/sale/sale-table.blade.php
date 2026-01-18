@@ -62,8 +62,8 @@
                        target="_blank" 
                        rel="noopener noreferrer"
                        class="sale-ref-tooltip"
-                       data-bs-toggle="tooltip"
-                       data-bs-placement="top"
+                       data-toggle="tooltip"
+                       data-placement="top"
                        title="{{ $productsTooltip }}">
                         {{ $sale->reference }}
                     </a>
@@ -144,21 +144,11 @@
 @push('scripts')
 <script>
     document.addEventListener('livewire:updated', () => {
-        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-        tooltipTriggerList.forEach((tooltipTriggerEl) => {
-            const existingTooltip = bootstrap.Tooltip.getInstance(tooltipTriggerEl);
-            if (existingTooltip) {
-                existingTooltip.dispose();
-            }
-            new bootstrap.Tooltip(tooltipTriggerEl);
-        });
+        $('[data-toggle="tooltip"]').tooltip('dispose').tooltip();
     });
 
     document.addEventListener('DOMContentLoaded', () => {
-        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-        tooltipTriggerList.forEach((tooltipTriggerEl) => {
-            new bootstrap.Tooltip(tooltipTriggerEl);
-        });
+        $('[data-toggle="tooltip"]').tooltip();
     });
 </script>
 @endpush

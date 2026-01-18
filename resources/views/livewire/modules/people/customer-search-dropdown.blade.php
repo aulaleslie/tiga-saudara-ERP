@@ -53,7 +53,7 @@
         <button type="button"
                 class="btn btn-outline-primary btn-sm ms-1"
                 onclick="Livewire.dispatch('openCustomerModal')"
-                data-bs-toggle="tooltip"
+                data-toggle="tooltip"
                 title="Tambah pelanggan baru">
             <i class="bi bi-plus-circle"></i>
         </button>

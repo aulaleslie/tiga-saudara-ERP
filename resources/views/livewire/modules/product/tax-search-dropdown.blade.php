@@ -61,7 +61,7 @@
             type="button"
             class="btn btn-outline-primary btn-sm ms-1"
             onclick="Livewire.dispatch('openTaxModal')"
-            data-bs-toggle="tooltip"
+            data-toggle="tooltip"
             title="Tambah pajak baru"
             id="{{ $inputId ?? $name }}_add"
             {{ $disabled ? 'disabled' : '' }}
