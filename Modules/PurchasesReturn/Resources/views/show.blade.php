@@ -23,22 +23,22 @@
                             <h4 class="mb-0">Retur Pembelian #{{ $purchase_return->reference }}</h4>
                             <div class="small text-muted">Dibuat pada {{ \Carbon\Carbon::parse($purchase_return->date)->translatedFormat('d F Y') }}</div>
                         </div>
-                        <div class="ms-auto d-flex flex-wrap align-items-center">
-                            <span class="badge bg-secondary text-uppercase me-2 mb-1">{{ $purchase_return->status }}</span>
-                            <span class="badge {{ $approvalStatus === 'approved' ? 'bg-success' : ($approvalStatus === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase me-2 mb-1">{{ $purchase_return->approval_status }}</span>
+                        <div class="ml-auto d-flex flex-wrap align-items-center">
+                            <span class="badge bg-secondary text-uppercase mr-2 mb-1">{{ $purchase_return->status }}</span>
+                            <span class="badge {{ $approvalStatus === 'approved' ? 'bg-success' : ($approvalStatus === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase mr-2 mb-1">{{ $purchase_return->approval_status }}</span>
                             @if($approvalStatus === 'pending' || ($approvalStatus === 'approved' && $dispatchStatus !== 'approved'))
                                 @can('purchaseReturns.edit')
-                                    <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.edit', $purchase_return) }}">
+                                    <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.edit', $purchase_return) }}">
                                         <i class="bi bi-pencil"></i> Edit
                                     </a>
                                 @endcan
                             @endif
                             @if($approvalStatus === 'pending')
                                 @can('purchaseReturns.approval')
-                                    <button type="button" class="btn btn-success btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#approvePurchaseReturnModal">
+                                    <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#approvePurchaseReturnModal">
                                         <i class="bi bi-check2-circle"></i> Setujui
                                     </button>
-                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#rejectPurchaseReturnModal">
+                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#rejectPurchaseReturnModal">
                                         <i class="bi bi-x-circle"></i> Tolak
                                     </button>
                                 @endcan
@@ -47,77 +47,77 @@
                                 @if(!$purchase_return->return_dispatched_at)
                                     @if($dispatchStatus === '' || $dispatchStatus === 'rejected')
                                         @can('purchaseReturns.dispatchRequest')
-                                            <button type="button" class="btn btn-warning btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#dispatchRequestModal">
+                                            <button type="button" class="btn btn-warning btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#dispatchRequestModal">
                                                 <i class="bi bi-truck"></i> Ajukan Dispatch
                                             </button>
                                         @endcan
                                         @if($dispatchStatus === 'rejected')
-                                            <span class="badge bg-danger me-2 mb-1">Dispatch Rejected</span>
+                                            <span class="badge bg-danger mr-2 mb-1">Dispatch Rejected</span>
                                         @endif
                                     @elseif($dispatchStatus === 'pending_approval')
-                                        <span class="badge bg-warning text-dark me-2 mb-1">Dispatch Pending Approval</span>
+                                        <span class="badge bg-warning text-dark mr-2 mb-1">Dispatch Pending Approval</span>
                                         @can('purchaseReturns.dispatchApproval')
-                                            <button type="button" class="btn btn-success btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#approveDispatchModal">
+                                            <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#approveDispatchModal">
                                                 <i class="bi bi-check-circle"></i> Setujui Dispatch
                                             </button>
-                                            <button type="button" class="btn btn-outline-danger btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#rejectDispatchModal">
+                                            <button type="button" class="btn btn-outline-danger btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#rejectDispatchModal">
                                                 <i class="bi bi-x-circle"></i> Tolak Dispatch
                                             </button>
                                         @endcan
                                     @elseif($dispatchStatus === 'approved')
-                                        <span class="badge bg-success me-2 mb-1">Dispatch Approved</span>
+                                        <span class="badge bg-success mr-2 mb-1">Dispatch Approved</span>
                                     @endif
                                 @else
-                                    <span class="badge bg-info text-dark me-2 mb-1">Dispatched: {{ $purchase_return->return_dispatched_at->format('d M Y') }}</span>
+                                    <span class="badge bg-info text-dark mr-2 mb-1">Dispatched: {{ $purchase_return->return_dispatched_at->format('d M Y') }}</span>
                                 @endif
 
                                 @if($dispatchStatus === 'approved')
                                     @canany(['purchaseReturns.edit', 'purchaseReturnSettlements.submit', 'purchaseReturnSettlements.approve', 'purchaseReturnSettlements.execute', 'purchaseReturnSettlements.receive'])
                                         @if($purchase_return->settlement)
                                             @if($purchase_return->settlement->status === 'pending')
-                                                <span class="badge bg-warning text-dark me-2 mb-1">Settlement Pending</span>
+                                                <span class="badge bg-warning text-dark mr-2 mb-1">Settlement Pending</span>
                                                 @can('purchaseReturnSettlements.approve')
                                                     <form method="POST" action="{{ route('purchase-return-settlements.approve', $purchase_return->settlement->id) }}" class="d-inline">
                                                         @csrf
-                                                        <button type="submit" class="btn btn-success btn-sm d-print-none me-2 mb-1" onclick="return confirm('Setujui penyelesaian ini?')">
+                                                        <button type="submit" class="btn btn-success btn-sm d-print-none mr-2 mb-1" onclick="return confirm('Setujui penyelesaian ini?')">
                                                             <i class="bi bi-check-circle"></i> Setuju
                                                         </button>
                                                     </form>
-                                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#rejectSettlementModal">
+                                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#rejectSettlementModal">
                                                         <i class="bi bi-x-circle"></i> Tolak
                                                     </button>
                                                 @endcan
                                             @elseif($purchase_return->settlement->status === 'approved')
-                                                <span class="badge bg-success me-2 mb-1">Settlement Approved</span>
+                                                <span class="badge bg-success mr-2 mb-1">Settlement Approved</span>
                                                 @can('purchaseReturnSettlements.execute')
                                                     <!-- Execution button will be added in Batch 5/6 -->
                                                     <form method="POST" action="{{ route('purchase-return-settlements.execute', $purchase_return->settlement->id) }}" class="d-inline">
                                                         @csrf
-                                                        <button type="submit" class="btn btn-primary btn-sm d-print-none me-2 mb-1" onclick="return confirm('Eksekusi penyelesaian ini? Tindakan ini tidak dapat dibatalkan.')">
+                                                        <button type="submit" class="btn btn-primary btn-sm d-print-none mr-2 mb-1" onclick="return confirm('Eksekusi penyelesaian ini? Tindakan ini tidak dapat dibatalkan.')">
                                                             <i class="bi bi-play-circle"></i> Eksekusi Penyelesaian
                                                         </button>
                                                     </form>
                                                 @endcan
                                             @elseif($purchase_return->settlement->status === 'executing')
-                                                <span class="badge bg-info text-dark me-2 mb-1">Settlement Executing (Awaiting Replacement)</span>
+                                                <span class="badge bg-info text-dark mr-2 mb-1">Settlement Executing (Awaiting Replacement)</span>
                                                 
                                                 {{-- Batch 7: Receive Replacement --}}
                                                 @if($purchase_return->return_dispatched_at && $purchase_return->goods->where('received_quantity', '<', 'quantity')->isNotEmpty())
                                                     @can('purchaseReturnSettlements.receive')
-                                                        <button type="button" class="btn btn-success btn-sm d-print-none me-2 mb-1" data-bs-toggle="modal" data-bs-target="#receiveReplacementModal">
+                                                        <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#receiveReplacementModal">
                                                             <i class="bi bi-box-seam"></i> Terima Barang Pengganti
                                                         </button>
                                                     @endcan
                                                 @endif
                                             @elseif($purchase_return->settlement->status === 'rejected')
-                                                <span class="badge bg-danger me-2 mb-1">Settlement Rejected</span>
-                                                <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
+                                                <span class="badge bg-danger mr-2 mb-1">Settlement Rejected</span>
+                                                <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
                                                     <i class="bi bi-arrow-repeat"></i> Ulangi Penyelesaian
                                                 </a>
                                             @endif
                                         @else
                                             @can('purchaseReturnSettlements.submit')
-                                                <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
+                                                <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.settlement', $purchase_return->id) }}">
                                                     <i class="bi bi-arrow-repeat"></i> Kelola Penyelesaian
                                                 </a>
                                             @endcan
@@ -125,7 +125,7 @@
                                     @endcanany
                                 @endif
                             @endif
-                            <a target="_blank" class="btn btn-outline-primary btn-sm d-print-none me-2 mb-1" href="{{ route('purchase-returns.pdf', $purchase_return->id) }}">
+                            <a target="_blank" class="btn btn-outline-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.pdf', $purchase_return->id) }}">
                                 <i class="bi bi-printer"></i> Cetak
                             </a>
                             <a target="_blank" class="btn btn-outline-secondary btn-sm d-print-none mb-1" href="{{ route('purchase-returns.pdf', $purchase_return->id) }}">
@@ -138,7 +138,7 @@
                             <div class="col-lg-4">
                                 <div class="h-100 border rounded p-3">
                                     <h6 class="text-uppercase text-muted small mb-3">Perusahaan</h6>
-                                    <p class="mb-1 fw-semibold">{{ settings()->company_name }}</p>
+                                    <p class="mb-1 font-weight-bold">{{ settings()->company_name }}</p>
                                     <p class="mb-1">{{ settings()->company_address }}</p>
                                     <p class="mb-1">Email: {{ settings()->company_email }}</p>
                                     <p class="mb-0">Telepon: {{ settings()->company_phone }}</p>
@@ -147,7 +147,7 @@
                             <div class="col-lg-4">
                                 <div class="h-100 border rounded p-3">
                                     <h6 class="text-uppercase text-muted small mb-3">Pemasok</h6>
-                                    <p class="mb-1 fw-semibold">{{ $supplier->supplier_name }}</p>
+                                    <p class="mb-1 font-weight-bold">{{ $supplier->supplier_name }}</p>
                                     <p class="mb-1">{{ $supplier->address }}</p>
                                     <p class="mb-1">Email: {{ $supplier->supplier_email }}</p>
                                     <p class="mb-0">Telepon: {{ $supplier->supplier_phone }}</p>
@@ -158,20 +158,20 @@
                                     <h6 class="text-uppercase text-muted small mb-3">Ringkasan Dokumen</h6>
                                     <dl class="row mb-0 small">
                                         <dt class="col-5 text-muted">Invoice</dt>
-                                        <dd class="col-7 fw-semibold">INV/{{ $purchase_return->reference }}</dd>
+                                        <dd class="col-7 font-weight-bold">INV/{{ $purchase_return->reference }}</dd>
                                         @if($purchase_return->location_id)
                                             <dt class="col-5 text-muted">Lokasi</dt>
-                                            <dd class="col-7 fw-semibold">{{ $purchase_return->location->name ?? '-' }}</dd>
+                                            <dd class="col-7 font-weight-bold">{{ $purchase_return->location->name ?? '-' }}</dd>
                                         @endif
                                         <dt class="col-5 text-muted">Metode</dt>
-                                        <dd class="col-7 fw-semibold">{{ $purchase_return->return_type ? ucfirst($purchase_return->return_type) : 'Belum ditentukan' }}</dd>
+                                        <dd class="col-7 font-weight-bold">{{ $purchase_return->return_type ? ucfirst($purchase_return->return_type) : 'Belum ditentukan' }}</dd>
                                         <dt class="col-5 text-muted">Status Penyelesaian</dt>
-                                        <dd class="col-7 fw-semibold">
+                                        <dd class="col-7 font-weight-bold">
                                             @include('purchasesreturn::partials.settlement-status', ['data' => $purchase_return])
                                         </dd>
                                         @if($purchase_return->settled_at)
                                             <dt class="col-5 text-muted">Tanggal Selesai</dt>
-                                            <dd class="col-7 fw-semibold">{{ $purchase_return->settled_at->translatedFormat('d F Y H:i') }}</dd>
+                                            <dd class="col-7 font-weight-bold">{{ $purchase_return->settled_at->translatedFormat('d F Y H:i') }}</dd>
                                         @endif
                                     </dl>
                                 </div>
@@ -200,7 +200,7 @@
                                         @foreach($purchase_return->purchaseReturnDetails as $item)
                                             <tr>
                                                 <td>
-                                                    <div class="fw-semibold">{{ $item->product_name }}</div>
+                                                    <div class="font-weight-bold">{{ $item->product_name }}</div>
                                                     <small class="badge bg-success">{{ $item->product_code }}</small>
                                                     @if($item->getSerialNumbers()->isNotEmpty())
                                                         <div class="mt-1">
@@ -211,14 +211,14 @@
                                                     @endif
                                                 </td>
                                                 <td>
-                                                    <div class="fw-semibold">{{ $item->location?->setting?->company_name ?? 'N/A' }}</div>
+                                                    <div class="font-weight-bold">{{ $item->location?->setting?->company_name ?? 'N/A' }}</div>
                                                     <small class="text-muted">{{ $item->location?->name ?? '-' }}</small>
                                                 </td>
                                                 <td class="text-center">{{ format_currency($item->unit_price) }}</td>
                                                 <td class="text-center">{{ $item->quantity }}</td>
                                                 <td class="text-end">{{ format_currency($item->product_discount_amount) }}</td>
                                                 <td class="text-end">{{ format_currency($item->product_tax_amount) }}</td>
-                                                <td class="text-end fw-semibold">{{ format_currency($item->sub_total) }}</td>
+                                                <td class="text-end font-weight-bold">{{ format_currency($item->sub_total) }}</td>
                                             </tr>
                                         @endforeach
                                     </tbody>
@@ -236,7 +236,7 @@
                                         @foreach($purchase_return->purchaseReturnDetails as $item)
                                             <tr>
                                                 <td>
-                                                    <div class="fw-semibold">{{ $item->product_name }}</div>
+                                                    <div class="font-weight-bold">{{ $item->product_name }}</div>
                                                     <small class="badge bg-success">{{ $item->product_code }}</small>
                                                     @if($item->getSerialNumbers()->isNotEmpty())
                                                         <div class="mt-1">
@@ -247,7 +247,7 @@
                                                     @endif
                                                 </td>
                                                 <td>
-                                                    <div class="fw-semibold">{{ $item->location?->setting?->company_name ?? 'N/A' }}</div>
+                                                    <div class="font-weight-bold">{{ $item->location?->setting?->company_name ?? 'N/A' }}</div>
                                                     <small class="text-muted">{{ $item->location?->name ?? '-' }}</small>
                                                 </td>
                                                 <td class="text-center">{{ $item->quantity }}</td>
@@ -275,7 +275,7 @@
                                                 <span>Biaya Pengiriman</span>
                                                 <span>{{ format_currency($purchase_return->shipping_amount) }}</span>
                                             </li>
-                                            <li class="d-flex justify-content-between py-2 border-top mt-2 fw-semibold">
+                                            <li class="d-flex justify-content-between py-2 border-top mt-2 font-weight-bold">
                                                 <span>Total</span>
                                                 <span>{{ format_currency($purchase_return->total_amount) }}</span>
                                             </li>
@@ -309,7 +309,7 @@
                                                 @foreach($purchase_return->goods as $good)
                                                     <tr>
                                                         <td>
-                                                            <div class="fw-semibold">{{ $good->product_name }}</div>
+                                                            <div class="font-weight-bold">{{ $good->product_name }}</div>
                                                             <small class="text-muted">{{ $good->product_code }}</small>
                                                         </td>
                                                         <td class="text-center">{{ $good->quantity }}</td>
@@ -331,7 +331,7 @@
                                                 @foreach($purchase_return->goods as $good)
                                                     <tr>
                                                         <td>
-                                                            <div class="fw-semibold">{{ $good->product_name }}</div>
+                                                            <div class="font-weight-bold">{{ $good->product_name }}</div>
                                                             <small class="text-muted">{{ $good->product_code }}</small>
                                                         </td>
                                                         <td class="text-center">{{ $good->quantity }}</td>
@@ -394,7 +394,7 @@
                     @csrf
                     <div class="modal-header">
                         <h5 class="modal-title" id="receiveReplacementModalLabel">Terima Barang Pengganti</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
                         <div class="table-responsive">
@@ -415,7 +415,7 @@
                                         @if($remaining > 0)
                                             <tr>
                                                 <td>
-                                                    <div class="fw-semibold">{{ $good->product_name }}</div>
+                                                    <div class="font-weight-bold">{{ $good->product_name }}</div>
                                                     <small class="text-muted">{{ $good->product_code }}</small>
                                                     <input type="hidden" name="items[{{ $index }}][id]" value="{{ $good->id }}">
                                                     
@@ -446,7 +446,7 @@
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
                         <button type="submit" class="btn btn-primary" onclick="return confirm('Pastikan data yang dimasukkan sudah benar.')">Simpan Penerimaan</button>
                     </div>
                 </form>

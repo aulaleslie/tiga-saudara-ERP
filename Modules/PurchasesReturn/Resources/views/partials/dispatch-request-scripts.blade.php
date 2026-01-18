@@ -114,8 +114,9 @@
             var triggerBtn = document.getElementById('dispatch-request-confirm-trigger');
             var submitBtn = document.getElementById('dispatch-request-confirm-submit');
 
-            if (requestModalEl && confirmModalEl && triggerBtn && window.bootstrap && bootstrap.Modal) {
-                var confirmModal = bootstrap.Modal.getOrCreateInstance(confirmModalEl);
+            if (requestModalEl && confirmModalEl && triggerBtn) {
+                var $confirmModal = $(confirmModalEl);
+                var $requestModal = $(requestModalEl);
 
                 triggerBtn.addEventListener('click', function () {
                     if (form && !form.checkValidity()) {
@@ -130,7 +131,7 @@
                         return;
                     }
 
-                    confirmModal.show();
+                    $confirmModal.modal('show');
                 });
 
                 if (submitBtn) {
@@ -144,7 +145,7 @@
                     });
                 }
 
-                confirmModalEl.addEventListener('show.bs.modal', function () {
+                $confirmModal.on('show.bs.modal', function () {
                     var zIndex = 1070;
                     confirmModalEl.style.zIndex = zIndex;
                     window.setTimeout(function () {
@@ -156,7 +157,7 @@
                     }, 0);
                 });
 
-                confirmModalEl.addEventListener('hidden.bs.modal', function () {
+                $confirmModal.on('hidden.bs.modal', function () {
                     if (requestModalEl.classList.contains('show')) {
                         document.body.classList.add('modal-open');
                     }
@@ -164,8 +165,7 @@
                 });
 
                 @if($errors->has('return_awb_attachments') || $errors->has('return_dispatch_note') || $errors->has('return_shipping_amount'))
-                    var requestModal = bootstrap.Modal.getOrCreateInstance(requestModalEl);
-                    requestModal.show();
+                    $requestModal.modal('show');
                 @endif
             }
 

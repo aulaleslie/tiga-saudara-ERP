@@ -6,7 +6,9 @@
                     @csrf
                     <div class="modal-header">
                         <h5 class="modal-title" id="dispatchRequestModalLabel">Ajukan Dispatch Retur</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
                     </div>
                     <div class="modal-body">
                         <div class="row g-3">
@@ -39,7 +41,7 @@
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
                         <button type="button" class="btn btn-primary" id="dispatch-request-confirm-trigger">Ajukan</button>
                     </div>
                 </form>

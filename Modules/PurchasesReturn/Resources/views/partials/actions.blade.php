@@ -48,7 +48,7 @@
             </a>
         @endcan
 
-        @if($approvalStatus === 'approved')
+        @if($dispatchStatus === 'approved')
             @can('purchaseReturnSettlements.submit')
                 <a href="{{ route('purchase-returns.settlement', $data->id) }}" class="dropdown-item d-flex align-items-center">
                     <i class="bi bi-arrow-repeat text-primary me-2"></i> <span>Kelola Penyelesaian</span>
