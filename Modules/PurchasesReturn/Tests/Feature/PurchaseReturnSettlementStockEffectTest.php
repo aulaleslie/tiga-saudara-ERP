@@ -10,6 +10,9 @@ use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\Transaction;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
@@ -101,6 +104,32 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             'payment_method' => 'Cash',
         ]);
 
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 10,
+            'unit_price' => 500,
+            'price' => 500,
+            'product_discount_amount' => 0,
+            'sub_total' => 5000,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now()->toDateString(),
+            'location_id' => $this->location->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+
+        $receivedDetail = ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 2,
+        ]);
+
         // 3. Setup Purchase Return
         $pr = PurchaseReturn::create([
             'date' => now()->toDateString(),
@@ -154,6 +183,12 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             ->first();
         $this->assertEquals(8, $stock->quantity);
 
+        $purchaseDetail->refresh();
+        $this->assertEquals(8, (int) $purchaseDetail->quantity);
+
+        $receivedDetail->refresh();
+        $this->assertEquals(0, (int) $receivedDetail->quantity_received);
+
         $this->assertDatabaseHas('transactions', [
             'product_id' => $product->id,
             'type' => 'PURCHASE_RETURN_SETTLEMENT',
@@ -164,7 +199,9 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
         ]);
 
         $purchase->refresh();
+        $this->assertEquals(4000, (float) $purchase->total_amount);
         $this->assertEquals(3000, (float) $purchase->due_amount);
+        $this->assertEquals(1000, (float) $purchase->paid_amount);
     }
 
     /** @test */
@@ -197,7 +234,6 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             'serial_number' => 'SN-001',
             'status' => 'active',
             'location_id' => $this->location->id,
-            'received_note_detail_id' => 123, // dummy link
         ]);
 
         // 2. Setup Purchase Return
@@ -247,6 +283,34 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             'payment_method' => 'Cash',
         ]);
 
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 10,
+            'unit_price' => 500,
+            'price' => 500,
+            'product_discount_amount' => 0,
+            'sub_total' => 5000,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now()->toDateString(),
+            'location_id' => $this->location->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+
+        $receivedDetail = ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 1,
+        ]);
+
+        $sn->update(['received_note_detail_id' => $receivedDetail->id]);
+
         $item = PurchaseReturnItemSettlement::create([
             'purchase_return_id' => $pr->id,
             'purchase_return_detail_id' => $detail->id,
@@ -273,5 +337,14 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             ->where('location_id', $this->location->id)
             ->first();
         $this->assertEquals(4, $stock->quantity);
+
+        $purchaseDetail->refresh();
+        $this->assertEquals(9, (int) $purchaseDetail->quantity);
+
+        $receivedDetail->refresh();
+        $this->assertEquals(0, (int) $receivedDetail->quantity_received);
+
+        $purchase->refresh();
+        $this->assertEquals(4500, (float) $purchase->total_amount);
     }
 }

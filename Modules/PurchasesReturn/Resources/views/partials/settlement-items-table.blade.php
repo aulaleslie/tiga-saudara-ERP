@@ -46,8 +46,16 @@
                             @if($item->method)
                                 @php 
                                     $methodKey = strtoupper(str_replace(' ', '_', trim($item->method))); 
+                                    $isPurchaseLinked = in_array($methodKey, ['MODIFY_PURCHASE', 'CREDIT'], true);
+                                    $targetPurchase = $item->targetPurchase;
                                 @endphp
                                 <span class="font-weight-normal text-primary">{{ $methodLabels[$methodKey] ?? $methodLabels[$item->method] ?? $item->method }}</span>
+                                @if($isPurchaseLinked)
+                                    <div class="small text-muted mt-1">
+                                        <div>Nomor Pembelian Supplier: {{ $targetPurchase?->supplier_purchase_number ?: '-' }}</div>
+                                        <div>Referensi: {{ $targetPurchase?->reference ?: '-' }}</div>
+                                    </div>
+                                @endif
                             @else
                                 <span class="text-muted small italic">Belum ditentukan</span>
                             @endif
@@ -131,6 +139,19 @@
                             {{ $methodLabels[$methodKey] ?? $methodLabels[$item->method] ?? $item->method }}
                         </div>
                     </div>
+                    @if(in_array($methodKey, ['MODIFY_PURCHASE', 'CREDIT'], true))
+                        @php
+                            $targetPurchase = $item->targetPurchase;
+                        @endphp
+                        <div class="row mb-3">
+                            <div class="col-sm-4"><strong>Nomor Pembelian Supplier:</strong></div>
+                            <div class="col-sm-8">{{ $targetPurchase?->supplier_purchase_number ?: '-' }}</div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-sm-4"><strong>Referensi:</strong></div>
+                            <div class="col-sm-8">{{ $targetPurchase?->reference ?: '-' }}</div>
+                        </div>
+                    @endif
                     <div class="row mb-3">
                         <div class="col-sm-4"><strong>Nominal:</strong></div>
                         <div class="col-sm-8">{{ format_currency($item->getEffectiveNominal()) }}</div>

@@ -13,6 +13,9 @@ use Modules\Setting\Entities\Location;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\Category;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 
 class PurchaseReturnApprovalTest extends TestCase
 {
@@ -145,6 +148,32 @@ class PurchaseReturnApprovalTest extends TestCase
             'setting_id' => $this->setting->id,
         ]);
 
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 5,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'sub_total' => 5000,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now()->toDateString(),
+            'location_id' => $this->location->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 1,
+        ]);
+
         $purchaseReturn = PurchaseReturn::create([
             'date' => now(),
             'reference' => 'PRRN-EXEC',
@@ -200,8 +229,9 @@ class PurchaseReturnApprovalTest extends TestCase
         $this->assertEquals('COMPLETED', $settlement->status);
 
         $purchase->refresh();
-        $this->assertEquals(3000, (float)$purchase->due_amount); // 4000 - 1000
-        $this->assertEquals(2000, (float)$purchase->paid_amount); // 1000 + 1000
+        $this->assertEquals(4000, (float)$purchase->total_amount);
+        $this->assertEquals(3000, (float)$purchase->due_amount);
+        $this->assertEquals(1000, (float)$purchase->paid_amount);
 
         $purchaseReturn->refresh();
         $this->assertEquals('COMPLETED', $purchaseReturn->status);

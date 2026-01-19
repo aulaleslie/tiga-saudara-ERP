@@ -7,6 +7,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
@@ -175,6 +178,32 @@ class PurchaseReturnItemApprovalTest extends TestCase
 
         $pr = $this->createPurchaseReturn(1000);
         $detail = $this->createDetail($pr, 1000);
+
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $detail->product_id,
+            'product_name' => $detail->product_name,
+            'product_code' => $detail->product_code,
+            'quantity' => 5,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'sub_total' => 5000,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now()->toDateString(),
+            'location_id' => $this->location->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 1,
+        ]);
         $item = PurchaseReturnItemSettlement::create([
             'purchase_return_id' => $pr->id,
             'purchase_return_detail_id' => $detail->id,
@@ -190,8 +219,9 @@ class PurchaseReturnItemApprovalTest extends TestCase
         $this->assertEquals('APPROVED', $item->fresh()->status);
         
         $purchase = $purchase->fresh();
+        $this->assertEquals(4000, (float) $purchase->total_amount);
         $this->assertEquals(3000, (float) $purchase->due_amount);
-        $this->assertEquals(2000, (float) $purchase->paid_amount);
+        $this->assertEquals(1000, (float) $purchase->paid_amount);
     }
 
     /** @test */

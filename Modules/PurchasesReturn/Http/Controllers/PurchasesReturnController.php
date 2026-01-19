@@ -133,6 +133,7 @@ class PurchasesReturnController extends Controller
             'settlement',
             'settlementItems.detail',
             'settlementItems.serialNumber',
+            'settlementItems.targetPurchase',
         ]);
         $supplier = Supplier::findOrFail($purchase_return->supplier_id);
         $locations = \Modules\Setting\Entities\Location::with('setting')->get();

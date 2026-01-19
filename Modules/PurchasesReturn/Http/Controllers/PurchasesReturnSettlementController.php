@@ -6,6 +6,9 @@ use Illuminate\Routing\Controller;
 use Illuminate\Http\Request;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnSettlement;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 
 class PurchasesReturnSettlementController extends Controller
 {
@@ -291,74 +294,113 @@ class PurchasesReturnSettlementController extends Controller
         switch ($method) {
             case 'MODIFY_PURCHASE':
                 if ($item->target_purchase_id) {
-                    $purchase = \Modules\Purchase\Entities\Purchase::findOrFail($item->target_purchase_id);
-                    $amountToReduce = min($itemAmount, (float) $purchase->due_amount);
-                    
-                    if ($amountToReduce > 0) {
-                        $purchase->decrement('due_amount', $amountToReduce);
-                        $purchase->increment('paid_amount', $amountToReduce);
-                        
-                        // Deduct stock
-                        $detail = $item->detail;
-                        if ($detail && $detail->product_id) {
-                            $product = \Modules\Product\Entities\Product::find($detail->product_id);
-                            if ($product) {
-                                $qtyToDeduct = $item->product_serial_number_id ? 1 : ($detail->quantity ?? 1);
-                                $locationId = $detail->location_id ?? $purchaseReturn->location_id;
-                                
-                                // Update Product global quantity
-                                $previousQtyGlobal = $product->product_quantity;
-                                $product->decrement('product_quantity', $qtyToDeduct);
-                                
-                                // Update ProductStock (location specific)
-                                $productStock = \Modules\Product\Entities\ProductStock::where('product_id', $product->id)
-                                    ->where('location_id', $locationId)
-                                    ->first();
-                                
-                                $prevQtyAtLocation = 0;
-                                if ($productStock) {
-                                    $prevQtyAtLocation = $productStock->quantity;
-                                    $productStock->decrement('quantity', $qtyToDeduct);
-                                }
+                    $purchase = \Modules\Purchase\Entities\Purchase::with('purchaseDetails')
+                        ->lockForUpdate()
+                        ->findOrFail($item->target_purchase_id);
 
-                                // Handle serial number return
-                                $isTaxable = false;
-                                if ($item->product_serial_number_id) {
-                                    $sn = \Modules\Product\Entities\ProductSerialNumber::find($item->product_serial_number_id);
-                                    if ($sn) {
-                                        $isTaxable = $sn->tax_id !== null;
-                                        $sn->update([
-                                            'status' => 'RETURNED',
-                                            'received_note_detail_id' => null,
-                                        ]);
-                                    }
-                                }
+                    $detail = $item->detail;
+                    if (! $detail || ! $detail->product_id) {
+                        throw new \Exception('Detail retur tidak ditemukan untuk penyesuaian nota pembelian.');
+                    }
 
-                                // Create transaction record
-                                \Modules\Product\Entities\Transaction::create([
-                                    'product_id' => $product->id,
-                                    'setting_id' => $purchaseReturn->setting_id,
-                                    'type' => 'PURCHASE_RETURN_SETTLEMENT',
-                                    'quantity' => -$qtyToDeduct,
-                                    'current_quantity' => $product->fresh()->product_quantity,
-                                    'location_id' => $locationId,
-                                    'user_id' => auth()->id(),
-                                    'reason' => "Settlement retur: {$purchaseReturn->reference}",
-                                    'previous_quantity' => $previousQtyGlobal,
-                                    'after_quantity' => $product->fresh()->product_quantity,
-                                    'previous_quantity_at_location' => $prevQtyAtLocation,
-                                    'after_quantity_at_location' => $productStock ? $productStock->fresh()->quantity : 0,
-                                    'quantity_tax' => $isTaxable ? -$qtyToDeduct : 0,
-                                    'quantity_non_tax' => !$isTaxable ? -$qtyToDeduct : 0,
-                                    'broken_quantity_tax' => 0,
-                                    'broken_quantity_non_tax' => 0,
+                    $returnQty = $this->resolveReturnQuantity($item, $detail);
+                    if ($returnQty <= 0) {
+                        break;
+                    }
+
+                    $previousTotal = (float) $purchase->total_amount;
+
+                    $serial = null;
+                    if ($item->product_serial_number_id) {
+                        $serial = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail'])
+                            ->lockForUpdate()
+                            ->find($item->product_serial_number_id);
+                    }
+
+                    if ($serial && $serial->receivedNoteDetail && $serial->receivedNoteDetail->purchaseDetail) {
+                        $purchaseDetail = $serial->receivedNoteDetail->purchaseDetail;
+                        if ((int) $purchaseDetail->purchase_id !== (int) $purchase->id) {
+                            throw new \Exception('Nota pembelian target tidak sesuai dengan asal serial number.');
+                        }
+
+                        $this->ensurePurchaseDetailHasQuantity($purchaseDetail, $returnQty);
+                        $this->reducePurchaseDetailAmounts($purchaseDetail, $returnQty);
+                        $this->reduceReceivedNoteDetailQuantity($serial->receivedNoteDetail, $returnQty);
+                    } else {
+                        $purchaseDetails = $purchase->purchaseDetails->where('product_id', $detail->product_id);
+                        if ($purchaseDetails->isEmpty()) {
+                            throw new \Exception('Produk tidak ditemukan pada nota pembelian target.');
+                        }
+
+                        $this->ensurePurchaseDetailsHaveQuantity($purchaseDetails, $returnQty);
+                        $this->reducePurchaseDetailCollection($purchaseDetails, $returnQty);
+                    }
+
+                    $this->recalculatePurchaseTotals($purchase);
+
+                    $purchase->refresh();
+                    $reductionAmount = max(0, $previousTotal - (float) $purchase->total_amount);
+                    if ($reductionAmount > 0 && (float) $item->nominal !== $reductionAmount) {
+                        $item->update(['nominal' => $reductionAmount]);
+                    }
+
+                    // Deduct stock
+                    $product = \Modules\Product\Entities\Product::find($detail->product_id);
+                    if ($product) {
+                        $qtyToDeduct = $returnQty;
+                        $locationId = $detail->location_id ?? $purchaseReturn->location_id;
+
+                        // Update Product global quantity
+                        $previousQtyGlobal = $product->product_quantity;
+                        $product->decrement('product_quantity', $qtyToDeduct);
+
+                        // Update ProductStock (location specific)
+                        $productStock = \Modules\Product\Entities\ProductStock::where('product_id', $product->id)
+                            ->where('location_id', $locationId)
+                            ->first();
+
+                        $prevQtyAtLocation = 0;
+                        if ($productStock) {
+                            $prevQtyAtLocation = $productStock->quantity;
+                            $productStock->decrement('quantity', $qtyToDeduct);
+                        }
+
+                        // Handle serial number return
+                        $isTaxable = false;
+                        if ($item->product_serial_number_id) {
+                            $sn = \Modules\Product\Entities\ProductSerialNumber::find($item->product_serial_number_id);
+                            if ($sn) {
+                                $isTaxable = $sn->tax_id !== null;
+                                $sn->update([
+                                    'status' => 'RETURNED',
+                                    'received_note_detail_id' => null,
+                                    'is_in_return_process' => false,
+                                    'purchase_return_id' => $purchaseReturn->id,
                                 ]);
                             }
+                        } elseif ($detail->product_tax_amount > 0) {
+                            $isTaxable = true;
                         }
-                        
-                        if ($purchase->fresh()->due_amount <= 0.01) {
-                            $purchase->update(['payment_status' => 'Paid']);
-                        }
+
+                        // Create transaction record
+                        \Modules\Product\Entities\Transaction::create([
+                            'product_id' => $product->id,
+                            'setting_id' => $purchaseReturn->setting_id,
+                            'type' => 'PURCHASE_RETURN_SETTLEMENT',
+                            'quantity' => -$qtyToDeduct,
+                            'current_quantity' => $product->fresh()->product_quantity,
+                            'location_id' => $locationId,
+                            'user_id' => auth()->id(),
+                            'reason' => "Settlement retur: {$purchaseReturn->reference}",
+                            'previous_quantity' => $previousQtyGlobal,
+                            'after_quantity' => $product->fresh()->product_quantity,
+                            'previous_quantity_at_location' => $prevQtyAtLocation,
+                            'after_quantity_at_location' => $productStock ? $productStock->fresh()->quantity : 0,
+                            'quantity_tax' => $isTaxable ? -$qtyToDeduct : 0,
+                            'quantity_non_tax' => ! $isTaxable ? -$qtyToDeduct : 0,
+                            'broken_quantity_tax' => 0,
+                            'broken_quantity_non_tax' => 0,
+                        ]);
                     }
                 }
                 break;
@@ -402,6 +444,185 @@ class PurchasesReturnSettlementController extends Controller
                 // No immediate financial effect at approval time
                 break;
         }
+    }
+
+    protected function resolveReturnQuantity(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $item, $detail): int
+    {
+        if ($item->product_serial_number_id) {
+            return 1;
+        }
+
+        return max(0, (int) ($detail->quantity ?? 0));
+    }
+
+    protected function ensurePurchaseDetailHasQuantity(PurchaseDetail $detail, int $returnQty): void
+    {
+        $available = max(0, (int) $detail->quantity);
+        if ($returnQty > $available) {
+            throw new \Exception('Jumlah retur melebihi kuantitas pesanan pada nota pembelian target.');
+        }
+
+        $receivedQty = (int) ReceivedNoteDetail::where('po_detail_id', $detail->id)
+            ->whereHas('receivedNote', function ($query) {
+                $query->where('status', ReceivedNote::STATUS_APPROVED);
+            })
+            ->sum('quantity_received');
+
+        if ($returnQty > $receivedQty) {
+            throw new \Exception('Jumlah retur melebihi kuantitas diterima pada nota pembelian target.');
+        }
+    }
+
+    protected function ensurePurchaseDetailsHaveQuantity($details, int $returnQty): void
+    {
+        $totalOrdered = (int) $details->sum('quantity');
+        if ($returnQty > $totalOrdered) {
+            throw new \Exception('Jumlah retur melebihi kuantitas pesanan pada nota pembelian target.');
+        }
+
+        $detailIds = $details->pluck('id')->values()->all();
+        $receivedQty = (int) ReceivedNoteDetail::whereIn('po_detail_id', $detailIds)
+            ->whereHas('receivedNote', function ($query) {
+                $query->where('status', ReceivedNote::STATUS_APPROVED);
+            })
+            ->sum('quantity_received');
+
+        if ($returnQty > $receivedQty) {
+            throw new \Exception('Jumlah retur melebihi kuantitas diterima pada nota pembelian target.');
+        }
+    }
+
+    protected function reducePurchaseDetailAmounts(PurchaseDetail $detail, int $returnQty): void
+    {
+        $currentQty = (int) $detail->quantity;
+        if ($returnQty <= 0 || $currentQty <= 0) {
+            return;
+        }
+
+        $newQty = max(0, $currentQty - $returnQty);
+        $perUnitSubTotal = $currentQty > 0 ? ((float) $detail->sub_total / $currentQty) : 0;
+        $perUnitDiscount = $currentQty > 0 ? ((float) $detail->product_discount_amount / $currentQty) : 0;
+        $perUnitTax = $currentQty > 0 ? ((float) $detail->product_tax_amount / $currentQty) : 0;
+
+        $detail->update([
+            'quantity' => $newQty,
+            'sub_total' => round($perUnitSubTotal * $newQty, 2),
+            'product_discount_amount' => round($perUnitDiscount * $newQty, 2),
+            'product_tax_amount' => round($perUnitTax * $newQty, 2),
+        ]);
+    }
+
+    protected function reduceReceivedNoteDetailQuantity(ReceivedNoteDetail $detail, int $returnQty): void
+    {
+        $currentQty = (int) $detail->quantity_received;
+        if ($returnQty <= 0 || $currentQty <= 0) {
+            return;
+        }
+
+        if ($returnQty > $currentQty) {
+            throw new \Exception('Jumlah retur melebihi kuantitas diterima pada nota pembelian target.');
+        }
+
+        $detail->update([
+            'quantity_received' => $currentQty - $returnQty,
+        ]);
+    }
+
+    protected function reducePurchaseDetailCollection($details, int $returnQty): void
+    {
+        $remaining = $returnQty;
+
+        foreach ($details as $detail) {
+            if ($remaining <= 0) {
+                break;
+            }
+
+            $available = (int) $detail->quantity;
+            if ($available <= 0) {
+                continue;
+            }
+
+            $deduct = min($remaining, $available);
+            $this->reducePurchaseDetailAmounts($detail, $deduct);
+            $this->reduceReceivedQuantitiesForDetail($detail, $deduct);
+            $remaining -= $deduct;
+        }
+
+        if ($remaining > 0) {
+            throw new \Exception('Jumlah retur melebihi kuantitas pesanan pada nota pembelian target.');
+        }
+    }
+
+    protected function reduceReceivedQuantitiesForDetail(PurchaseDetail $detail, int $returnQty): void
+    {
+        $remaining = $returnQty;
+        if ($remaining <= 0) {
+            return;
+        }
+
+        $receivedDetails = ReceivedNoteDetail::where('po_detail_id', $detail->id)
+            ->whereHas('receivedNote', function ($query) {
+                $query->where('status', ReceivedNote::STATUS_APPROVED);
+            })
+            ->orderByDesc('id')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($receivedDetails as $receivedDetail) {
+            if ($remaining <= 0) {
+                break;
+            }
+
+            $available = (int) $receivedDetail->quantity_received;
+            if ($available <= 0) {
+                continue;
+            }
+
+            $deduct = min($remaining, $available);
+            $receivedDetail->update([
+                'quantity_received' => $available - $deduct,
+            ]);
+            $remaining -= $deduct;
+        }
+
+        if ($remaining > 0) {
+            throw new \Exception('Jumlah retur melebihi kuantitas diterima pada nota pembelian target.');
+        }
+    }
+
+    protected function recalculatePurchaseTotals(\Modules\Purchase\Entities\Purchase $purchase): void
+    {
+        $purchase->load('purchaseDetails');
+
+        $subtotal = (float) $purchase->purchaseDetails->sum('sub_total');
+        $taxTotal = (float) $purchase->purchaseDetails->sum('product_tax_amount');
+        $shipping = (float) $purchase->shipping_amount;
+
+        $isTaxIncluded = (bool) $purchase->is_tax_included;
+        $baseTotal = $isTaxIncluded ? $subtotal : ($subtotal + $taxTotal);
+
+        $discountAmount = (float) $purchase->discount_amount;
+        if ((float) $purchase->discount_percentage > 0) {
+            $discountAmount = round($baseTotal * ((float) $purchase->discount_percentage / 100), 2);
+        }
+
+        if ($discountAmount > $baseTotal) {
+            $discountAmount = $baseTotal;
+        }
+
+        $grandTotal = max($baseTotal - $discountAmount + $shipping, 0);
+        $paidAmount = (float) $purchase->paid_amount;
+        $dueAmount = max($grandTotal - $paidAmount, 0);
+        $paymentStatus = $dueAmount <= 0.01 ? 'Paid' : ($paidAmount > 0 ? 'Partial' : 'Unpaid');
+
+        $purchase->fill([
+            'tax_amount' => $taxTotal,
+            'discount_amount' => $discountAmount,
+            'total_amount' => $grandTotal,
+            'due_amount' => $dueAmount,
+            'payment_status' => $paymentStatus,
+        ]);
+        $purchase->save();
     }
 
     public function dispatchStock(PurchaseReturnSettlement $settlement)
