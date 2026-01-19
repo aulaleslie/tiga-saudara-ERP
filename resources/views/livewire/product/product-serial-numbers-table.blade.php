@@ -76,7 +76,10 @@
                 </tbody>
             </table>
         </div>
-        <div class="mt-3">
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mt-3">
+            <div class="mb-2 mb-md-0">
+                {{ $serialNumbers->links() }}
+            </div>
             <a href="{{ route('products.index') }}" class="btn btn-secondary">Kembali</a>
         </div>
     </div>

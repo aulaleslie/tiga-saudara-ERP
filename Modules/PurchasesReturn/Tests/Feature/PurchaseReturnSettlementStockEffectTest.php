@@ -191,7 +191,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
 
         $this->assertDatabaseHas('transactions', [
             'product_id' => $product->id,
-            'type' => 'PURCHASE_RETURN_SETTLEMENT',
+            'type' => 'PURCHASE_RETURN',
             'quantity' => -2,
             'current_quantity' => 8,
             'location_id' => $this->location->id,

@@ -6,16 +6,22 @@ use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Livewire\Component;
+use Livewire\WithPagination;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Setting;
 
 class ProductSerialNumbersTable extends Component
 {
+    use WithPagination;
+
     public $productId;
     public $searchQuery = '';
     public $editingId = null;
     public $editingValue = '';
     public $errorMessage = '';
+    public int $perPage = 10;
+
+    protected string $paginationTheme = 'bootstrap';
 
     public function mount($productId): void
     {
@@ -35,7 +41,7 @@ class ProductSerialNumbersTable extends Component
 
     public function updatedSearchQuery(): void
     {
-        // Automatically triggers re-render
+        $this->resetPage();
     }
 
     public function startEdit($id, $currentValue): void
@@ -110,6 +116,10 @@ class ProductSerialNumbersTable extends Component
 
         $query = ProductSerialNumber::where('product_id', $this->productId)
             ->whereNull('dispatch_detail_id')
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhereRaw('UPPER(status) != ?', ['RETURNED']);
+            })
             ->whereHas('location', function ($q) use ($settingId) {
                 $q->where('setting_id', $settingId);
             })
@@ -119,7 +129,7 @@ class ProductSerialNumbersTable extends Component
             $query->where('serial_number', 'like', '%' . $this->searchQuery . '%');
         }
 
-        return $query->orderBy('serial_number')->get();
+        return $query->orderBy('serial_number')->paginate($this->perPage);
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
@@ -129,4 +139,3 @@ class ProductSerialNumbersTable extends Component
         ]);
     }
 }
-

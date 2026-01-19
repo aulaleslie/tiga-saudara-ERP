@@ -386,7 +386,7 @@ class PurchasesReturnSettlementController extends Controller
                         \Modules\Product\Entities\Transaction::create([
                             'product_id' => $product->id,
                             'setting_id' => $purchaseReturn->setting_id,
-                            'type' => 'PURCHASE_RETURN_SETTLEMENT',
+                            'type' => 'PURCHASE_RETURN',
                             'quantity' => -$qtyToDeduct,
                             'current_quantity' => $product->fresh()->product_quantity,
                             'location_id' => $locationId,
