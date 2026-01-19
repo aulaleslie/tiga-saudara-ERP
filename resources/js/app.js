@@ -11,6 +11,13 @@ $(function () {
     $('[data-toggle="tooltip"]').tooltip()
 })
 
+document.addEventListener('hide.coreui.modal', (event) => {
+    const activeElement = document.activeElement
+    if (event.target && activeElement && event.target.contains(activeElement)) {
+        activeElement.blur()
+    }
+})
+
 // Note: Do NOT call Alpine.start() here!
 // Livewire v3 automatically starts Alpine after @livewireScripts loads.
 // Starting Alpine before Livewire causes "entangle" errors because

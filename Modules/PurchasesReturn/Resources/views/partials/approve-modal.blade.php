@@ -7,7 +7,7 @@
                         @csrf
                         <div class="modal-header">
                             <h5 class="modal-title" id="approvePurchaseReturnModalLabel">Konfirmasi Persetujuan</h5>
-                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <button type="button" class="close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
                                 <span aria-hidden="true">&times;</span>
                             </button>
                         </div>
@@ -15,7 +15,7 @@
                             Apakah Anda yakin ingin menyetujui retur pembelian ini?
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Batal</button>
                             <button type="submit" class="btn btn-success">Setujui</button>
                         </div>
                     </form>

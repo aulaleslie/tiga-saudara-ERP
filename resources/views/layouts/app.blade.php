@@ -28,6 +28,7 @@
             <main class="c-main">
                 @yield('content')
             </main>
+            @yield('after-content')
         </div>
 
         @include('layouts.footer')

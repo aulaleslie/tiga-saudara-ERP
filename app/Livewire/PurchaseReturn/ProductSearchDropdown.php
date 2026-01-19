@@ -53,7 +53,11 @@ class ProductSearchDropdown extends Component
     public function toggleDropdown(): void
     {
         $this->open = !$this->open;
-        if ($this->open) {
+    }
+
+    public function updatedOpen($value): void
+    {
+        if ($value) {
             $this->search = '';
             $this->searchProducts();
         }

@@ -35,10 +35,10 @@
                             @endif
                             @if($approvalStatus === 'pending')
                                 @can('purchaseReturns.approval')
-                                    <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#approvePurchaseReturnModal">
+                                    <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#approvePurchaseReturnModal" data-bs-toggle="modal" data-bs-target="#approvePurchaseReturnModal">
                                         <i class="bi bi-check2-circle"></i> Setujui
                                     </button>
-                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#rejectPurchaseReturnModal">
+                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#rejectPurchaseReturnModal" data-bs-toggle="modal" data-bs-target="#rejectPurchaseReturnModal">
                                         <i class="bi bi-x-circle"></i> Tolak
                                     </button>
                                 @endcan
@@ -47,7 +47,7 @@
                                 @if(!$purchase_return->return_dispatched_at)
                                     @if($dispatchStatus === '' || $dispatchStatus === 'rejected')
                                         @can('purchaseReturns.dispatchRequest')
-                                            <button type="button" class="btn btn-warning btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#dispatchRequestModal">
+                                            <button type="button" class="btn btn-warning btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#dispatchRequestModal" data-bs-toggle="modal" data-bs-target="#dispatchRequestModal">
                                                 <i class="bi bi-truck"></i> Ajukan Dispatch
                                             </button>
                                         @endcan
@@ -57,10 +57,10 @@
                                     @elseif($dispatchStatus === 'pending_approval')
                                         <span class="badge bg-warning text-dark mr-2 mb-1">Dispatch Pending Approval</span>
                                         @can('purchaseReturns.dispatchApproval')
-                                            <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#approveDispatchModal">
+                                            <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#approveDispatchModal" data-bs-toggle="modal" data-bs-target="#approveDispatchModal">
                                                 <i class="bi bi-check-circle"></i> Setujui Dispatch
                                             </button>
-                                            <button type="button" class="btn btn-outline-danger btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#rejectDispatchModal">
+                                            <button type="button" class="btn btn-outline-danger btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#rejectDispatchModal" data-bs-toggle="modal" data-bs-target="#rejectDispatchModal">
                                                 <i class="bi bi-x-circle"></i> Tolak Dispatch
                                             </button>
                                         @endcan
@@ -99,7 +99,7 @@
                                                             <i class="bi bi-check-circle"></i> Setuju
                                                         </button>
                                                     </form>
-                                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#rejectSettlementModal">
+                                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none mr-2 mb-1" onclick="$('#rejectSettlementModal').modal('show')">
                                                         <i class="bi bi-x-circle"></i> Tolak
                                                     </button>
                                                 @endcan
@@ -119,7 +119,7 @@
                                                 {{-- Batch 7: Receive Replacement --}}
                                                 @if($purchase_return->return_dispatched_at && $purchase_return->goods->where('received_quantity', '<', 'quantity')->isNotEmpty())
                                                     @can('purchaseReturnSettlements.receive')
-                                                        <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#receiveReplacementModal">
+                                                        <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#receiveReplacementModal" data-bs-toggle="modal" data-bs-target="#receiveReplacementModal">
                                                             <i class="bi bi-box-seam"></i> Terima Barang Pengganti
                                                         </button>
                                                     @endcan
@@ -396,7 +396,9 @@
                     @csrf
                     <div class="modal-header">
                         <h5 class="modal-title" id="receiveReplacementModalLabel">Terima Barang Pengganti</h5>
-                        <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
                     </div>
                     <div class="modal-body">
                         <div class="table-responsive">

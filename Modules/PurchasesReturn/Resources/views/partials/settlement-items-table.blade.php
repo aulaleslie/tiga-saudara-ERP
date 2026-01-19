@@ -62,10 +62,10 @@
                             @if($item->status === 'SUBMITTED')
                                 @can('purchaseReturnSettlements.approve')
                                 <div class="btn-group" role="group">
-                                    <button type="button" class="btn btn-sm btn-outline-success border-0" title="Setujui" data-toggle="modal" data-target="#approveItemModal{{ $item->id }}">
+                                    <button type="button" class="btn btn-sm btn-outline-success border-0" title="Setujui" data-toggle="modal" data-target="#approveItemModal{{ $item->id }}" data-bs-toggle="modal" data-bs-target="#approveItemModal{{ $item->id }}">
                                         <i class="bi bi-check-circle-fill"></i>
                                     </button>
-                                    <button type="button" class="btn btn-sm btn-outline-danger border-0" title="Tolak" data-toggle="modal" data-target="#rejectItemModal{{ $item->id }}">
+                                    <button type="button" class="btn btn-sm btn-outline-danger border-0" title="Tolak" data-toggle="modal" data-target="#rejectItemModal{{ $item->id }}" data-bs-toggle="modal" data-bs-target="#rejectItemModal{{ $item->id }}">
                                         <i class="bi bi-x-circle-fill"></i>
                                     </button>
                                 </div>
@@ -82,7 +82,7 @@
                                 @endcan
                             @elseif($item->status === 'APPROVED_AWAITING_RECEIVE')
                                 @can('purchaseReturnSettlements.receive')
-                                <button type="button" class="btn btn-sm btn-warning border-0" title="Terima Barang" data-toggle="modal" data-target="#receiveItemModal{{ $item->id }}">
+                                <button type="button" class="btn btn-sm btn-warning border-0" title="Terima Barang" data-toggle="modal" data-target="#receiveItemModal{{ $item->id }}" data-bs-toggle="modal" data-bs-target="#receiveItemModal{{ $item->id }}">
                                     <i class="bi bi-box-seam-fill"></i>
                                 </button>
                                 @else
