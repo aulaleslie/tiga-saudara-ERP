@@ -291,11 +291,7 @@
                             </div>
                         @endcan
 
-                        @if(!$purchase_return->return_type && $approvalStatus === 'approved')
-                            <div class="alert alert-warning mt-4" role="alert">
-                                Metode penyelesaian belum ditentukan. Silakan proses melalui halaman penyelesaian retur.
-                            </div>
-                        @endif
+
 
                         @if($purchase_return->return_type === 'exchange' && $purchase_return->goods->isNotEmpty())
                             <div class="mt-4">
