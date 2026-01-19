@@ -170,7 +170,7 @@
                                             <dd class="col-7 font-weight-bold">{{ $purchase_return->location->name ?? '-' }}</dd>
                                         @endif
                                         <dt class="col-5 text-muted">Metode</dt>
-                                        <dd class="col-7 font-weight-bold">{{ $purchase_return->return_type ? ucfirst($purchase_return->return_type) : 'Belum ditentukan' }}</dd>
+                                        <dd class="col-7 font-weight-bold">{{ $purchase_return->return_type_label }}</dd>
                                         <dt class="col-5 text-muted">Status Penyelesaian</dt>
                                         <dd class="col-7 font-weight-bold">
                                             @include('purchasesreturn::partials.settlement-status', ['data' => $purchase_return])

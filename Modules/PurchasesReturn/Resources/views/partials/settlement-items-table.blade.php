@@ -25,6 +25,10 @@
                     </tr>
                 </thead>
                 <tbody>
+@php
+    $methodLabels = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::settlementMethods();
+@endphp
+
                     @foreach($purchase_return->settlementItems as $item)
                     <tr>
                         <td class="pl-3">
@@ -40,7 +44,10 @@
                         </td>
                         <td>
                             @if($item->method)
-                                <span class="font-weight-normal text-primary">{{ str_replace('_', ' ', $item->method) }}</span>
+                                @php 
+                                    $methodKey = strtoupper(str_replace(' ', '_', trim($item->method))); 
+                                @endphp
+                                <span class="font-weight-normal text-primary">{{ $methodLabels[$methodKey] ?? $methodLabels[$item->method] ?? $item->method }}</span>
                             @else
                                 <span class="text-muted small italic">Belum ditentukan</span>
                             @endif
@@ -62,6 +69,14 @@
                                         <i class="bi bi-x-circle-fill"></i>
                                     </button>
                                 </div>
+                                @else
+                                <span class="text-muted small">-</span>
+                                @endcan
+                            @elseif($item->status === 'APPROVED' && in_array(strtoupper($item->method), ['CREDIT', 'CASH']))
+                                @can('purchaseReturnSettlements.receive')
+                                    <button type="button" class="btn btn-sm btn-success border-0 disabled" title="Terima Pembayaran (Coming Soon)">
+                                        <i class="bi bi-cash-coin"></i>
+                                    </button>
                                 @else
                                 <span class="text-muted small">-</span>
                                 @endcan
@@ -109,7 +124,12 @@
                     </div>
                     <div class="row mb-3">
                         <div class="col-sm-4"><strong>Metode:</strong></div>
-                        <div class="col-sm-8">{{ str_replace('_', ' ', $item->method ?? 'N/A') }}</div>
+                        <div class="col-sm-8">
+                            @php 
+                                $methodKey = strtoupper(str_replace(' ', '_', trim($item->method))); 
+                            @endphp
+                            {{ $methodLabels[$methodKey] ?? $methodLabels[$item->method] ?? $item->method }}
+                        </div>
                     </div>
                     <div class="row mb-3">
                         <div class="col-sm-4"><strong>Nominal:</strong></div>
@@ -153,7 +173,9 @@
                     </div>
                     <div class="row mb-3">
                         <div class="col-sm-4"><strong>Metode:</strong></div>
-                        <div class="col-sm-8">{{ str_replace('_', ' ', $item->method ?? 'N/A') }}</div>
+                        <div class="col-sm-8">
+                            {{ $methodLabels[$item->method] ?? $item->method }}
+                        </div>
                     </div>
 
                     <div class="mb-3">

@@ -23,7 +23,8 @@
     // Derive settlement label
     if ($allApproved) {
         $settlementLabel = 'Selesai';
-        $methods = $items->pluck('method')->unique()->filter()->map(fn($m) => str_replace('_', ' ', $m))->implode(', ');
+        $methodLabels = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::settlementMethods();
+        $methods = $items->pluck('method')->unique()->filter()->map(fn($m) => $methodLabels[$m] ?? $m)->implode(', ');
         $settlementDetail = $methods ? 'Metode: ' . $methods : null;
     } elseif ($anyApproved) {
         $settlementLabel = 'Selesai Sebagian';
@@ -195,8 +196,11 @@
                                         @endif
                                     </td>
                                     <td class="align-middle">
+                                        @php
+                                            $methodLabels = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::settlementMethods();
+                                        @endphp
                                         @if($settlementItem->method)
-                                            {{ str_replace('_', ' ', $settlementItem->method) }}
+                                            {{ $methodLabels[$settlementItem->method] ?? $settlementItem->method }}
                                         @else
                                             <em>Belum ditentukan</em>
                                         @endif

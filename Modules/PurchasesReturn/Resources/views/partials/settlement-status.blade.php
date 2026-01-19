@@ -16,7 +16,8 @@
     if ($allApproved) {
         $badgeClass = 'badge bg-success';
         $label = 'Selesai';
-        $methods = $items->pluck('method')->unique()->filter()->map(fn($m) => str_replace('_', ' ', $m))->implode(', ');
+        $methodLabels = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::settlementMethods();
+        $methods = $items->pluck('method')->unique()->filter()->map(fn($m) => $methodLabels[$m] ?? $m)->implode(', ');
         if ($methods) {
             $description = 'Metode: ' . $methods;
         }

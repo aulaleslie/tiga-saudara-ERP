@@ -163,6 +163,16 @@ class PurchaseReturn extends BaseModel implements HasMedia
         return $this->belongsTo(User::class, 'return_dispatched_by');
     }
 
+    public function getReturnTypeLabelAttribute(): string
+    {
+        return match($this->return_type) {
+            'exchange' => 'Tukar Barang',
+            'deposit' => 'Simpan Sebagai Kredit',
+            'cash' => 'Pengembalian Tunai',
+            default => 'Belum ditentukan',
+        };
+    }
+
     /**
      * Compute roll-up settlement status from per-line item states.
      * Returns: 'Awaiting Settlement', 'Settled Partially', or 'Settled'

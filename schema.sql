@@ -1,6 +1,6 @@
 -- MySQL dump 10.13  Distrib 9.2.0, for Linux (x86_64)
 --
--- Host: localhost    Database: top_it
+-- Host: localhost    Database: tiga_saudara
 -- ------------------------------------------------------
 -- Server version	9.2.0
 
@@ -108,11 +108,11 @@ CREATE TABLE `brands` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `brands_setting_id_foreign` (`setting_id`),
+  UNIQUE KEY `brands_setting_name_unique` (`setting_id`,`name`),
   KEY `brands_created_by_foreign` (`created_by`),
   CONSTRAINT `brands_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `brands_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -162,13 +162,13 @@ CREATE TABLE `categories` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `categories_category_code_unique` (`category_code`),
+  UNIQUE KEY `categories_setting_category_name_unique` (`setting_id`,`category_name`),
   KEY `categories_parent_id_foreign` (`parent_id`),
   KEY `categories_created_by_foreign` (`created_by`),
-  KEY `categories_setting_id_foreign` (`setting_id`),
   CONSTRAINT `categories_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `categories_parent_id_foreign` FOREIGN KEY (`parent_id`) REFERENCES `categories` (`id`) ON DELETE CASCADE,
   CONSTRAINT `categories_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -256,11 +256,11 @@ DROP TABLE IF EXISTS `customers`;
 CREATE TABLE `customers` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `customer_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `customer_email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `customer_phone` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `city` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `country` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `address` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `customer_phone` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `city` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `country` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `company_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -280,11 +280,16 @@ CREATE TABLE `customers` (
   `tier` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `payment_term_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `customers_setting_id_foreign` (`setting_id`),
+  UNIQUE KEY `customers_setting_phone_unique` (`setting_id`,`customer_phone`),
+  UNIQUE KEY `customers_setting_email_unique` (`setting_id`,`customer_email`),
+  UNIQUE KEY `customers_setting_identity_unique` (`setting_id`,`identity_number`),
+  UNIQUE KEY `customers_setting_npwp_unique` (`setting_id`,`npwp`),
   KEY `customers_payment_term_id_foreign` (`payment_term_id`),
+  KEY `customers_customer_name_index` (`customer_name`),
+  KEY `idx_customers_name` (`customer_name`),
   CONSTRAINT `customers_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
   CONSTRAINT `customers_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=583 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -311,12 +316,13 @@ CREATE TABLE `dispatch_details` (
   KEY `dispatch_details_product_id_foreign` (`product_id`),
   KEY `dispatch_details_location_id_foreign` (`location_id`),
   KEY `dispatch_details_tax_id_foreign` (`tax_id`),
+  KEY `idx_dispatch_details_serial_numbers` ((cast(`serial_numbers` as char(255) charset utf8mb4))),
   CONSTRAINT `dispatch_details_dispatch_id_foreign` FOREIGN KEY (`dispatch_id`) REFERENCES `dispatches` (`id`) ON DELETE CASCADE,
   CONSTRAINT `dispatch_details_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `dispatch_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `dispatch_details_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE,
   CONSTRAINT `dispatch_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=43784 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -335,7 +341,7 @@ CREATE TABLE `dispatches` (
   PRIMARY KEY (`id`),
   KEY `dispatches_sale_id_foreign` (`sale_id`),
   CONSTRAINT `dispatches_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=22605 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -427,6 +433,70 @@ CREATE TABLE `failed_jobs` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `global_purchase_and_sales_searches`
+--
+
+DROP TABLE IF EXISTS `global_purchase_and_sales_searches`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `global_purchase_and_sales_searches` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `setting_id` bigint unsigned NOT NULL,
+  `search_query` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `search_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `transaction_types` json DEFAULT NULL,
+  `filters_applied` json DEFAULT NULL,
+  `results_count` int NOT NULL DEFAULT '0',
+  `response_time_ms` int NOT NULL DEFAULT '0',
+  `tenant_context` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `global_purchase_and_sales_searches_user_id_index` (`user_id`),
+  KEY `global_purchase_and_sales_searches_setting_id_index` (`setting_id`),
+  KEY `global_purchase_and_sales_searches_search_type_index` (`search_type`),
+  KEY `global_purchase_and_sales_searches_created_at_index` (`created_at`),
+  KEY `global_purchase_and_sales_searches_user_id_created_at_index` (`user_id`,`created_at`),
+  KEY `global_purchase_and_sales_searches_setting_id_created_at_index` (`setting_id`,`created_at`),
+  KEY `global_purchase_and_sales_searches_search_type_created_at_index` (`search_type`,`created_at`),
+  CONSTRAINT `global_purchase_and_sales_searches_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `global_purchase_and_sales_searches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `global_sales_searches`
+--
+
+DROP TABLE IF EXISTS `global_sales_searches`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `global_sales_searches` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `setting_id` bigint unsigned NOT NULL,
+  `search_query` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `filters_applied` json DEFAULT NULL,
+  `results_count` int NOT NULL DEFAULT '0',
+  `response_time_ms` int NOT NULL DEFAULT '0',
+  `search_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'serial',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `global_sales_searches_user_id_index` (`user_id`),
+  KEY `global_sales_searches_setting_id_index` (`setting_id`),
+  KEY `global_sales_searches_created_at_index` (`created_at`),
+  KEY `global_sales_searches_user_id_created_at_index` (`user_id`,`created_at`),
+  KEY `global_sales_searches_setting_id_created_at_index` (`setting_id`,`created_at`),
+  CONSTRAINT `global_sales_searches_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `global_sales_searches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `jobs`
 --
 
@@ -443,7 +513,7 @@ CREATE TABLE `jobs` (
   `created_at` int unsigned NOT NULL,
   PRIMARY KEY (`id`),
   KEY `jobs_queue_index` (`queue`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=86 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -497,10 +567,11 @@ CREATE TABLE `locations` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `setting_id` bigint unsigned NOT NULL,
   `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `pos_cash_threshold` decimal(15,2) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `locations_setting_id_foreign` (`setting_id`),
+  UNIQUE KEY `locations_setting_name_unique` (`setting_id`,`name`),
   CONSTRAINT `locations_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -549,7 +620,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=145 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=192 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -617,6 +688,7 @@ CREATE TABLE `payment_methods` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `payment_methods_name_unique` (`name`),
   KEY `payment_methods_coa_id_foreign` (`coa_id`),
   CONSTRAINT `payment_methods_coa_id_foreign` FOREIGN KEY (`coa_id`) REFERENCES `chart_of_accounts` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -654,7 +726,7 @@ CREATE TABLE `permissions` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `permissions_name_guard_name_unique` (`name`,`guard_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=157 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=182 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -678,6 +750,73 @@ CREATE TABLE `personal_access_tokens` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `personal_access_tokens_token_unique` (`token`),
   KEY `personal_access_tokens_tokenable_type_tokenable_id_index` (`tokenable_type`,`tokenable_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `pos_receipts`
+--
+
+DROP TABLE IF EXISTS `pos_receipts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `pos_receipts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `receipt_number` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_id` bigint unsigned DEFAULT NULL,
+  `customer_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `total_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `paid_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `due_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `change_due` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `payment_status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Unpaid',
+  `payment_method` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `payment_breakdown` json DEFAULT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `pos_session_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `pos_receipts_receipt_number_unique` (`receipt_number`),
+  KEY `pos_receipts_customer_id_foreign` (`customer_id`),
+  KEY `pos_receipts_pos_session_id_foreign` (`pos_session_id`),
+  CONSTRAINT `pos_receipts_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `pos_receipts_pos_session_id_foreign` FOREIGN KEY (`pos_session_id`) REFERENCES `pos_sessions` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `pos_sessions`
+--
+
+DROP TABLE IF EXISTS `pos_sessions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `pos_sessions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `setting_id` bigint unsigned DEFAULT NULL,
+  `location_id` bigint unsigned DEFAULT NULL,
+  `device_name` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `cash_float` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `expected_cash` decimal(15,2) DEFAULT NULL,
+  `actual_cash` decimal(15,2) DEFAULT NULL,
+  `discrepancy` decimal(15,2) DEFAULT NULL,
+  `status` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `started_at` timestamp NULL DEFAULT NULL,
+  `paused_at` timestamp NULL DEFAULT NULL,
+  `resumed_at` timestamp NULL DEFAULT NULL,
+  `closed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `pos_sessions_user_id_foreign` (`user_id`),
+  KEY `pos_sessions_location_id_foreign` (`location_id`),
+  KEY `pos_sessions_status_index` (`status`),
+  KEY `pos_sessions_started_at_index` (`started_at`),
+  KEY `pos_sessions_setting_id_index` (`setting_id`),
+  CONSTRAINT `pos_sessions_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `pos_sessions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -722,7 +861,7 @@ CREATE TABLE `product_bundles` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `product_bundles_parent_product_id_foreign` (`parent_product_id`),
+  KEY `idx_product_bundles_parent_product_id` (`parent_product_id`),
   CONSTRAINT `product_bundles_parent_product_id_foreign` FOREIGN KEY (`parent_product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -760,7 +899,7 @@ CREATE TABLE `product_import_batches` (
   KEY `product_import_batches_created_at_index` (`created_at`),
   CONSTRAINT `product_import_batches_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_import_batches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -787,7 +926,7 @@ CREATE TABLE `product_import_rows` (
   KEY `product_import_rows_status_index` (`status`),
   KEY `product_import_rows_product_id_index` (`product_id`),
   CONSTRAINT `product_import_rows_batch_id_foreign` FOREIGN KEY (`batch_id`) REFERENCES `product_import_batches` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4302 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -816,11 +955,12 @@ CREATE TABLE `product_prices` (
   KEY `product_prices_sale_tax_id_foreign` (`sale_tax_id`),
   KEY `product_prices_product_id_index` (`product_id`),
   KEY `product_prices_setting_id_index` (`setting_id`),
+  KEY `idx_product_prices_product_setting` (`product_id`,`setting_id`),
   CONSTRAINT `product_prices_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_prices_purchase_tax_id_foreign` FOREIGN KEY (`purchase_tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `product_prices_sale_tax_id_foreign` FOREIGN KEY (`sale_tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `product_prices_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=24783 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -838,19 +978,26 @@ CREATE TABLE `product_serial_numbers` (
   `received_note_detail_id` bigint unsigned DEFAULT NULL,
   `location_id` bigint unsigned NOT NULL,
   `serial_number` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `is_in_return_process` tinyint(1) NOT NULL DEFAULT '0',
   `tax_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `purchase_return_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `product_serial_numbers_serial_number_unique` (`serial_number`),
-  KEY `product_serial_numbers_product_id_foreign` (`product_id`),
-  KEY `product_serial_numbers_location_id_foreign` (`location_id`),
+  UNIQUE KEY `product_serial_numbers_product_id_serial_number_unique` (`product_id`,`serial_number`),
   KEY `product_serial_numbers_tax_id_foreign` (`tax_id`),
   KEY `product_serial_numbers_received_note_detail_id_foreign` (`received_note_detail_id`),
   KEY `product_serial_numbers_dispatch_detail_id_foreign` (`dispatch_detail_id`),
+  KEY `product_serial_numbers_serial_number_index` (`serial_number`),
+  KEY `product_serial_numbers_location_id_index` (`location_id`),
+  KEY `idx_psn_location_product_dispatch_broken` (`location_id`,`product_id`,`dispatch_detail_id`,`is_broken`),
+  KEY `idx_psn_serial_number` (`serial_number`),
+  KEY `product_serial_numbers_purchase_return_id_foreign` (`purchase_return_id`),
   CONSTRAINT `product_serial_numbers_dispatch_detail_id_foreign` FOREIGN KEY (`dispatch_detail_id`) REFERENCES `dispatch_details` (`id`) ON DELETE SET NULL,
   CONSTRAINT `product_serial_numbers_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_serial_numbers_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `product_serial_numbers_purchase_return_id_foreign` FOREIGN KEY (`purchase_return_id`) REFERENCES `purchase_returns` (`id`) ON DELETE SET NULL,
   CONSTRAINT `product_serial_numbers_received_note_detail_id_foreign` FOREIGN KEY (`received_note_detail_id`) REFERENCES `received_note_details` (`id`) ON DELETE SET NULL,
   CONSTRAINT `product_serial_numbers_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -877,13 +1024,13 @@ CREATE TABLE `product_stocks` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `product_stocks_product_id_foreign` (`product_id`),
-  KEY `product_stocks_location_id_foreign` (`location_id`),
   KEY `product_stocks_tax_id_foreign` (`tax_id`),
+  KEY `idx_product_stocks_location_product` (`location_id`,`product_id`),
+  KEY `idx_product_stocks_product_location` (`product_id`,`location_id`),
   CONSTRAINT `product_stocks_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_stocks_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_stocks_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4414 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -905,7 +1052,7 @@ CREATE TABLE `product_unit_conversion_prices` (
   KEY `conv_price_setting_fk` (`setting_id`),
   CONSTRAINT `conv_price_conversion_fk` FOREIGN KEY (`product_unit_conversion_id`) REFERENCES `product_unit_conversions` (`id`) ON DELETE CASCADE,
   CONSTRAINT `conv_price_setting_fk` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -925,13 +1072,14 @@ CREATE TABLE `product_unit_conversions` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `product_unit_conversions_product_id_foreign` (`product_id`),
   KEY `product_unit_conversions_unit_id_foreign` (`unit_id`),
   KEY `product_unit_conversions_base_unit_id_foreign` (`base_unit_id`),
+  KEY `idx_product_unit_conversions_barcode` (`barcode`),
+  KEY `idx_product_unit_conversions_product_id` (`product_id`),
   CONSTRAINT `product_unit_conversions_base_unit_id_foreign` FOREIGN KEY (`base_unit_id`) REFERENCES `units` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_unit_conversions_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_unit_conversions_unit_id_foreign` FOREIGN KEY (`unit_id`) REFERENCES `units` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -949,7 +1097,7 @@ CREATE TABLE `products` (
   `product_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `product_code` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `product_barcode_symbology` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `product_quantity` int NOT NULL,
+  `product_quantity` int NOT NULL DEFAULT '0',
   `serial_number_required` tinyint(1) NOT NULL DEFAULT '0',
   `broken_quantity` int unsigned NOT NULL DEFAULT '0',
   `product_cost` int NOT NULL,
@@ -959,7 +1107,7 @@ CREATE TABLE `products` (
   `unit_id` bigint unsigned DEFAULT NULL,
   `base_unit_id` bigint unsigned DEFAULT NULL,
   `product_unit` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `product_stock_alert` int NOT NULL,
+  `product_stock_alert` int NOT NULL DEFAULT '0',
   `is_purchased` tinyint(1) NOT NULL DEFAULT '0',
   `purchase_price` int DEFAULT NULL,
   `purchase_tax` int DEFAULT NULL,
@@ -987,6 +1135,15 @@ CREATE TABLE `products` (
   KEY `products_base_unit_id_foreign` (`base_unit_id`),
   KEY `products_purchase_tax_id_foreign` (`purchase_tax_id`),
   KEY `products_sale_tax_id_foreign` (`sale_tax_id`),
+  KEY `products_product_name_index` (`product_name`),
+  KEY `idx_products_product_name` (`product_name`),
+  KEY `idx_products_product_code` (`product_code`),
+  KEY `idx_products_barcode` (`barcode`),
+  KEY `idx_products_serial_req_id` (`serial_number_required`,`id`),
+  KEY `idx_products_name` (`product_name`),
+  FULLTEXT KEY `ft_products_name` (`product_name`) /*!50100 WITH PARSER `ngram` */ ,
+  FULLTEXT KEY `ft_products_code` (`product_code`) /*!50100 WITH PARSER `ngram` */ ,
+  FULLTEXT KEY `ft_products_name_code` (`product_name`,`product_code`) /*!50100 WITH PARSER `ngram` */ ,
   CONSTRAINT `products_base_unit_id_foreign` FOREIGN KEY (`base_unit_id`) REFERENCES `units` (`id`) ON DELETE SET NULL,
   CONSTRAINT `products_brand_id_foreign` FOREIGN KEY (`brand_id`) REFERENCES `brands` (`id`) ON DELETE SET NULL,
   CONSTRAINT `products_category_id_foreign` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`) ON DELETE SET NULL,
@@ -994,7 +1151,7 @@ CREATE TABLE `products` (
   CONSTRAINT `products_sale_tax_id_foreign` FOREIGN KEY (`sale_tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `products_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
   CONSTRAINT `products_unit_id_foreign` FOREIGN KEY (`unit_id`) REFERENCES `units` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4493 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1022,12 +1179,62 @@ CREATE TABLE `purchase_details` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `purchase_details_purchase_id_foreign` (`purchase_id`),
-  KEY `purchase_details_product_id_foreign` (`product_id`),
   KEY `purchase_details_tax_id_foreign` (`tax_id`),
+  KEY `idx_purchase_details_product_id` (`product_id`),
   CONSTRAINT `purchase_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_details_purchase_id_foreign` FOREIGN KEY (`purchase_id`) REFERENCES `purchases` (`id`) ON DELETE CASCADE,
   CONSTRAINT `purchase_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=30600 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `purchase_import_batches`
+--
+
+DROP TABLE IF EXISTS `purchase_import_batches`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `purchase_import_batches` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `source_csv_path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `file_sha256` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'queued',
+  `total_rows` int NOT NULL DEFAULT '0',
+  `processed_rows` int NOT NULL DEFAULT '0',
+  `success_count` int NOT NULL DEFAULT '0',
+  `error_count` int NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `purchase_import_batches_user_id_foreign` (`user_id`),
+  CONSTRAINT `purchase_import_batches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `purchase_import_rows`
+--
+
+DROP TABLE IF EXISTS `purchase_import_rows`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `purchase_import_rows` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `batch_id` bigint unsigned NOT NULL,
+  `row_number` int NOT NULL,
+  `raw_json` json NOT NULL,
+  `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `error_message` text COLLATE utf8mb4_unicode_ci,
+  `purchase_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `purchase_import_rows_purchase_id_foreign` (`purchase_id`),
+  KEY `purchase_import_rows_batch_id_status_index` (`batch_id`,`status`),
+  CONSTRAINT `purchase_import_rows_batch_id_foreign` FOREIGN KEY (`batch_id`) REFERENCES `purchase_import_batches` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `purchase_import_rows_purchase_id_foreign` FOREIGN KEY (`purchase_id`) REFERENCES `purchases` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=30600 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1090,6 +1297,7 @@ CREATE TABLE `purchase_return_details` (
   `purchase_return_id` bigint unsigned NOT NULL,
   `po_id` bigint unsigned DEFAULT NULL COMMENT 'Reference to purchase order',
   `product_id` bigint unsigned DEFAULT NULL,
+  `location_id` bigint unsigned DEFAULT NULL,
   `product_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `product_code` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `quantity` int NOT NULL,
@@ -1106,6 +1314,8 @@ CREATE TABLE `purchase_return_details` (
   KEY `purchase_return_details_purchase_return_id_foreign` (`purchase_return_id`),
   KEY `purchase_return_details_product_id_foreign` (`product_id`),
   KEY `purchase_return_details_po_id_foreign` (`po_id`),
+  KEY `purchase_return_details_location_id_foreign` (`location_id`),
+  CONSTRAINT `purchase_return_details_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_return_details_po_id_foreign` FOREIGN KEY (`po_id`) REFERENCES `purchases` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_return_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_return_details_purchase_return_id_foreign` FOREIGN KEY (`purchase_return_id`) REFERENCES `purchase_returns` (`id`) ON DELETE CASCADE
@@ -1125,9 +1335,13 @@ CREATE TABLE `purchase_return_goods` (
   `product_id` bigint unsigned DEFAULT NULL,
   `product_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `product_code` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `serial_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `quantity` int NOT NULL,
+  `received_by` bigint unsigned DEFAULT NULL,
+  `received_quantity` int NOT NULL DEFAULT '0',
   `unit_value` decimal(15,2) DEFAULT NULL,
   `sub_total` decimal(15,2) DEFAULT NULL,
+  `note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `received_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -1137,6 +1351,58 @@ CREATE TABLE `purchase_return_goods` (
   KEY `prg_return_received_idx` (`purchase_return_id`,`received_at`),
   CONSTRAINT `purchase_return_goods_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_return_goods_purchase_return_id_foreign` FOREIGN KEY (`purchase_return_id`) REFERENCES `purchase_returns` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `purchase_return_item_settlements`
+--
+
+DROP TABLE IF EXISTS `purchase_return_item_settlements`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `purchase_return_item_settlements` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `purchase_return_id` bigint unsigned NOT NULL,
+  `purchase_return_detail_id` bigint unsigned NOT NULL,
+  `product_serial_number_id` bigint unsigned DEFAULT NULL,
+  `method` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `nominal` decimal(15,2) DEFAULT NULL,
+  `target_purchase_id` bigint unsigned DEFAULT NULL,
+  `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'DRAFT',
+  `submitted_at` timestamp NULL DEFAULT NULL,
+  `submitted_by` bigint unsigned DEFAULT NULL,
+  `approved_at` timestamp NULL DEFAULT NULL,
+  `approved_by` bigint unsigned DEFAULT NULL,
+  `rejected_at` timestamp NULL DEFAULT NULL,
+  `rejected_by` bigint unsigned DEFAULT NULL,
+  `rejection_reason` text COLLATE utf8mb4_unicode_ci,
+  `received_quantity` int DEFAULT NULL,
+  `received_location_id` bigint unsigned DEFAULT NULL,
+  `received_note` text COLLATE utf8mb4_unicode_ci,
+  `received_at` timestamp NULL DEFAULT NULL,
+  `received_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `items_settlement_pr_foreign` (`purchase_return_id`),
+  KEY `items_settlement_prd_foreign` (`purchase_return_detail_id`),
+  KEY `items_settlement_sn_foreign` (`product_serial_number_id`),
+  KEY `items_settlement_tp_foreign` (`target_purchase_id`),
+  KEY `items_settlement_sub_by_foreign` (`submitted_by`),
+  KEY `items_settlement_app_by_foreign` (`approved_by`),
+  KEY `items_settlement_rej_by_foreign` (`rejected_by`),
+  KEY `items_settlement_recv_loc_foreign` (`received_location_id`),
+  KEY `items_settlement_recv_by_foreign` (`received_by`),
+  CONSTRAINT `items_settlement_app_by_foreign` FOREIGN KEY (`approved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `items_settlement_pr_foreign` FOREIGN KEY (`purchase_return_id`) REFERENCES `purchase_returns` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `items_settlement_prd_foreign` FOREIGN KEY (`purchase_return_detail_id`) REFERENCES `purchase_return_details` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `items_settlement_recv_by_foreign` FOREIGN KEY (`received_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `items_settlement_recv_loc_foreign` FOREIGN KEY (`received_location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `items_settlement_rej_by_foreign` FOREIGN KEY (`rejected_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `items_settlement_sn_foreign` FOREIGN KEY (`product_serial_number_id`) REFERENCES `product_serial_numbers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `items_settlement_sub_by_foreign` FOREIGN KEY (`submitted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `items_settlement_tp_foreign` FOREIGN KEY (`target_purchase_id`) REFERENCES `purchases` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1163,6 +1429,34 @@ CREATE TABLE `purchase_return_payments` (
   KEY `purchase_return_payments_payment_method_id_index` (`payment_method_id`),
   CONSTRAINT `purchase_return_payments_payment_method_id_foreign` FOREIGN KEY (`payment_method_id`) REFERENCES `payment_methods` (`id`) ON DELETE CASCADE,
   CONSTRAINT `purchase_return_payments_purchase_return_id_foreign` FOREIGN KEY (`purchase_return_id`) REFERENCES `purchase_returns` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `purchase_return_settlements`
+--
+
+DROP TABLE IF EXISTS `purchase_return_settlements`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `purchase_return_settlements` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `purchase_return_id` bigint unsigned NOT NULL,
+  `method` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `submitted_by` bigint unsigned DEFAULT NULL,
+  `submitted_at` timestamp NULL DEFAULT NULL,
+  `approved_by` bigint unsigned DEFAULT NULL,
+  `approved_at` timestamp NULL DEFAULT NULL,
+  `rejected_by` bigint unsigned DEFAULT NULL,
+  `rejected_at` timestamp NULL DEFAULT NULL,
+  `rejection_reason` text COLLATE utf8mb4_unicode_ci,
+  `cash_proof_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `purchase_return_settlements_purchase_return_id_foreign` (`purchase_return_id`),
+  CONSTRAINT `purchase_return_settlements_purchase_return_id_foreign` FOREIGN KEY (`purchase_return_id`) REFERENCES `purchase_returns` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1194,6 +1488,20 @@ CREATE TABLE `purchase_returns` (
   `approved_by` bigint unsigned DEFAULT NULL,
   `approved_at` timestamp NULL DEFAULT NULL,
   `settled_at` timestamp NULL DEFAULT NULL,
+  `return_dispatched_at` timestamp NULL DEFAULT NULL,
+  `return_dispatched_by` bigint unsigned DEFAULT NULL,
+  `return_dispatch_status` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `return_awb_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `return_shipping_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `return_carrier` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `return_dispatch_note` text COLLATE utf8mb4_unicode_ci,
+  `dispatch_requested_by` bigint unsigned DEFAULT NULL,
+  `dispatch_requested_at` timestamp NULL DEFAULT NULL,
+  `dispatch_approved_by` bigint unsigned DEFAULT NULL,
+  `dispatch_approved_at` timestamp NULL DEFAULT NULL,
+  `dispatch_rejected_by` bigint unsigned DEFAULT NULL,
+  `dispatch_rejected_at` timestamp NULL DEFAULT NULL,
+  `dispatch_rejection_reason` text COLLATE utf8mb4_unicode_ci,
   `settled_by` bigint unsigned DEFAULT NULL,
   `rejected_by` bigint unsigned DEFAULT NULL,
   `rejected_at` timestamp NULL DEFAULT NULL,
@@ -1214,7 +1522,13 @@ CREATE TABLE `purchase_returns` (
   KEY `purchase_returns_setting_id_foreign` (`setting_id`),
   KEY `purchase_returns_location_id_foreign` (`location_id`),
   KEY `purchase_returns_settled_by_foreign` (`settled_by`),
+  KEY `purchase_returns_dispatch_requested_by_foreign` (`dispatch_requested_by`),
+  KEY `purchase_returns_dispatch_approved_by_foreign` (`dispatch_approved_by`),
+  KEY `purchase_returns_dispatch_rejected_by_foreign` (`dispatch_rejected_by`),
   CONSTRAINT `purchase_returns_approved_by_foreign` FOREIGN KEY (`approved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `purchase_returns_dispatch_approved_by_foreign` FOREIGN KEY (`dispatch_approved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `purchase_returns_dispatch_rejected_by_foreign` FOREIGN KEY (`dispatch_rejected_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `purchase_returns_dispatch_requested_by_foreign` FOREIGN KEY (`dispatch_requested_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_returns_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_returns_rejected_by_foreign` FOREIGN KEY (`rejected_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchase_returns_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
@@ -1237,6 +1551,8 @@ CREATE TABLE `purchases` (
   `reference` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `supplier_id` bigint unsigned DEFAULT NULL,
   `supplier_reference_no` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `supplier_purchase_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `tax_ref_no` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Nomor Faktur Pajak',
   `tax_id` bigint unsigned DEFAULT NULL,
   `is_tax_included` tinyint(1) NOT NULL DEFAULT '0',
   `tax_percentage` decimal(5,2) NOT NULL DEFAULT '0.00',
@@ -1256,15 +1572,15 @@ CREATE TABLE `purchases` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `purchases_setting_reference_unique` (`setting_id`,`reference`),
   KEY `purchases_supplier_id_foreign` (`supplier_id`),
-  KEY `purchases_setting_id_foreign` (`setting_id`),
   KEY `purchases_tax_id_foreign` (`tax_id`),
   KEY `purchases_payment_term_id_foreign` (`payment_term_id`),
   CONSTRAINT `purchases_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchases_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchases_supplier_id_foreign` FOREIGN KEY (`supplier_id`) REFERENCES `suppliers` (`id`) ON DELETE SET NULL,
   CONSTRAINT `purchases_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=16533 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1321,6 +1637,7 @@ CREATE TABLE `quotations` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `quotations_reference_unique` (`reference`),
   KEY `quotations_customer_id_foreign` (`customer_id`),
   CONSTRAINT `quotations_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1338,6 +1655,7 @@ CREATE TABLE `received_note_details` (
   `received_note_id` bigint unsigned NOT NULL,
   `po_detail_id` bigint unsigned NOT NULL,
   `quantity_received` int NOT NULL,
+  `pending_serial_numbers` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -1358,13 +1676,22 @@ DROP TABLE IF EXISTS `received_notes`;
 CREATE TABLE `received_notes` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `po_id` bigint unsigned NOT NULL,
-  `external_delivery_number` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `external_delivery_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `internal_invoice_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `date` date NOT NULL,
+  `location_id` bigint unsigned DEFAULT NULL,
+  `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `approved_at` timestamp NULL DEFAULT NULL,
+  `approved_by` bigint unsigned DEFAULT NULL,
+  `rejection_reason` text COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `received_notes_po_id_foreign` (`po_id`),
+  UNIQUE KEY `received_notes_po_external_unique` (`po_id`,`external_delivery_number`),
+  KEY `received_notes_location_id_foreign` (`location_id`),
+  KEY `received_notes_approved_by_foreign` (`approved_by`),
+  CONSTRAINT `received_notes_approved_by_foreign` FOREIGN KEY (`approved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `received_notes_location_id_foreign` FOREIGN KEY (`location_id`) REFERENCES `locations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `received_notes_po_id_foreign` FOREIGN KEY (`po_id`) REFERENCES `purchases` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -1401,7 +1728,7 @@ CREATE TABLE `roles` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `roles_name_guard_name_unique` (`name`,`guard_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1455,16 +1782,17 @@ CREATE TABLE `sale_details` (
   `product_discount_amount` decimal(15,2) NOT NULL,
   `product_discount_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'fixed',
   `product_tax_amount` decimal(15,2) NOT NULL,
+  `serial_number_ids` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `sale_details_sale_id_foreign` (`sale_id`),
-  KEY `sale_details_product_id_foreign` (`product_id`),
   KEY `sale_details_tax_id_foreign` (`tax_id`),
+  KEY `sale_details_sale_id_index` (`sale_id`),
+  KEY `sale_details_product_id_index` (`product_id`),
   CONSTRAINT `sale_details_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_details_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE,
   CONSTRAINT `sale_details_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=43784 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1500,6 +1828,8 @@ CREATE TABLE `sale_payments` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `payment_method_id` bigint unsigned DEFAULT NULL,
   `sale_id` bigint unsigned NOT NULL,
+  `pos_session_id` bigint unsigned DEFAULT NULL,
+  `pos_receipt_id` bigint unsigned DEFAULT NULL,
   `amount` decimal(15,2) NOT NULL,
   `date` date NOT NULL,
   `reference` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -1510,7 +1840,11 @@ CREATE TABLE `sale_payments` (
   PRIMARY KEY (`id`),
   KEY `sale_payments_sale_id_foreign` (`sale_id`),
   KEY `sale_payments_payment_method_id_foreign` (`payment_method_id`),
+  KEY `sale_payments_pos_session_id_foreign` (`pos_session_id`),
+  KEY `sale_payments_pos_receipt_id_foreign` (`pos_receipt_id`),
   CONSTRAINT `sale_payments_payment_method_id_foreign` FOREIGN KEY (`payment_method_id`) REFERENCES `payment_methods` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `sale_payments_pos_receipt_id_foreign` FOREIGN KEY (`pos_receipt_id`) REFERENCES `pos_receipts` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sale_payments_pos_session_id_foreign` FOREIGN KEY (`pos_session_id`) REFERENCES `pos_sessions` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sale_payments_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -1653,9 +1987,9 @@ CREATE TABLE `sale_returns` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `sale_returns_setting_reference_unique` (`setting_id`,`reference`),
   KEY `sale_returns_customer_id_foreign` (`customer_id`),
   KEY `sale_returns_sale_id_foreign` (`sale_id`),
-  KEY `sale_returns_setting_id_foreign` (`setting_id`),
   KEY `sale_returns_location_id_foreign` (`location_id`),
   KEY `sale_returns_approval_status_index` (`approval_status`),
   KEY `sale_returns_return_type_index` (`return_type`),
@@ -1687,10 +2021,14 @@ CREATE TABLE `sales` (
   `due_date` date DEFAULT NULL,
   `is_tax_included` tinyint(1) NOT NULL DEFAULT '0',
   `reference` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tax_ref_no` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Nomor Faktur Pajak',
+  `imported_sales_reference_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `customer_id` bigint unsigned DEFAULT NULL,
   `payment_term_id` bigint unsigned DEFAULT NULL,
   `tax_id` bigint unsigned DEFAULT NULL,
   `setting_id` bigint unsigned DEFAULT NULL,
+  `pos_session_id` bigint unsigned DEFAULT NULL,
+  `pos_receipt_id` bigint unsigned DEFAULT NULL,
   `customer_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `tax_percentage` int NOT NULL DEFAULT '0',
   `tax_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
@@ -1707,14 +2045,102 @@ CREATE TABLE `sales` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `sales_setting_reference_unique` (`setting_id`,`reference`),
   KEY `sales_customer_id_foreign` (`customer_id`),
   KEY `sales_payment_term_id_foreign` (`payment_term_id`),
   KEY `sales_tax_id_foreign` (`tax_id`),
-  KEY `sales_setting_id_foreign` (`setting_id`),
+  KEY `sales_reference_status_created_at_index` (`reference`,`status`,`created_at`),
+  KEY `sales_status_index` (`status`),
+  KEY `sales_created_at_index` (`created_at`),
+  KEY `sales_setting_id_index` (`setting_id`),
+  KEY `sales_setting_id_reference_index` (`setting_id`,`reference`),
+  KEY `sales_setting_id_customer_id_index` (`setting_id`,`customer_id`),
+  KEY `sales_setting_id_created_at_index` (`setting_id`,`created_at`),
+  KEY `sales_pos_session_id_foreign` (`pos_session_id`),
+  KEY `sales_import_ref_setting_index` (`imported_sales_reference_number`,`setting_id`),
+  KEY `sales_pos_receipt_id_foreign` (`pos_receipt_id`),
   CONSTRAINT `sales_customer_id_foreign` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sales_pos_receipt_id_foreign` FOREIGN KEY (`pos_receipt_id`) REFERENCES `pos_receipts` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `sales_pos_session_id_foreign` FOREIGN KEY (`pos_session_id`) REFERENCES `pos_sessions` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `sales_tax_id_foreign` FOREIGN KEY (`tax_id`) REFERENCES `taxes` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=22605 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `sales_import_batches`
+--
+
+DROP TABLE IF EXISTS `sales_import_batches`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sales_import_batches` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `source_csv_path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `file_sha256` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'queued',
+  `total_rows` int NOT NULL DEFAULT '0',
+  `processed_rows` int NOT NULL DEFAULT '0',
+  `success_count` int NOT NULL DEFAULT '0',
+  `error_count` int NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `sales_import_batches_user_id_foreign` (`user_id`),
+  CONSTRAINT `sales_import_batches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `sales_import_rows`
+--
+
+DROP TABLE IF EXISTS `sales_import_rows`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sales_import_rows` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `batch_id` bigint unsigned NOT NULL,
+  `row_number` int NOT NULL,
+  `raw_json` json NOT NULL,
+  `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `error_message` text COLLATE utf8mb4_unicode_ci,
+  `sale_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `sales_import_rows_sale_id_foreign` (`sale_id`),
+  KEY `sales_import_rows_batch_id_status_index` (`batch_id`,`status`),
+  CONSTRAINT `sales_import_rows_batch_id_foreign` FOREIGN KEY (`batch_id`) REFERENCES `sales_import_batches` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `sales_import_rows_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=156602 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `sales_order_serial_tracking`
+--
+
+DROP TABLE IF EXISTS `sales_order_serial_tracking`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sales_order_serial_tracking` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `sale_id` bigint unsigned NOT NULL,
+  `product_serial_number_id` bigint unsigned NOT NULL,
+  `quantity_allocated` int NOT NULL DEFAULT '1',
+  `dispatch_date` datetime DEFAULT NULL,
+  `return_date` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_sale_serial` (`sale_id`,`product_serial_number_id`),
+  KEY `sales_order_serial_tracking_sale_id_index` (`sale_id`),
+  KEY `sales_order_serial_tracking_product_serial_number_id_index` (`product_serial_number_id`),
+  KEY `sales_order_serial_tracking_created_at_index` (`created_at`),
+  CONSTRAINT `sales_order_serial_tracking_product_serial_number_id_foreign` FOREIGN KEY (`product_serial_number_id`) REFERENCES `product_serial_numbers` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `sales_order_serial_tracking_sale_id_foreign` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1764,8 +2190,13 @@ CREATE TABLE `settings` (
   `document_prefix` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `purchase_prefix_document` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sale_prefix_document` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `pos_idle_threshold_minutes` int unsigned NOT NULL DEFAULT '30',
+  `pos_default_cash_threshold` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `pos_document_prefix` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `settings_company_name_unique` (`company_name`),
+  KEY `idx_settings_company_name` (`company_name`)
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1823,11 +2254,13 @@ CREATE TABLE `suppliers` (
   `setting_id` bigint unsigned NOT NULL,
   `payment_term_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `suppliers_setting_id_foreign` (`setting_id`),
+  UNIQUE KEY `suppliers_setting_name_unique` (`setting_id`,`supplier_name`),
+  UNIQUE KEY `suppliers_setting_identity_unique` (`setting_id`,`identity_number`),
   KEY `suppliers_payment_term_id_foreign` (`payment_term_id`),
+  KEY `idx_suppliers_name` (`supplier_name`),
   CONSTRAINT `suppliers_payment_term_id_foreign` FOREIGN KEY (`payment_term_id`) REFERENCES `payment_terms` (`id`) ON DELETE SET NULL,
   CONSTRAINT `suppliers_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=189 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1863,7 +2296,7 @@ CREATE TABLE `tags` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1879,8 +2312,10 @@ CREATE TABLE `taxes` (
   `value` decimal(8,2) NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `taxes_name_unique` (`name`),
+  KEY `idx_taxes_value` (`value`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1902,7 +2337,7 @@ CREATE TABLE `transactions` (
   `reason` text COLLATE utf8mb4_unicode_ci COMMENT 'Reason for the transaction',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
-  `type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Type of transaction',
   `previous_quantity` int NOT NULL,
   `after_quantity` int NOT NULL,
   `previous_quantity_at_location` int NOT NULL,
@@ -1920,7 +2355,7 @@ CREATE TABLE `transactions` (
   CONSTRAINT `transactions_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `transactions_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
   CONSTRAINT `transactions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=74383 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2016,9 +2451,11 @@ CREATE TABLE `units` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `units_setting_id_foreign` (`setting_id`),
+  UNIQUE KEY `units_setting_name_unique` (`setting_id`,`name`),
+  UNIQUE KEY `units_setting_short_name_unique` (`setting_id`,`short_name`),
+  KEY `idx_units_short_name` (`short_name`),
   CONSTRAINT `units_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=15 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2059,7 +2496,7 @@ CREATE TABLE `user_setting` (
   CONSTRAINT `user_setting_role_id_foreign` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON DELETE CASCADE,
   CONSTRAINT `user_setting_setting_id_foreign` FOREIGN KEY (`setting_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE,
   CONSTRAINT `user_setting_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2081,7 +2518,7 @@ CREATE TABLE `users` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `users_email_unique` (`email`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -2112,4 +2549,4 @@ CREATE TABLE `websockets_statistics_entries` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-10-25 12:04:01
+-- Dump completed on 2026-01-19 11:04:49

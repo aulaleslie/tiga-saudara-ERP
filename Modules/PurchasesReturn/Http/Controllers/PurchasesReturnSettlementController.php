@@ -298,6 +298,64 @@ class PurchasesReturnSettlementController extends Controller
                         $purchase->decrement('due_amount', $amountToReduce);
                         $purchase->increment('paid_amount', $amountToReduce);
                         
+                        // Deduct stock
+                        $detail = $item->detail;
+                        if ($detail && $detail->product_id) {
+                            $product = \Modules\Product\Entities\Product::find($detail->product_id);
+                            if ($product) {
+                                $qtyToDeduct = $item->product_serial_number_id ? 1 : ($detail->quantity ?? 1);
+                                $locationId = $detail->location_id ?? $purchaseReturn->location_id;
+                                
+                                // Update Product global quantity
+                                $previousQtyGlobal = $product->product_quantity;
+                                $product->decrement('product_quantity', $qtyToDeduct);
+                                
+                                // Update ProductStock (location specific)
+                                $productStock = \Modules\Product\Entities\ProductStock::where('product_id', $product->id)
+                                    ->where('location_id', $locationId)
+                                    ->first();
+                                
+                                $prevQtyAtLocation = 0;
+                                if ($productStock) {
+                                    $prevQtyAtLocation = $productStock->quantity;
+                                    $productStock->decrement('quantity', $qtyToDeduct);
+                                }
+
+                                // Handle serial number return
+                                $isTaxable = false;
+                                if ($item->product_serial_number_id) {
+                                    $sn = \Modules\Product\Entities\ProductSerialNumber::find($item->product_serial_number_id);
+                                    if ($sn) {
+                                        $isTaxable = $sn->tax_id !== null;
+                                        $sn->update([
+                                            'status' => 'RETURNED',
+                                            'received_note_detail_id' => null,
+                                        ]);
+                                    }
+                                }
+
+                                // Create transaction record
+                                \Modules\Product\Entities\Transaction::create([
+                                    'product_id' => $product->id,
+                                    'setting_id' => $purchaseReturn->setting_id,
+                                    'type' => 'PURCHASE_RETURN_SETTLEMENT',
+                                    'quantity' => -$qtyToDeduct,
+                                    'current_quantity' => $product->fresh()->product_quantity,
+                                    'location_id' => $locationId,
+                                    'user_id' => auth()->id(),
+                                    'reason' => "Settlement retur: {$purchaseReturn->reference}",
+                                    'previous_quantity' => $previousQtyGlobal,
+                                    'after_quantity' => $product->fresh()->product_quantity,
+                                    'previous_quantity_at_location' => $prevQtyAtLocation,
+                                    'after_quantity_at_location' => $productStock ? $productStock->fresh()->quantity : 0,
+                                    'quantity_tax' => $isTaxable ? -$qtyToDeduct : 0,
+                                    'quantity_non_tax' => !$isTaxable ? -$qtyToDeduct : 0,
+                                    'broken_quantity_tax' => 0,
+                                    'broken_quantity_non_tax' => 0,
+                                ]);
+                            }
+                        }
+                        
                         if ($purchase->fresh()->due_amount <= 0.01) {
                             $purchase->update(['payment_status' => 'Paid']);
                         }
