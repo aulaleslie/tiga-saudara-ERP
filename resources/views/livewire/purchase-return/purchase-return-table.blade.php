@@ -3,14 +3,14 @@
         .sticky-action-header {
             position: sticky;
             right: 0;
-            z-index: 2;
+            z-index: 10; /* Increased z-index to stay above dropdowns if needed, or maybe lower if dropdowns should be on top */
             background-color: #f8f9fa !important;
             box-shadow: -2px 0 5px rgba(0,0,0,0.05); /* Subtle separator */
         }
         .sticky-action-col {
             position: sticky;
             right: 0;
-            z-index: 1;
+            z-index: 9;
             background-color: #fff;
             box-shadow: -2px 0 5px rgba(0,0,0,0.05);
         }
@@ -18,9 +18,22 @@
         .table-hover tbody tr:hover .sticky-action-col {
             background-color: var(--bs-table-hover-bg);
         }
+        
+        /* Allow dropdowns to overflow the table-responsive container */
+        .table-custom-responsive {
+            overflow-x: auto;
+            overflow-y: visible !important;
+            padding-bottom: 200px; /* Space for dropdowns */
+            margin-bottom: -200px; /* Pull back the next element */
+        }
+        
+        /* Ensure table rows don't clip the dropdowns */
+        .table-custom-responsive table {
+            border-collapse: separate; /* Required for some overflow behaviors */
+        }
     </style>
     @if ($supplierId)
-        <div class="table-responsive">
+        <div class="table-custom-responsive">
             <table class="table table-hover align-middle mb-0" style="min-width: 1300px;">
                 <thead class="table-light">
                     <tr class="text-center text-uppercase small text-muted">
@@ -88,7 +101,7 @@
                                 <span class="fw-bold text-dark">{{ $row['unit_name'] ?? '-' }}</span>
                             </td>
                             <td class="text-center">
-                                <span class="badge bg-light text-primary fw-semibold">{{ $row['stock_at_location'] ?? 0 }}</span>
+                                <span class="badge bg-light text-primary fw-bold py-1 px-2" style="font-size: 1rem;">{{ $row['stock_at_location'] ?? 0 }}</span>
                             </td>
                             <td class="text-center">
                                 @if (!empty($row['serial_number_required']))
