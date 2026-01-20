@@ -253,15 +253,16 @@
                                                     $methodLabel = $allMethods[$line['method']] ?? ($line['method'] ?: 'Belum ditentukan');
                                                 @endphp
                                                 <div class="fw-bold text-dark small">{{ $methodLabel }}</div>
-                                                @if(in_array($line['method'], ['MODIFY_PURCHASE', 'CREDIT']) && $line['target_purchase_id'])
+                                                @if(in_array($line['method'], ['MODIFY_PURCHASE', 'CREDIT', 'CASH']) && $line['target_purchase_id'])
                                                     @php
-                                                        $sourceList = $line['method'] === 'MODIFY_PURCHASE' ? $unpaidPurchases : $creditPurchases;
-                                                        // Look for target in all unpaid purchases since it might be grouped by product
                                                         $targetPurchase = null;
-                                                        if ($line['method'] === 'MODIFY_PURCHASE') {
+                                                        if ($line['method'] === 'MODIFY_PURCHASE' || $line['method'] === 'CASH') {
+                                                            $methodKey = $line['method'];
                                                             foreach ($unpaidPurchases as $prodPurchases) {
-                                                                $found = collect($prodPurchases)->firstWhere('id', $line['target_purchase_id']);
-                                                                if ($found) { $targetPurchase = $found; break; }
+                                                                if (isset($prodPurchases[$methodKey])) {
+                                                                    $found = collect($prodPurchases[$methodKey])->firstWhere('id', $line['target_purchase_id']);
+                                                                    if ($found) { $targetPurchase = $found; break; }
+                                                                }
                                                             }
                                                         } else {
                                                             $targetPurchase = collect($creditPurchases)->firstWhere('id', $line['target_purchase_id']);
@@ -318,18 +319,20 @@
                                                 <!-- Searchable Dropdown Integration via Alpine -->
                                                 @php
                                                     $currentMethod = $settlementLines[$index]['method'] ?? '';
-                                                    $showDropdown = in_array($currentMethod, ['MODIFY_PURCHASE', 'CREDIT']);
+                                                    $showDropdown = in_array($currentMethod, ['MODIFY_PURCHASE', 'CREDIT', 'CASH']);
                                                     $purchaseList = match($currentMethod) {
-                                                        'MODIFY_PURCHASE' => $unpaidPurchases[$line['product_id']] ?? [],
+                                                        'MODIFY_PURCHASE' => $unpaidPurchases[$line['product_id']]['MODIFY_PURCHASE'] ?? [],
+                                                        'CASH' => $unpaidPurchases[$line['product_id']]['CASH'] ?? [],
                                                         'CREDIT' => $creditPurchases,
                                                         default => []
                                                     };
                                                     $placeholder = match($currentMethod) {
                                                         'MODIFY_PURCHASE' => 'Cari Nota (Belum Lunas)...',
+                                                        'CASH' => 'Cari Nota (Lunas/Sebagian)...',
                                                         'CREDIT' => 'Cari Nota (Referensi)...',
                                                         default => 'Cari...'
                                                     };
-                                                    $isLocked = !empty($line['serial_number_id']) && $currentMethod === 'MODIFY_PURCHASE';
+                                                    $isLocked = !empty($line['serial_number_id']) && in_array($currentMethod, ['MODIFY_PURCHASE', 'CASH']);
                                                 @endphp
                                                 
                                                 @if($showDropdown)
@@ -458,7 +461,7 @@
                                                         @enderror
 
                                                         {{-- Ticket 3: Quantity Mismatch Warning --}}
-                                                        @if($showDropdown && $currentMethod === 'MODIFY_PURCHASE' && empty($line['serial_number']))
+                                                        @if($showDropdown && in_array($currentMethod, ['MODIFY_PURCHASE', 'CASH']) && empty($line['serial_number']))
                                                             @php
                                                                 $selectedPurchaseData = collect($purchaseList)->firstWhere('id', $line['target_purchase_id']);
                                                                 $purchaseQty = $selectedPurchaseData['product_quantity'] ?? 0;

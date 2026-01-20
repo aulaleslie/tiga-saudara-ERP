@@ -320,4 +320,121 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         $this->assertCount(1, $component->get('search_results'));
         $this->assertEquals('SN-ACTIVE-001', $component->get('search_results')[0]['serial_number']);
     }
+
+    /** @test */
+    public function test_product_repair_serial_strict_uniqueness_prevents_returned_serial_reuse()
+    {
+        // 1. Create a RETURNED serial number for the same product
+        ProductSerialNumber::create([
+            'product_id' => $this->serialProduct->id,
+            'serial_number' => 'SN-PREVIOUSLY-RETURNED',
+            'status' => 'RETURNED',
+            'location_id' => $this->location->id,
+        ]);
+
+        // 2. Original serial for the current repair
+        $sn = ProductSerialNumber::create([
+            'product_id' => $this->serialProduct->id,
+            'serial_number' => 'SN-CURRENT-REPAIR',
+            'status' => 'DISPATCHED',
+            'is_in_return_process' => true,
+            'location_id' => $this->location->id,
+        ]);
+
+        $pr = $this->createPurchaseReturn($this->serialProduct);
+        $item = $this->createSettlementItem($pr, $this->serialProduct, 'PRODUCT_REPAIR', 1, $sn);
+
+        // 3. Try to use the RETURNED serial as replacement
+        $response = $this->post(route('purchase-return-settlements.item.receive', $item->id), [
+            'location_id' => $this->targetLocation->id,
+            'received_quantity' => 1,
+            'replacement_serial_number' => 'SN-PREVIOUSLY-RETURNED',
+        ]);
+
+        $response->assertSessionHas('error');
+        $this->assertStringContainsString('sudah terdaftar', session('error'));
+    }
+
+    /** @test */
+    public function test_cash_settlement_resets_paid_purchase()
+    {
+        // Ensure permission
+        \Spatie\Permission\Models\Permission::findOrCreate('purchaseReturnSettlements.approve');
+        $this->user->givePermissionTo('purchaseReturnSettlements.approve');
+
+        // 1. Create a PAID purchase
+        $purchase = \Modules\Purchase\Entities\Purchase::create([
+            'supplier_id' => 1,
+            'reference' => 'PO-PAID-001',
+            'total_amount' => 5000,
+            'paid_amount' => 5000,
+            'due_amount' => 0,
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'status' => 'Received',
+            'date' => now(),
+            'due_date' => now()->addDays(7),
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $detail = \Modules\Purchase\Entities\PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 5,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 5000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $rn = \Modules\Purchase\Entities\ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'status' => 'APPROVED',
+            'date' => now(),
+            'location_id' => $this->location->id,
+        ]);
+
+        \Modules\Purchase\Entities\ReceivedNoteDetail::create([
+            'received_note_id' => $rn->id,
+            'po_detail_id' => $detail->id,
+            'product_id' => $this->product->id,
+            'quantity_received' => 5,
+        ]);
+
+        \Modules\Purchase\Entities\PurchasePayment::create([
+            'purchase_id' => $purchase->id,
+            'amount' => 5000,
+            'date' => now(),
+            'payment_method' => 'Cash',
+            'reference' => 'PAY-001',
+        ]);
+
+        // 2. Create PR and CASH settlement
+        $pr = $this->createPurchaseReturn($this->product, 2);
+        $item = $this->createSettlementItem($pr, $this->product, 'CASH', 2);
+        
+        // Item state for approve
+        $item->update([
+            'status' => PurchaseReturnItemSettlement::STATUS_SUBMITTED,
+            'target_purchase_id' => $purchase->id
+        ]);
+
+        // 3. Approve settlement
+        $response = $this->post(route('purchase-return-settlements.item.approve', $item->id));
+        $response->assertSessionHas('success');
+
+        $purchase->refresh();
+        $this->assertEquals(0, $purchase->paid_amount);
+        $this->assertEquals('UNPAID', $purchase->payment_status);
+        $this->assertCount(0, $purchase->purchasePayments);
+        
+        // Quantity should be reduced (5 - 2 = 3)
+        $detail = $purchase->purchaseDetails()->where('product_id', $this->product->id)->first();
+        $this->assertEquals(3, $detail->quantity);
+        $this->assertEquals(3000, $purchase->total_amount);
+    }
 }

@@ -24,4 +24,9 @@ class PurchaseReturnPayment extends BaseModel
     {
         return $this->belongsTo(\App\Models\PaymentMethod::class, 'payment_method_id', 'id');
     }
+
+    public function scopeByPurchaseReturn($query)
+    {
+        return $query->where('purchase_return_id', request()->route('purchase_return_id'));
+    }
 }

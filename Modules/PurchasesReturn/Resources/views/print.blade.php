@@ -200,7 +200,18 @@
                                             $methodLabels = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::settlementMethods();
                                         @endphp
                                         @if($settlementItem->method)
+                                            @php 
+                                                $methodKey = strtoupper(str_replace(' ', '_', trim($settlementItem->method))); 
+                                                $isPurchaseLinked = in_array($methodKey, ['MODIFY_PURCHASE', 'CREDIT', 'CASH'], true);
+                                                $targetPurchase = $settlementItem->targetPurchase;
+                                            @endphp
                                             {{ $methodLabels[$settlementItem->method] ?? $settlementItem->method }}
+                                            @if($isPurchaseLinked && $targetPurchase)
+                                                <div style="font-size: 10px; color: #6c757d; margin-top: 2px;">
+                                                    <div>Ref: {{ $targetPurchase->reference }}</div>
+                                                    <div>Supplier Ref: {{ $targetPurchase->supplier_purchase_number ?: '-' }}</div>
+                                                </div>
+                                            @endif
                                         @else
                                             <em>Belum ditentukan</em>
                                         @endif

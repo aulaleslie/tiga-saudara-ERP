@@ -267,7 +267,12 @@ class PurchasesReturnSettlementController extends Controller
         try {
             \Illuminate\Support\Facades\DB::transaction(function () use ($request, $itemSettlement, $method, $isSerial) {
                 $productId = $itemSettlement->detail?->product_id;
-                $sourceLocationId = $itemSettlement->purchaseReturn->location_id; 
+                $sourceLocationId = $itemSettlement->detail?->location_id ?? $itemSettlement->purchaseReturn->location_id; 
+                
+                if (!$sourceLocationId) {
+                    throw new \Exception("Lokasi asal tidak ditemukan untuk pemindahan stok.");
+                }
+
                 $targetLocationId = $request->location_id;
                 $receivedQty = $request->received_quantity;
                 $note = $request->note;
@@ -297,14 +302,13 @@ class PurchasesReturnSettlementController extends Controller
                                 'dispatch_detail_id' => null,
                             ]);
                             
-                            // Uniqueness check for new serial
-                            $existingActive = ProductSerialNumber::where('product_id', $productId)
+                            // Uniqueness check for new serial (Strict: globally unique for the product)
+                            $existingGlobal = ProductSerialNumber::where('product_id', $productId)
                                 ->where('serial_number', $replacementSerialNumber)
-                                ->where('status', '!=', 'RETURNED')
                                 ->exists();
                             
-                            if ($existingActive) {
-                                throw new \Exception("Serial number {$replacementSerialNumber} sudah aktif digunakan oleh produk lain.");
+                            if ($existingGlobal) {
+                                throw new \Exception("Serial number {$replacementSerialNumber} sudah terdaftar di database untuk produk ini.");
                             }
                             
                             $newSerial = ProductSerialNumber::create([
@@ -599,68 +603,11 @@ class PurchasesReturnSettlementController extends Controller
 
                     $purchase->refresh();
                     $reductionAmount = max(0, $previousTotal - (float) $purchase->total_amount);
-                    if ($reductionAmount > 0 && (float) $item->nominal !== $reductionAmount) {
+                    if ($reductionAmount > 0 && (float) $item->nominal !== $reductionAmount && strtoupper($item->method) === 'MODIFY_PURCHASE') {
                         $item->update(['nominal' => $reductionAmount]);
                     }
 
-                    // Deduct stock
-                    $product = \Modules\Product\Entities\Product::find($detail->product_id);
-                    if ($product) {
-                        $qtyToDeduct = $returnQty;
-                        $locationId = $detail->location_id ?? $purchaseReturn->location_id;
-
-                        // Update Product global quantity
-                        $previousQtyGlobal = $product->fresh()->product_quantity;
-                        $product->decrement('product_quantity', $qtyToDeduct);
-
-                        // Update ProductStock (location specific)
-                        $productStock = \Modules\Product\Entities\ProductStock::where('product_id', $product->id)
-                            ->where('location_id', $locationId)
-                            ->first();
-
-                        $prevQtyAtLocation = 0;
-                        if ($productStock) {
-                            $prevQtyAtLocation = $productStock->fresh()->quantity;
-                            $productStock->decrement('quantity', $qtyToDeduct);
-                        }
-
-                        // Handle serial number return
-                        $isTaxable = false;
-                        if ($item->product_serial_number_id) {
-                            $sn = \Modules\Product\Entities\ProductSerialNumber::find($item->product_serial_number_id);
-                            if ($sn) {
-                                $isTaxable = $sn->tax_id !== null;
-                                $sn->update([
-                                    'status' => 'RETURNED',
-                                    'received_note_detail_id' => null,
-                                    'is_in_return_process' => false,
-                                    'purchase_return_id' => $purchaseReturn->id,
-                                ]);
-                            }
-                        } elseif ($detail->product_tax_amount > 0) {
-                            $isTaxable = true;
-                        }
-
-                        // Create transaction record
-                        \Modules\Product\Entities\Transaction::create([
-                            'product_id' => $product->id,
-                            'setting_id' => $purchaseReturn->setting_id,
-                            'type' => 'PURCHASE_RETURN',
-                            'quantity' => -$qtyToDeduct,
-                            'current_quantity' => $product->fresh()->product_quantity,
-                            'location_id' => $locationId,
-                            'user_id' => auth()->id(),
-                            'reason' => "Settlement retur: {$purchaseReturn->reference}",
-                            'previous_quantity' => $previousQtyGlobal,
-                            'after_quantity' => $product->fresh()->product_quantity,
-                            'previous_quantity_at_location' => $prevQtyAtLocation,
-                            'after_quantity_at_location' => $productStock ? $productStock->fresh()->quantity : 0,
-                            'quantity_tax' => $isTaxable ? -$qtyToDeduct : 0,
-                            'quantity_non_tax' => ! $isTaxable ? -$qtyToDeduct : 0,
-                            'broken_quantity_tax' => 0,
-                            'broken_quantity_non_tax' => 0,
-                        ]);
-                    }
+                    $this->deductStockForReturn($item, $detail, $purchaseReturn, $returnQty);
                 }
                 break;
 
@@ -685,6 +632,17 @@ class PurchasesReturnSettlementController extends Controller
                 if ($item->target_purchase_id) {
                     $purchase = \Modules\Purchase\Entities\Purchase::lockForUpdate()->findOrFail($item->target_purchase_id);
                     
+                    // Reset payments and set Unpaid if Paid/Partial
+                    if (in_array(strtoupper($purchase->payment_status), ['PAID', 'PARTIAL'])) {
+                        $purchase->purchasePayments()->delete();
+                        $purchase->update([
+                            'paid_amount' => 0,
+                            'due_amount' => $purchase->total_amount,
+                            'payment_status' => 'Unpaid'
+                        ]);
+                        $purchase->refresh();
+                    }
+
                     // Ticket 6: Create PurchasePayment
                     $payment = \Modules\Purchase\Entities\PurchasePayment::create([
                         'purchase_id' => $purchase->id,
@@ -722,27 +680,131 @@ class PurchasesReturnSettlementController extends Controller
                 break;
 
             case 'CASH':
-                // Find or create payment record for this purchase return
-                $payment = \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::firstOrCreate(
-                    [
-                        'purchase_return_id' => $purchaseReturn->id,
-                        'payment_method' => 'CASH',
-                    ],
-                    [
-                        'date' => now(),
-                        'reference' => 'REF/' . $purchaseReturn->reference . '/CASH',
-                        'amount' => 0,
-                        'note' => 'SETTLEMENT EXECUTION (CASH REFUND)',
-                        'setting_id' => $purchaseReturn->setting_id,
-                    ]
-                );
-                $payment->increment('amount', $itemAmount);
+                if ($item->target_purchase_id) {
+                    $purchase = \Modules\Purchase\Entities\Purchase::with('purchaseDetails')
+                        ->lockForUpdate()
+                        ->findOrFail($item->target_purchase_id);
+
+                    $detail = $item->detail;
+                    if (!$detail || !$detail->product_id) {
+                        throw new \Exception('Detail retur tidak ditemukan untuk pengembalian tunai.');
+                    }
+
+                    $returnQty = $this->resolveReturnQuantity($item, $detail);
+                    if ($returnQty <= 0) {
+                        break;
+                    }
+
+                    $previousTotal = (float) $purchase->total_amount;
+
+                    $serial = null;
+                    if ($item->product_serial_number_id) {
+                        $serial = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail'])
+                            ->lockForUpdate()
+                            ->find($item->product_serial_number_id);
+                    }
+
+                    if ($serial && $serial->receivedNoteDetail && $serial->receivedNoteDetail->purchaseDetail) {
+                        $purchaseDetail = $serial->receivedNoteDetail->purchaseDetail;
+                        $this->ensurePurchaseDetailHasQuantity($purchaseDetail, $returnQty);
+                        $this->reducePurchaseDetailAmounts($purchaseDetail, $returnQty);
+                        $this->reduceReceivedNoteDetailQuantity($serial->receivedNoteDetail, $returnQty);
+                    } else {
+                        $purchaseDetails = $purchase->purchaseDetails->where('product_id', $detail->product_id);
+                        if ($purchaseDetails->isEmpty()) {
+                            throw new \Exception('Produk tidak ditemukan pada nota pembelian target.');
+                        }
+                        $this->ensurePurchaseDetailsHaveQuantity($purchaseDetails, $returnQty);
+                        $this->reducePurchaseDetailCollection($purchaseDetails, $returnQty);
+                    }
+
+                    $this->recalculatePurchaseTotals($purchase);
+
+                    // Reset payments and set Unpaid (Cash refund means original payment is returned)
+                    if (in_array(strtoupper($purchase->payment_status), ['PAID', 'PARTIAL'])) {
+                        $purchase->purchasePayments()->delete();
+                        $purchase->update([
+                            'paid_amount' => 0,
+                            'due_amount' => $purchase->total_amount,
+                            'payment_status' => 'Unpaid'
+                        ]);
+                    }
+
+                    $purchase->refresh();
+
+                    // Deduct stock (same as MODIFY_PURCHASE)
+                    $this->deductStockForReturn($item, $detail, $purchaseReturn, $returnQty);
+                }
                 break;
                 
             case 'PRODUCT_REPAIR':
             case 'BROKEN_STOCK':
                 // No immediate financial effect at approval time
                 break;
+        }
+    }
+
+    /**
+     * Helper to deduct stock for return (either MODIFY_PURCHASE or CASH)
+     */
+    protected function deductStockForReturn(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $item, $detail, $purchaseReturn, int $returnQty)
+    {
+        $product = \Modules\Product\Entities\Product::find($detail->product_id);
+        if ($product) {
+            $qtyToDeduct = $returnQty;
+            $locationId = $detail->location_id ?? $purchaseReturn->location_id;
+
+            // Update Product global quantity
+            $previousQtyGlobal = $product->fresh()->product_quantity;
+            $product->decrement('product_quantity', $qtyToDeduct);
+
+            // Update ProductStock (location specific)
+            $productStock = \Modules\Product\Entities\ProductStock::where('product_id', $product->id)
+                ->where('location_id', $locationId)
+                ->first();
+
+            $prevQtyAtLocation = 0;
+            if ($productStock) {
+                $prevQtyAtLocation = $productStock->fresh()->quantity;
+                $productStock->decrement('quantity', $qtyToDeduct);
+            }
+
+            // Handle serial number return
+            $isTaxable = false;
+            if ($item->product_serial_number_id) {
+                $sn = \Modules\Product\Entities\ProductSerialNumber::find($item->product_serial_number_id);
+                if ($sn) {
+                    $isTaxable = $sn->tax_id !== null;
+                    $sn->update([
+                        'status' => 'RETURNED',
+                        'received_note_detail_id' => null,
+                        'is_in_return_process' => false,
+                        'purchase_return_id' => $purchaseReturn->id,
+                    ]);
+                }
+            } elseif ($detail->product_tax_amount > 0) {
+                $isTaxable = true;
+            }
+
+            // Create transaction record
+            \Modules\Product\Entities\Transaction::create([
+                'product_id' => $product->id,
+                'setting_id' => $purchaseReturn->setting_id,
+                'type' => 'PURCHASE_RETURN',
+                'quantity' => -$qtyToDeduct,
+                'current_quantity' => $product->fresh()->product_quantity,
+                'location_id' => $locationId,
+                'user_id' => auth()->id(),
+                'reason' => "Settlement retur: {$purchaseReturn->reference}",
+                'previous_quantity' => $previousQtyGlobal,
+                'after_quantity' => $product->fresh()->product_quantity,
+                'previous_quantity_at_location' => $prevQtyAtLocation,
+                'after_quantity_at_location' => $productStock ? $productStock->fresh()->quantity : 0,
+                'quantity_tax' => $isTaxable ? -$qtyToDeduct : 0,
+                'quantity_non_tax' => ! $isTaxable ? -$qtyToDeduct : 0,
+                'broken_quantity_tax' => 0,
+                'broken_quantity_non_tax' => 0,
+            ]);
         }
     }
 

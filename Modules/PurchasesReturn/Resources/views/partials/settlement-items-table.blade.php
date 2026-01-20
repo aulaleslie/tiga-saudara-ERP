@@ -46,7 +46,7 @@
                             @if($item->method)
                                 @php 
                                     $methodKey = strtoupper(str_replace(' ', '_', trim($item->method))); 
-                                    $isPurchaseLinked = in_array($methodKey, ['MODIFY_PURCHASE', 'CREDIT'], true);
+                                    $isPurchaseLinked = in_array($methodKey, ['MODIFY_PURCHASE', 'CREDIT', 'CASH'], true);
                                     $targetPurchase = $item->targetPurchase;
                                 @endphp
                                 <span class="font-weight-normal text-primary">{{ $methodLabels[$methodKey] ?? $methodLabels[$item->method] ?? $item->method }}</span>
@@ -154,7 +154,7 @@
                             {{ $methodLabels[$methodKey] ?? $methodLabels[$item->method] ?? $item->method }}
                         </div>
                     </div>
-                    @if(in_array($methodKey, ['MODIFY_PURCHASE', 'CREDIT'], true))
+                    @if(in_array($methodKey, ['MODIFY_PURCHASE', 'CREDIT', 'CASH'], true))
                         @php
                             $targetPurchase = $item->targetPurchase;
                         @endphp
