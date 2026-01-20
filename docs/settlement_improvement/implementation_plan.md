@@ -15,7 +15,7 @@ Phase 2: Approval Effects and Credit Payment (Completed)
 - Ticket 5: CREDIT approval dialog for notes + attachments.
 - Ticket 6: Create purchase payment and credit linkage on CREDIT approval.
 
-Phase 3: Receive Flow and Serial Lifecycle
+Phase 3: Receive Flow and Serial Lifecycle (Completed)
 - Ticket 7: PRODUCT_REPAIR receive rules and replacement serial entry.
 - Ticket 8: Serial lifecycle updates (old RETURNED, new created).
 - Ticket 9: BROKEN_STOCK receive quantity lock.
