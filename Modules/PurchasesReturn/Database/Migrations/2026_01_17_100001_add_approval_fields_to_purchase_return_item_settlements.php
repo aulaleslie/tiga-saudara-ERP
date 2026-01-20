@@ -34,6 +34,7 @@ return new class extends Migration
             // Add approval tracking
             $table->timestamp('approved_at')->nullable()->after('submitted_by');
             $table->unsignedBigInteger('approved_by')->nullable()->after('approved_at');
+            $table->text('approval_note')->nullable()->after('approved_by');
             
             // Add rejection tracking
             $table->timestamp('rejected_at')->nullable()->after('approved_by');

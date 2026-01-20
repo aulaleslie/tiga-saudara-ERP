@@ -123,7 +123,7 @@ class PurchasesReturnSettlementController extends Controller
     /**
      * Approve a single item settlement.
      */
-    public function approveItemSettlement(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $itemSettlement)
+    public function approveItemSettlement(Request $request, \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $itemSettlement)
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.approve'), 403);
 
@@ -131,8 +131,15 @@ class PurchasesReturnSettlementController extends Controller
             return back()->with('error', 'Item ini tidak dapat disetujui.');
         }
 
+        if (strtoupper($itemSettlement->method) === 'CREDIT') {
+            $request->validate([
+                'approval_note' => 'nullable|string|max:255',
+                'attachments.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
+            ]);
+        }
+
         try {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($itemSettlement) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($request, $itemSettlement) {
                 // Validation at approval time
                 $nominal = $itemSettlement->getEffectiveNominal();
                 $maxNominal = (float) ($itemSettlement->detail?->sub_total ?? 0);
@@ -146,13 +153,17 @@ class PurchasesReturnSettlementController extends Controller
                         throw new \Exception('Nota pembelian target harus dipilih untuk metode Ubah Nota.');
                     }
                     $purchase = \Modules\Purchase\Entities\Purchase::findOrFail($itemSettlement->target_purchase_id);
-                    if ($nominal > (float) $purchase->due_amount + 0.01) {
-                         throw new \Exception('Nominal penyelesaian melebihi sisa tagihan nota pembelian target.');
+                    if ($nominal > (float) $purchase->total_amount + 0.01) {
+                         throw new \Exception('Nominal penyelesaian melebihi total nilai nota pembelian target.');
                     }
                 }
 
-                // Apply effects
-                $this->applySettlementEffect($itemSettlement);
+                // Apply effects with optional data from request
+                $options = [
+                    'approval_note' => $request->approval_note,
+                    'attachments' => $request->file('attachments'),
+                ];
+                $this->applySettlementEffect($itemSettlement, $options);
 
                 // Update item status based on method
                 $finalStatus = \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_APPROVED;
@@ -164,6 +175,7 @@ class PurchasesReturnSettlementController extends Controller
                     'status' => $finalStatus,
                     'approved_by' => auth()->id(),
                     'approved_at' => now(),
+                    'approval_note' => $request->approval_note,
                 ]);
 
                 // Update Purchase Return status roll-up using derived attribute
@@ -285,7 +297,7 @@ class PurchasesReturnSettlementController extends Controller
     /**
      * Helper to apply settlement effect for a single item.
      */
-    protected function applySettlementEffect(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $item)
+    protected function applySettlementEffect(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $item, array $options = [])
     {
         $method = strtoupper($item->method);
         $itemAmount = $item->getEffectiveNominal();
@@ -338,6 +350,19 @@ class PurchasesReturnSettlementController extends Controller
 
                     $this->recalculatePurchaseTotals($purchase);
 
+                    // Ticket 4: Reset payments and set Unpaid on MODIFY_PURCHASE approval for paid/partial purchases
+                    if (in_array(strtoupper($purchase->payment_status), ['PAID', 'PARTIAL'])) {
+                        // Hard delete payments as requested
+                        $purchase->purchasePayments()->delete();
+                        
+                        // Reset amounts and status
+                        $purchase->update([
+                            'paid_amount' => 0,
+                            'due_amount' => $purchase->total_amount,
+                            'payment_status' => 'Unpaid'
+                        ]);
+                    }
+
                     $purchase->refresh();
                     $reductionAmount = max(0, $previousTotal - (float) $purchase->total_amount);
                     if ($reductionAmount > 0 && (float) $item->nominal !== $reductionAmount) {
@@ -351,7 +376,7 @@ class PurchasesReturnSettlementController extends Controller
                         $locationId = $detail->location_id ?? $purchaseReturn->location_id;
 
                         // Update Product global quantity
-                        $previousQtyGlobal = $product->product_quantity;
+                        $previousQtyGlobal = $product->fresh()->product_quantity;
                         $product->decrement('product_quantity', $qtyToDeduct);
 
                         // Update ProductStock (location specific)
@@ -361,7 +386,7 @@ class PurchasesReturnSettlementController extends Controller
 
                         $prevQtyAtLocation = 0;
                         if ($productStock) {
-                            $prevQtyAtLocation = $productStock->quantity;
+                            $prevQtyAtLocation = $productStock->fresh()->quantity;
                             $productStock->decrement('quantity', $qtyToDeduct);
                         }
 
@@ -406,7 +431,7 @@ class PurchasesReturnSettlementController extends Controller
                 break;
 
             case 'CREDIT':
-                // Find or create supplier credit record for this purchase return
+                // 1. Manage SupplierCredit (Source)
                 $credit = \Modules\PurchasesReturn\Entities\SupplierCredit::firstOrCreate(
                     [
                         'purchase_return_id' => $purchaseReturn->id,
@@ -416,10 +441,50 @@ class PurchasesReturnSettlementController extends Controller
                         'amount' => 0,
                         'remaining_amount' => 0,
                         'status' => 'OPEN',
+                        'setting_id' => $purchaseReturn->setting_id,
                     ]
                 );
                 $credit->increment('amount', $itemAmount);
                 $credit->increment('remaining_amount', $itemAmount);
+
+                // 2. Apply to Target Purchase (Usage)
+                if ($item->target_purchase_id) {
+                    $purchase = \Modules\Purchase\Entities\Purchase::lockForUpdate()->findOrFail($item->target_purchase_id);
+                    
+                    // Ticket 6: Create PurchasePayment
+                    $payment = \Modules\Purchase\Entities\PurchasePayment::create([
+                        'purchase_id' => $purchase->id,
+                        'amount' => $itemAmount,
+                        'date' => now(),
+                        'reference' => 'PAY/' . $purchase->reference . '/' . time(),
+                        'note' => $options['approval_note'] ?? 'Settlement retur: ' . $purchaseReturn->reference,
+                        'payment_method' => 'Credit',
+                    ]);
+
+                    // Ticket 5: Handle Attachments
+                    if (!empty($options['attachments'])) {
+                        foreach ($options['attachments'] as $file) {
+                             $payment->addMedia($file)->toMediaCollection('attachments');
+                        }
+                    }
+
+                    // Ticket 6: Update Purchase (paid_amount, payment_status, due_amount)
+                    $purchase->increment('paid_amount', $itemAmount);
+                    $this->recalculatePurchaseTotals($purchase);
+
+                    // Ticket 6: Create Credit Application Linkage
+                    \Modules\PurchasesReturn\Entities\PurchasePaymentCreditApplication::create([
+                        'purchase_payment_id' => $payment->id,
+                        'supplier_credit_id' => $credit->id,
+                        'amount' => $itemAmount,
+                    ]);
+
+                    // Ticket 6: Decrement remaining credit
+                    $credit->decrement('remaining_amount', $itemAmount);
+                    if ($credit->remaining_amount <= 0.01) {
+                        $credit->update(['status' => 'closed']);
+                    }
+                }
                 break;
 
             case 'CASH':
@@ -434,6 +499,7 @@ class PurchasesReturnSettlementController extends Controller
                         'reference' => 'REF/' . $purchaseReturn->reference . '/CASH',
                         'amount' => 0,
                         'note' => 'SETTLEMENT EXECUTION (CASH REFUND)',
+                        'setting_id' => $purchaseReturn->setting_id,
                     ]
                 );
                 $payment->increment('amount', $itemAmount);

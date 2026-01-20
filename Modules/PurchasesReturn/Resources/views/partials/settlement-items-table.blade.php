@@ -112,7 +112,7 @@
 @foreach($purchase_return->settlementItems->where('status', 'SUBMITTED') as $item)
 <div class="modal fade" id="approveItemModal{{ $item->id }}" tabindex="-1" aria-labelledby="approveItemModalLabel{{ $item->id }}" aria-hidden="true">
     <div class="modal-dialog">
-        <form method="POST" action="{{ route('purchase-return-settlements.item.approve', $item->id) }}">
+        <form method="POST" action="{{ route('purchase-return-settlements.item.approve', $item->id) }}" enctype="multipart/form-data">
             @csrf
             <div class="modal-content">
                 <div class="modal-header">
@@ -156,6 +156,18 @@
                         <div class="col-sm-4"><strong>Nominal:</strong></div>
                         <div class="col-sm-8">{{ format_currency($item->getEffectiveNominal()) }}</div>
                     </div>
+                    @if($methodKey === 'CREDIT')
+                        <hr>
+                        <div class="mb-3">
+                            <label class="form-label font-weight-bold">Catatan Approval</label>
+                            <textarea name="approval_note" class="form-control" rows="2" placeholder="Catatan untuk pembayaran (opsional)..."></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label font-weight-bold">Lampiran (JPG, PNG, PDF)</label>
+                            <input type="file" name="attachments[]" class="form-control" multiple accept=".jpg,.jpeg,.png,.pdf">
+                            <small class="text-muted">Opsional. Maksimal 5MB per file.</small>
+                        </div>
+                    @endif
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle mr-2"></i>
                         Pastikan data penyelesaian sudah benar sebelum menyetujui.

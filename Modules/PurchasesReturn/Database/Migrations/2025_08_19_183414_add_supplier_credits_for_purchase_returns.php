@@ -27,6 +27,7 @@ return new class extends Migration
             $table->decimal('amount', 15, 2);            // credit created
             $table->decimal('remaining_amount', 15, 2);  // amount left to apply
             $table->string('status')->default('open');   // open|closed
+            $table->unsignedBigInteger('setting_id')->nullable();
             $table->timestamps();
 
             $table->index(['supplier_id', 'status']);
