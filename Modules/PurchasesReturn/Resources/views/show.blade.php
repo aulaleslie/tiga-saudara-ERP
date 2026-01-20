@@ -15,6 +15,7 @@
 
 @section('content')
     <div class="container-fluid">
+        @include('utils.alerts')
         <div class="row">
             <div class="col-lg-12">
                 <div class="card shadow-sm">
@@ -474,11 +475,19 @@
             // But since the requirement mentioned serial management, let's try to make it usable.
             // If Select2 is available globally:
             if (typeof $ !== 'undefined' && $.fn.select2) {
-                 $('select[name*="[serial_numbers]"]').select2({
+                $('select[name*="[serial_numbers]"]').length && $('select[name*="[serial_numbers]"]').select2({
                     tags: true,
                     tokenSeparators: [',', ' '],
                     theme: 'bootstrap-5',
                     width: '100%'
+                });
+
+                // Prevent Enter key from submitting form on specific inputs
+                $(document).on('keydown', '.prevent-enter-submit', function(e) {
+                    if (e.key === 'Enter' || e.keyCode === 13) {
+                        e.preventDefault();
+                        return false;
+                    }
                 });
             }
         });

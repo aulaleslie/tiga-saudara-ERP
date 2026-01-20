@@ -81,13 +81,28 @@
                                 <span class="text-muted small">-</span>
                                 @endcan
                             @elseif($item->status === 'APPROVED' && in_array(strtoupper($item->method), ['CREDIT', 'CASH']))
-                                @can('purchaseReturnSettlements.receive')
-                                    <button type="button" class="btn btn-sm btn-success border-0 disabled" title="Terima Pembayaran (Coming Soon)">
-                                        <i class="bi bi-cash-coin"></i>
-                                    </button>
+                                @php
+                                    $isCredit = strtoupper($item->method) === 'CREDIT';
+                                @endphp
+                                @if($isCredit && $item->target_purchase_id)
+                                    @can('purchasePayments.access')
+                                        <a href="{{ route('purchase-payments.index', $item->target_purchase_id) }}" class="btn btn-sm btn-outline-info border-0" title="Lihat Pembayaran (Kredit)">
+                                            <i class="bi bi-eye-fill"></i>
+                                        </a>
+                                    @else
+                                        <span class="text-muted small">-</span>
+                                    @endcan
+                                @elseif(!$isCredit)
+                                    @can('purchaseReturnPayments.access')
+                                        <a href="{{ route('purchase-return-payments.index', $item->purchase_return_id) }}" class="btn btn-sm btn-outline-info border-0" title="Lihat Pembayaran (Tunai)">
+                                            <i class="bi bi-eye-fill"></i>
+                                        </a>
+                                    @else
+                                        <span class="text-muted small">-</span>
+                                    @endcan
                                 @else
-                                <span class="text-muted small">-</span>
-                                @endcan
+                                    <span class="text-muted small">-</span>
+                                @endif
                             @elseif($item->status === 'APPROVED_AWAITING_RECEIVE')
                                 @can('purchaseReturnSettlements.receive')
                                 <button type="button" class="btn btn-sm btn-warning border-0" title="Terima Barang" data-toggle="modal" data-target="#receiveItemModal{{ $item->id }}" data-bs-toggle="modal" data-bs-target="#receiveItemModal{{ $item->id }}">
@@ -117,7 +132,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="approveItemModalLabel{{ $item->id }}">Setujui Item: {{ $item->detail?->product_name }}</h5>
-                                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <button type="button" class="close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
@@ -174,7 +189,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Batal</button>
                     <button type="submit" class="btn btn-success">Setujui Item</button>
                 </div>
             </div>
@@ -200,7 +215,7 @@
                     <h5 class="modal-title" id="receiveItemModalLabel{{ $item->id }}">
                         Terima Item: {{ $item->detail?->product_name }}
                     </h5>
-                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <button type="button" class="close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
@@ -233,7 +248,7 @@
                             <label class="form-label font-weight-bold">
                                 Serial Pengganti <span class="text-danger">*</span>
                             </label>
-                            <input type="text" name="replacement_serial_number" class="form-control" required
+                            <input type="text" name="replacement_serial_number" class="form-control prevent-enter-submit" required
                                    value="{{ $item->serialNumber->serial_number }}"
                                    placeholder="Masukkan serial number pengganti...">
                             <small class="text-muted">
@@ -257,15 +272,12 @@
                         <label class="form-label font-weight-bold">
                             Lokasi Tujuan <span class="text-danger">*</span>
                         </label>
-                        <select name="location_id" class="form-select" required>
-                            <option value="">Pilih Lokasi...</option>
-                            @foreach($locations ?? [] as $location)
-                                <option value="{{ $location->id }}" 
-                                    {{ $location->id == $purchase_return->location_id ? 'selected' : '' }}>
-                                    {{ $location->name }} ({{ $location->setting?->company_name ?? 'N/A' }})
-                                </option>
-                            @endforeach
-                        </select>
+                        @livewire('modules.setting.location-search-dropdown', [
+                            'selected' => $purchase_return->location_id,
+                            'name' => 'location_id',
+                            'placeholder' => 'Pilih Lokasi...',
+                            'zIndex' => 1100
+                        ], key('location-dropdown-' . $item->id))
                     </div>
 
                     {{-- Quantity field --}}
@@ -306,7 +318,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Batal</button>
                     <button type="submit" class="btn btn-primary">Terima Barang</button>
                 </div>
             </div>

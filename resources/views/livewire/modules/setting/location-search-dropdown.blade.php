@@ -13,7 +13,7 @@
 
         @if($open)
             <div class="dropdown-menu w-100 shadow show p-2"
-                 style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
+                 style="position: absolute; z-index: {{ $zIndex }}; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
                 <input
                     type="text"
                     class="form-control form-control-sm mb-2"

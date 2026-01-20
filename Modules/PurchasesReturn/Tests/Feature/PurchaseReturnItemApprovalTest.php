@@ -71,6 +71,7 @@ class PurchaseReturnItemApprovalTest extends TestCase
             'supplier_id' => $this->supplier->id,
             'supplier_name' => $this->supplier->supplier_name,
             'setting_id' => $this->setting->id,
+            'location_id' => $this->location->id,
             'total_amount' => $total,
             'paid_amount' => 0,
             'due_amount' => $total,
@@ -220,8 +221,8 @@ class PurchaseReturnItemApprovalTest extends TestCase
         
         $purchase = $purchase->fresh();
         $this->assertEquals(4000, (float) $purchase->total_amount);
-        $this->assertEquals(3000, (float) $purchase->due_amount);
-        $this->assertEquals(1000, (float) $purchase->paid_amount);
+        $this->assertEquals(4000, (float) $purchase->due_amount);
+        $this->assertEquals(0, (float) $purchase->paid_amount); // Payments reset per Ticket 4
     }
 
     /** @test */
@@ -392,6 +393,7 @@ class PurchaseReturnItemApprovalTest extends TestCase
         $response = $this->post(route('purchase-return-settlements.item.receive', $repairItem->id), [
             'location_id' => $receiveLocation->id,
             'received_quantity' => 1,
+            'replacement_serial_number' => 'SN-REPAIR-123', // Same serial as original
             'note' => 'Repaired successfully',
         ]);
 

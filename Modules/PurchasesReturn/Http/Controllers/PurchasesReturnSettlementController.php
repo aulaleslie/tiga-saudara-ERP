@@ -132,6 +132,8 @@ class PurchasesReturnSettlementController extends Controller
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.approve'), 403);
 
+        $itemSettlement->load(['detail', 'serialNumber', 'targetPurchase', 'purchaseReturn']);
+
         if (!$itemSettlement->canApprove()) {
             return back()->with('error', 'Item ini tidak dapat disetujui.');
         }
@@ -201,6 +203,8 @@ class PurchasesReturnSettlementController extends Controller
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.approve'), 403);
 
+        $itemSettlement->load(['purchaseReturn']);
+
         if (!$itemSettlement->canApprove()) {
             return back()->with('error', 'Item ini tidak dapat ditolak.');
         }
@@ -232,6 +236,8 @@ class PurchasesReturnSettlementController extends Controller
     public function receiveItemSettlement(Request $request, PurchaseReturnItemSettlement $itemSettlement)
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.receive'), 403);
+
+        $itemSettlement->load(['detail', 'serialNumber', 'purchaseReturn']);
 
         if ($itemSettlement->status !== PurchaseReturnItemSettlement::STATUS_APPROVED_AWAITING_RECEIVE) {
             return back()->with('error', 'Item ini tidak dapat diterima.');

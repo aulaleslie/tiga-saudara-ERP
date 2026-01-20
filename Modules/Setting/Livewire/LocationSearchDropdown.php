@@ -18,6 +18,7 @@ class LocationSearchDropdown extends Component
     public bool $allowCreate = false;
     #[Reactive]
     public ?string $error = null;
+    public int $zIndex = 1050;
 
     /** @var array<int, array{id:int|string,name:string}> */
     public array $options = [];
@@ -36,13 +37,15 @@ class LocationSearchDropdown extends Component
         string $placeholder = 'Pilih lokasi...',
         bool $allowCreate = false,
         ?string $error = null,
-        ?string $dispatchTo = null
+        ?string $dispatchTo = null,
+        int $zIndex = 1050
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
         $this->allowCreate = $allowCreate;
         $this->error = $error;
         $this->dispatchTo = $dispatchTo;
+        $this->zIndex = $zIndex;
 
         $this->options = $this->prepareOptions($options);
         if (!count($this->options)) {
