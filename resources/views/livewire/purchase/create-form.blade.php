@@ -15,6 +15,7 @@
                     name="supplier_id"
                     placeholder="Pilih pemasok..."
                     :allow-create="true"
+                    :selected="$supplier_id"
                     :error="$errors->first('supplier_id')"
                     wire:key="purchase-supplier-dropdown"
                 />
@@ -57,6 +58,7 @@
                     name="payment_term"
                     placeholder="Pilih term pembayaran..."
                     :allow-create="true"
+                    :selected="$payment_term"
                     :error="$errors->first('payment_term')"
                     wire:key="purchase-payment-term-dropdown"
                 />
@@ -70,7 +72,7 @@
 
         <!-- Product Cart -->
         <div class="my-3">
-            <livewire:purchase.product-cart :cartInstance="'purchase'" wire:key="purchase-product-cart" />
+            <livewire:purchase.product-cart :cartInstance="'purchase'" :data="$duplicatePurchase" wire:key="purchase-product-cart" />
         </div>
 
         <!-- Catatan -->

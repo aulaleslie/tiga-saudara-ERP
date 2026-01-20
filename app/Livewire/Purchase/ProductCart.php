@@ -70,11 +70,14 @@ class ProductCart extends Component
 
             if ($data->discount_percentage > 0) {
                 $this->global_discount_type = 'percentage';
+                $this->global_discount = $data->discount_percentage;
             } else if ($data->discount_amount > 0) {
                 $this->global_discount_type = 'fixed';
+                $this->global_discount = $data->discount_amount;
+            } else {
+                $this->global_discount = 0;
             }
 
-            $this->global_discount = $data->discount_percentage ?? 0;
             $this->shipping = $data->shipping_amount;
             $this->is_tax_included = $data->is_tax_included;
 

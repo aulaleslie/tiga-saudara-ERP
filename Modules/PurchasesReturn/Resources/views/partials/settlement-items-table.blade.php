@@ -184,25 +184,31 @@
 @endforeach
 
 @foreach($purchase_return->settlementItems->where('status', 'APPROVED_AWAITING_RECEIVE') as $item)
+@php
+    $isProductRepair = strtoupper($item->method) === 'PRODUCT_REPAIR';
+    $isBrokenStock = strtoupper($item->method) === 'BROKEN_STOCK';
+    $isSerial = $item->serialNumber !== null;
+    $expectedQuantity = $isSerial ? 1 : ($item->detail?->quantity ?? 1);
+    $quantityLocked = ($isProductRepair && $isSerial) || $isBrokenStock;
+@endphp
 <div class="modal fade" id="receiveItemModal{{ $item->id }}" tabindex="-1" aria-labelledby="receiveItemModalLabel{{ $item->id }}" aria-hidden="true">
     <div class="modal-dialog">
         <form method="POST" action="{{ route('purchase-return-settlements.item.receive', $item->id) }}">
             @csrf
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="receiveItemModalLabel{{ $item->id }}">Terima Item: {{ $item->detail?->product_name }}</h5>
-                                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <h5 class="modal-title" id="receiveItemModalLabel{{ $item->id }}">
+                        Terima Item: {{ $item->detail?->product_name }}
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
                 <div class="modal-body">
+                    {{-- Product Info --}}
                     <div class="row mb-3">
                         <div class="col-sm-4"><strong>Produk:</strong></div>
                         <div class="col-sm-8">{{ $item->detail?->product_name ?? 'N/A' }}</div>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-sm-4"><strong>Serial Number:</strong></div>
-                        <div class="col-sm-8">{{ $item->serialNumber?->serial_number ?? 'N/A' }}</div>
                     </div>
                     <div class="row mb-3">
                         <div class="col-sm-4"><strong>Metode:</strong></div>
@@ -210,32 +216,92 @@
                             {{ $methodLabels[$item->method] ?? $item->method }}
                         </div>
                     </div>
+                    
+                    {{-- PRODUCT_REPAIR with Serial: Show old serial and replacement input --}}
+                    @if($isProductRepair && $isSerial)
+                        <div class="alert alert-light border mb-3">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-upc-scan mr-2 text-primary fs-4"></i>
+                                <div>
+                                    <small class="text-muted d-block">Serial Lama</small>
+                                    <strong class="fs-5">{{ $item->serialNumber->serial_number }}</strong>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label font-weight-bold">
+                                Serial Pengganti <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" name="replacement_serial_number" class="form-control" required
+                                   value="{{ $item->serialNumber->serial_number }}"
+                                   placeholder="Masukkan serial number pengganti...">
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle"></i> 
+                                Jika serial sama (barang diperbaiki), biarkan tidak berubah.
+                                Jika serial berbeda (barang diganti), masukkan serial baru.
+                            </small>
+                        </div>
+                    @elseif($isSerial)
+                        {{-- Non-repair serial: just show serial info --}}
+                        <div class="row mb-3">
+                            <div class="col-sm-4"><strong>Serial Number:</strong></div>
+                            <div class="col-sm-8">
+                                <span class="badge bg-secondary">{{ $item->serialNumber->serial_number }}</span>
+                            </div>
+                        </div>
+                    @endif
 
+                    {{-- Location Selection --}}
                     <div class="mb-3">
-                        <label class="form-label">Lokasi Tujuan <span class="text-danger">*</span></label>
+                        <label class="form-label font-weight-bold">
+                            Lokasi Tujuan <span class="text-danger">*</span>
+                        </label>
                         <select name="location_id" class="form-select" required>
                             <option value="">Pilih Lokasi...</option>
                             @foreach($locations ?? [] as $location)
-                                <option value="{{ $location->id }}">{{ $location->name }} ({{ $location->setting?->company_name ?? 'N/A' }})</option>
+                                <option value="{{ $location->id }}" 
+                                    {{ $location->id == $purchase_return->location_id ? 'selected' : '' }}>
+                                    {{ $location->name }} ({{ $location->setting?->company_name ?? 'N/A' }})
+                                </option>
                             @endforeach
                         </select>
                     </div>
 
+                    {{-- Quantity field --}}
                     <div class="mb-3">
-                        <label class="form-label">Jumlah Diterima <span class="text-danger">*</span></label>
-                        <input type="number" name="received_quantity" class="form-control" min="1" value="1" required>
+                        <label class="form-label font-weight-bold">
+                            Jumlah Diterima <span class="text-danger">*</span>
+                        </label>
+                        <input type="number" name="received_quantity" class="form-control" 
+                               min="1" value="{{ $expectedQuantity }}" 
+                               {{ $quantityLocked ? 'readonly' : '' }} required>
+                        @if($quantityLocked)
+                            <small class="text-muted">
+                                <i class="bi bi-lock"></i> Jumlah terkunci sesuai dengan data penyelesaian.
+                            </small>
+                        @endif
                     </div>
 
+                    {{-- Note --}}
                     <div class="mb-3">
                         <label class="form-label">Catatan</label>
                         <textarea name="note" class="form-control" rows="2" placeholder="Catatan penerimaan..."></textarea>
                     </div>
 
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle mr-2"></i>
-                        Barang akan dipindahkan ke lokasi yang dipilih.
-                        @if(in_array(strtoupper($item->method), ['BROKEN_STOCK']))
-                            Serial number akan ditandai sebagai rusak.
+                    {{-- Info message based on method --}}
+                    <div class="alert {{ $isBrokenStock ? 'alert-warning' : 'alert-info' }} mb-0">
+                        <i class="bi {{ $isBrokenStock ? 'bi-exclamation-triangle' : 'bi-info-circle' }} mr-2"></i>
+                        @if($isBrokenStock)
+                            Barang akan dicatat sebagai stok rusak di lokasi yang dipilih.
+                            Stok akan dikurangi dari lokasi asal ({{ $purchase_return->location?->name ?? 'N/A' }}).
+                        @elseif($isProductRepair && $isSerial)
+                            Jika serial sama, status akan dikembalikan ke aktif.
+                            Jika serial berbeda, serial lama akan ditandai "Returned" dan serial baru akan dibuat.
+                        @elseif($isProductRepair && !$isSerial)
+                            Stok akan dipindahkan ke lokasi yang dipilih. Transaksi pergerakan stok akan dicatat.
+                        @else
+                            Barang akan dipindahkan ke lokasi yang dipilih.
                         @endif
                     </div>
                 </div>

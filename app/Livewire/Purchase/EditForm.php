@@ -1,7 +1,6 @@
 <?php
 
 namespace App\Livewire\Purchase;
-
 use Carbon\Carbon;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Contracts\View\Factory;
@@ -59,7 +58,6 @@ class EditForm extends Component
         $this->note = $this->purchase->note;
 
         $this->tags = $this->purchase->tags->pluck('name')->toArray();
-
         $this->restoreCart();
     }
 
@@ -305,9 +303,14 @@ class EditForm extends Component
             return redirect()->route('purchases.index');
 
         } catch (ValidationException $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             throw $e;
         } catch (\Exception $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             Log::error('Edit Purchase Failed: ' . $e->getMessage());
 
             session()->flash('error', 'Gagal memperbarui pembelian. Silakan coba lagi.');

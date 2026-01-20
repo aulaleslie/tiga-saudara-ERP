@@ -9,6 +9,11 @@ use Modules\PurchasesReturn\Entities\PurchaseReturnSettlement;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Entities\ReceivedNote;
 use Modules\Purchase\Entities\ReceivedNoteDetail;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\Transaction;
+use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
 
 class PurchasesReturnSettlementController extends Controller
 {
@@ -224,62 +229,117 @@ class PurchasesReturnSettlementController extends Controller
     /**
      * Receive a single item settlement (for PRODUCT_REPAIR and BROKEN_STOCK methods).
      */
-    public function receiveItemSettlement(Request $request, \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $itemSettlement)
+    public function receiveItemSettlement(Request $request, PurchaseReturnItemSettlement $itemSettlement)
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.receive'), 403);
 
-        if ($itemSettlement->status !== \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_APPROVED_AWAITING_RECEIVE) {
+        if ($itemSettlement->status !== PurchaseReturnItemSettlement::STATUS_APPROVED_AWAITING_RECEIVE) {
             return back()->with('error', 'Item ini tidak dapat diterima.');
         }
 
-        $request->validate([
+        $method = strtoupper($itemSettlement->method);
+        $isSerial = $itemSettlement->serialNumber !== null;
+
+        $rules = [
             'location_id' => 'required|exists:locations,id',
-            'received_quantity' => 'required|integer|min:1',
             'note' => 'nullable|string|max:255',
-        ]);
+        ];
+
+        if ($method === 'PRODUCT_REPAIR' && $isSerial) {
+            $rules['replacement_serial_number'] = 'required|string|max:255';
+        }
+
+        if ($method === 'BROKEN_STOCK') {
+            $expectedQty = $isSerial ? 1 : ($itemSettlement->detail?->quantity ?? 1);
+            $rules['received_quantity'] = "required|integer|in:{$expectedQty}";
+        } else {
+            $rules['received_quantity'] = 'required|integer|min:1';
+        }
+
+        $request->validate($rules);
 
         try {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($request, $itemSettlement) {
-                $method = strtoupper($itemSettlement->method);
-                $locationId = $request->location_id;
-                $receivedQuantity = $request->received_quantity;
+            \Illuminate\Support\Facades\DB::transaction(function () use ($request, $itemSettlement, $method, $isSerial) {
+                $productId = $itemSettlement->detail?->product_id;
+                $sourceLocationId = $itemSettlement->purchaseReturn->location_id; 
+                $targetLocationId = $request->location_id;
+                $receivedQty = $request->received_quantity;
                 $note = $request->note;
+                $userId = auth()->id();
 
-                // Handle stock movement based on method
                 if ($method === 'PRODUCT_REPAIR') {
-                    // Move repaired product to selected location
-                    if ($itemSettlement->serialNumber) {
-                        // Update serial number location
-                        $itemSettlement->serialNumber->update([
-                            'location_id' => $locationId,
-                            'status' => 'AVAILABLE', // Assuming repaired items are available
-                        ]);
+                    if ($isSerial) {
+                        $oldSerial = $itemSettlement->serialNumber;
+                        $replacementSerialNumber = trim($request->replacement_serial_number);
+                        
+                        if ($replacementSerialNumber === $oldSerial->serial_number) {
+                            // Same serial - restore to active
+                            $oldSerial->update([
+                                'is_in_return_process' => false,
+                                'purchase_return_id' => null,
+                                'location_id' => $targetLocationId,
+                                'status' => 'AVAILABLE',
+                            ]);
+                            $replacementSerialId = $oldSerial->id;
+                        } else {
+                            // Different serial - mark old as RETURNED, create new
+                            $oldSerial->update([
+                                'status' => 'RETURNED',
+                                'is_in_return_process' => false,
+                                'purchase_return_id' => null,
+                                'received_note_detail_id' => null,
+                                'dispatch_detail_id' => null,
+                            ]);
+                            
+                            // Uniqueness check for new serial
+                            $existingActive = ProductSerialNumber::where('product_id', $productId)
+                                ->where('serial_number', $replacementSerialNumber)
+                                ->where('status', '!=', 'RETURNED')
+                                ->exists();
+                            
+                            if ($existingActive) {
+                                throw new \Exception("Serial number {$replacementSerialNumber} sudah aktif digunakan oleh produk lain.");
+                            }
+                            
+                            $newSerial = ProductSerialNumber::create([
+                                'product_id' => $productId,
+                                'location_id' => $targetLocationId,
+                                'serial_number' => $replacementSerialNumber,
+                                'tax_id' => $oldSerial->tax_id, 
+                                'status' => 'AVAILABLE',
+                                'is_broken' => false,
+                                'is_in_return_process' => false,
+                            ]);
+                            $replacementSerialId = $newSerial->id;
+                        }
+                        $itemSettlement->replacement_serial_number_id = $replacementSerialId;
                     } else {
-                        // Handle non-serial stock movement
-                        // This would require integration with stock management system
-                        // For now, just log the movement
+                        // Non-serial repair movement
+                        if ($sourceLocationId != $targetLocationId) {
+                            $this->moveStock($productId, $sourceLocationId, $targetLocationId, $receivedQty, 'RETURN_REPAIR', "Penerimaan perbaikan - dipindah ke lokasi {$targetLocationId}", $itemSettlement->purchaseReturn->setting_id);
+                        }
                     }
                 } elseif ($method === 'BROKEN_STOCK') {
-                    // Mark as broken stock and move to selected location
-                    if ($itemSettlement->serialNumber) {
+                    if ($isSerial) {
                         $itemSettlement->serialNumber->update([
-                            'location_id' => $locationId,
                             'is_broken' => true,
                             'status' => 'BROKEN',
+                            'location_id' => $targetLocationId,
+                            'is_in_return_process' => false,
+                            'purchase_return_id' => null,
                         ]);
-                    } else {
-                        // Handle non-serial broken stock
-                        // This would require integration with stock management system
                     }
+                    
+                    $this->breakStock($productId, $sourceLocationId, $targetLocationId, $receivedQty, $isSerial, $itemSettlement->purchaseReturn->setting_id);
                 }
 
                 // Update item settlement status
                 $itemSettlement->update([
-                    'status' => \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_RECEIVED,
-                    'received_quantity' => $receivedQuantity,
-                    'received_location_id' => $locationId,
+                    'status' => PurchaseReturnItemSettlement::STATUS_RECEIVED,
+                    'received_quantity' => $receivedQty,
+                    'received_location_id' => $targetLocationId,
                     'received_note' => $note,
-                    'received_by' => auth()->id(),
+                    'received_by' => $userId,
                     'received_at' => now(),
                 ]);
 
@@ -292,6 +352,174 @@ class PurchasesReturnSettlementController extends Controller
         } catch (\Exception $e) {
             return back()->with('error', 'Gagal menerima item: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Helper to move stock between locations with transaction
+     */
+    protected function moveStock($productId, $sourceId, $targetId, $qty, $type, $reason, $settingId = null)
+    {
+        $settingId = $settingId ?? session('setting_id');
+        
+        $sourceStock = ProductStock::where('product_id', $productId)
+            ->where('location_id', $sourceId)
+            ->lockForUpdate()
+            ->first();
+        
+        if (!$sourceStock) {
+            throw new \Exception("Stok tidak ditemukan di lokasi asal.");
+        }
+
+        $nonTaxDeduct = min($qty, $sourceStock->quantity_non_tax);
+        $taxDeduct = max(0, $qty - $nonTaxDeduct);
+
+        if ($taxDeduct > $sourceStock->quantity_tax) {
+             throw new \Exception("Stok tidak mencukupi di lokasi asal.");
+        }
+
+        $prevSourceQty = $sourceStock->quantity;
+        $sourceStock->quantity_non_tax -= $nonTaxDeduct;
+        $sourceStock->quantity_tax -= $taxDeduct;
+        $sourceStock->quantity = $sourceStock->quantity_tax + $sourceStock->quantity_non_tax;
+        $sourceStock->save();
+
+        $targetStock = ProductStock::firstOrCreate(
+            ['product_id' => $productId, 'location_id' => $targetId],
+            ['quantity' => 0, 'quantity_tax' => 0, 'quantity_non_tax' => 0, 'broken_quantity' => 0, 'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0]
+        );
+
+        $prevTargetQty = $targetStock->quantity;
+        $targetStock->quantity_non_tax += $nonTaxDeduct;
+        $targetStock->quantity_tax += $taxDeduct;
+        $targetStock->quantity = $targetStock->quantity_tax + $targetStock->quantity_non_tax;
+        $targetStock->save();
+
+        Transaction::create([
+            'product_id' => $productId,
+            'setting_id' => $settingId,
+            'type' => $type,
+            'quantity' => -$qty, // Negative for source
+            'current_quantity' => $sourceStock->quantity,
+            'previous_quantity' => $prevSourceQty,
+            'after_quantity' => $sourceStock->quantity,
+            'previous_quantity_at_location' => $prevSourceQty,
+            'after_quantity_at_location' => $sourceStock->quantity,
+            'quantity_tax' => $sourceStock->quantity_tax,
+            'quantity_non_tax' => $sourceStock->quantity_non_tax,
+            'broken_quantity_tax' => $sourceStock->broken_quantity_tax,
+            'broken_quantity_non_tax' => $sourceStock->broken_quantity_non_tax,
+            'location_id' => $sourceId,
+            'user_id' => auth()->id(),
+            'reason' => $reason,
+        ]);
+
+        // Record the gain at target location
+        Transaction::create([
+            'product_id' => $productId,
+            'setting_id' => $settingId,
+            'type' => $type,
+            'quantity' => $qty,
+            'current_quantity' => $targetStock->quantity,
+            'previous_quantity' => Product::find($productId)?->product_quantity ?? 0,
+            'after_quantity' => Product::find($productId)?->product_quantity ?? 0,
+            'previous_quantity_at_location' => $prevTargetQty,
+            'after_quantity_at_location' => $targetStock->quantity,
+            'quantity_tax' => $targetStock->quantity_tax,
+            'quantity_non_tax' => $targetStock->quantity_non_tax,
+            'broken_quantity_tax' => $targetStock->broken_quantity_tax,
+            'broken_quantity_non_tax' => $targetStock->broken_quantity_non_tax,
+            'location_id' => $targetId,
+            'user_id' => auth()->id(),
+            'reason' => $reason . " (Diterima)",
+        ]);
+    }
+
+    /**
+     * Helper to move stock to broken_quantity
+     */
+    protected function breakStock($productId, $sourceId, $targetId, $qty, $isSerial, $settingId = null)
+    {
+        $settingId = $settingId ?? session('setting_id');
+
+        $sourceStock = ProductStock::where('product_id', $productId)
+            ->where('location_id', $sourceId)
+            ->lockForUpdate()
+            ->first();
+
+        // For serials, source stock might not strictly need to be here if we only track serial location, 
+        // but for counting totals it must be consistent.
+        if (!$sourceStock && !$isSerial) {
+             throw new \Exception("Stok tidak ditemukan di lokasi asal.");
+        }
+
+        $prevSourceQty = $sourceStock?->quantity ?? 0;
+        $nonTaxDeduct = min($qty, $sourceStock?->quantity_non_tax ?? 0);
+        $taxDeduct = max(0, $qty - $nonTaxDeduct);
+
+        if (!$isSerial && $sourceStock) {
+            if ($taxDeduct > $sourceStock->quantity_tax) {
+                throw new \Exception("Stok tidak mencukupi di lokasi asal.");
+            }
+            $sourceStock->quantity_non_tax -= $nonTaxDeduct;
+            $sourceStock->quantity_tax -= $taxDeduct;
+            $sourceStock->quantity = $sourceStock->quantity_tax + $sourceStock->quantity_non_tax;
+            $sourceStock->save();
+        }
+
+        $targetStock = ProductStock::firstOrCreate(
+            ['product_id' => $productId, 'location_id' => $targetId],
+            ['quantity' => 0, 'quantity_tax' => 0, 'quantity_non_tax' => 0, 'broken_quantity' => 0, 'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0]
+        );
+
+        $targetStock->broken_quantity_non_tax += $nonTaxDeduct;
+        $targetStock->broken_quantity_tax += $taxDeduct;
+        $targetStock->broken_quantity = $targetStock->broken_quantity_tax + $targetStock->broken_quantity_non_tax;
+        $targetStock->save();
+
+        $product = Product::find($productId);
+        if ($product) {
+            $product->increment('broken_quantity', $qty);
+        }
+
+        Transaction::create([
+            'product_id' => $productId,
+            'setting_id' => $settingId,
+            'type' => 'RETURN_BROKEN',
+            'quantity' => -$qty, // Deduction from source
+            'current_quantity' => $sourceStock?->quantity ?? 0,
+            'broken_quantity' => $sourceStock?->broken_quantity ?? 0,
+            'previous_quantity' => $product?->product_quantity ?? 0,
+            'after_quantity' => $product?->product_quantity ?? 0,
+            'previous_quantity_at_location' => $prevSourceQty,
+            'after_quantity_at_location' => $sourceStock?->quantity ?? 0,
+            'quantity_tax' => $sourceStock?->quantity_tax ?? 0,
+            'quantity_non_tax' => $sourceStock?->quantity_non_tax ?? 0,
+            'broken_quantity_tax' => $sourceStock?->broken_quantity_tax ?? 0,
+            'broken_quantity_non_tax' => $sourceStock?->broken_quantity_non_tax ?? 0,
+            'location_id' => $sourceId,
+            'user_id' => auth()->id(),
+            'reason' => 'Penerimaan barang rusak dari retur pembelian (Keluar)',
+        ]);
+
+        Transaction::create([
+            'product_id' => $productId,
+            'setting_id' => $settingId,
+            'type' => 'RETURN_BROKEN',
+            'quantity' => $qty, // Addition to target broken
+            'current_quantity' => $targetStock->quantity,
+            'broken_quantity' => $targetStock->broken_quantity,
+            'previous_quantity' => $product?->product_quantity ?? 0,
+            'after_quantity' => $product?->product_quantity ?? 0,
+            'previous_quantity_at_location' => $targetStock->quantity - $qty,
+            'after_quantity_at_location' => $targetStock->quantity,
+            'quantity_tax' => $targetStock->quantity_tax,
+            'quantity_non_tax' => $targetStock->quantity_non_tax,
+            'broken_quantity_tax' => $targetStock->broken_quantity_tax,
+            'broken_quantity_non_tax' => $targetStock->broken_quantity_non_tax,
+            'location_id' => $targetId,
+            'user_id' => auth()->id(),
+            'reason' => 'Penerimaan barang rusak dari retur pembelian (Masuk)',
+        ]);
     }
 
     /**

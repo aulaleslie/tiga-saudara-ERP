@@ -30,6 +30,7 @@ class CreateForm extends Component
     public $payment_term;
     public $note;
     public array $tags = [];
+    public $duplicatePurchase = null;
     public $listeners = [
         'tagsUpdated' => 'handleTagsUpdated',
         'shippingUpdated'        => 'handleShippingUpdated',
@@ -45,7 +46,7 @@ class CreateForm extends Component
     public $is_tax_included = false;
     public string $idempotencyToken;
 
-    public function mount(string $idempotencyToken): void
+    public function mount(string $idempotencyToken, ?int $duplicateId = null): void
     {
         $this->idempotencyToken = $idempotencyToken;
         $this->reference = 'PR'; // This can be dynamic if needed
@@ -55,6 +56,10 @@ class CreateForm extends Component
         $this->tax_ref_no = null;
         // Ensure a fresh cart when starting a new purchase
         Cart::instance('purchase')->destroy();
+
+        if ($duplicateId) {
+            $this->prefillFromPurchase((int) $duplicateId);
+        }
     }
 
     public function handleTagsUpdated(array $tags): void
@@ -145,6 +150,64 @@ class CreateForm extends Component
         $this->syncPaymentTermAndDueDate($paymentTermId, true);
     }
 
+    private function prefillFromPurchase(int $purchaseId): void
+    {
+        $purchase = Purchase::with(['purchaseDetails.product', 'tags'])->find($purchaseId);
+        if (! $purchase || (int) $purchase->setting_id !== (int) session('setting_id')) {
+            return;
+        }
+
+        $this->duplicatePurchase = $purchase;
+        $this->supplier_id = $purchase->supplier_id;
+        $this->payment_term = $purchase->payment_term_id;
+        $this->note = $purchase->note;
+        $this->date = Carbon::parse($purchase->date)->format('Y-m-d');
+        $this->due_date = Carbon::parse($purchase->due_date)->format('Y-m-d');
+        $this->tags = $purchase->tags->pluck('name')->toArray();
+        $this->supplier_purchase_number = null;
+        $this->tax_ref_no = null;
+
+        if ($purchase->discount_percentage > 0) {
+            $this->global_discount = $purchase->discount_percentage;
+        } elseif ($purchase->discount_amount > 0) {
+            $this->global_discount = $purchase->discount_amount;
+        } else {
+            $this->global_discount = 0;
+        }
+
+        $this->shipping = $purchase->shipping_amount ?? 0;
+        $this->is_tax_included = (bool) $purchase->is_tax_included;
+
+        $cart = Cart::instance('purchase');
+        $cart->destroy();
+
+        foreach ($purchase->purchaseDetails as $detail) {
+            $product = $detail->product;
+            $subTotalBeforeTax = $detail->sub_total - $detail->product_tax_amount;
+
+            $cart->add([
+                'id' => $detail->product_id,
+                'name' => $detail->product_name,
+                'qty' => $detail->quantity,
+                'price' => $detail->price,
+                'weight' => 1,
+                'options' => [
+                    'product_discount' => $detail->product_discount_amount,
+                    'product_discount_type' => $detail->product_discount_type,
+                    'sub_total' => $detail->sub_total,
+                    'sub_total_before_tax' => $subTotalBeforeTax,
+                    'code' => $detail->product_code,
+                    'stock' => $product?->product_quantity ?? 0,
+                    'unit' => $product?->product_unit ?? '',
+                    'product_tax' => $detail->tax_id,
+                    'unit_price' => $detail->unit_price,
+                    'last_purchase_price' => $product?->last_purchase_price ?? null,
+                    'average_purchase_price' => $product?->average_purchase_price ?? null,
+                ],
+            ]);
+        }
+    }
+
     /**
      * @throws Throwable
      */
@@ -166,6 +229,8 @@ class CreateForm extends Component
                 $this->updateDueDateFromPaymentTerm();
             }
         }
+
+        $purchase = null;
 
         try {
             $this->validate([
@@ -283,9 +348,14 @@ class CreateForm extends Component
             return redirect()->route('purchases.index');
 
         } catch (ValidationException $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             throw $e;
         } catch (\Exception $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             Log::error('Livewire Purchase Store Failed: ' . $e->getMessage());
 
             session()->flash('error', 'Gagal menyimpan pembelian. Silakan coba lagi.');

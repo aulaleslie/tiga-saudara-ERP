@@ -8,6 +8,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
@@ -18,6 +19,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use App\Services\PurchaseAttachmentService;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
@@ -31,6 +33,7 @@ use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Tax;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class PurchaseController extends Controller
 {
@@ -106,6 +109,7 @@ class PurchaseController extends Controller
         $brands = \Modules\Product\Entities\Brand::all();
         $units = \Modules\Setting\Entities\Unit::all();
         $idempotencyToken = (string) Str::uuid();
+        $duplicateId = request()->query('duplicate');
 
         return view('purchase::create', compact(
             'paymentTerms',
@@ -113,7 +117,8 @@ class PurchaseController extends Controller
             'categories',
             'brands',
             'units',
-            'idempotencyToken'
+            'idempotencyToken',
+            'duplicateId'
         ));
     }
 
@@ -253,6 +258,68 @@ class PurchaseController extends Controller
 
         return $dataTable->with(['purchase_id' => $purchase->id])
             ->render('purchase::show', compact('purchase', 'supplier', 'receivedNotes'));
+    }
+
+    public function storeAttachments(Request $request, Purchase $purchase): RedirectResponse
+    {
+        abort_if(Gate::denies('purchases.edit'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        $service = app(PurchaseAttachmentService::class);
+        $prepared = [];
+        $file = $request->file('attachment');
+
+        if (is_array($file)) {
+            return redirect()->back()->withErrors(['attachment' => 'Maksimal 1 lampiran per unggah.'])->withInput();
+        }
+
+        if (!($file instanceof UploadedFile)) {
+            return redirect()->back()->withErrors(['attachment' => 'Lampiran wajib diunggah.'])->withInput();
+        }
+
+        try {
+            $prepared[] = $service->prepare($file);
+        } catch (\RuntimeException $e) {
+            $service->cleanup($prepared);
+            return redirect()->back()->withErrors(['attachment' => $e->getMessage()])->withInput();
+        } catch (\Throwable $e) {
+            $service->cleanup($prepared);
+            Log::error('Purchase attachment preparation failed', [
+                'purchase_id' => $purchase->id,
+                'error' => $e->getMessage(),
+            ]);
+            return redirect()->back()->withErrors(['attachment' => 'Gagal memproses lampiran.'])->withInput();
+        }
+
+        try {
+            foreach ($prepared as $item) {
+                $service->attachPrepared($purchase, $item);
+            }
+        } catch (\Throwable $e) {
+            $service->cleanup($prepared);
+            Log::error('Purchase attachment upload failed', [
+                'purchase_id' => $purchase->id,
+                'error' => $e->getMessage(),
+            ]);
+            return redirect()->back()->withErrors(['attachment' => 'Gagal menyimpan lampiran.'])->withInput();
+        }
+
+        toast('Lampiran pembelian diperbarui!', 'success');
+        return redirect()->back();
+    }
+
+    public function destroyAttachment(Purchase $purchase, Media $media): RedirectResponse
+    {
+        abort_if(Gate::denies('purchases.edit'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        if ($media->collection_name !== 'attachments' || $media->model_id !== $purchase->id || $media->model_type !== Purchase::class) {
+            abort(404);
+        }
+
+        $media->delete();
+        toast('Lampiran dihapus.', 'success');
+        return redirect()->back();
     }
 
 

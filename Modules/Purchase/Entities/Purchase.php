@@ -9,12 +9,15 @@ use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Modules\People\Entities\Supplier;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\Tags\HasTags;
 use Spatie\Tags\Tag;
 
-class Purchase extends BaseModel
+class Purchase extends BaseModel implements HasMedia
 {
     use HasTags;
+    use InteractsWithMedia;
 
     protected $fillable = [
         'date',
@@ -66,6 +69,11 @@ class Purchase extends BaseModel
     public function tags(): MorphToMany
     {
         return $this->morphToMany(Tag::class, 'taggable');
+    }
+
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('attachments');
     }
 
     public function purchaseDetails() {

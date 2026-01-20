@@ -31,6 +31,18 @@
             </a>
         @endcan
 
+        @can('purchases.edit')
+            <a href="{{ route('purchases.show', $data->id) }}#purchase-attachments" class="dropdown-item">
+                <i class="bi bi-paperclip mr-2 text-secondary" style="line-height: 1;"></i> Lampiran
+            </a>
+        @endcan
+
+        @can('purchases.create')
+            <a href="{{ route('purchases.create', ['duplicate' => $data->id]) }}" class="dropdown-item">
+                <i class="bi bi-files mr-2 text-secondary" style="line-height: 1;"></i> Duplikat
+            </a>
+        @endcan
+
         @can('purchases.delete')
             @if($data->status === 'DRAFTED')
                 <button id="delete" class="dropdown-item" onclick="

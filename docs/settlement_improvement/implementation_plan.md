@@ -10,7 +10,7 @@ Phase 1: Settlement Selection and UX (Completed)
 - Ticket 2: Allow paid purchases for MODIFY_PURCHASE selection.
 - Ticket 3: Add quantity mismatch warning (non-blocking).
 
-Phase 2: Approval Effects and Credit Payment
+Phase 2: Approval Effects and Credit Payment (Completed)
 - Ticket 4: Reset payments and set Unpaid on MODIFY_PURCHASE approval.
 - Ticket 5: CREDIT approval dialog for notes + attachments.
 - Ticket 6: Create purchase payment and credit linkage on CREDIT approval.

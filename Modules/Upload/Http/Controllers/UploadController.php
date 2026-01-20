@@ -94,6 +94,66 @@ class UploadController extends Controller
         ]);
     }
 
+    public function dropzoneUploadAny(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file',
+        ]);
+
+        $file = $request->file('file');
+        $uuid = $request->string('dzuuid')->toString();
+        $totalChunks = (int) $request->input('dztotalchunkcount', $request->input('dztotalchunks', 1));
+        $chunkIndex = (int) $request->input('dzchunkindex', 0);
+        $originalName = $file->getClientOriginalName();
+        $ext = $file->getClientOriginalExtension();
+        $ext = $ext ? strtolower($ext) : 'bin';
+        $finalBase = $uuid ?: Str::uuid()->toString();
+        $finalName = $finalBase . '.' . $ext;
+
+        if ($uuid && $totalChunks > 1) {
+            $chunkDir = 'temp/dropzone-chunks/' . $uuid;
+            Storage::makeDirectory($chunkDir);
+
+            Storage::putFileAs($chunkDir, $file, 'chunk_' . $chunkIndex);
+
+            if ($chunkIndex + 1 < $totalChunks) {
+                return response()->json(['chunk' => true]);
+            }
+
+            for ($i = 0; $i < $totalChunks; $i++) {
+                if (!Storage::exists($chunkDir . '/chunk_' . $i)) {
+                    return response()->json(['message' => 'Chunk upload incomplete.'], 422);
+                }
+            }
+
+            $finalPath = 'temp/dropzone/' . $finalName;
+            $finalFullPath = Storage::path($finalPath);
+
+            $output = fopen($finalFullPath, 'wb');
+            for ($i = 0; $i < $totalChunks; $i++) {
+                $chunkPath = Storage::path($chunkDir . '/chunk_' . $i);
+                $input = fopen($chunkPath, 'rb');
+                stream_copy_to_stream($input, $output);
+                fclose($input);
+            }
+            fclose($output);
+
+            Storage::deleteDirectory($chunkDir);
+
+            return response()->json([
+                'name' => $finalName,
+                'original_name' => $originalName,
+            ]);
+        }
+
+        Storage::putFileAs('temp/dropzone', $file, $finalName);
+
+        return response()->json([
+            'name'          => $finalName,
+            'original_name' => $originalName,
+        ]);
+    }
+
     public function dropzoneDelete(Request $request)
     {
         $request->validate([

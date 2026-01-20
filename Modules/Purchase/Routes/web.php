@@ -71,6 +71,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/purchases/{purchase}/receive', [PurchaseController::class, 'receive'])->name('purchases.receive');
     Route::patch('purchases/{purchase}/status', [PurchaseController::class, 'updateStatus'])->name('purchases.updateStatus');
     Route::get('/purchases/create-alpine', [PurchaseController::class, 'createAlpine'])->name('purchases.create-alpine');
+    Route::post('/purchases/{purchase}/attachments', [PurchaseController::class, 'storeAttachments'])
+        ->name('purchases.attachments.store');
+    Route::delete('/purchases/{purchase}/attachments/{media}', [PurchaseController::class, 'destroyAttachment'])
+        ->name('purchases.attachments.destroy');
     Route::resource('purchases', 'PurchaseController')->middleware('idempotency');
 
     //Payments

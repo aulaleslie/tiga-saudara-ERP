@@ -18,6 +18,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Dropzone
     Route::post('/dropzone/upload', 'UploadController@dropzoneUpload')->name('dropzone.upload');
     Route::post('/dropzone/upload-documents', 'UploadController@dropzoneUploadDocuments')->name('dropzone.upload.documents');
+    Route::post('/dropzone/upload-any', 'UploadController@dropzoneUploadAny')->name('dropzone.upload.any');
     Route::post('/dropzone/delete', 'UploadController@dropzoneDelete')->name('dropzone.delete');
     //Filepond
     Route::post('/filepond/upload', 'UploadController@filepondUpload')->name('filepond.upload');
@@ -27,4 +28,3 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('dropzone.temp');
 
 });
-
