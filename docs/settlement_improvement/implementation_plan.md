@@ -1,11 +1,11 @@
 # Implementation Plan: Purchase Return Settlement Improvement
 
 ## Recommended Order
-Phase 0: Alignment
+Phase 0: Alignment (Completed)
 - Confirm ticket scope, acceptance criteria, and no migration requirement.
 - Lock definitions for "RETURNED" serial status and payment deletion behavior.
 
-Phase 1: Settlement Selection and UX
+Phase 1: Settlement Selection and UX (Completed)
 - Ticket 1: Remove cash settlement option (UI + validation).
 - Ticket 2: Allow paid purchases for MODIFY_PURCHASE selection.
 - Ticket 3: Add quantity mismatch warning (non-blocking).

@@ -250,7 +250,7 @@
                                         @if($isLineReadOnly && !$isRejected)
                                             <div class="p-2 rounded bg-light border border-dashed">
                                                 @php
-                                                    $methodLabel = $methods[$line['method']] ?? ($line['method'] ?: 'Belum ditentukan');
+                                                    $methodLabel = $allMethods[$line['method']] ?? ($line['method'] ?: 'Belum ditentukan');
                                                 @endphp
                                                 <div class="fw-bold text-dark small">{{ $methodLabel }}</div>
                                                 @if(in_array($line['method'], ['MODIFY_PURCHASE', 'CREDIT']) && $line['target_purchase_id'])
@@ -456,6 +456,22 @@
                                                         @error('settlementLines.'.$index.'.target_purchase_id')
                                                             <div class="invalid-feedback d-block">{{ $message }}</div>
                                                         @enderror
+
+                                                        {{-- Ticket 3: Quantity Mismatch Warning --}}
+                                                        @if($showDropdown && $currentMethod === 'MODIFY_PURCHASE' && empty($line['serial_number']))
+                                                            @php
+                                                                $selectedPurchaseData = collect($purchaseList)->firstWhere('id', $line['target_purchase_id']);
+                                                                $purchaseQty = $selectedPurchaseData['product_quantity'] ?? 0;
+                                                                $returnQty = $line['quantity'] ?? 0;
+                                                                $showWarning = $line['target_purchase_id'] && $purchaseQty > 0 && $returnQty > $purchaseQty;
+                                                            @endphp
+                                                            @if($showWarning)
+                                                                <div class="alert alert-warning py-2 px-3 mt-2 small rounded-3 border-0 d-flex align-items-center animate-fade-in">
+                                                                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                                                    <span>Jumlah retur ({{ $returnQty }}) melebihi jumlah pembelian ({{ $purchaseQty }})</span>
+                                                                </div>
+                                                            @endif
+                                                        @endif
                                                     </div>
                                                 @endif
                                             </div>

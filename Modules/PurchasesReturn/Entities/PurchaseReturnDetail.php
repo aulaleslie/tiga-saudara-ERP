@@ -40,6 +40,16 @@ class PurchaseReturnDetail extends BaseModel
         ];
     }
 
+    public static function selectableSettlementMethods(): array
+    {
+        return [
+            self::METHOD_PRODUCT_REPAIR => 'Perbaikan Produk',
+            self::METHOD_BROKEN_STOCK   => 'Kembali Barang Rusak',
+            self::METHOD_MODIFY_PURCHASE => 'Ubah Nota Pembelian',
+            self::METHOD_CREDIT         => 'Simpan Sebagai Kredit',
+        ];
+    }
+
     public function settlementItems()
     {
         return $this->hasMany(PurchaseReturnItemSettlement::class, 'purchase_return_detail_id');

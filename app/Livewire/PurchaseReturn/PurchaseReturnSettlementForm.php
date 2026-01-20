@@ -131,7 +131,6 @@ class PurchaseReturnSettlementForm extends Component
         
         foreach ($productIds as $productId) {
             $this->unpaidPurchases[$productId] = Purchase::where('supplier_id', $this->purchaseReturn->supplier_id)
-                ->where('due_amount', '>', 0)
                 ->whereIn('status', [
                     Purchase::STATUS_RECEIVED,
                     Purchase::STATUS_RECEIVED_PARTIALLY,
@@ -140,17 +139,33 @@ class PurchaseReturnSettlementForm extends Component
                 ->whereHas('purchaseDetails', function ($query) use ($productId) {
                     $query->where('product_id', $productId);
                 })
-                ->select(['id', 'reference', 'supplier_purchase_number', 'due_amount', 'total_amount', 'date'])
+                ->with(['purchaseDetails' => function ($query) use ($productId) {
+                    $query->where('product_id', $productId)->select('id', 'purchase_id', 'product_id', 'quantity');
+                }])
+                ->select(['id', 'reference', 'supplier_purchase_number', 'due_amount', 'total_amount', 'paid_amount', 'date'])
                 ->orderBy('date', 'desc')
                 ->limit(50)
                 ->get()
-                ->map(function ($purchase) {
+                ->map(function ($purchase) use ($productId) {
                     $ref = $purchase->supplier_purchase_number ?: $purchase->reference;
+                    
+                    // Ticket 2: Determine payment status label
+                    $statusLabel = '';
+                    if ($purchase->due_amount <= 0) {
+                        $statusLabel = ' (Lunas)';
+                    } elseif ($purchase->paid_amount > 0) {
+                        $statusLabel = ' (Sebagian)';
+                    }
+                    
+                    // Ticket 3: Get quantity for this product from purchase details
+                    $productQty = $purchase->purchaseDetails->first()?->quantity ?? 0;
+                    
                     return [
                         'id' => $purchase->id,
-                        'label' => $ref . ' - Sisa: ' . format_currency($purchase->due_amount),
-                        'text' => $ref, // For searchable text
+                        'label' => $ref . $statusLabel . ($purchase->due_amount > 0 ? ' - Sisa: ' . format_currency($purchase->due_amount) : ''),
+                        'text' => $ref,
                         'due_amount' => $purchase->due_amount,
+                        'product_quantity' => $productQty,
                     ];
                 })
                 ->toArray();
@@ -242,6 +257,13 @@ class PurchaseReturnSettlementForm extends Component
             $rules["settlementLines.{$index}.target_purchase_id"] = 'required|exists:purchases,id';
         }
 
+        // Ticket 1: Remove CASH settlement option (Validation)
+        if (strtoupper($line['method'] ?? '') === PurchaseReturnDetail::METHOD_CASH) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                "settlementLines.{$index}.method" => 'Metode penyelesaian tunai tidak lagi tersedia.',
+            ]);
+        }
+
         return $rules;
     }
 
@@ -318,11 +340,21 @@ class PurchaseReturnSettlementForm extends Component
     protected function ensurePurchaseInList($purchase, $method, $productId = null): void
     {
         $ref = $purchase->supplier_purchase_number ?: $purchase->reference;
+        
+        // Ticket 2: Update label for paid items in auto-select
+        $statusLabel = '';
+        if ($purchase->due_amount <= 0) {
+            $statusLabel = ' (Lunas)';
+        } elseif (($purchase->paid_amount ?? 0) > 0) {
+            $statusLabel = ' (Sebagian)';
+        }
+
         $newItem = [
             'id' => $purchase->id,
-            'label' => $ref . ($purchase->due_amount > 0 ? ' - Sisa: ' . format_currency($purchase->due_amount) : ' (Paid)'),
+            'label' => $ref . $statusLabel . ($purchase->due_amount > 0 ? ' - Sisa: ' . format_currency($purchase->due_amount) : ''),
             'text' => $ref,
             'due_amount' => $purchase->due_amount,
+            'product_quantity' => $purchase->purchaseDetails->where('product_id', $productId)->first()?->quantity ?? 0,
         ];
 
         if ($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE && $productId) {
@@ -519,7 +551,8 @@ class PurchaseReturnSettlementForm extends Component
         $creditPurchases = $this->getCreditPurchasesProperty();
 
         return view('livewire.purchase-return.purchase-return-settlement-form', [
-            'methods' => PurchaseReturnDetail::settlementMethods(),
+            'methods' => PurchaseReturnDetail::selectableSettlementMethods(),
+            'allMethods' => PurchaseReturnDetail::settlementMethods(),
             'total' => $this->purchaseReturn->total_amount,
             'unpaidPurchases' => $this->unpaidPurchases,
             'creditPurchases' => $creditPurchases, // Pass it explicitly
