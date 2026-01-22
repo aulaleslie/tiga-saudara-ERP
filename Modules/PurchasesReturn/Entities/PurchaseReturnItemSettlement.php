@@ -31,7 +31,6 @@ class PurchaseReturnItemSettlement extends BaseModel
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
-        'received_at' => 'datetime',
     ];
 
     public function purchaseReturn(): BelongsTo
@@ -52,11 +51,6 @@ class PurchaseReturnItemSettlement extends BaseModel
     public function targetPurchase(): BelongsTo
     {
         return $this->belongsTo(Purchase::class, 'target_purchase_id');
-    }
-
-    public function replacementSerialNumber(): BelongsTo
-    {
-        return $this->belongsTo(ProductSerialNumber::class, 'replacement_serial_number_id');
     }
 
     public function submittedBy(): BelongsTo
