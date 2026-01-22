@@ -35,6 +35,10 @@
 
             {{-- Komponen Tabel --}}
 {{--            @livewire('sale.dispatch-sale-table', ['sale' => $sale, 'aggregatedProducts' => $aggregatedProducts])--}}
+            <div id="hidden-inputs-container">
+                {{-- JS will inject hidden inputs here --}}
+            </div>
+
             <livewire:sale.dispatch-sale-table :sale="$sale" :aggregatedProducts="$aggregatedProducts" :locations="$locations"/>
 
             <button type="submit" class="btn btn-success mt-3">Kirim</button>
@@ -42,16 +46,16 @@
     </div>
 @endsection
 
-@push('scripts')
+@push('page_scripts')
     <script>
         document.addEventListener('DOMContentLoaded', function () {
            // Any initialization if needed
         });
 
-        function handleSerialKeydown(event, compositeKey, productId, locationId) {
+        function handleSerialKeydown(event, compositeKey, productId, taxId) {
             if (event.key === 'Enter') {
                 event.preventDefault(); // Prevent form submission
-                addSerialFromInput(compositeKey, productId, locationId);
+                addSerialFromInput(compositeKey, productId, taxId);
             }
         }
 
@@ -71,7 +75,7 @@
             }
         }
 
-        async function addSerialFromInput(compositeKey, productId, locationId) {
+        async function addSerialFromInput(compositeKey, productId, taxId) {
             const input = document.getElementById(`serial-input-${compositeKey}`);
             const serial = input.value.trim();
 
@@ -80,20 +84,17 @@
 
             if (!serial) return;
 
-            if (!locationId) {
-                showError(compositeKey, 'Pilih lokasi terlebih dahulu.');
-                return;
+            // Check duplicate in current list (client-side)
+            const tbody = document.getElementById(`serial-rows-${compositeKey}`);
+            let existsLocally = false;
+            if (tbody) {
+                tbody.querySelectorAll('tr.serial-row').forEach(tr => {
+                    if (tr.dataset.serial === serial) existsLocally = true;
+                });
             }
 
-            // Check duplicate in current list (client-side)
-            const container = document.getElementById(`serial-pills-container-${compositeKey}`);
-            let existsLocally = false;
-            container.querySelectorAll('input[type="hidden"]').forEach(hidden => {
-               if (hidden.value === serial) existsLocally = true;
-            });
-
             if (existsLocally) {
-                showError(compositeKey, 'Serial number sudah ditambahkan di baris ini.');
+                showError(compositeKey, 'Serial number sudah ditambahkan.');
                 input.select();
                 return;
             }
@@ -103,7 +104,6 @@
 
             try {
                 // Server-side validation via AJAX
-                // We use validate-dispatch endpoint check if serial exists, is at location, and not dispatched
                 const response = await fetch("{{ route('serial-numbers.validate-dispatch') }}", {
                     method: 'POST',
                     headers: {
@@ -114,7 +114,7 @@
                     body: JSON.stringify({
                         product_id: productId,
                         serial_number: serial,
-                        location_id: locationId
+                        expected_tax_id: taxId
                     })
                 });
 
@@ -127,8 +127,9 @@
                     return;
                 }
 
-                // Success - add pill
-                addSerialPill(compositeKey, serial);
+                // Success - add row and hidden inputs
+                addSerialRow(compositeKey, serial, data.location_id, data.location_name, taxId, true);
+                
                 input.value = '';
                 input.disabled = false;
                 input.focus();
@@ -142,44 +143,116 @@
             }
         }
 
-        function addSerialPill(compositeKey, serial) {
-            const container = document.getElementById(`serial-pills-container-${compositeKey}`);
-            const pill = document.createElement('span');
-            pill.className = 'badge badge-primary mr-1 mb-1 p-2 d-flex align-items-center';
-            pill.innerText = serial + ' '; // text part
+        function addSerialRow(compositeKey, serial, locationId, locationName, taxId, notifyLivewire = true) {
+            console.log('Adding serial row:', {compositeKey, serial, locationId, taxId});
 
-            const hiddenInput = document.createElement('input');
-            hiddenInput.type = 'hidden';
-            hiddenInput.name = `selectedSerialNumbers[${compositeKey}][]`;
-            hiddenInput.value = serial;
-            pill.appendChild(hiddenInput);
+            const tbody = document.getElementById(`serial-rows-${compositeKey}`);
+            if (!tbody) return;
 
+            // Hide placeholder if any
+            const placeholder = document.getElementById(`no-serial-placeholder-${compositeKey}`);
+            if (placeholder) placeholder.classList.add('d-none');
+
+            // Create table row
+            const tr = document.createElement('tr');
+            tr.dataset.serial = serial;
+            tr.className = 'serial-row border-top';
+            
+            // Serial Cell
+            const tdSerial = document.createElement('td');
+            tdSerial.className = 'pl-4 align-middle py-2';
+            tdSerial.innerHTML = `<i class="bi bi-arrow-return-right text-primary opacity-50 mr-2"></i> <span class="fw-bold">${serial}</span>`;
+            tr.appendChild(tdSerial);
+            
+            // Location Cell
+            const tdLocation = document.createElement('td');
+            tdLocation.className = 'align-middle text-center py-2';
+            tdLocation.innerHTML = `<span class="badge bg-light-row text-muted border px-2 font-weight-normal">${locationName}</span>`;
+            tr.appendChild(tdLocation);
+            
+            // Action Cell
+            const tdAction = document.createElement('td');
+            tdAction.className = 'text-right pr-4 align-middle py-2';
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
-            removeBtn.className = 'btn btn-sm btn-link text-white p-0 ml-2';
-            removeBtn.onclick = function() { removeSerialPill(removeBtn, compositeKey); };
-            removeBtn.innerHTML = '<i class="bi bi-x"></i>';
-            pill.appendChild(removeBtn);
+            removeBtn.className = 'btn btn-outline-danger btn-sm rounded-circle border-0';
+            removeBtn.innerHTML = '<i class="bi bi-trash small"></i>';
+            removeBtn.onclick = function() { removeSerialRow(tr, compositeKey, serial); };
+            tdAction.appendChild(removeBtn);
+            tr.appendChild(tdAction);
+            
+            tbody.appendChild(tr);
 
-            container.appendChild(pill);
+            // Add hidden inputs for form submission
+            addHiddenInputs(compositeKey, serial, locationId);
+            // Notify Livewire if needed
+            if (notifyLivewire && window.Livewire) {
+                Livewire.dispatch('addSerialNumber', {
+                    compositeKey: compositeKey, 
+                    serialNumber: serial, 
+                    locationId: locationId, 
+                    locationName: locationName,
+                    taxId: taxId
+                });
+            }
         }
 
-        function removeSerialPill(btn, compositeKey) {
-            const pill = btn.parentElement;
-            pill.remove();
+        function removeSerialRow(tr, compositeKey, serial) {
+            const tbody = tr.parentElement;
+            tr.remove();
+
+            // Show placeholder if empty
+            if (tbody.querySelectorAll('tr.serial-row').length === 0) {
+                const placeholder = document.getElementById(`no-serial-placeholder-${compositeKey}`);
+                if (placeholder) placeholder.classList.remove('d-none');
+            }
+            
+            // Remove hidden inputs
+            const container = document.getElementById('hidden-inputs-container');
+            const inputs = container.querySelectorAll(`input[data-composite-key="${compositeKey}"][data-serial="${serial}"]`);
+            inputs.forEach(input => input.remove());
+            
+            // Notify Livewire
+            if (window.Livewire) {
+                Livewire.dispatch('removeSerialNumber', {
+                    compositeKey: compositeKey, 
+                    serialNumber: serial
+                });
+            }
+            
             updateDerivedQuantity(compositeKey);
         }
 
+        function addHiddenInputs(compositeKey, serial, locationId) {
+            const container = document.getElementById('hidden-inputs-container');
+            
+            // Serial Number Hidden
+            const inputSerial = document.createElement('input');
+            inputSerial.type = 'hidden';
+            inputSerial.name = `selectedSerialNumbers[${compositeKey}][]`;
+            inputSerial.value = serial;
+            inputSerial.dataset.compositeKey = compositeKey;
+            inputSerial.dataset.serial = serial;
+            container.appendChild(inputSerial);
+            
+            // Location Hidden
+            const inputLocation = document.createElement('input');
+            inputLocation.type = 'hidden';
+            inputLocation.name = `serialNumberLocations[${compositeKey}][${serial}]`;
+            inputLocation.value = locationId;
+            inputLocation.dataset.compositeKey = compositeKey;
+            inputLocation.dataset.serial = serial;
+            container.appendChild(inputLocation);
+        }
+
         function updateDerivedQuantity(compositeKey) {
-            const container = document.getElementById(`serial-pills-container-${compositeKey}`);
-            const count = container.querySelectorAll('input[type="hidden"]').length;
+            const tbody = document.getElementById(`serial-rows-${compositeKey}`);
+            const count = tbody ? tbody.querySelectorAll('tr.serial-row').length : 0;
             const qtyInput = document.getElementById(`quantity-${compositeKey}`);
 
             if (qtyInput) {
                 qtyInput.value = count;
-                // Dispatch input event for Livewire wire:model
                 qtyInput.dispatchEvent(new Event('input', { bubbles: true }));
-                // Dispatch change event for Livewire wire:change
                 qtyInput.dispatchEvent(new Event('change', { bubbles: true }));
             }
         }

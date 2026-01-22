@@ -16,9 +16,13 @@ class DispatchSaleTable extends Component
     public $stockAtLocations = [];  // Array to store stock at location for each product
     public $dispatchedQuantities = []; // Array to store updated dispatched quantity for each product
     public $serialNumberRequiredFlags = [];
-    public $selectedSerialNumbers = [];
+    public $serialNumberData = []; // [compositeKey][serialNumber] = ['location_id' => X, 'location_name' => Y, 'tax_id' => Z]
+    public $locationsUsed = []; // [compositeKey] => [locationId1, locationId2, ...]
 
-    protected $listeners = [];
+    protected $listeners = [
+        'addSerialNumber' => 'addSerialNumber',
+        'removeSerialNumber' => 'removeSerialNumber',
+    ];
 
     public function mount($sale, $locations, $aggregatedProducts)
     {
@@ -28,8 +32,10 @@ class DispatchSaleTable extends Component
 
         foreach ($aggregatedProducts as $key => $product) {
             $this->dispatchedQuantities[$key] = 0;
-            $this->serialNumberRequiredFlags[$key] = false;
+            $this->serialNumberRequiredFlags[$key] = $product['serial_number_required'] ?? false;
             $this->selectedLocations[$key] = 0;
+            $this->serialNumberData[$key] = [];
+            $this->locationsUsed[$key] = [];
         }
     }
 
@@ -90,6 +96,48 @@ class DispatchSaleTable extends Component
     }
 
 
+
+    // Add a serial number and its location to the tracking arrays.
+    public function addSerialNumber($compositeKey, $serialNumber, $locationId, $locationName, $taxId): void
+    {
+        if (!isset($this->serialNumberData[$compositeKey])) {
+            $this->serialNumberData[$compositeKey] = [];
+        }
+
+        $this->serialNumberData[$compositeKey][$serialNumber] = [
+            'location_id' => $locationId,
+            'location_name' => $locationName,
+            'tax_id' => $taxId,
+        ];
+
+        // Track unique locations used
+        $this->updateLocationsUsed($compositeKey);
+
+        // Update quantity
+        $this->dispatchedQuantities[$compositeKey] = count($this->serialNumberData[$compositeKey]);
+    }
+
+    // Remove a serial number from the tracking arrays.
+    public function removeSerialNumber($compositeKey, $serialNumber): void
+    {
+        if (isset($this->serialNumberData[$compositeKey][$serialNumber])) {
+            unset($this->serialNumberData[$compositeKey][$serialNumber]);
+            
+            // Update unique locations used
+            $this->updateLocationsUsed($compositeKey);
+
+            // Update quantity
+            $this->dispatchedQuantities[$compositeKey] = count($this->serialNumberData[$compositeKey]);
+        }
+    }
+
+    // Update the list of unique locations used for a product.
+    protected function updateLocationsUsed($compositeKey): void
+    {
+        $this->locationsUsed[$compositeKey] = array_unique(
+            array_column($this->serialNumberData[$compositeKey], 'location_id')
+        );
+    }
 
     public function render()
     {

@@ -60,14 +60,16 @@ class SerialNumberController extends Controller
 
     /**
      * Validate a serial number for dispatch.
-     * Checks if the serial number exists, is at the correct location, and is not already dispatched.
+     * Checks if the serial number exists and is not already dispatched.
+     * returns location info and tax_id for auto-loading.
      */
     public function validateDispatchSerial(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'product_id' => 'required|integer|exists:products,id',
             'serial_number' => 'required|string|max:255',
-            'location_id' => 'required|integer|exists:locations,id',
+            'location_id' => 'nullable|integer|exists:locations,id',
+            'expected_tax_id' => 'nullable|integer|exists:taxes,id',
         ]);
 
         $serial = ProductSerialNumber::where('product_id', $validated['product_id'])
@@ -81,11 +83,20 @@ class SerialNumberController extends Controller
             ], 200);
         }
 
-        if ((int) $serial->location_id !== (int) $validated['location_id']) {
-            return response()->json([
-                'valid' => false,
-                'message' => 'Serial number berada di lokasi yang berbeda.',
-            ], 200);
+        // Check tax mismatch if expected_tax_id is provided
+        if (isset($validated['expected_tax_id'])) {
+            $expectedTaxId = $validated['expected_tax_id'] ? (int) $validated['expected_tax_id'] : null;
+            $serialTaxId = $serial->tax_id ? (int) $serial->tax_id : null;
+
+            if ($expectedTaxId !== $serialTaxId) {
+                $taxMismatchMsg = $expectedTaxId
+                    ? 'Serial number ini Non-PPN, tidak bisa digunakan untuk produk PPN.'
+                    : 'Serial number ini PPN, tidak bisa digunakan untuk produk Non-PPN.';
+                return response()->json([
+                    'valid' => false,
+                    'message' => $taxMismatchMsg,
+                ], 200);
+            }
         }
 
         // Check if already dispatched (assuming dispatch_detail_id is not null implies dispatched)
@@ -103,7 +114,7 @@ class SerialNumberController extends Controller
             ], 200);
         }
 
-         if ($serial->is_broken) {
+        if ($serial->is_broken) {
             return response()->json([
                 'valid' => false,
                 'message' => 'Serial number rusak (broken).',
@@ -117,7 +128,12 @@ class SerialNumberController extends Controller
             ], 200);
         }
 
-        return response()->json(['valid' => true], 200);
+        return response()->json([
+            'valid' => true,
+            'location_id' => $serial->location_id,
+            'location_name' => $serial->location->name ?? null,
+            'tax_id' => $serial->tax_id,
+        ], 200);
     }
 
     /**
