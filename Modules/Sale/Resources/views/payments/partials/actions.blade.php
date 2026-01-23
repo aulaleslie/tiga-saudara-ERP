@@ -1,5 +1,6 @@
 @php($hasCredit = ($data->credit_applications_count ?? 0) > 0)
 
+@if(!($data->sale->isArchived()))
 @can('salePayments.edit')
     @unless($hasCredit)
         <a href="{{ route('sale-payments.edit', [$data->sale->id, $data->id]) }}" class="btn btn-info btn-sm">
@@ -23,3 +24,4 @@
         </button>
     @endunless
 @endcan
+@endif

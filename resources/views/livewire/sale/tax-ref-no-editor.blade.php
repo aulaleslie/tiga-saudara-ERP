@@ -5,7 +5,7 @@
             <div class="fw-semibold">{{ $taxRefNo ?: '-' }}</div>
         </div>
 
-        @if($canEdit && ! $editing)
+        @if($canEdit && ! $editing && ! $isArchived)
             <button type="button"
                     class="btn btn-link btn-sm text-decoration-none"
                     wire:click="startEditing"

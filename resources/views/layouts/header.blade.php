@@ -46,7 +46,7 @@
         @endif
     @endcan
 
-    @if(session('user_settings'))
+    @if(session('user_settings') && session('user_settings')->isNotEmpty())
         @php
             $userSettings = session('user_settings');
             $currentSetting = $userSettings

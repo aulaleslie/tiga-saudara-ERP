@@ -12,14 +12,16 @@ class TaxRefNoEditor extends Component
     public ?string $taxRefNo = null;
     public bool $editing = false;
     public bool $canEdit = false;
+    public bool $isArchived = false;
 
-    public function mount(int $saleId): void
+    public function mount(int $saleId, bool $isArchived = false): void
     {
-        $sale = Sale::findOrFail($saleId);
+        $sale = Sale::withoutGlobalScopes()->findOrFail($saleId);
         $this->ensureSaleBelongsToCurrentSetting($sale);
 
         $this->saleId = $saleId;
         $this->taxRefNo = $sale->tax_ref_no;
+        $this->isArchived = $isArchived;
         $this->canEdit = Gate::allows('sales.edit');
     }
 
@@ -70,7 +72,7 @@ class TaxRefNoEditor extends Component
 
     private function findSale(): Sale
     {
-        $sale = Sale::findOrFail($this->saleId);
+        $sale = Sale::withoutGlobalScopes()->findOrFail($this->saleId);
         $this->ensureSaleBelongsToCurrentSetting($sale);
 
         return $sale;

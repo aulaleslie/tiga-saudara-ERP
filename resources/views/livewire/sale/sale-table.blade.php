@@ -108,7 +108,7 @@
                 <td>{{ format_currency($sale->due_amount) }}</td>
                 <td>@include('sale::partials.status', ['data' => $sale])</td>
                 <td>@include('sale::partials.payment-status', ['data' => $sale])</td>
-                <td>@include('sale::partials.actions', ['data' => $sale])</td>
+                <td>@include('sale::partials.actions', ['data' => $sale, 'showArchived' => $showArchived])</td>
             </tr>
         @empty
             <tr>

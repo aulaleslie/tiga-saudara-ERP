@@ -13,24 +13,26 @@
 
                 @php $hasDispatches = isset($dispatches) && $dispatches->isNotEmpty(); @endphp
 
-                @if($hasDispatches)
+                @if(!$sale->isArchived())
+                    @if($hasDispatches)
+                        <a target="_blank"
+                           href="{{ route('sales.deliverySlip', ['sale' => $sale->id, 'type' => 'delivery']) }}"
+                           class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none">
+                            <i class="bi bi-truck"></i> Cetak Surat Jalan (Terakhir)
+                        </a>
+                    @else
+                        <a class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" disabled
+                           title="Belum ada pengeluaran/dispatch untuk dicetak">
+                            <i class="bi bi-truck"></i> Surat Jalan
+                        </a>
+                    @endif
                     <a target="_blank"
-                       href="{{ route('sales.deliverySlip', ['sale' => $sale->id, 'type' => 'delivery']) }}"
-                       class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none">
-                        <i class="bi bi-truck"></i> Cetak Surat Jalan (Terakhir)
-                    </a>
-                @else
-                    <a class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" disabled
-                       title="Belum ada pengeluaran/dispatch untuk dicetak">
-                        <i class="bi bi-truck"></i> Surat Jalan
+                       href="{{ route('sales.invoicePdf', ['sale' => $sale->id, 'type' => 'invoice']) }}"
+                       class="btn btn-sm btn-secondary mfe-1 d-print-none">
+                        <i class="bi bi-truck"></i> Cetak Faktur
                     </a>
                 @endif
-                <a target="_blank"
-                   href="{{ route('sales.invoicePdf', ['sale' => $sale->id, 'type' => 'invoice']) }}"
-                   class="btn btn-sm btn-secondary mfe-1 d-print-none">
-                    <i class="bi bi-truck"></i> Cetak Faktur
-                </a>
-                <a class="btn btn-sm btn-info mfe-1 d-print-none" href="{{ route('sales.index') }}">
+                <a class="btn btn-sm btn-info mfs-auto mfe-1 d-print-none" href="{{ route('sales.index') }}">
                     <i class="bi bi-back"></i> Kembali
                 </a>
             </div>
@@ -39,10 +41,10 @@
                     <!-- Informasi Bisnis -->
                     <div class="col-sm-4 mb-3 mb-md-0">
                         <h5 class="mb-2 border-bottom pb-2">Informasi Bisnis:</h5>
-                        <div><strong>{{ settings()->company_name }}</strong></div>
-                        <div>{{ settings()->company_address }}</div>
-                        <div>Email: {{ settings()->company_email }}</div>
-                        <div>Kontak: {{ settings()->company_phone }}</div>
+                        <div><strong>{{ optional(settings())->company_name }}</strong></div>
+                        <div>{{ optional(settings())->company_address }}</div>
+                        <div>Email: {{ optional(settings())->company_email }}</div>
+                        <div>Kontak: {{ optional(settings())->company_phone }}</div>
                     </div>
                     <!-- Informasi Pelanggan -->
                     <div class="col-sm-4 mb-3 mb-md-0">
@@ -58,6 +60,7 @@
                         <div class="mt-2">
                             <livewire:sale.tax-ref-no-editor
                                 :saleId="$sale->id"
+                                :isArchived="$sale->isArchived()"
                                 :key="'sale-tax-ref-no-' . $sale->id"
                             />
                         </div>
@@ -286,6 +289,7 @@
                 </div>
             </div>
 
+            @if(!$sale->isArchived())
             <div class="card-footer text-end">
                 @if ($sale->status === Sale::STATUS_DRAFTED)
                     <form method="POST" action="{{ route('sales.updateStatus', $sale->id) }}" class="d-inline">
@@ -324,6 +328,7 @@
                     @endif
                 @endcan
             </div>
+            @endif
         </div>
     </div>
 @endsection

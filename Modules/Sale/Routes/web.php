@@ -51,22 +51,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/sales/{sale}/invoice', [SaleController::class, 'invoicePdf'])
         ->name('sales.invoicePdf');
 
-    Route::get('/sales/pos/pdf/{id}', function ($id) {
-        $sale = Sale::with(['saleDetails.product.conversions.unit', 'saleDetails.product.conversions.prices', 'saleDetails.product.baseUnit', 'saleDetails.product.prices', 'customer', 'posReceipt.sales.saleDetails.product.conversions.unit', 'posReceipt.sales.saleDetails.product.conversions.prices', 'posReceipt.sales.saleDetails.product.baseUnit', 'posReceipt.sales.saleDetails.product.prices', 'posReceipt.sales.tenantSetting', 'posReceipt.sales.customer'])
-            ->findOrFail($id);
-
-        $receipt = $sale->posReceipt;
-        $viewData = $receipt ? ['receipt' => $receipt] : ['sale' => $sale];
-        $fileReference = $receipt?->receipt_number ?? $sale->reference;
-
-        $pdf = \PDF::loadView('sale::print-pos', $viewData)->setPaper('a7')
-            ->setOption('margin-top', 8)
-            ->setOption('margin-bottom', 8)
-            ->setOption('margin-left', 5)
-            ->setOption('margin-right', 5);
-
-        return $pdf->stream('sale-' . $fileReference . '.pdf');
-    })->name('sales.pos.pdf');
+    Route::get('/sales/pos/pdf/{sale}', [SaleController::class, 'posPdf'])->name('sales.pos.pdf');
 
     //Sales
     Route::post('/sales/{sale}/dispatch', [SaleController::class, 'storeDispatch'])->name('sales.storeDispatch');

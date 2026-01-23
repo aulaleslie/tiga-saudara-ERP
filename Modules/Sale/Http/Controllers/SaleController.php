@@ -216,7 +216,10 @@ class SaleController extends Controller
 
     public function show(Sale $sale, SalePaymentsDataTable $dataTable)
     {
+        Log::info('SaleController::show reached', ['id' => $sale->id]);
         abort_if(Gate::denies('sales.show'), 403);
+
+        $this->ensureSaleBelongsToCurrentSetting($sale);
 
         $sale->load([
             'saleDetails.bundleItems',
@@ -241,6 +244,8 @@ class SaleController extends Controller
     public function edit(Sale $sale)
     {
         abort_if(Gate::denies('sales.edit'), 403);
+
+        $this->ensureSaleBelongsToCurrentSetting($sale);
 
         // Rule: Partially or Fully Dispatched -> Hard Block
         if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
@@ -340,6 +345,8 @@ class SaleController extends Controller
     {
         abort_if(Gate::denies('sales.edit'), 403);
 
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
         // Rule: Partially or Fully Dispatched -> Hard Block
         if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
             abort(403, 'Tidak dapat memperbarui penjualan yang sudah dikirim barangnya.');
@@ -429,6 +436,9 @@ class SaleController extends Controller
     public function updateStatus(Request $request, Sale $sale): RedirectResponse
     {
         abort_unless(Gate::any(['sales.edit', 'sales.approval']), 403);
+
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
                     Sale::STATUS_WAITING_APPROVAL,
@@ -454,6 +464,8 @@ class SaleController extends Controller
     {
         abort_if(Gate::denies('sales.archive'), 403);
 
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
         // Block if processed
         if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
             abort(403, 'Tidak dapat mengarsipkan penjualan yang sudah dikirim barangnya.');
@@ -472,6 +484,8 @@ class SaleController extends Controller
     public function destroy(Sale $sale)
     {
         abort_if(Gate::denies('sales.delete'), 403);
+
+        $this->ensureSaleBelongsToCurrentSetting($sale);
 
         // Rule: Partially or Fully Dispatched -> Hard Block
         if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
@@ -495,6 +509,9 @@ class SaleController extends Controller
     public function dispatch(Sale $sale)
     {
         abort_if(Gate::denies('sales.dispatch'), 403);
+
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
         $currentSettingId = (int) session('setting_id');
         $locations = Location::where('setting_id', $currentSettingId)
             ->orderBy('name')
@@ -575,6 +592,9 @@ class SaleController extends Controller
     public function storeDispatch(Request $request, Sale $sale): RedirectResponse
     {
         abort_if(Gate::denies('sales.dispatch'), 403);
+
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
         Log::info('Store dispatch request', [
             'request' => $request->all()
         ]);
@@ -887,6 +907,8 @@ class SaleController extends Controller
     {
         abort_if(Gate::denies('sales.show'), 403);
 
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
         $dispatch = $sale->saleDispatches()
             ->with(['details.product.baseUnit', 'details.location'])
             ->latest('id')
@@ -942,6 +964,8 @@ class SaleController extends Controller
     {
         abort_if(Gate::denies('sales.show'), 403);
 
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
         $sale->load([
             'saleDetails.product.baseUnit',
             'salePayments.paymentMethod',
@@ -974,6 +998,37 @@ class SaleController extends Controller
         return $pdf->stream('Sales-Invoice-'.$invoiceNumber.'.pdf');
     }
 
+    public function posPdf(Sale $sale)
+    {
+        $this->ensureSaleBelongsToCurrentSetting($sale);
+
+        $sale->load([
+            'saleDetails.product.conversions.unit',
+            'saleDetails.product.conversions.prices',
+            'saleDetails.product.baseUnit',
+            'saleDetails.product.prices',
+            'customer',
+            'posReceipt.sales.saleDetails.product.conversions.unit',
+            'posReceipt.sales.saleDetails.product.conversions.prices',
+            'posReceipt.sales.saleDetails.product.baseUnit',
+            'posReceipt.sales.saleDetails.product.prices',
+            'posReceipt.sales.tenantSetting',
+            'posReceipt.sales.customer'
+        ]);
+
+        $receipt = $sale->posReceipt;
+        $viewData = $receipt ? ['receipt' => $receipt] : ['sale' => $sale];
+        $fileReference = $receipt?->receipt_number ?? $sale->reference;
+
+        $pdf = Pdf::loadView('sale::print-pos', $viewData)->setPaper('a7')
+            ->setOption('margin-top', 8)
+            ->setOption('margin-bottom', 8)
+            ->setOption('margin-left', 5)
+            ->setOption('margin-right', 5);
+
+        return $pdf->stream('sale-' . $fileReference . '.pdf');
+    }
+
     private function resolveSaleDetailPricing(SaleDetails $saleDetail, ?Product $product = null): array
     {
         $product = $product ?? $saleDetail->product ?? Product::find($saleDetail->product_id);
@@ -999,5 +1054,19 @@ class SaleController extends Controller
             'tier_1_price' => (float) ($priceRow?->tier_1_price ?? $tier1Fallback),
             'tier_2_price' => (float) ($priceRow?->tier_2_price ?? $tier2Fallback),
         ];
+    }
+
+    private function ensureSaleBelongsToCurrentSetting(Sale $sale): void
+    {
+        $currentSettingId = session('setting_id');
+
+        if (! is_null($currentSettingId) && (int) $sale->setting_id !== (int) $currentSettingId) {
+            Log::info('Access denied: Sale setting mismatch', [
+                'sale_setting' => $sale->setting_id,
+                'session_setting' => $currentSettingId,
+                'sale_id' => $sale->id
+            ]);
+            abort(404);
+        }
     }
 }
