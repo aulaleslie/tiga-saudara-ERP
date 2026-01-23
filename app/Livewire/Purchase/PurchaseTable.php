@@ -20,8 +20,9 @@ class PurchaseTable extends Component
     public $settingId;
     public $statusFilter = null;
     public $purchaseId = null;
+    public $showArchived = false;
 
-    protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection'];
+    protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived'];
 
     public function mount($settingId = null, $statusFilter = null, $purchaseId = null)
     {
@@ -61,7 +62,7 @@ class PurchaseTable extends Component
 
     public function render()
     {
-        $query = Purchase::query()
+        $query = ($this->showArchived ? Purchase::archived() : Purchase::query())
             ->with(['supplier', 'tags', 'purchaseDetails'])
             ->where('setting_id', $this->settingId)
             ->when(! empty($this->statusFilter), function ($q) {
@@ -80,10 +81,7 @@ class PurchaseTable extends Component
                             $q2->where('supplier_name', 'like', "%{$search}%");
                         })
                         ->orWhereHas('tags', function ($q2) use ($search) {
-                            $q2->whereRaw(
-                                "LOWER(JSON_UNQUOTE(JSON_EXTRACT(name, '$.en'))) LIKE ?",
-                                ['%' . strtolower($search) . '%']
-                            );
+                            $q2->where('name->en', 'like', "%{$search}%");
                         })
                         ->orWhereHas('purchaseDetails.product', function ($q2) use ($search) {
                             $q2->where('product_name', 'like', "%{$search}%");

@@ -1,7 +1,11 @@
 @php use Illuminate\Support\Carbon; @endphp
 <div>
     <div class="d-flex justify-content-between align-items-center mb-2">
-        <div>
+        <div class="d-flex align-items-center" style="gap: 1rem;">
+            <div class="form-check form-switch pt-1">
+                <input class="form-check-input" type="checkbox" id="showArchived" wire:model.live="showArchived">
+                <label class="form-check-label" for="showArchived">Tampilkan Arsip</label>
+            </div>
         </div>
         <form class="d-flex" wire:submit.prevent="searchSubmit" style="gap: 0.5rem;">
             <input type="text"

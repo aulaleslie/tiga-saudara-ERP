@@ -18,8 +18,9 @@ class SaleTable extends Component
     public $settingId;
     public $statusFilter = null;
     public $saleId = null;
+    public $showArchived = false;
 
-    protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection'];
+    protected $updatesQueryString = ['search', 'page', 'sortField', 'sortDirection', 'showArchived'];
 
     public function mount($settingId = null, $statusFilter = null, $saleId = null)
     {
@@ -58,7 +59,7 @@ class SaleTable extends Component
 
     public function render()
     {
-        $query = Sale::query()
+        $query = ($this->showArchived ? Sale::archived() : Sale::query())
             ->with(['customer', 'saleDetails', 'posReceipt', 'posSession', 'tags'])
             ->where('setting_id', $this->settingId)
             ->when(! empty($this->statusFilter), function ($q) {
