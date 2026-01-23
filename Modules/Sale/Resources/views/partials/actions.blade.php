@@ -65,8 +65,8 @@
                 </form>
             @endif
         @endcan
-        @can('sales.delete')
-            @if($data->status === 'DRAFTED')
+        @if($data->status === 'DRAFTED' || $data->status === 'REJECTED')
+            @can('sales.delete')
                 <button id="delete" class="dropdown-item" onclick="
                     event.preventDefault();
                     if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {
@@ -78,8 +78,25 @@
                         @method('delete')
                     </form>
                 </button>
-            @endif
-        @endcan
+            @endcan
+        @elseif($data->status === 'APPROVED')
+            @can('sales.archive')
+                @if(!in_array($data->status, ['DISPATCHED', 'DISPATCHED PARTIALLY']))
+                    <button id="archive" class="dropdown-item" onclick="
+                        event.preventDefault();
+                        if (confirm('Anda Yakin untuk Mengarsipkan?')) {
+                        document.getElementById('archive{{ $data->id }}').submit()
+                        }">
+                        <i class="bi bi-archive mr-2 text-warning" style="line-height: 1;"></i> Arsipkan
+                        <form id="archive{{ $data->id }}" class="d-none"
+                              action="{{ route('sales.archive', $data->id) }}" method="POST">
+                            @csrf
+                            @method('put')
+                        </form>
+                    </button>
+                @endif
+            @endcan
+        @endif
         @can('sales.dispatch')
             @if ($data->status === 'APPROVED' || $data->status === 'RECEIVED_PARTIALLY')
                 <a href="{{ route('sales.dispatch', $data->id) }}" class="dropdown-item text-primary">

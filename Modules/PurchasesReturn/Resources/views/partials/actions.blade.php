@@ -64,8 +64,8 @@
             @endif
         @endif
 
-        @can('purchaseReturns.delete')
-            @if($approvalStatus === 'pending')
+        @if($approvalStatus === 'pending' || $approvalStatus === 'rejected' || $approvalStatus === 'draft')
+            @can('purchaseReturns.delete')
                 <button id="delete" type="button" class="dropdown-item d-flex align-items-center" onclick="
                     event.preventDefault();
                     if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {
@@ -77,7 +77,23 @@
                     @csrf
                     @method('delete')
                 </form>
-            @endif
-        @endcan
+            @endcan
+        @elseif($approvalStatus === 'approved')
+            @can('purchaseReturns.archive')
+                @if(is_null($data->return_dispatched_at))
+                    <button id="archive" type="button" class="dropdown-item d-flex align-items-center" onclick="
+                        event.preventDefault();
+                        if (confirm('Anda Yakin untuk Mengarsipkan?')) {
+                            document.getElementById('archive{{ $data->id }}').submit()
+                        }">
+                        <i class="bi bi-archive text-warning me-2"></i> <span>Arsipkan</span>
+                    </button>
+                    <form id="archive{{ $data->id }}" class="d-none" action="{{ route('purchase-returns.archive', $data->id) }}" method="POST">
+                        @csrf
+                        @method('put')
+                    </form>
+                @endif
+            @endcan
+        @endif
     </div>
 </div>

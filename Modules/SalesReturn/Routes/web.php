@@ -34,6 +34,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('sale-returns/{sale_return}/settlement', 'SalesReturnController@settlement')
         ->name('sale-returns.settlement');
 
+    Route::put('sale-returns/{sale_return}/archive', 'SalesReturnController@archive')
+        ->name('sale-returns.archive');
     //Sale Returns
     Route::resource('sale-returns', 'SalesReturnController');
 

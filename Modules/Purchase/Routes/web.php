@@ -70,6 +70,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('receivings.list');
     Route::get('/purchases/{purchase}/receive', [PurchaseController::class, 'receive'])->name('purchases.receive');
     Route::patch('purchases/{purchase}/status', [PurchaseController::class, 'updateStatus'])->name('purchases.updateStatus');
+    Route::put('purchases/{purchase}/archive', [PurchaseController::class, 'archive'])->name('purchases.archive');
     Route::get('/purchases/create-alpine', [PurchaseController::class, 'createAlpine'])->name('purchases.create-alpine');
     Route::post('/purchases/{purchase}/attachments', [PurchaseController::class, 'storeAttachments'])
         ->name('purchases.attachments.store');

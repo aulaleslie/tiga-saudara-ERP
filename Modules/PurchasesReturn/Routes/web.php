@@ -29,6 +29,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function() {
     //Purchase Returns
     Route::get('purchase-returns/{purchase_return}/settlement', 'PurchasesReturnController@settlement')
         ->name('purchase-returns.settlement');
+    Route::put('purchase-returns/{purchase_return}/archive', 'PurchasesReturnController@archive')
+        ->name('purchase-returns.archive');
     Route::resource('purchase-returns', 'PurchasesReturnController');
     Route::post('purchase-returns/{purchase_return}/approve', 'PurchaseReturnApprovalController@approve')
         ->name('purchase-returns.approve');

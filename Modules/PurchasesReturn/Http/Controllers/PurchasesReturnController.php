@@ -294,6 +294,25 @@ class PurchasesReturnController extends Controller
     }
 
 
+    public function archive(PurchaseReturn $purchase_return)
+    {
+        abort_if(Gate::denies('purchaseReturns.archive'), 403);
+
+        // Rule: Dispatched -> Hard Block
+        if (!is_null($purchase_return->return_dispatched_at)) {
+            abort(403, 'Tidak dapat mengarsipkan retur pembelian yang sudah dikirim barangnya.');
+        }
+
+        $purchase_return->update([
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
+        ]);
+
+        toast('Retur Pembelian Diarsipkan!', 'info');
+
+        return redirect()->route('purchase-returns.index');
+    }
+
     public function destroy(PurchaseReturn $purchase_return) {
         abort_if(Gate::denies('purchaseReturns.delete'), 403);
 

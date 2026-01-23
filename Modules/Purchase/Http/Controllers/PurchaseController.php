@@ -504,6 +504,27 @@ class PurchaseController extends Controller
         return redirect()->route('purchases.index');
     }
 
+    public function archive(Purchase $purchase): RedirectResponse
+    {
+        abort_if(Gate::denies('purchases.archive'), 403);
+
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        // Rule: Partially or Fully Received -> Hard Block
+        if (in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
+            abort(403, 'Tidak dapat mengarsipkan pembelian yang sudah diterima barangnya.');
+        }
+
+        $purchase->update([
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
+        ]);
+
+        toast('Pembelian Diarsipkan!', 'info');
+
+        return redirect()->route('purchases.index');
+    }
+
     public function updateStatus(Request $request, Purchase $purchase): RedirectResponse
     {
         abort_unless(Gate::any(['purchases.edit', 'purchases.approval']), 403);

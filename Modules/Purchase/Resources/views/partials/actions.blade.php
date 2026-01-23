@@ -43,8 +43,8 @@
             </a>
         @endcan
 
-        @can('purchases.delete')
-            @if($data->status === 'DRAFTED')
+        @if($data->status === 'DRAFTED' || $data->status === 'REJECTED')
+            @can('purchases.delete')
                 <button id="delete" class="dropdown-item" onclick="
                     event.preventDefault();
                     if (confirm('Anda Yakin untuk Menghapus? Data akan Terhapus Permanen!')) {
@@ -57,8 +57,25 @@
                         @method('delete')
                     </form>
                 </button>
-            @endif
-        @endcan
+            @endcan
+        @elseif($data->status === 'APPROVED')
+            @can('purchases.archive')
+                @if(!in_array($data->status, ['RECEIVED', 'RECEIVED PARTIALLY']))
+                    <button id="archive" class="dropdown-item" onclick="
+                        event.preventDefault();
+                        if (confirm('Anda Yakin untuk Mengarsipkan?')) {
+                        document.getElementById('archive{{ $data->id }}').submit()
+                        }">
+                        <i class="bi bi-archive mr-2 text-warning" style="line-height: 1;"></i> Arsipkan
+                        <form id="archive{{ $data->id }}" class="d-none"
+                              action="{{ route('purchases.archive', $data->id) }}" method="POST">
+                            @csrf
+                            @method('put')
+                        </form>
+                    </button>
+                @endif
+            @endcan
+        @endif
 
         {{-- New Actions for Status Updates --}}
         @if ($data->status === 'DRAFTED')

@@ -75,8 +75,8 @@
             </a>
         @endcan
 
-        @can('saleReturns.delete')
-            @if(in_array($approvalStatus, ['pending', 'draft']))
+        @if(in_array($approvalStatus, ['pending', 'rejected', 'draft']))
+            @can('saleReturns.delete')
                 <button id="delete" type="button" class="dropdown-item d-flex align-items-center" onclick="
                     event.preventDefault();
                     if (confirm('Anda yakin ingin menghapus retur ini?')) {
@@ -88,7 +88,23 @@
                     @csrf
                     @method('delete')
                 </form>
-            @endif
-        @endcan
+            @endcan
+        @elseif($approvalStatus === 'approved')
+            @can('saleReturns.archive')
+                @if(is_null($data->received_at))
+                    <button id="archive" type="button" class="dropdown-item d-flex align-items-center" onclick="
+                        event.preventDefault();
+                        if (confirm('Anda Yakin untuk Mengarsipkan?')) {
+                            document.getElementById('archive{{ $data->id }}').submit()
+                        }">
+                        <i class="bi bi-archive text-warning me-2"></i> <span>Arsipkan</span>
+                    </button>
+                    <form id="archive{{ $data->id }}" class="d-none" action="{{ route('sale-returns.archive', $data->id) }}" method="POST">
+                        @csrf
+                        @method('put')
+                    </form>
+                @endif
+            @endcan
+        @endif
     </div>
 </div>

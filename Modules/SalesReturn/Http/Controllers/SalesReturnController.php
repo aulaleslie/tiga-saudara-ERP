@@ -100,6 +100,25 @@ class SalesReturnController extends Controller
     }
 
 
+    public function archive(SaleReturn $sale_return)
+    {
+        abort_if(Gate::denies('saleReturns.archive'), 403);
+
+        // Block if processed
+        if (!is_null($sale_return->received_at)) {
+            abort(403, 'Tidak dapat mengarsipkan retur penjualan yang sudah diterima barangnya.');
+        }
+
+        $sale_return->update([
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
+        ]);
+
+        toast('Retur Penjualan Diarsipkan!', 'info');
+
+        return redirect()->route('sale-returns.index');
+    }
+
     public function destroy(SaleReturn $sale_return) {
         abort_if(Gate::denies('saleReturns.delete'), 403);
 

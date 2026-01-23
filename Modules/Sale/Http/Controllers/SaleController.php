@@ -450,6 +450,25 @@ class SaleController extends Controller
     }
 
 
+    public function archive(Sale $sale): RedirectResponse
+    {
+        abort_if(Gate::denies('sales.archive'), 403);
+
+        // Block if processed
+        if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
+            abort(403, 'Tidak dapat mengarsipkan penjualan yang sudah dikirim barangnya.');
+        }
+
+        $sale->update([
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
+        ]);
+
+        toast('Penjualan Diarsipkan!', 'info');
+
+        return redirect()->route('sales.index');
+    }
+
     public function destroy(Sale $sale)
     {
         abort_if(Gate::denies('sales.delete'), 403);
