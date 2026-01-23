@@ -9,7 +9,7 @@
                     </button>
                 </div>
                 <div class="modal-body">
-                    Ajukan dispatch retur ini?
+                    Ajukan pengiriman retur ini?
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal" id="dispatch-request-confirm-cancel">Batal</button>

@@ -145,9 +145,9 @@
                                             'purchaseReturns.show'   => 'Lihat',
                                             'purchaseReturns.viewPrice' => 'Lihat Harga',
                                             'purchaseReturns.approval' => 'Persetujuan',
-                                            'purchaseReturns.dispatchRequest' => 'Ajukan Dispatch',
-                                            'purchaseReturns.dispatchApproval' => 'Persetujuan Dispatch',
-                                            'purchaseReturns.dispatchExecute' => 'Eksekusi Dispatch',
+                                            'purchaseReturns.dispatchRequest' => 'Ajukan Pengiriman',
+                                            'purchaseReturns.dispatchApproval' => 'Persetujuan Pengiriman',
+                                            'purchaseReturns.dispatchExecute' => 'Eksekusi Pengiriman',
                                         ],
 
                                         'Pembayaran Retur Pembelian' => [

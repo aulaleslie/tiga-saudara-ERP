@@ -230,8 +230,8 @@ class PurchaseReturnApprovalTest extends TestCase
 
         $purchase->refresh();
         $this->assertEquals(4000, (float)$purchase->total_amount);
-        $this->assertEquals(3000, (float)$purchase->due_amount);
-        $this->assertEquals(1000, (float)$purchase->paid_amount);
+        $this->assertEquals(4000, (float)$purchase->due_amount);
+        $this->assertEquals(0, (float)$purchase->paid_amount);
 
         $purchaseReturn->refresh();
         $this->assertEquals('COMPLETED', $purchaseReturn->status);

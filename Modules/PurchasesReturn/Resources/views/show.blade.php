@@ -49,27 +49,27 @@
                                     @if($dispatchStatus === '' || $dispatchStatus === 'rejected')
                                         @can('purchaseReturns.dispatchRequest')
                                             <button type="button" class="btn btn-warning btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#dispatchRequestModal" data-bs-toggle="modal" data-bs-target="#dispatchRequestModal">
-                                                <i class="bi bi-truck"></i> Ajukan Dispatch
+                                                <i class="bi bi-truck"></i> Ajukan Pengiriman Retur
                                             </button>
                                         @endcan
                                         @if($dispatchStatus === 'rejected')
-                                            <span class="badge bg-danger mr-2 mb-1">Dispatch Rejected</span>
+                                            <span class="badge bg-danger mr-2 mb-1">Pengiriman Retur Ditolak</span>
                                         @endif
                                     @elseif($dispatchStatus === 'pending_approval')
-                                        <span class="badge bg-warning text-dark mr-2 mb-1">Dispatch Pending Approval</span>
+                                        <span class="badge bg-warning text-dark mr-2 mb-1">Sedang Menunggu Persetujuan</span>
                                         @can('purchaseReturns.dispatchApproval')
                                             <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#approveDispatchModal" data-bs-toggle="modal" data-bs-target="#approveDispatchModal">
-                                                <i class="bi bi-check-circle"></i> Setujui Dispatch
+                                                <i class="bi bi-check-circle"></i> Setujui Pengiriman Retur
                                             </button>
                                             <button type="button" class="btn btn-outline-danger btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#rejectDispatchModal" data-bs-toggle="modal" data-bs-target="#rejectDispatchModal">
-                                                <i class="bi bi-x-circle"></i> Tolak Dispatch
+                                                <i class="bi bi-x-circle"></i> Tolak Pengiriman Retur
                                             </button>
                                         @endcan
                                     @elseif($dispatchStatus === 'dispatched')
-                                        <span class="badge bg-success mr-2 mb-1">Dispatch Approved</span>
+                                        <span class="badge bg-success mr-2 mb-1">Pengiriman Retur Disetujui</span>
                                     @endif
                                 @else
-                                    <span class="badge bg-info text-dark mr-2 mb-1">Dispatched: {{ $purchase_return->return_dispatched_at->format('d M Y') }}</span>
+                                    <span class="badge bg-info text-dark mr-2 mb-1">Telah Dikirim: {{ $purchase_return->return_dispatched_at->format('d M Y') }}</span>
                                 @endif
 
                                 @if($dispatchStatus === 'dispatched')

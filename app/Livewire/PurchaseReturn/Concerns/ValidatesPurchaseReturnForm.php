@@ -131,6 +131,11 @@ trait ValidatesPurchaseReturnForm
                             );
                         }
                         if ($psn->is_in_return_process) {
+                            // Skip if this serial belongs to the current purchase return being edited
+                            if (property_exists($this, 'purchaseReturn') && 
+                                $psn->purchase_return_id === $this->purchaseReturn->id) {
+                                continue;
+                            }
                             $validator->errors()->add(
                                 "rows.$index.serial_numbers",
                                 "Nomor seri '{$psn->serial_number}' sedang dalam proses retur."

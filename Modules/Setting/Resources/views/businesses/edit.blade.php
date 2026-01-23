@@ -76,6 +76,22 @@
                                         <small class="form-text text-muted">Kosongkan untuk menggunakan prefix penjualan</small>
                                     </div>
                                 </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="purchase_return_prefix_document">Prefix Dokumen Retur Pembelian</label>
+                                        <input type="text" class="form-control" name="purchase_return_prefix_document"
+                                               value="{{ $business->purchase_return_prefix_document }}">
+                                        <small class="form-text text-muted">Contoh: PRRN</small>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="sale_return_prefix_document">Prefix Dokumen Retur Penjualan</label>
+                                        <input type="text" class="form-control" name="sale_return_prefix_document"
+                                               value="{{ $business->sale_return_prefix_document }}">
+                                        <small class="form-text text-muted">Contoh: SLRN</small>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-row">

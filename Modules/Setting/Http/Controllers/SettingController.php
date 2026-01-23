@@ -40,6 +40,8 @@ class SettingController extends Controller
             'document_prefix'          => $request->document_prefix,
             'purchase_prefix_document' => $request->purchase_prefix_document,
             'sale_prefix_document'     => $request->sale_prefix_document,
+            'purchase_return_prefix_document' => $request->purchase_return_prefix_document,
+            'sale_return_prefix_document' => $request->sale_return_prefix_document,
             'pos_document_prefix'      => $request->pos_document_prefix,
             'pos_idle_threshold_minutes' => $request->pos_idle_threshold_minutes,
             'pos_default_cash_threshold' => $request->pos_default_cash_threshold,
@@ -52,6 +54,8 @@ class SettingController extends Controller
                      'document_prefix',
                      'purchase_prefix_document',
                      'sale_prefix_document',
+                     'purchase_return_prefix_document',
+                     'sale_return_prefix_document',
                      'pos_document_prefix',
                  ] as $key) {
             if (isset($data[$key])) {
@@ -87,6 +91,8 @@ class SettingController extends Controller
                 'document_prefix',
                 'purchase_prefix_document',
                 'sale_prefix_document',
+                'purchase_return_prefix_document',
+                'sale_return_prefix_document',
                 'pos_document_prefix',
                 'pos_idle_threshold_minutes',
                 'pos_default_cash_threshold',

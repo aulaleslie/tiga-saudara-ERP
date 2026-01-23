@@ -35,8 +35,6 @@ class PurchaseReturnApprovalController extends Controller
         }
 
         DB::transaction(function () use ($purchase_return) {
-            $this->lockReturnStock($purchase_return);
-
             $purchase_return->update([
                 'approval_status' => 'approved',
                 'approved_by' => auth()->id(),
@@ -120,6 +118,10 @@ class PurchaseReturnApprovalController extends Controller
                         $errors[] = "Nomor seri '{$serial->serial_number}' sudah tidak aktif ({$serial->status}).";
                     }
                     if ($serial->is_in_return_process) {
+                        // Skip if this serial belongs to the current purchase return being approved
+                        if ($serial->purchase_return_id === $purchase_return->id) {
+                            continue;
+                        }
                         $errors[] = "Nomor seri '{$serial->serial_number}' sedang dalam proses retur.";
                     }
                 }
@@ -133,52 +135,4 @@ class PurchaseReturnApprovalController extends Controller
         return $errors;
     }
 
-    private function lockReturnStock(PurchaseReturn $purchase_return): void
-    {
-        $purchase_return->loadMissing('purchaseReturnDetails');
-
-        foreach ($purchase_return->purchaseReturnDetails as $detail) {
-            $quantity = (int) $detail->quantity;
-            if ($quantity <= 0) {
-                continue;
-            }
-
-            $product = Product::whereKey($detail->product_id)->lockForUpdate()->first();
-            if (! $product) {
-                continue;
-            }
-
-            $stock = ProductStock::where('product_id', $detail->product_id)
-                ->where('location_id', $detail->location_id)
-                ->lockForUpdate()
-                ->first();
-
-            if (! $stock) {
-                continue;
-            }
-
-            $availableNonTax = max(0, (int) ($stock->quantity_non_tax ?? 0));
-            $nonTaxToDeduct = min($quantity, $availableNonTax);
-            $taxToDeduct = $quantity - $nonTaxToDeduct;
-
-            $stock->decrement('quantity', $quantity);
-            if ($nonTaxToDeduct > 0) {
-                $stock->decrement('quantity_non_tax', $nonTaxToDeduct);
-            }
-            if ($taxToDeduct > 0) {
-                $stock->decrement('quantity_tax', $taxToDeduct);
-            }
-
-            $newQuantity = max(0, (int) $product->product_quantity - $quantity);
-            $product->update(['product_quantity' => $newQuantity]);
-
-            if (! empty($detail->serial_number_ids)) {
-                ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
-                    ->update([
-                        'is_in_return_process' => true,
-                        'purchase_return_id' => $purchase_return->id,
-                    ]);
-            }
-        }
-    }
 }

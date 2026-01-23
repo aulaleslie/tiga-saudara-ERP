@@ -24,6 +24,8 @@ class StoreSettingsRequest extends FormRequest
             'document_prefix' => 'required|string|max:255',
             'purchase_prefix_document' => 'required|string|max:255',
             'sale_prefix_document' => 'required|string|max:255',
+            'purchase_return_prefix_document' => 'nullable|string|max:10',
+            'sale_return_prefix_document' => 'nullable|string|max:10',
             'pos_document_prefix' => [
                 'nullable',
                 'string',

@@ -5,7 +5,7 @@
                 <form action="{{ route('purchase-returns.dispatch-request', $purchase_return) }}" method="POST" enctype="multipart/form-data" id="dispatch-request-form">
                     @csrf
                     <div class="modal-header">
-                        <h5 class="modal-title" id="dispatchRequestModalLabel">Ajukan Dispatch Retur</h5>
+                        <h5 class="modal-title" id="dispatchRequestModalLabel">Ajukan Pengiriman Retur</h5>
                         <button type="button" class="close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
                             <span aria-hidden="true">&times;</span>
                         </button>
