@@ -18,8 +18,12 @@ use App\Traits\Archivable;
 class Purchase extends BaseModel implements HasMedia
 {
     use HasTags;
-    use InteractsWithMedia;
     use Archivable;
+    use InteractsWithMedia;
+
+    protected array $uppercaseExcept = [
+        'note', 'rejection_note'
+    ];
 
     protected $fillable = [
         'date',
@@ -46,7 +50,8 @@ class Purchase extends BaseModel implements HasMedia
         'is_tax_included',
         'supplier_reference_no',
         'archived_at',
-        'archived_by'
+        'archived_by',
+        'rejection_note'
     ];
 
     const STATUS_DRAFTED = 'DRAFTED';
@@ -99,7 +104,8 @@ class Purchase extends BaseModel implements HasMedia
             $month = $purchaseDate->month;
 
             // Fetch the latest reference for this setting, year, and month
-            $latestReference = Purchase::where('setting_id', $model->setting_id)
+            $latestReference = Purchase::withArchived()
+                ->where('setting_id', $model->setting_id)
                 ->whereYear('date', $year)
                 ->whereMonth('date', $month)
                 ->latest('id')
@@ -167,5 +173,19 @@ class Purchase extends BaseModel implements HasMedia
     public function paymentTerm(): BelongsTo
     {
         return $this->belongsTo(PaymentTerm::class, 'payment_term_id');
+    }
+
+    /**
+     * Retrieve the model for a bound value.
+     *
+     * @param  mixed  $value
+     * @param  string|null  $field
+     * @return \Illuminate\Database\Eloquent\Model|null
+     */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return $this->where($field ?? $this->getRouteKeyName(), $value)
+            ->withArchived()
+            ->first();
     }
 }

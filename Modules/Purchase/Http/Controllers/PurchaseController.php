@@ -55,7 +55,7 @@ class PurchaseController extends Controller
         $purchase = null;
 
         if ($request->filled('purchase_id')) {
-            $purchase = Purchase::findOrFail($request->input('purchase_id'));
+            $purchase = Purchase::withArchived()->findOrFail($request->input('purchase_id'));
             $this->ensurePurchaseBelongsToCurrentSetting($purchase);
         }
 
@@ -242,6 +242,10 @@ class PurchaseController extends Controller
     public function show(Purchase $purchase, PurchasePaymentsDataTable $dataTable)
     {
         abort_if(Gate::denies('purchases.show'), 403);
+
+        if ($purchase->isArchived()) {
+            abort_if(Gate::denies('purchases.archive'), 403);
+        }
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
@@ -531,18 +535,24 @@ class PurchaseController extends Controller
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
+                    Purchase::STATUS_DRAFTED,
                     Purchase::STATUS_WAITING_APPROVAL,
                     Purchase::STATUS_APPROVED,
                     Purchase::STATUS_REJECTED
                 ]),
+            'rejection_note' => 'nullable|string|required_if:status,' . Purchase::STATUS_REJECTED,
         ]);
 
         try {
-            $purchase->update(['status' => $validated['status']]);
-            toast("Purchase status updated to {$validated['status']}!", 'success');
+            $data = ['status' => $validated['status']];
+            if (isset($validated['rejection_note'])) {
+                $data['rejection_note'] = $validated['rejection_note'];
+            }
+            $purchase->update($data);
+            toast("Status pembelian diperbarui menjadi {$validated['status']}!", 'success');
         } catch (Exception $e) {
             Log::error('Failed to update purchase status', ['error' => $e->getMessage()]);
-            toast('Failed to update purchase status.', 'error');
+            toast('Gagal memperbarui status pembelian.', 'error');
         }
 
         // Redirect back to the referring page
@@ -722,7 +732,7 @@ class PurchaseController extends Controller
     {
         abort_if(Gate::denies('purchases.receive'), 403);
 
-        $purchase = Purchase::findOrFail($purchase_id);
+        $purchase = Purchase::withArchived()->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
         return $dataTable->render('purchase::receivings.index', compact('purchase'));
     }

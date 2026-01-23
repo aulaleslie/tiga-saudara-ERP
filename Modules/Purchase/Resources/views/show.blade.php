@@ -90,6 +90,12 @@
                                 <div>
                                     Status: <strong>{{ $purchase->status }}</strong>
                                 </div>
+                                @if($purchase->status === Purchase::STATUS_REJECTED)
+                                    <div class="alert alert-danger mt-2">
+                                        <strong>Alasan Penolakan:</strong><br>
+                                        {{ $purchase->rejection_note }}
+                                    </div>
+                                @endif
                                 <div>
                                     Status Pembayaran: <strong>{{ $purchase->payment_status }}</strong>
                                 </div>
@@ -207,7 +213,8 @@
                             <div class="col-sm-12">
                                 <h5 class="mb-2 border-bottom pb-2">Lampiran:</h5>
                                 @can('purchases.edit')
-                                    <form action="{{ route('purchases.attachments.store', $purchase->id) }}"
+                                    @if(!$purchase->isArchived())
+                                        <form action="{{ route('purchases.attachments.store', $purchase->id) }}"
                                           method="POST"
                                           enctype="multipart/form-data"
                                           class="mb-3">
@@ -238,6 +245,7 @@
                                         </div>
                                         <button type="submit" class="btn btn-sm btn-primary">Upload Lampiran</button>
                                     </form>
+                                    @endif
                                 @endcan
 
                                 @if($attachments->isEmpty())
@@ -268,14 +276,16 @@
                                                         Download
                                                     </a>
                                                     @can('purchases.edit')
-                                                        <form method="POST"
-                                                              action="{{ route('purchases.attachments.destroy', [$purchase->id, $media->id]) }}"
-                                                              onsubmit="return confirm('Hapus lampiran ini?');"
-                                                              class="d-inline">
-                                                            @csrf
-                                                            @method('DELETE')
-                                                            <button type="submit" class="btn btn-sm btn-outline-danger">Hapus</button>
-                                                        </form>
+                                                        @if(!$purchase->isArchived())
+                                                            <form method="POST"
+                                                                  action="{{ route('purchases.attachments.destroy', [$purchase->id, $media->id]) }}"
+                                                                  onsubmit="return confirm('Hapus lampiran ini?');"
+                                                                  class="d-inline">
+                                                                @csrf
+                                                                @method('DELETE')
+                                                                <button type="submit" class="btn btn-sm btn-outline-danger">Hapus</button>
+                                                            </form>
+                                                        @endif
                                                     @endcan
                                                 </div>
                                             </li>
@@ -444,17 +454,23 @@
                                         <input type="hidden" name="status" value="{{ Purchase::STATUS_APPROVED }}">
                                         <button type="submit" class="btn btn-success">Setuju</button>
                                     </form>
-                                    <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
-                                        @csrf
-                                        @method('PATCH')
-                                        <input type="hidden" name="status" value="{{ Purchase::STATUS_REJECTED }}">
-                                        <button type="submit" class="btn btn-danger">Tolak</button>
-                                    </form>
+                                    <button type="button" class="btn btn-danger" data-toggle="modal" data-target="#rejectPurchaseModal">
+                                        Tolak
+                                    </button>
                                 @endif
                             @endcan
 
+                            @if ($purchase->status === Purchase::STATUS_REJECTED)
+                                <form method="POST" action="{{ route('purchases.updateStatus', $purchase->id) }}" class="d-inline">
+                                    @csrf
+                                    @method('PATCH')
+                                    <input type="hidden" name="status" value="{{ Purchase::STATUS_DRAFTED }}">
+                                    <button type="submit" class="btn btn-info">Selesaikan / Perbaiki (Draft)</button>
+                                </form>
+                            @endif
+
                             @can('purchases.receive')
-                                @if ($purchase->status === Purchase::STATUS_APPROVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY)
+                                @if (!$purchase->isArchived() && ($purchase->status === Purchase::STATUS_APPROVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY))
                                     <a href="{{ route('purchases.receive', $purchase->id) }}" class="btn btn-primary">
                                         Menerima
                                     </a>
@@ -469,6 +485,35 @@
 
     {{-- Over-Receive Error Modal --}}
     @include('purchase::partials.over-receive-error-modal')
+
+    {{-- Reject Purchase Modal --}}
+    <div class="modal fade" id="rejectPurchaseModal" tabindex="-1" role="dialog" aria-labelledby="rejectPurchaseModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <form action="{{ route('purchases.updateStatus', $purchase->id) }}" method="POST">
+                    @csrf
+                    @method('PATCH')
+                    <input type="hidden" name="status" value="{{ Purchase::STATUS_REJECTED }}">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="rejectPurchaseModalLabel">Tolak Pembelian</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="rejection_note">Alasan Penolakan <span class="text-danger">*</span></label>
+                            <textarea name="rejection_note" id="rejection_note" rows="4" class="form-control" required placeholder="Masukkan alasan penolakan..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                        <button type="submit" class="btn btn-danger">Tolak Pembelian</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 @endsection
 
 @push('page_css')

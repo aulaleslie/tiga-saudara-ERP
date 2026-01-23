@@ -98,7 +98,8 @@ class SaleReturn extends BaseModel
             $settingId = $model->setting_id;
 
             // Fetch the latest reference for the current year, month, and setting
-            $latestReference = SaleReturn::where('setting_id', $settingId)
+            $latestReference = SaleReturn::withArchived()
+                ->where('setting_id', $settingId)
                 ->whereYear('created_at', $year)
                 ->whereMonth('created_at', $month)
                 ->latest('id')

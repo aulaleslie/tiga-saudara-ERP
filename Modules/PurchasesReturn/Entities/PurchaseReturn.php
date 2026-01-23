@@ -65,7 +65,8 @@ class PurchaseReturn extends BaseModel implements HasMedia
             $settingId = $model->setting_id;
 
             // Fetch the latest reference for the current year, month, and setting
-            $latestReference = PurchaseReturn::where('setting_id', $settingId)
+            $latestReference = PurchaseReturn::withArchived()
+                ->where('setting_id', $settingId)
                 ->whereYear('created_at', $year)
                 ->whereMonth('created_at', $month)
                 ->latest('id')

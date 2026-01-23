@@ -15,12 +15,12 @@ class SupplierPurchaseNumberEditor extends Component
 
     public function mount(int $purchaseId): void
     {
-        $purchase = Purchase::findOrFail($purchaseId);
+        $purchase = Purchase::withArchived()->findOrFail($purchaseId);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $this->purchaseId = $purchaseId;
         $this->supplierPurchaseNumber = $purchase->supplier_purchase_number;
-        $this->canEdit = Gate::allows('purchases.edit');
+        $this->canEdit = Gate::allows('purchases.edit') && !$purchase->isArchived();
     }
 
     public function startEditing(): void
@@ -65,12 +65,13 @@ class SupplierPurchaseNumberEditor extends Component
 
     private function authorizeEdit(): void
     {
-        abort_if(Gate::denies('purchases.edit'), 403);
+        $purchase = Purchase::withArchived()->findOrFail($this->purchaseId);
+        abort_if(Gate::denies('purchases.edit') || $purchase->isArchived(), 403);
     }
 
     private function findPurchase(): Purchase
     {
-        $purchase = Purchase::findOrFail($this->purchaseId);
+        $purchase = Purchase::withArchived()->findOrFail($this->purchaseId);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         return $purchase;

@@ -152,7 +152,7 @@ class CreateForm extends Component
 
     private function prefillFromPurchase(int $purchaseId): void
     {
-        $purchase = Purchase::with(['purchaseDetails.product', 'tags'])->find($purchaseId);
+        $purchase = Purchase::with(['purchaseDetails.product', 'tags'])->withArchived()->find($purchaseId);
         if (! $purchase || (int) $purchase->setting_id !== (int) session('setting_id')) {
             return;
         }

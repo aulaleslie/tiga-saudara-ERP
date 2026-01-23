@@ -18,7 +18,7 @@ class PurchasePaymentsController extends Controller
     public function index($purchase_id, PurchasePaymentsDataTable $dataTable) {
         abort_if(Gate::denies('purchasePayments.access'), 403);
 
-        $purchase = Purchase::findOrFail($purchase_id);
+        $purchase = Purchase::withArchived()->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         return $dataTable->render('purchase::payments.index', compact('purchase'));
@@ -28,7 +28,7 @@ class PurchasePaymentsController extends Controller
     public function create($purchase_id) {
         abort_if(Gate::denies('purchasePayments.create'), 403);
 
-        $purchase = Purchase::findOrFail($purchase_id);
+        $purchase = Purchase::withArchived()->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $payment_methods = PaymentMethod::all();
@@ -40,7 +40,7 @@ class PurchasePaymentsController extends Controller
         abort_if(Gate::denies('purchasePayments.create'), 403);
 
 
-        $purchase = Purchase::findOrFail($request->purchase_id);
+        $purchase = Purchase::withArchived()->findOrFail($request->purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $request->validate([
@@ -90,7 +90,7 @@ class PurchasePaymentsController extends Controller
     public function edit($purchase_id, PurchasePayment $purchasePayment) {
         abort_if(Gate::denies('purchasePayments.edit'), 403);
 
-        $purchase = Purchase::findOrFail($purchase_id);
+        $purchase = Purchase::withArchived()->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
         $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
 
@@ -161,7 +161,7 @@ class PurchasePaymentsController extends Controller
 
     public function datatable($purchase_id, PurchasePaymentsDataTable $dataTable)
     {
-        $purchase = Purchase::findOrFail($purchase_id);
+        $purchase = Purchase::withArchived()->findOrFail($purchase_id);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         return $dataTable->render('purchase::payments.index', compact('purchase'));

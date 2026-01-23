@@ -75,7 +75,8 @@ class Sale extends BaseModel
             $month = $saleDate->month;
 
             // Fetch the latest reference for this setting, year, and month
-            $latestReference = Sale::where('setting_id', $model->setting_id)
+            $latestReference = Sale::withArchived()
+                ->where('setting_id', $model->setting_id)
                 ->whereYear('date', $year)
                 ->whereMonth('date', $month)
                 ->latest('id')

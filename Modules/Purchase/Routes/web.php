@@ -37,7 +37,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
             'supplier',
             'purchaseDetails.product', // join ke produk agar dapat nama/unit jika perlu
             'purchaseDetails.product.baseUnit'
-        ])->findOrFail($id);
+        ])->withArchived()->findOrFail($id);
 
         // Optional: Logging untuk debug
         Log::info("Data", [
