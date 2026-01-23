@@ -70,6 +70,8 @@
                                             'sales.dispatch' => 'Kirim',
                                             'sales.show'     => 'Lihat',
                                             'sales.approval' => 'Persetujuan',
+                                            'sales.approved.edit' => 'Ubah Disetujui',
+                                            'sales.archive'  => 'Arsipkan',
                                         ],
 
                                         'Retur Penjualan' => [
@@ -80,6 +82,8 @@
                                             'saleReturns.show'   => 'Lihat',
                                             'saleReturns.approve' => 'Persetujuan',
                                             'saleReturns.receive' => 'Penerimaan',
+                                            'saleReturns.approved.edit' => 'Ubah Disetujui',
+                                            'saleReturns.archive'  => 'Arsipkan',
                                         ],
 
                                         'Pembayaran Penjualan' => [
@@ -107,6 +111,8 @@
                                             'purchases.receive'  => 'Penerimaan',
                                             'purchases.approval' => 'Persetujuan',
                                             'purchases.view'     => 'Lihat Detail',
+                                            'purchases.approved.edit' => 'Ubah Disetujui',
+                                            'purchases.archive'  => 'Arsipkan',
                                             'purchaseReceivings.access' => 'Akses Penerimaan Barang',
                                             'purchaseReceivings.approval' => 'Persetujuan Penerimaan Barang',
                                         ],
@@ -148,6 +154,8 @@
                                             'purchaseReturns.dispatchRequest' => 'Ajukan Pengiriman',
                                             'purchaseReturns.dispatchApproval' => 'Persetujuan Pengiriman',
                                             'purchaseReturns.dispatchExecute' => 'Eksekusi Pengiriman',
+                                            'purchaseReturns.approved.edit' => 'Ubah Disetujui',
+                                            'purchaseReturns.archive'  => 'Arsipkan',
                                         ],
 
                                         'Pembayaran Retur Pembelian' => [
@@ -178,6 +186,8 @@
                                             'adjustments.breakage.edit'        => 'Breakage Ubah',
                                             'adjustments.breakage.approval'    => 'Breakage Persetujuan',
                                             'adjustments.reject'               => 'Tolak',
+                                            'adjustments.approved.edit'        => 'Ubah Disetujui',
+                                            'adjustments.archive'              => 'Arsipkan',
                                         ],
 
                                         'Transfer Stok' => [
@@ -189,6 +199,8 @@
                                             'stockTransfers.dispatch' => 'Kirim',
                                             'stockTransfers.receive'  => 'Terima',
                                             'stockTransfers.approval' => 'Persetujuan',
+                                            'stockTransfers.approved.edit' => 'Ubah Disetujui',
+                                            'stockTransfers.archive'  => 'Arsipkan',
                                         ],
 
                                         'Produk' => [

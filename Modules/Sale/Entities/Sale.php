@@ -17,10 +17,11 @@ use Modules\Setting\Entities\Setting;
 use App\Models\PosReceipt;
 use Spatie\Tags\HasTags;
 use Spatie\Tags\Tag;
+use App\Traits\Archivable;
 
 class Sale extends BaseModel
 {
-    use HasTags;
+    use HasTags, Archivable;
 
     protected $guarded = [];
 
@@ -31,6 +32,7 @@ class Sale extends BaseModel
         'total_amount' => 'decimal:2',
         'paid_amount' => 'decimal:2',
         'due_amount' => 'decimal:2',
+        'archived_at' => 'datetime',
     ];
 
     const STATUS_DRAFTED = 'DRAFTED';

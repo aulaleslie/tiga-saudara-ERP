@@ -13,11 +13,13 @@ use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\Tags\HasTags;
 use Spatie\Tags\Tag;
+use App\Traits\Archivable;
 
 class Purchase extends BaseModel implements HasMedia
 {
     use HasTags;
     use InteractsWithMedia;
+    use Archivable;
 
     protected $fillable = [
         'date',
@@ -42,7 +44,9 @@ class Purchase extends BaseModel implements HasMedia
         'setting_id',
         'paid_amount',
         'is_tax_included',
-        'supplier_reference_no'
+        'supplier_reference_no',
+        'archived_at',
+        'archived_by'
     ];
 
     const STATUS_DRAFTED = 'DRAFTED';

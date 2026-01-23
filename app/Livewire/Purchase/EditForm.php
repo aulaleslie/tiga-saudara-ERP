@@ -48,6 +48,18 @@ class EditForm extends Component
         $this->purchaseId = $purchaseId;
         $this->purchase = Purchase::with('purchaseDetails')->findOrFail($purchaseId);
 
+        // Rule: Partially or Fully Received -> Hard Block
+        if (in_array($this->purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
+            abort(403, 'Tidak dapat mengubah pembelian yang sudah diterima barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit permission
+        if ($this->purchase->status === Purchase::STATUS_APPROVED) {
+            if (!auth()->user()->can('purchases.approved.edit')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian yang sudah disetujui.');
+            }
+        }
+
         $this->reference = $this->purchase->reference;
         $this->supplier_id = $this->purchase->supplier_id;
         $this->supplier_purchase_number = $this->purchase->supplier_purchase_number;

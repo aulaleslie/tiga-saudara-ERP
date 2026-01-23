@@ -42,6 +42,18 @@ class EditForm extends Component
 
     public function mount(Sale $sale)
     {
+        // Rule: Partially or Fully Dispatched -> Hard Block
+        if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
+            abort(403, 'Tidak dapat mengubah penjualan yang sudah dikirim barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit permission
+        if ($sale->status === Sale::STATUS_APPROVED) {
+            if (!auth()->user()->can('sales.approved.edit')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengubah penjualan yang sudah disetujui.');
+            }
+        }
+
         $this->sale          = $sale;
         $this->reference     = $sale->reference;
         $this->customerId    = $sale->customer_id;

@@ -160,6 +160,11 @@ class PurchasesReturnController extends Controller
     public function edit(PurchaseReturn $purchase_return) {
         abort_if(Gate::denies('purchaseReturns.edit'), 403);
 
+        // Rule: Dispatched -> Hard Block
+        if (!is_null($purchase_return->return_dispatched_at)) {
+            abort(403, 'Tidak dapat mengubah retur pembelian yang sudah dikirim barangnya.');
+        }
+
         $purchase_return_details = $purchase_return->purchaseReturnDetails;
 
         Cart::instance('purchase_return')->destroy();
@@ -191,6 +196,19 @@ class PurchasesReturnController extends Controller
 
     public function update(UpdatePurchaseReturnRequest $request, PurchaseReturn $purchase_return) {
         abort_if(Gate::denies('purchaseReturns.edit'), 403);
+
+        // Rule: Dispatched -> Hard Block
+        if (!is_null($purchase_return->return_dispatched_at)) {
+            abort(403, 'Tidak dapat memperbarui retur pembelian yang sudah dikirim barangnya.');
+        }
+
+        // Rule: Approved -> Lock supplier_id
+        if (Str::lower($purchase_return->approval_status) === 'approved') {
+            if ((int) $request->supplier_id !== (int) $purchase_return->supplier_id) {
+                return redirect()->back()->withErrors(['supplier_id' => 'Pemasok tidak dapat diubah setelah retur disetujui.'])->withInput();
+            }
+        }
+
         DB::transaction(function () use ($request, $purchase_return) {
             $due_amount = $request->total_amount - $request->paid_amount;
 
@@ -278,6 +296,18 @@ class PurchasesReturnController extends Controller
 
     public function destroy(PurchaseReturn $purchase_return) {
         abort_if(Gate::denies('purchaseReturns.delete'), 403);
+
+        // Rule: Dispatched -> Hard Block
+        if (!is_null($purchase_return->return_dispatched_at)) {
+            abort(403, 'Tidak dapat menghapus retur pembelian yang sudah dikirim barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit archive permission
+        if (Str::lower($purchase_return->approval_status) === 'approved') {
+            if (!auth()->user()->can('purchaseReturns.archive')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengarsipkan retur pembelian yang sudah disetujui.');
+            }
+        }
 
         $purchase_return->delete();
 

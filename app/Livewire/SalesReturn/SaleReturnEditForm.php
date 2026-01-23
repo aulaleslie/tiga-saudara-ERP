@@ -40,6 +40,16 @@ class SaleReturnEditForm extends SaleReturnCreateForm
         $approvalStatus = strtolower((string) $this->saleReturn->approval_status);
         $this->approvalLocked = $approvalStatus === 'approved';
 
+        // Rule: Received -> Hard Block
+        if (!is_null($this->saleReturn->received_at)) {
+            abort(403, 'Tidak dapat mengubah retur penjualan yang sudah diterima barangnya.');
+        }
+
+        // Rule: Approved -> Set customer locked
+        if ($this->approvalLocked) {
+            $this->customerLocked = true;
+        }
+
         $this->sale_id = $this->saleReturn->sale_id;
         $this->saleReference = $this->saleReturn->sale_reference ?? optional($this->saleReturn->sale)->reference;
         $this->customerName = $this->saleReturn->customer_name;

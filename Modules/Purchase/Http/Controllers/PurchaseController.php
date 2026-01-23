@@ -329,6 +329,18 @@ class PurchaseController extends Controller
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
+        // Rule: Partially or Fully Received -> Hard Block
+        if (in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
+            abort(403, 'Tidak dapat mengubah pembelian yang sudah diterima barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit permission
+        if ($purchase->status === Purchase::STATUS_APPROVED) {
+            if (!auth()->user()->can('purchases.approved.edit')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian yang sudah disetujui.');
+            }
+        }
+
 
         // Filter PaymentTerms by the setting_id
         $paymentTerms = PaymentTerm::all();
@@ -389,6 +401,18 @@ class PurchaseController extends Controller
     {
         abort_if(Gate::denies('purchases.edit'), 403);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        // Rule: Partially or Fully Received -> Hard Block
+        if (in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
+            abort(403, 'Tidak dapat memperbarui pembelian yang sudah diterima barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit permission
+        if ($purchase->status === Purchase::STATUS_APPROVED) {
+            if (!auth()->user()->can('purchases.approved.edit')) {
+                abort(403, 'Anda tidak memiliki akses untuk memperbarui pembelian yang sudah disetujui.');
+            }
+        }
         Log::info('Cart count at start of update:', ['count' => Cart::instance('purchase')->count()]);
         if (Cart::instance('purchase')->count() == 0) {
             return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
@@ -460,6 +484,18 @@ class PurchaseController extends Controller
         abort_if(Gate::denies('purchases.delete'), 403);
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        // Rule: Partially or Fully Received -> Hard Block
+        if (in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
+            abort(403, 'Tidak dapat menghapus pembelian yang sudah diterima barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit archive permission
+        if ($purchase->status === Purchase::STATUS_APPROVED) {
+            if (!auth()->user()->can('purchases.archive')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengarsipkan pembelian yang sudah disetujui.');
+            }
+        }
 
         $purchase->delete();
 

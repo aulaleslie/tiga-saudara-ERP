@@ -242,6 +242,18 @@ class SaleController extends Controller
     {
         abort_if(Gate::denies('sales.edit'), 403);
 
+        // Rule: Partially or Fully Dispatched -> Hard Block
+        if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
+            abort(403, 'Tidak dapat mengubah penjualan yang sudah dikirim barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit permission
+        if ($sale->status === Sale::STATUS_APPROVED) {
+            if (!auth()->user()->can('sales.approved.edit')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengubah penjualan yang sudah disetujui.');
+            }
+        }
+
         // Ensure the related bundle items are loaded for each sale detail.
         $sale->load('saleDetails.bundleItems');
 
@@ -327,6 +339,18 @@ class SaleController extends Controller
     public function update(UpdateSaleRequest $request, Sale $sale)
     {
         abort_if(Gate::denies('sales.edit'), 403);
+
+        // Rule: Partially or Fully Dispatched -> Hard Block
+        if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
+            abort(403, 'Tidak dapat memperbarui penjualan yang sudah dikirim barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit permission
+        if ($sale->status === Sale::STATUS_APPROVED) {
+            if (!auth()->user()->can('sales.approved.edit')) {
+                abort(403, 'Anda tidak memiliki akses untuk memperbarui penjualan yang sudah disetujui.');
+            }
+        }
         DB::transaction(function () use ($request, $sale) {
 
             $due_amount = round((float) $request->total_amount - (float) $request->paid_amount, 2);
@@ -429,6 +453,18 @@ class SaleController extends Controller
     public function destroy(Sale $sale)
     {
         abort_if(Gate::denies('sales.delete'), 403);
+
+        // Rule: Partially or Fully Dispatched -> Hard Block
+        if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
+            abort(403, 'Tidak dapat menghapus penjualan yang sudah dikirim barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit archive permission
+        if ($sale->status === Sale::STATUS_APPROVED) {
+            if (!auth()->user()->can('sales.archive')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengarsipkan penjualan yang sudah disetujui.');
+            }
+        }
 
         $sale->delete();
 

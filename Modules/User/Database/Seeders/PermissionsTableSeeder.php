@@ -23,6 +23,8 @@ class PermissionsTableSeeder extends Seeder
             'adjustments.edit',
             'adjustments.show',
             'adjustments.reject',
+            'adjustments.approved.edit',
+            'adjustments.archive',
 
             // Barcode
             'barcodes.print',
@@ -137,6 +139,8 @@ class PermissionsTableSeeder extends Seeder
             'purchases.receive',
             'purchases.approval',
             'purchases.view',
+            'purchases.approved.edit',
+            'purchases.archive',
             'purchaseReceivings.access',
             'purchaseReceivings.approval',
             'purchaseReports.access',
@@ -164,6 +168,8 @@ class PermissionsTableSeeder extends Seeder
             'purchaseReturns.dispatchRequest',
             'purchaseReturns.dispatchApproval',
             'purchaseReturns.dispatchExecute',
+            'purchaseReturns.approved.edit',
+            'purchaseReturns.archive',
             'purchaseReturnPayments.access',
             'purchaseReturnPayments.create',
             'purchaseReturnPayments.edit',
@@ -192,6 +198,8 @@ class PermissionsTableSeeder extends Seeder
             'stockTransfers.dispatch',
             'stockTransfers.receive',
             'stockTransfers.approval',
+            'stockTransfers.approved.edit',
+            'stockTransfers.archive',
 
             // Suppliers
             'suppliers.access',
@@ -241,6 +249,8 @@ class PermissionsTableSeeder extends Seeder
             'saleReturns.show',
             'saleReturns.approve',
             'saleReturns.receive',
+            'saleReturns.approved.edit',
+            'saleReturns.archive',
             'sales.access',
             'sales.create',
             'sales.import',
@@ -249,6 +259,8 @@ class PermissionsTableSeeder extends Seeder
             'sales.dispatch',
             'sales.show',
             'sales.approval',
+            'sales.approved.edit',
+            'sales.archive',
 
             // Global Sales Search - Track Sales by Serial Number
             'globalSalesSearch.access',

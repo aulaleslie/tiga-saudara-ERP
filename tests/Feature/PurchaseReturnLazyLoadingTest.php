@@ -171,6 +171,8 @@ class PurchaseReturnLazyLoadingTest extends TestCase
         // 3. Assert Success
         $response->assertStatus(200);
         $response->assertSee($product->product_name);
-        $response->assertSee('CASH');
+        $methodLabels = PurchaseReturnDetail::settlementMethods();
+        $cashLabel = $methodLabels[PurchaseReturnDetail::METHOD_CASH] ?? 'CASH';
+        $response->assertSee($cashLabel);
     }
 }

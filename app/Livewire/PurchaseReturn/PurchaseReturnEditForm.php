@@ -40,6 +40,16 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
         $status = strtolower((string) $this->purchaseReturn->approval_status);
         $this->approvalLocked = $status === 'approved';
 
+        // Rule: Dispatched -> Hard Block
+        if (!is_null($this->purchaseReturn->return_dispatched_at)) {
+            abort(403, 'Tidak dapat mengubah retur pembelian yang sudah dikirim barangnya.');
+        }
+
+        // Rule: Approved -> Set supplier locked
+        if ($this->approvalLocked) {
+            $this->supplierLocked = true;
+        }
+
         $dispatchStatus = strtolower((string) $this->purchaseReturn->return_dispatch_status);
         $this->dispatchLocked = in_array($dispatchStatus, ['approved', 'dispatched'], true);
 
@@ -70,6 +80,20 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
         ]);
 
         try {
+            // Re-verify milestone
+            if (!is_null($this->purchaseReturn->return_dispatched_at)) {
+                session()->flash('error', 'Tidak dapat memperbarui retur pembelian yang sudah dikirim barangnya.');
+                return null;
+            }
+
+            // Lock supplier check
+            if (strtolower((string) $this->purchaseReturn->approval_status) === 'approved') {
+                if ((int) $this->supplier_id !== (int) $this->purchaseReturn->supplier_id) {
+                    session()->flash('error', 'Pemasok tidak dapat diubah setelah retur disetujui.');
+                    return null;
+                }
+            }
+
             $prepared = $this->validateAndPrepare();
 
             $this->grand_total = round($prepared['total'], 2);

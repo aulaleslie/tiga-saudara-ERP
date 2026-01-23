@@ -60,6 +60,11 @@ class SalesReturnController extends Controller
     public function edit(SaleReturn $sale_return) {
         abort_if(Gate::denies('saleReturns.edit'), 403);
 
+        // Rule: Received -> Hard Block
+        if (!is_null($sale_return->received_at)) {
+            abort(403, 'Tidak dapat mengubah retur penjualan yang sudah diterima barangnya.');
+        }
+
         if ($sale_return->settled_at) {
             toast('Retur penjualan sudah diselesaikan dan tidak dapat diedit.', 'info');
             return redirect()->route('sale-returns.show', $sale_return);
@@ -97,6 +102,18 @@ class SalesReturnController extends Controller
 
     public function destroy(SaleReturn $sale_return) {
         abort_if(Gate::denies('saleReturns.delete'), 403);
+
+        // Rule: Received -> Hard Block
+        if (!is_null($sale_return->received_at)) {
+            abort(403, 'Tidak dapat menghapus retur penjualan yang sudah diterima barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit archive permission
+        if (Str::lower($sale_return->approval_status) === 'approved') {
+            if (!auth()->user()->can('saleReturns.archive')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengarsipkan retur penjualan yang sudah disetujui.');
+            }
+        }
 
         $sale_return->delete();
 

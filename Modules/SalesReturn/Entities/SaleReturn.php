@@ -11,9 +11,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use App\Traits\Archivable;
 
 class SaleReturn extends BaseModel
 {
+    use Archivable;
     protected $guarded = [];
 
     protected $casts = [
@@ -28,6 +30,7 @@ class SaleReturn extends BaseModel
         'rejected_at'      => 'datetime',
         'settled_at'       => 'datetime',
         'received_at'      => 'datetime',
+        'archived_at'      => 'datetime',
     ];
 
     public function saleReturnDetails(): Builder|HasMany|SaleReturn
@@ -109,8 +112,19 @@ class SaleReturn extends BaseModel
                 $nextNumber = $lastNumber + 1;
             }
 
+            // Grab the setting from model (works during queue processing)
+            $setting = Setting::find($settingId);
+
+            // Build prefix:
+            // 1) take document_prefix if truthy, else empty string
+            // 2) then take sale_return_prefix_document if truthy, else fallback to 'SLRN'
+            $docPrefix = optional($setting)->document_prefix;
+            $returnPrefix = optional($setting)->sale_return_prefix_document ?: 'SLRN';
+            
+            $prefix = ($docPrefix ? $docPrefix . '-' : '') . $returnPrefix;
+
             // Generate the new reference ID
-            $model->reference = make_reference_id('SLRN', $year, $month, $nextNumber);
+            $model->reference = make_reference_id($prefix, $year, $month, $nextNumber);
         });
     }
 

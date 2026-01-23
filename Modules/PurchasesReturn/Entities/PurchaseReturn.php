@@ -13,10 +13,11 @@ use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
+use App\Traits\Archivable;
 
 class PurchaseReturn extends BaseModel implements HasMedia
 {
-    use InteractsWithMedia;
+    use InteractsWithMedia, Archivable;
     protected $guarded = [];
 
     // ✅ Cast money & dates
@@ -36,6 +37,7 @@ class PurchaseReturn extends BaseModel implements HasMedia
         'dispatch_requested_at' => 'datetime',
         'dispatch_approved_at' => 'datetime',
         'dispatch_rejected_at' => 'datetime',
+        'archived_at' => 'datetime',
     ];
 
     public function registerMediaCollections(): void
@@ -77,8 +79,19 @@ class PurchaseReturn extends BaseModel implements HasMedia
                 $nextNumber = $lastNumber + 1;
             }
 
+            // Grab the setting from model (works during queue processing)
+            $setting = Setting::find($settingId);
+
+            // Build prefix:
+            // 1) take document_prefix if truthy, else empty string
+            // 2) then take purchase_return_prefix_document if truthy, else fallback to 'PRRN'
+            $docPrefix = optional($setting)->document_prefix;
+            $returnPrefix = optional($setting)->purchase_return_prefix_document ?: 'PRRN';
+            
+            $prefix = ($docPrefix ? $docPrefix . '-' : '') . $returnPrefix;
+
             // Generate the new reference ID
-            $model->reference = make_reference_id('PRRN', $year, $month, $nextNumber);
+            $model->reference = make_reference_id($prefix, $year, $month, $nextNumber);
         });
     }
 
