@@ -14,6 +14,30 @@
         </div>
     </div>
     <div class="card-body">
+        <ul class="nav nav-tabs mb-3" id="serialNumberTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {{ $currentTab === 'sellable' ? 'active' : '' }}" 
+                        wire:click="setTab('sellable')" 
+                        type="button">
+                    Dapat Dijual
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {{ $currentTab === 'broken' ? 'active' : '' }}" 
+                        wire:click="setTab('broken')" 
+                        type="button">
+                    Rusak
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {{ $currentTab === 'returning' ? 'active' : '' }}" 
+                        wire:click="setTab('returning')" 
+                        type="button">
+                    Dalam Proses Retur
+                </button>
+            </li>
+        </ul>
+
         @if($errorMessage)
             <div class="alert alert-danger alert-dismissible fade show" role="alert">
                 {{ $errorMessage }}

@@ -20,6 +20,7 @@ class ProductSerialNumbersTable extends Component
     public $editingValue = '';
     public $errorMessage = '';
     public int $perPage = 10;
+    public string $currentTab = 'sellable';
 
     protected string $paginationTheme = 'bootstrap';
 
@@ -41,6 +42,12 @@ class ProductSerialNumbersTable extends Component
 
     public function updatedSearchQuery(): void
     {
+        $this->resetPage();
+    }
+
+    public function setTab($tab): void
+    {
+        $this->currentTab = $tab;
         $this->resetPage();
     }
 
@@ -127,6 +134,15 @@ class ProductSerialNumbersTable extends Component
 
         if (!empty($this->searchQuery)) {
             $query->where('serial_number', 'like', '%' . $this->searchQuery . '%');
+        }
+
+        if ($this->currentTab === 'sellable') {
+            $query->where('is_broken', false)
+                ->where('is_in_return_process', false);
+        } elseif ($this->currentTab === 'broken') {
+            $query->where('is_broken', true);
+        } elseif ($this->currentTab === 'returning') {
+            $query->where('is_in_return_process', true);
         }
 
         return $query->orderBy('serial_number')->paginate($this->perPage);
