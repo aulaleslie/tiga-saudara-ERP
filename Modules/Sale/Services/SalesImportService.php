@@ -871,6 +871,7 @@ class SalesImportService
 
                 // Recalculate Subtotal based on final price
                 $subtotal = $unitPriceFinal * $quantity;
+                $rawProductName = $rowData['produk'] ?? $product->product_name;
 
                 $details[] = [
                     'row' => $row,
@@ -881,6 +882,7 @@ class SalesImportService
                     'subtotal' => $subtotal, // Subtotal Tax Included
                     'tax_id' => $tax?->id,
                     'tax_amount' => $taxAmount,
+                    'raw_product_name' => $rawProductName,
                 ];
             }
 
@@ -1043,9 +1045,10 @@ class SalesImportService
             $product = $detail['product'];
             $quantity = $detail['quantity'];
             $taxId = $detail['tax_id'];
+            $rawProductName = $detail['raw_product_name'] ?? $product->product_name;
 
             // Resolve stock setting (Target Tenant for stock movement) PER PRODUCT
-            $stockSetting = $this->resolveStockSetting($tag, $product->product_name, $setting, $product);
+            $stockSetting = $this->resolveStockSetting($tag, $rawProductName, $setting, $product);
             
             // Get location for the resolved STOCK setting
             // Use cache if possible? We only cache by setting_id in locationsCache
