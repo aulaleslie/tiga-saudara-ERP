@@ -104,9 +104,6 @@ class PurchaseImportService
         }
 
         return Setting::where('company_name', 'LIKE', "%{$companyName}%")->first();
-
-
-
     }
 
     /**
@@ -510,6 +507,7 @@ class PurchaseImportService
             foreach ($rows as $row) {
                 $rowData = $row->raw_json;
                 $parsedProduct = $this->parseProductName($rowData['produk'] ?? '');
+                $rawProductName = $rowData['produk'] ?? '';
 
                 // Find or create product with description
                 $product = $this->findOrCreateProduct(
@@ -645,7 +643,7 @@ class PurchaseImportService
                 $quantity = $detail['quantity'];
 
                 // Resolve stock setting (Target Tenant for stock movement) PER PRODUCT
-                $stockSetting = $this->resolveStockSetting($tag, $product->product_name, $setting, $product);
+                $stockSetting = $this->resolveStockSetting($tag, $rawProductName, $setting, $product);
                 
                 // Get location for the resolved STOCK setting
                 $location = Location::where('setting_id', $stockSetting->id)->first();

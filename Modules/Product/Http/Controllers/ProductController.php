@@ -332,17 +332,6 @@ class ProductController extends Controller
             $displayQuantity = $product->product_quantity . ' ' . ($product->product_unit ?? '');
         }
 
-        // ✅ ONLY locations that belong to the current setting
-        $transactions = Transaction::where('product_id', $product->id)
-            ->whereHas('location', function ($q) use ($settingId) {
-                $q->where('setting_id', $settingId);
-            })
-            ->with(['location' => function ($q) {
-                $q->select('id', 'name', 'setting_id');
-            }])
-            ->orderBy('created_at', 'desc')
-            ->get();
-
         $productStocks = ProductStock::where('product_id', $product->id)
             ->whereHas('location', function ($q) use ($settingId) {
                 $q->where('setting_id', $settingId);
@@ -352,21 +341,12 @@ class ProductController extends Controller
             }])
             ->get();
 
-        // (Leave serial numbers as-is unless you also want to scope them by setting via location)
-        $serialNumbers = ProductSerialNumber::where('product_id', $product->id)
-            ->whereNull('dispatch_detail_id')
-            ->with('location')
-            ->with('tax')
-            ->get();
-
         $bundles = $product->bundles()->with('items.product')->get();
 
         return view('product::products.show', compact(
             'product',
             'displayQuantity',
-            'transactions',
             'productStocks',
-            'serialNumbers',
             'bundles',
             'price',
             'settingId'

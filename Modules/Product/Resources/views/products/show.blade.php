@@ -200,43 +200,7 @@
         <!-- End Unit and Conversion Information -->
 
         <!-- Transaction History -->
-        <div class="card mt-4">
-            <div class="card-header">
-                <h5>Riwayat Transaksi</h5>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-bordered table-striped">
-                        <thead>
-                        <tr>
-                            <th>Tanggal</th>
-                            <th>Jenis</th>
-                            <th>Jumlah</th>
-                            <th>Jumlah Saat Ini</th>
-                            <th>Lokasi</th>
-                            <th>Alasan</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        @forelse($transactions as $transaction)
-                            <tr>
-                                <td>{{ $transaction->formatted_created_at }}</td>
-                                <td>{{ $transaction->type }}</td>
-                                <td>{{ $transaction->quantity }}</td>
-                                <td>{{ $transaction->current_quantity }}</td>
-                                <td>{{ $transaction->location->name ?? 'N/A' }}</td>
-                                <td>{{ $transaction->reason ?? 'N/A' }}</td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="6" class="text-center">Tidak ada transaksi yang ditemukan.</td>
-                            </tr>
-                        @endforelse
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+        <livewire:product.product-transactions-table :product-id="$product->id" />
         <!-- End Transaction History -->
 
         <!-- Product Stocks -->
