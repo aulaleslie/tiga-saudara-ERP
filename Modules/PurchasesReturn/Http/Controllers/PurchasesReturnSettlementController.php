@@ -280,56 +280,40 @@ class PurchasesReturnSettlementController extends Controller
 
                 if ($method === 'PRODUCT_REPAIR') {
                     if ($isSerial) {
-                        $oldSerial = $itemSettlement->serialNumber;
+                        $serial = $itemSettlement->serialNumber;
                         $replacementSerialNumber = trim($request->replacement_serial_number);
                         
-                        if ($replacementSerialNumber === $oldSerial->serial_number) {
-                            // Same serial - restore to active
-                            $oldSerial->update([
-                                'is_in_return_process' => false,
-                                'purchase_return_id' => null,
-                                'location_id' => $targetLocationId,
-                                'status' => 'AVAILABLE',
-                            ]);
-                            $replacementSerialId = $oldSerial->id;
-                        } else {
-                            // Different serial - mark old as RETURNED, create new
-                            $oldSerial->update([
-                                'status' => 'RETURNED',
-                                'is_in_return_process' => false,
-                                'purchase_return_id' => null,
-                                'received_note_detail_id' => null,
-                                'dispatch_detail_id' => null,
-                            ]);
-                            
-                            // Uniqueness check for new serial (Strict: globally unique for the product)
+                        // Check uniqueness if serial changed
+                        if ($replacementSerialNumber !== $serial->serial_number) {
                             $existingGlobal = ProductSerialNumber::where('product_id', $productId)
                                 ->where('serial_number', $replacementSerialNumber)
+                                ->where('id', '!=', $serial->id)
                                 ->exists();
                             
                             if ($existingGlobal) {
                                 throw new \Exception("Serial number {$replacementSerialNumber} sudah terdaftar di database untuk produk ini.");
                             }
-                            
-                            $newSerial = ProductSerialNumber::create([
-                                'product_id' => $productId,
-                                'location_id' => $targetLocationId,
-                                'serial_number' => $replacementSerialNumber,
-                                'tax_id' => $oldSerial->tax_id, 
-                                'status' => 'AVAILABLE',
-                                'is_broken' => false,
-                                'is_in_return_process' => false,
-                            ]);
-                            $replacementSerialId = $newSerial->id;
                         }
-                        $itemSettlement->replacement_serial_number_id = $replacementSerialId;
+
+                        // Update existing record (Preserves lineage/ID)
+                        $serial->update([
+                            'serial_number' => $replacementSerialNumber,
+                            'location_id' => $targetLocationId,
+                            'status' => 'AVAILABLE',
+                            'is_broken' => false,
+                            'is_in_return_process' => false,
+                            'purchase_return_id' => null,
+                        ]);
+
+                        $itemSettlement->replacement_serial_number_id = $serial->id;
                     } else {
                         // Non-serial repair movement
                         if ($sourceLocationId != $targetLocationId) {
                             $this->moveStock($productId, $sourceLocationId, $targetLocationId, $receivedQty, 'RETURN_REPAIR', "Penerimaan perbaikan - dipindah ke lokasi {$targetLocationId}", $itemSettlement->purchaseReturn->setting_id);
                         }
                     }
-                } elseif ($method === 'BROKEN_STOCK') {
+                }
+ elseif ($method === 'BROKEN_STOCK') {
                     if ($isSerial) {
                         $itemSettlement->serialNumber->update([
                             'is_broken' => true,

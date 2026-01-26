@@ -362,6 +362,7 @@ class PurchaseReturnItemApprovalTest extends TestCase
         $response = $this->post(route('purchase-return-settlements.item.receive', $repairItem->id), [
             'location_id' => $receiveLocation->id,
             'received_quantity' => 1,
+            'replacement_serial_number' => $repairSerial->serial_number,
             'note' => 'Repaired successfully',
         ]);
 
@@ -376,6 +377,7 @@ class PurchaseReturnItemApprovalTest extends TestCase
         $repairSerial->refresh();
         $this->assertEquals($receiveLocation->id, $repairSerial->location_id);
         $this->assertEquals('AVAILABLE', $repairSerial->status);
+        $this->assertFalse($repairSerial->is_broken);
 
         // Test BROKEN_STOCK
         $brokenItem = PurchaseReturnItemSettlement::create([
