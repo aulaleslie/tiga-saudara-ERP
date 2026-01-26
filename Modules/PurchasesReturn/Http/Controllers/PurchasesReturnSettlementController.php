@@ -609,6 +609,15 @@ class PurchasesReturnSettlementController extends Controller
 
                     $this->recalculatePurchaseTotals($purchase);
 
+                    // Archival logic: if all items are returned (total qty == 0), archive
+                    if ((int) $purchase->purchaseDetails()->sum('quantity') === 0) {
+                        $purchase->update([
+                            'archived_at' => now(),
+                            'archived_by' => auth()->id(),
+                            'note' => ($purchase->note ? $purchase->note . "\n" : "") . "Barang sudah diretur {$purchaseReturn->reference}"
+                        ]);
+                    }
+
                     // Ticket 4: Reset payments and set Unpaid on MODIFY_PURCHASE approval for paid/partial purchases
                     if (in_array(strtoupper($purchase->payment_status), ['PAID', 'PARTIAL'])) {
                         // Hard delete payments as requested
