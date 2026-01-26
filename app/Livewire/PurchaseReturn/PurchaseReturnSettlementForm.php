@@ -64,13 +64,15 @@ class PurchaseReturnSettlementForm extends Component
 
             if ($detail->product->serial_number_required) {
                 // Get ProductSerialNumber entities to get their IDs
-                $snEntities = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail'])
+                $snEntities = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail.purchase'])
                     ->whereIn('id', $detail->serial_number_ids ?? [])
                     ->get();
                 
                 foreach ($snEntities as $snEntity) {
                     $existing = $existingSettlements->where('product_serial_number_id', $snEntity->id)->first();
-                    $originPurchaseId = $snEntity->receivedNoteDetail?->purchaseDetail?->purchase_id;
+                    $originPurchase = $snEntity->receivedNoteDetail?->purchaseDetail?->purchase;
+                    $originPurchaseId = $originPurchase?->id;
+                    $originPurchasePaymentStatus = $originPurchase?->payment_status;
                     
                     $this->settlementLines[] = [
                         'id' => $existing->id ?? null, // Track existing DB ID
@@ -85,6 +87,7 @@ class PurchaseReturnSettlementForm extends Component
                         'max_nominal' => (float) $detail->unit_price,
                         'target_purchase_id' => $existing->target_purchase_id ?? null,
                         'origin_purchase_id' => $originPurchaseId,
+                        'origin_purchase_payment_status' => $originPurchasePaymentStatus,
                         'status' => $existing->status ?? \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT,
                         'rejection_reason' => $existing->rejection_reason ?? null,
                     ];
@@ -237,6 +240,43 @@ class PurchaseReturnSettlementForm extends Component
                 ];
             })
             ->toArray();
+    }
+
+    public function getMethodsForLine(int $index): array
+    {
+        $line = $this->settlementLines[$index];
+        $allMethods = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::selectableSettlementMethods();
+        $filteredMethods = $allMethods;
+
+        // Custom label per documentation
+        if (isset($filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CREDIT])) {
+            $filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CREDIT] = 'Simpan Sebagai DP';
+        }
+
+        $productId = $line['product_id'];
+        $hasTargetUnpaid = !empty($this->getCreditPurchasesProperty());
+
+        if ($line['serial_number_id']) {
+            // Scenario 1: Serial Number Item
+            $isOriginPaid = strtoupper($line['origin_purchase_payment_status'] ?? '') === 'PAID';
+            
+            if (!($isOriginPaid && $hasTargetUnpaid)) {
+                unset($filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CREDIT]);
+            }
+        } else {
+            // Scenario 2: Non-Serial Number Item
+            $returnQty = $line['quantity'] ?? 0;
+            $hasValidModifyPurchase = collect($this->unpaidPurchases[$productId]['MODIFY_PURCHASE'] ?? [])
+                ->contains(function($p) use ($returnQty) {
+                    return $p['product_quantity'] >= $returnQty;
+                });
+
+            if ($hasValidModifyPurchase || !$hasTargetUnpaid) {
+                unset($filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CREDIT]);
+            }
+        }
+
+        return $filteredMethods;
     }
 
     /**

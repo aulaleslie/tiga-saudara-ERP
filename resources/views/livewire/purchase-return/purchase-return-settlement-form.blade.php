@@ -293,7 +293,7 @@
                                                         <select class="form-select form-select-premium form-select-sm @error('settlementLines.'.$index.'.method') is-invalid @enderror" 
                                                             wire:model.live="settlementLines.{{ $index }}.method">
                                                             <option value="">-- Pilih Metode --</option>
-                                                            @foreach($methods as $value => $label)
+                                                            @foreach($this->getMethodsForLine($index) as $value => $label)
                                                                 <option value="{{ $value }}">{{ $label }}</option>
                                                             @endforeach
                                                         </select>

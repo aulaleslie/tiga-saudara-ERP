@@ -157,11 +157,18 @@ class PurchaseReturnSettlementRefinementTest extends TestCase
     /** @test */
     public function it_displays_translated_methods_in_dropdown()
     {
+        // To make "Simpan Sebagai DP" visible for non-serial:
+        // 1. There must be an unpaid purchase (Target)
+        // 2. There must NOT be an unpaid purchase with the same product (priority goes to "Ubah Nota")
+        
+        // The purchase in setup has the product. Let's delete its details so it becomes a generic unpaid purchase.
+        $this->purchase->purchaseDetails()->delete();
+
         Livewire::actingAs($this->user)
             ->test(\App\Livewire\PurchaseReturn\PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $this->purchaseReturn->id])
             ->assertSee('Perbaikan Produk')
             ->assertSee('Ubah Nota Pembelian')
-            ->assertSee('Simpan Sebagai Kredit')
+            ->assertSee('Simpan Sebagai DP')
             ->assertSee('Pengembalian Tunai');
     }
 

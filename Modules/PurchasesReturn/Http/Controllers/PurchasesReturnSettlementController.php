@@ -673,10 +673,16 @@ class PurchasesReturnSettlementController extends Controller
                         $purchase->refresh();
                     }
 
+                    // Ticket 4: Cap the credit application at the target's due amount
+                    $appliedAmount = min($itemAmount, (float) $purchase->due_amount);
+                    if ($appliedAmount <= 0) {
+                        break;
+                    }
+
                     // Ticket 6: Create PurchasePayment
                     $payment = \Modules\Purchase\Entities\PurchasePayment::create([
                         'purchase_id' => $purchase->id,
-                        'amount' => $itemAmount,
+                        'amount' => $appliedAmount,
                         'date' => now(),
                         'reference' => 'PAY/' . $purchase->reference . '/' . time(),
                         'note' => $options['approval_note'] ?? 'Settlement retur: ' . $purchaseReturn->reference,
@@ -691,18 +697,18 @@ class PurchasesReturnSettlementController extends Controller
                     }
 
                     // Ticket 6: Update Purchase (paid_amount, payment_status, due_amount)
-                    $purchase->increment('paid_amount', $itemAmount);
+                    $purchase->increment('paid_amount', $appliedAmount);
                     $this->recalculatePurchaseTotals($purchase);
 
                     // Ticket 6: Create Credit Application Linkage
                     \Modules\PurchasesReturn\Entities\PurchasePaymentCreditApplication::create([
                         'purchase_payment_id' => $payment->id,
                         'supplier_credit_id' => $credit->id,
-                        'amount' => $itemAmount,
+                        'amount' => $appliedAmount,
                     ]);
 
                     // Ticket 6: Decrement remaining credit
-                    $credit->decrement('remaining_amount', $itemAmount);
+                    $credit->decrement('remaining_amount', $appliedAmount);
                     if ($credit->remaining_amount <= 0.01) {
                         $credit->update(['status' => 'closed']);
                     }
