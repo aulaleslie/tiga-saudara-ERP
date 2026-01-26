@@ -312,11 +312,12 @@ class PurchasesReturnSettlementController extends Controller
                             $this->moveStock($productId, $sourceLocationId, $targetLocationId, $receivedQty, 'RETURN_REPAIR', "Penerimaan perbaikan - dipindah ke lokasi {$targetLocationId}", $itemSettlement->purchaseReturn->setting_id);
                         }
                     }
-                }
- elseif ($method === 'BROKEN_STOCK') {
+                } elseif ($method === 'BROKEN_STOCK') {
+                    $isDispatched = \Illuminate\Support\Str::lower($itemSettlement->purchaseReturn->return_dispatch_status ?? '') === 'dispatched';
+
                     if ($isSerial) {
                         $itemSettlement->serialNumber->update([
-                            'is_broken' => true,
+                            'is_broken' => true, // Ensure marked as broken
                             'status' => 'BROKEN',
                             'location_id' => $targetLocationId,
                             'is_in_return_process' => false,
@@ -324,7 +325,7 @@ class PurchasesReturnSettlementController extends Controller
                         ]);
                     }
                     
-                    $this->breakStock($productId, $sourceLocationId, $targetLocationId, $receivedQty, $isSerial, $itemSettlement->purchaseReturn->setting_id);
+                    $this->breakStock($productId, $sourceLocationId, $targetLocationId, $receivedQty, $isSerial, $isDispatched, $itemSettlement->purchaseReturn->setting_id);
                 }
 
                 // Update item settlement status
@@ -431,46 +432,102 @@ class PurchasesReturnSettlementController extends Controller
     /**
      * Helper to move stock to broken_quantity
      */
-    protected function breakStock($productId, $sourceId, $targetId, $qty, $isSerial, $settingId = null)
+    protected function breakStock($productId, $sourceId, $targetId, $qty, $isSerial, $isDispatched = false, $settingId = null)
     {
         $settingId = $settingId ?? session('setting_id');
+        $product = Product::find($productId);
 
-        $sourceStock = ProductStock::where('product_id', $productId)
-            ->where('location_id', $sourceId)
-            ->lockForUpdate()
-            ->first();
+        if (!$isDispatched) {
+            $sourceStock = ProductStock::where('product_id', $productId)
+                ->where('location_id', $sourceId)
+                ->lockForUpdate()
+                ->first();
 
-        // For serials, source stock might not strictly need to be here if we only track serial location, 
-        // but for counting totals it must be consistent.
-        if (!$sourceStock && !$isSerial) {
-             throw new \Exception("Stok tidak ditemukan di lokasi asal.");
-        }
-
-        $prevSourceQty = $sourceStock?->quantity ?? 0;
-        $nonTaxDeduct = min($qty, $sourceStock?->quantity_non_tax ?? 0);
-        $taxDeduct = max(0, $qty - $nonTaxDeduct);
-
-        if (!$isSerial && $sourceStock) {
-            if ($taxDeduct > $sourceStock->quantity_tax) {
-                throw new \Exception("Stok tidak mencukupi di lokasi asal.");
+            if (!$sourceStock && !$isSerial) {
+                throw new \Exception("Stok tidak ditemukan di lokasi asal.");
             }
-            $sourceStock->quantity_non_tax -= $nonTaxDeduct;
-            $sourceStock->quantity_tax -= $taxDeduct;
-            $sourceStock->quantity = $sourceStock->quantity_tax + $sourceStock->quantity_non_tax;
-            $sourceStock->save();
+
+            $prevSourceQty = $sourceStock?->quantity ?? 0;
+            $prevSourceBrokenQty = $sourceStock?->broken_quantity ?? 0;
+
+            // Prioritize broken stock first then good stock
+            $availableBrokenNonTax = max(0, (int) ($sourceStock->broken_quantity_non_tax ?? 0));
+            $availableBrokenTax = max(0, (int) ($sourceStock->broken_quantity_tax ?? 0));
+            $availableBroken = $availableBrokenNonTax + $availableBrokenTax;
+
+            $brokenToDeduct = min($qty, $availableBroken);
+            $goodToDeduct = $qty - $brokenToDeduct;
+
+            // Deduct from Broken source if applicable
+            if ($brokenToDeduct > 0 && $sourceStock) {
+                $bnTaxDeduct = min($brokenToDeduct, $availableBrokenNonTax);
+                $bTaxDeduct = $brokenToDeduct - $bnTaxDeduct;
+
+                $sourceStock->decrement('broken_quantity', $brokenToDeduct);
+                $sourceStock->decrement('broken_quantity_non_tax', $bnTaxDeduct);
+                $sourceStock->decrement('broken_quantity_tax', $bTaxDeduct);
+                
+                if ($product) {
+                    $product->decrement('broken_quantity', $brokenToDeduct);
+                }
+            }
+
+            // Deduct from Good source if applicable
+            if ($goodToDeduct > 0 && $sourceStock) {
+                $gnTaxDeduct = min($goodToDeduct, $sourceStock->quantity_non_tax);
+                $gTaxDeduct = $goodToDeduct - $gnTaxDeduct;
+
+                if ($gTaxDeduct > $sourceStock->quantity_tax) {
+                    throw new \Exception("Stok tidak mencukupi di lokasi asal.");
+                }
+
+                $sourceStock->decrement('quantity', $goodToDeduct);
+                $sourceStock->decrement('quantity_non_tax', $gnTaxDeduct);
+                $sourceStock->decrement('quantity_tax', $gTaxDeduct);
+
+                if ($product) {
+                    $product->decrement('product_quantity', $goodToDeduct);
+                }
+            }
+            
+            if ($sourceStock) $sourceStock->save();
+
+            // Record transaction for deduction
+            Transaction::create([
+                'product_id' => $productId,
+                'setting_id' => $settingId,
+                'type' => 'RETURN_BROKEN',
+                'quantity' => -$qty, 
+                'current_quantity' => $sourceStock?->quantity ?? 0,
+                'broken_quantity' => $sourceStock?->broken_quantity ?? 0,
+                'previous_quantity' => $product?->product_quantity ?? 0,
+                'after_quantity' => $product?->product_quantity ?? 0,
+                'previous_quantity_at_location' => $prevSourceQty,
+                'after_quantity_at_location' => $sourceStock?->quantity ?? 0,
+                'quantity_tax' => $sourceStock?->quantity_tax ?? 0,
+                'quantity_non_tax' => $sourceStock?->quantity_non_tax ?? 0,
+                'broken_quantity_tax' => $sourceStock?->broken_quantity_tax ?? 0,
+                'broken_quantity_non_tax' => $sourceStock?->broken_quantity_non_tax ?? 0,
+                'location_id' => $sourceId,
+                'user_id' => auth()->id(),
+                'reason' => 'Penerimaan barang rusak dari retur pembelian (Keluar)',
+            ]);
         }
 
+        // Add to target Broken
         $targetStock = ProductStock::firstOrCreate(
             ['product_id' => $productId, 'location_id' => $targetId],
             ['quantity' => 0, 'quantity_tax' => 0, 'quantity_non_tax' => 0, 'broken_quantity' => 0, 'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0]
         );
 
-        $targetStock->broken_quantity_non_tax += $nonTaxDeduct;
-        $targetStock->broken_quantity_tax += $taxDeduct;
-        $targetStock->broken_quantity = $targetStock->broken_quantity_tax + $targetStock->broken_quantity_non_tax;
+        $prevTargetBrokenQty = $targetStock->broken_quantity;
+        
+        // We assume returning to Broken stock keeps the tax status if it came from Good, or we treat it as Non-Tax if unsure.
+        // For simplicity, we increment broken_quantity_non_tax unless we have specific info.
+        $targetStock->increment('broken_quantity', $qty);
+        $targetStock->increment('broken_quantity_non_tax', $qty);
         $targetStock->save();
 
-        $product = Product::find($productId);
         if ($product) {
             $product->increment('broken_quantity', $qty);
         }
@@ -479,32 +536,12 @@ class PurchasesReturnSettlementController extends Controller
             'product_id' => $productId,
             'setting_id' => $settingId,
             'type' => 'RETURN_BROKEN',
-            'quantity' => -$qty, // Deduction from source
-            'current_quantity' => $sourceStock?->quantity ?? 0,
-            'broken_quantity' => $sourceStock?->broken_quantity ?? 0,
-            'previous_quantity' => $product?->product_quantity ?? 0,
-            'after_quantity' => $product?->product_quantity ?? 0,
-            'previous_quantity_at_location' => $prevSourceQty,
-            'after_quantity_at_location' => $sourceStock?->quantity ?? 0,
-            'quantity_tax' => $sourceStock?->quantity_tax ?? 0,
-            'quantity_non_tax' => $sourceStock?->quantity_non_tax ?? 0,
-            'broken_quantity_tax' => $sourceStock?->broken_quantity_tax ?? 0,
-            'broken_quantity_non_tax' => $sourceStock?->broken_quantity_non_tax ?? 0,
-            'location_id' => $sourceId,
-            'user_id' => auth()->id(),
-            'reason' => 'Penerimaan barang rusak dari retur pembelian (Keluar)',
-        ]);
-
-        Transaction::create([
-            'product_id' => $productId,
-            'setting_id' => $settingId,
-            'type' => 'RETURN_BROKEN',
-            'quantity' => $qty, // Addition to target broken
+            'quantity' => $qty, 
             'current_quantity' => $targetStock->quantity,
             'broken_quantity' => $targetStock->broken_quantity,
             'previous_quantity' => $product?->product_quantity ?? 0,
             'after_quantity' => $product?->product_quantity ?? 0,
-            'previous_quantity_at_location' => $targetStock->quantity - $qty,
+            'previous_quantity_at_location' => $targetStock->quantity,
             'after_quantity_at_location' => $targetStock->quantity,
             'quantity_tax' => $targetStock->quantity_tax,
             'quantity_non_tax' => $targetStock->quantity_non_tax,

@@ -234,20 +234,48 @@ class PurchaseReturnDispatchController extends Controller
                 continue;
             }
 
-            $availableNonTax = max(0, (int) ($stock->quantity_non_tax ?? 0));
-            $nonTaxToDeduct = min($quantity, $availableNonTax);
-            $taxToDeduct = $quantity - $nonTaxToDeduct;
+            $availableBrokenNonTax = max(0, (int) ($stock->broken_quantity_non_tax ?? 0));
+            $availableBrokenTax = max(0, (int) ($stock->broken_quantity_tax ?? 0));
+            $availableBroken = $availableBrokenNonTax + $availableBrokenTax;
 
-            $stock->decrement('quantity', $quantity);
-            if ($nonTaxToDeduct > 0) {
-                $stock->decrement('quantity_non_tax', $nonTaxToDeduct);
-            }
-            if ($taxToDeduct > 0) {
-                $stock->decrement('quantity_tax', $taxToDeduct);
+            $brokenToDeduct = min($quantity, $availableBroken);
+            $remainingToDeduct = $quantity - $brokenToDeduct;
+
+            // Deduct from Broken first
+            if ($brokenToDeduct > 0) {
+                $brokenNonTaxToDeduct = min($brokenToDeduct, $availableBrokenNonTax);
+                $brokenTaxToDeduct = $brokenToDeduct - $brokenNonTaxToDeduct;
+
+                $stock->decrement('broken_quantity', $brokenToDeduct);
+                if ($brokenNonTaxToDeduct > 0) {
+                    $stock->decrement('broken_quantity_non_tax', $brokenNonTaxToDeduct);
+                }
+                if ($brokenTaxToDeduct > 0) {
+                    $stock->decrement('broken_quantity_tax', $brokenTaxToDeduct);
+                }
             }
 
-            $newQuantity = max(0, (int) $product->product_quantity - $quantity);
-            $product->update(['product_quantity' => $newQuantity]);
+            // Deduct from Good if still needed
+            if ($remainingToDeduct > 0) {
+                $availableNonTax = max(0, (int) ($stock->quantity_non_tax ?? 0));
+                $nonTaxToDeduct = min($remainingToDeduct, $availableNonTax);
+                $taxToDeduct = $remainingToDeduct - $nonTaxToDeduct;
+
+                $stock->decrement('quantity', $remainingToDeduct);
+                if ($nonTaxToDeduct > 0) {
+                    $stock->decrement('quantity_non_tax', $nonTaxToDeduct);
+                }
+                if ($taxToDeduct > 0) {
+                    $stock->decrement('quantity_tax', $taxToDeduct);
+                }
+            }
+
+            $newQuantity = max(0, (int) $product->product_quantity - $remainingToDeduct);
+            $newBrokenQuantity = (int) $product->broken_quantity - $brokenToDeduct;
+            $product->update([
+                'product_quantity' => $newQuantity,
+                'broken_quantity' => max(0, $newBrokenQuantity)
+            ]);
 
             if (! empty($detail->serial_number_ids)) {
                 ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
