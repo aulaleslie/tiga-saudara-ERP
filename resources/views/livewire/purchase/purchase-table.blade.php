@@ -47,6 +47,9 @@
                 Supplier {!! $this->sortIcon('supplier_id') !!}
             </th>
             <th>Total</th>
+            <th wire:click="sortBy('due_amount')" style="cursor:pointer">
+                Sisa Pembayaran {!! $this->sortIcon('due_amount') !!}
+            </th>
             <th>Tags</th>
             <th>Status</th>
             <th>Payment</th>
@@ -79,6 +82,7 @@
                 </td>
                 <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
                 <td>{{ format_currency($purchase->total_amount) }}</td>
+                <td>{{ format_currency($purchase->due_amount) }}</td>
                 <td>
                     @foreach ($purchase->tags as $tag)
                         <span class="badge bg-info text-white fs-6 me-1">
@@ -92,7 +96,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="10">Tidak ada data yang ditemukan.</td>
+                <td colspan="11">Tidak ada data yang ditemukan.</td>
             </tr>
         @endforelse
         </tbody>
