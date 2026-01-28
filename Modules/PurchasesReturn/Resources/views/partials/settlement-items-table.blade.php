@@ -27,17 +27,6 @@
                 <tbody>
 @php
     $methodLabels = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::settlementMethods();
-    // Fetch unpaid purchases for allocation dropdown (once per file)
-    $unpaidPurchasesForAllocation = \Modules\Purchase\Entities\Purchase::where('supplier_id', $purchase_return->supplier_id)
-        ->where('due_amount', '>', 0)
-        ->whereIn('status', [
-            \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED,
-            \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED_PARTIALLY,
-            \Modules\Purchase\Entities\Purchase::STATUS_APPROVED,
-        ])
-        ->select('id', 'reference', 'due_amount', 'supplier_purchase_number', 'date')
-        ->orderBy('date', 'desc')
-        ->get();
 @endphp
 
                     @foreach($purchase_return->settlementItems as $item)
@@ -181,17 +170,13 @@
                         @if($methodKey === 'MODIFY_PURCHASE')
                             <div class="mb-3">
                                 <label class="form-label font-weight-bold">Target Alokasi Dana (Opsional)</label>
-                                <select name="allocation_purchase_id" class="form-select form-select-sm">
-                                    <option value="">-- Biarkan Kosong (Refund Manual / Tanpa Alokasi) --</option>
-                                    @foreach($unpaidPurchasesForAllocation as $up)
-                                        @if($targetPurchase && $up->id === $targetPurchase->id)
-                                            @continue
-                                        @endif
-                                        <option value="{{ $up->id }}">
-                                            {{ $up->supplier_purchase_number ?: $up->reference }} (Sisa: {{ format_currency($up->due_amount) }})
-                                        </option>
-                                    @endforeach
-                                </select>
+                                @livewire('purchase-return.unpaid-purchase-search-dropdown', [
+                                    'supplier_id' => $purchase_return->supplier_id,
+                                    'exclude_purchase_id' => $targetPurchase?->id,
+                                    'name' => 'allocation_purchase_id',
+                                    'placeholder' => '-- Biarkan Kosong (Refund Manual / Tanpa Alokasi) --',
+                                    'zIndex' => 1100
+                                ], key('unpaid-purchase-dropdown-' . $item->id))
                                 <small class="text-muted">Pilih nota lain untuk memindahkan "Uang Retur" sebagai pembayaran nota tersebut.</small>
                             </div>
                         @endif
