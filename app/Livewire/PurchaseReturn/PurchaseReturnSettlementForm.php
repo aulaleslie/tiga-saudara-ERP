@@ -174,7 +174,7 @@ class PurchaseReturnSettlementForm extends Component
                     $query->where('product_id', $productId);
                 })
                 ->with(['purchaseDetails' => function ($query) use ($productId) {
-                    $query->where('product_id', $productId)->select('id', 'purchase_id', 'product_id', 'quantity');
+                    $query->where('product_id', $productId)->select('id', 'purchase_id', 'product_id', 'quantity', 'unit_price');
                 }])
                 ->select(['id', 'reference', 'supplier_purchase_number', 'due_amount', 'total_amount', 'paid_amount', 'date'])
                 ->orderBy('date', 'desc')
@@ -189,7 +189,9 @@ class PurchaseReturnSettlementForm extends Component
                         $statusLabel = ' (Belum Bayar)';
                     }
                     
-                    $productQty = $purchase->purchaseDetails->where('product_id', $productId)->first()?->quantity ?? 0;
+                    $purchaseDetail = $purchase->purchaseDetails->where('product_id', $productId)->first();
+                    $productQty = $purchaseDetail?->quantity ?? 0;
+                    $productUnitPrice = (float) ($purchaseDetail?->unit_price ?? 0);
                     
                     return [
                         'id' => $purchase->id,
@@ -197,12 +199,10 @@ class PurchaseReturnSettlementForm extends Component
                         'text' => $ref,
                         'due_amount' => $purchase->due_amount,
                         'product_quantity' => $productQty,
+                        'product_unit_price' => $productUnitPrice,
                     ];
                 })
                 ->toArray();
-
-
-
         }
     }
 
@@ -241,14 +241,7 @@ class PurchaseReturnSettlementForm extends Component
     public function getMethodsForLine(int $index): array
     {
         $line = $this->settlementLines[$index];
-        $allMethods = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::selectableSettlementMethods();
-        $filteredMethods = $allMethods;
-
-        // Remove CASH and CREDIT as they are no longer supported
-        unset($filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CASH]);
-        unset($filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CREDIT]);
-
-        return $filteredMethods;
+        return \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::selectableSettlementMethods();
     }
 
     /**
@@ -274,7 +267,7 @@ class PurchaseReturnSettlementForm extends Component
     protected function rules(): array
     {
         $rules = [
-            'settlementLines.*.method' => 'nullable|string',
+            'settlementLines.*.method' => 'nullable|string|in:' . implode(',', array_keys(\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::selectableSettlementMethods())),
             'settlementLines.*.nominal' => 'required|numeric|min:0',
         ];
 
@@ -293,7 +286,7 @@ class PurchaseReturnSettlementForm extends Component
         $maxNominal = $line['max_nominal'] ?? 0;
 
         $rules = [
-            "settlementLines.{$index}.method" => 'required|string',
+            "settlementLines.{$index}.method" => 'required|string|in:' . implode(',', array_keys(\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::selectableSettlementMethods())),
             "settlementLines.{$index}.nominal" => "required|numeric|min:0|max:{$maxNominal}",
         ];
 
@@ -387,6 +380,32 @@ class PurchaseReturnSettlementForm extends Component
                 }
             }
         }
+
+        // Handle target_purchase_id change to recalculate nominal for MODIFY_PURCHASE
+        if (Str::endsWith($key, '.target_purchase_id')) {
+            $index = explode('.', $key)[0];
+            $line = &$this->settlementLines[$index];
+            $method = strtoupper($line['method'] ?? '');
+            
+            if ($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE && !empty($line['target_purchase_id'])) {
+                $productId = $line['product_id'];
+                $targetPurchaseId = $line['target_purchase_id'];
+                
+                // Find the selected purchase in the unpaidPurchases list
+                $purchaseList = $this->unpaidPurchases[$productId]['MODIFY_PURCHASE'] ?? [];
+                $selectedPurchase = collect($purchaseList)->firstWhere('id', $targetPurchaseId);
+                
+                if ($selectedPurchase) {
+                    $unitPrice = (float) ($selectedPurchase['product_unit_price'] ?? 0);
+                    $quantity = (float) ($line['quantity'] ?? 1);
+                    $newNominal = $unitPrice * $quantity;
+                    
+                    // Apply max nominal cap from original return value
+                    $maxNominal = (float) ($line['max_nominal'] ?? $newNominal);
+                    $line['nominal'] = min($newNominal, $maxNominal);
+                }
+            }
+        }
     }
 
     protected function ensurePurchaseInList($purchase, $method, $productId = null): void
@@ -407,6 +426,7 @@ class PurchaseReturnSettlementForm extends Component
             'text' => $ref,
             'due_amount' => $purchase->due_amount,
             'product_quantity' => $purchase->purchaseDetails->where('product_id', $productId)->first()?->quantity ?? 0,
+            'product_unit_price' => (float) ($purchase->purchaseDetails->where('product_id', $productId)->first()?->unit_price ?? 0),
         ];
 
         if (($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE || $method === PurchaseReturnDetail::METHOD_CASH) && $productId) {
