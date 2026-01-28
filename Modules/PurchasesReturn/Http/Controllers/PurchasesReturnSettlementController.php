@@ -132,6 +132,7 @@ class PurchasesReturnSettlementController extends Controller
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.approve'), 403);
 
+
         $itemSettlement->load(['detail', 'serialNumber', 'targetPurchase', 'purchaseReturn']);
 
         if (!$itemSettlement->canApprove()) {
@@ -279,6 +280,14 @@ class PurchasesReturnSettlementController extends Controller
                 $userId = auth()->id();
 
                 if ($method === 'PRODUCT_REPAIR') {
+                    $isDispatched = \Illuminate\Support\Str::lower($itemSettlement->purchaseReturn->return_dispatch_status ?? '') === 'dispatched';
+                    $isTaxable = false;
+                    if ($isSerial) {
+                        $isTaxable = ($itemSettlement->serialNumber?->tax_id ?? null) !== null;
+                    } else {
+                        $isTaxable = (float) ($itemSettlement->detail?->product_tax_amount ?? 0) > 0;
+                    }
+
                     if ($isSerial) {
                         $serial = $itemSettlement->serialNumber;
                         $replacementSerialNumber = trim($request->replacement_serial_number);
@@ -308,9 +317,21 @@ class PurchasesReturnSettlementController extends Controller
                         $itemSettlement->replacement_serial_number_id = $serial->id;
                     } else {
                         // Non-serial repair movement
-                        if ($sourceLocationId != $targetLocationId) {
+                        if (! $isDispatched && $sourceLocationId != $targetLocationId) {
                             $this->moveStock($productId, $sourceLocationId, $targetLocationId, $receivedQty, 'RETURN_REPAIR', "Penerimaan perbaikan - dipindah ke lokasi {$targetLocationId}", $itemSettlement->purchaseReturn->setting_id);
                         }
+                    }
+
+                    if ($isDispatched) {
+                        $this->restoreStock(
+                            $productId,
+                            $targetLocationId,
+                            $receivedQty,
+                            'RETURN_REPAIR',
+                            "Penerimaan perbaikan - masuk ke lokasi {$targetLocationId}",
+                            $itemSettlement->purchaseReturn->setting_id,
+                            $isTaxable
+                        );
                     }
                 } elseif ($method === 'BROKEN_STOCK') {
                     $isDispatched = \Illuminate\Support\Str::lower($itemSettlement->purchaseReturn->return_dispatch_status ?? '') === 'dispatched';
@@ -426,6 +447,55 @@ class PurchasesReturnSettlementController extends Controller
             'location_id' => $targetId,
             'user_id' => auth()->id(),
             'reason' => $reason . " (Diterima)",
+        ]);
+    }
+
+    /**
+     * Helper to restore stock after dispatch approval (adds back to target only).
+     */
+    protected function restoreStock($productId, $targetId, $qty, $type, $reason, $settingId = null, $isTaxable = false): void
+    {
+        $settingId = $settingId ?? session('setting_id');
+
+        $product = Product::whereKey($productId)->lockForUpdate()->first();
+        if (!$product) {
+            throw new \Exception("Produk tidak ditemukan.");
+        }
+
+        $targetStock = ProductStock::firstOrCreate(
+            ['product_id' => $productId, 'location_id' => $targetId],
+            ['quantity' => 0, 'quantity_tax' => 0, 'quantity_non_tax' => 0, 'broken_quantity' => 0, 'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0]
+        );
+
+        $prevProductQty = (int) $product->product_quantity;
+        $prevTargetQty = (int) $targetStock->quantity;
+
+        $targetStock->increment('quantity', $qty);
+        if ($isTaxable) {
+            $targetStock->increment('quantity_tax', $qty);
+        } else {
+            $targetStock->increment('quantity_non_tax', $qty);
+        }
+        $product->increment('product_quantity', $qty);
+
+        Transaction::create([
+            'product_id' => $productId,
+            'setting_id' => $settingId,
+            'type' => $type,
+            'quantity' => $qty,
+            'current_quantity' => $product->product_quantity,
+            'broken_quantity' => $targetStock->broken_quantity,
+            'location_id' => $targetId,
+            'user_id' => auth()->id(),
+            'reason' => $reason,
+            'previous_quantity' => $prevProductQty,
+            'after_quantity' => $product->product_quantity,
+            'previous_quantity_at_location' => $prevTargetQty,
+            'after_quantity_at_location' => $targetStock->quantity,
+            'quantity_tax' => $isTaxable ? $qty : 0,
+            'quantity_non_tax' => $isTaxable ? 0 : $qty,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
         ]);
     }
 
@@ -603,11 +673,21 @@ class PurchasesReturnSettlementController extends Controller
                             throw new \Exception('Produk tidak ditemukan pada nota pembelian target.');
                         }
 
+
                         $this->ensurePurchaseDetailsHaveQuantity($purchaseDetails, $returnQty);
                         $this->reducePurchaseDetailCollection($purchaseDetails, $returnQty);
                     }
 
                     $this->recalculatePurchaseTotals($purchase);
+
+                    if ($serial) {
+                        $serial->update([
+                            'status' => 'RETURNED',
+                            'received_note_detail_id' => null,
+                            'is_in_return_process' => false,
+                            'purchase_return_id' => $purchaseReturn->id,
+                        ]);
+                    }
 
                     // Archival logic: if all items are returned (total qty == 0), archive
                     if ((int) $purchase->purchaseDetails()->sum('quantity') === 0) {
@@ -618,18 +698,84 @@ class PurchasesReturnSettlementController extends Controller
                         ]);
                     }
 
-                    // Ticket 4: Reset payments and set Unpaid on MODIFY_PURCHASE approval for paid/partial purchases
-                    if (in_array(strtoupper($purchase->payment_status), ['PAID', 'PARTIAL'])) {
-                        // Hard delete payments as requested
-                        $purchase->purchasePayments()->delete();
+                    // Smart Allocation Logic (Ticket: Reallocate Surplus)
+                    $purchase->refresh();
+                    $newTotal = (float) $purchase->total_amount;
+                    $paidAmount = (float) $purchase->paid_amount;
+                    // Case 1: Surplus (Paid > Total)
+                    if ($paidAmount > $newTotal) {
+                        $surplus = $paidAmount - $newTotal;
+                        $remainingSurplus = $surplus;
                         
-                        // Reset amounts and status
-                        $purchase->update([
-                            'paid_amount' => 0,
-                            'due_amount' => $purchase->total_amount,
-                            'payment_status' => 'Unpaid'
-                        ]);
+                        // If user selected an allocation target (different purchase)
+                        $allocationTargetId = request('allocation_purchase_id');
+                        
+                        if ($allocationTargetId && $allocationTargetId != $purchase->id) {
+                            $targetPurchase = \Modules\Purchase\Entities\Purchase::find($allocationTargetId);
+                            if ($targetPurchase) {
+                                $allocationAmount = min($surplus, (float) $targetPurchase->due_amount);
+                                $remainingSurplus = $surplus - $allocationAmount;
+                                if ($allocationAmount <= 0) {
+                                    session()->flash('warning', 'Nota target tidak memiliki sisa tagihan untuk dialokasikan. Silakan atur pengembalian dana manual.');
+                                }
+                                
+                                // Create Payment on Target
+                                if ($allocationAmount > 0) {
+                                    \Modules\Purchase\Entities\PurchasePayment::create([
+                                        'purchase_id' => $targetPurchase->id,
+                                        'amount' => $allocationAmount,
+                                        'date' => now(),
+                                        'reference' => 'PAY-RET/' . $purchaseReturn->reference . '/' . time(),
+                                        'note' => 'Alokasi dari retur ' . $purchaseReturn->reference . ' (Asal: ' . $purchase->reference . ')',
+                                        'payment_method' => 'Settlement Retur',
+                                    ]);
+                                }
+                                
+                                // Update Target Purchase status
+                                if ($allocationAmount > 0) {
+                                    $targetPurchase->paid_amount += $allocationAmount;
+                                    $targetPurchase->due_amount -= $allocationAmount;
+                                    $targetPurchase->payment_status = ($targetPurchase->due_amount <= 0) ? 'Paid' : 'Partial';
+                                    $targetPurchase->save();
+                                }
+                                
+                                // Update Source Purchase (Reduce Paid Amount to reflect transfer)
+                                // We treat the transfer as if the money moved out, so we reduce the paid_amount on source?
+                                // User Rule: "modify source purchase... append payment to source purchase" (Ambiguous)
+                                // Confirmed Plan Rule: "Source becomes Overpaid" -> "Transfer"
+                                // If we transfer, effectively we took money from Source to pay Target.
+                                // So Source Paid Amount should reduce by allocation Amount?
+                                // "Strict Rule" said: "delete all payments". User said "No, Smart Allocation".
+                                // If I have Paid 100. New Total 80. Surplus 20.
+                                // I move 20 to Target. Target gets +20 Payment.
+                                // Source should theoretically have Paid 80 now? Yes, to balance it.
+                                
+                                if ($allocationAmount > 0) {
+                                    $purchase->paid_amount -= $allocationAmount;
+                                    $purchase->save();
+                                }
+
+                                if ($remainingSurplus > 0.01) {
+                                    session()->flash('warning', 'Masih ada kelebihan bayar sebesar ' . format_currency($remainingSurplus) . '. Silakan atur pengembalian dana manual.');
+                                }
+                            }
+                        } else {
+                            // No target selected, but surplus exists.
+                            // Warning: Source is Overpaid. User handles manually.
+                             session()->flash('warning', 'Terdapat kelebihan bayar pada nota asal. Silakan atur pengembalian dana atau alokasi manual.');
+                        }
+                    } 
+                    
+                    // Update Status based on new numbers
+                    $purchase->due_amount = max(0, $purchase->total_amount - $purchase->paid_amount);
+                    if ($purchase->due_amount == 0 && $purchase->paid_amount >= $purchase->total_amount) {
+                         $purchase->payment_status = 'Paid';
+                    } elseif ($purchase->due_amount < $purchase->total_amount && $purchase->paid_amount > 0) {
+                         $purchase->payment_status = 'Partial';
+                    } else {
+                         $purchase->payment_status = 'Unpaid';
                     }
+                    $purchase->save();
 
                     $purchase->refresh();
                     $reductionAmount = max(0, $previousTotal - (float) $purchase->total_amount);
@@ -637,7 +783,6 @@ class PurchasesReturnSettlementController extends Controller
                         $item->update(['nominal' => $reductionAmount]);
                     }
 
-                    $this->deductStockForReturn($item, $detail, $purchaseReturn, $returnQty);
                 }
                 break;
 
@@ -768,8 +913,6 @@ class PurchasesReturnSettlementController extends Controller
 
                     $purchase->refresh();
 
-                    // Deduct stock (same as MODIFY_PURCHASE)
-                    $this->deductStockForReturn($item, $detail, $purchaseReturn, $returnQty);
                 }
                 break;
                 

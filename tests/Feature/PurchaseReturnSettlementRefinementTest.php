@@ -168,8 +168,8 @@ class PurchaseReturnSettlementRefinementTest extends TestCase
             ->test(\App\Livewire\PurchaseReturn\PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $this->purchaseReturn->id])
             ->assertSee('Perbaikan Produk')
             ->assertSee('Ubah Nota Pembelian')
-            ->assertSee('Simpan Sebagai DP')
-            ->assertSee('Pengembalian Tunai');
+            ->assertDontSee('Simpan Sebagai DP')
+            ->assertDontSee('Pengembalian Tunai');
     }
 
     /** @test */
@@ -182,7 +182,7 @@ class PurchaseReturnSettlementRefinementTest extends TestCase
     }
 
     /** @test */
-    public function it_shows_nominal_only_for_credit_or_cash()
+    public function it_shows_nominal_for_modify_purchase_and_hides_for_others()
     {
         Livewire::actingAs($this->user)
             ->test(\App\Livewire\PurchaseReturn\PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $this->purchaseReturn->id])
@@ -191,12 +191,8 @@ class PurchaseReturnSettlementRefinementTest extends TestCase
             ->assertDontSeeHtml('input["settlementLines.0.nominal"]')
             ->assertSee('-')
             
-            // Case 2: CREDIT -> Should see input
-            ->set('settlementLines.0.method', 'CREDIT')
-            ->assertSeeHtml('name="settlementLines.0.nominal"') // Nominal field visible (check wire:model for safety)
-            
-            // Case 3: CASH -> Should see input
-            ->set('settlementLines.0.method', 'CASH')
+            // Case 2: MODIFY_PURCHASE -> Should see input
+            ->set('settlementLines.0.method', 'MODIFY_PURCHASE')
             ->assertSeeHtml('name="settlementLines.0.nominal"');
     }
 

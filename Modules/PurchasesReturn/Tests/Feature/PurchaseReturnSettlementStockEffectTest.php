@@ -64,7 +64,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
     }
 
     /** @test */
-    public function it_deducts_stock_and_creates_transaction_on_modify_purchase_approval()
+    public function it_deducts_stock_and_creates_transaction_on_dispatch_for_modify_purchase()
     {
         // 1. Setup product with stock
         $product = Product::create([
@@ -145,6 +145,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
             'location_id' => $this->location->id,
+            'return_dispatch_status' => 'pending_approval',
         ]);
 
         $detail = PurchaseReturnDetail::create([
@@ -170,11 +171,14 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             'target_purchase_id' => $purchase->id,
         ]);
 
-        // 4. Approve
+        // 4. Approve dispatch (stock deduction happens here)
+        $this->post(route('purchase-returns.dispatch-approve', $pr->id));
+
+        // 5. Approve settlement (no stock deduction)
         $response = $this->post(route('purchase-return-settlements.item.approve', $item->id));
         $response->assertStatus(302);
 
-        // 5. Verify Effects
+        // 6. Verify Effects
         $product->refresh();
         $this->assertEquals(8, $product->product_quantity);
 
@@ -195,7 +199,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             'quantity' => -2,
             'current_quantity' => 8,
             'location_id' => $this->location->id,
-            'reason' => strtoupper("Settlement retur: {$pr->reference}"),
+            'reason' => strtoupper("Dispatch retur: {$pr->reference}"),
         ]);
 
         $purchase->refresh();
@@ -205,7 +209,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
     }
 
     /** @test */
-    public function it_marks_serial_number_as_returned_on_modify_purchase_approval()
+    public function it_marks_serial_number_as_returned_on_dispatch_for_modify_purchase()
     {
         // 1. Setup serial product
         $product = Product::create([
@@ -251,6 +255,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
             'location_id' => $this->location->id,
+            'return_dispatch_status' => 'pending_approval',
         ]);
 
         $detail = PurchaseReturnDetail::create([
@@ -321,11 +326,14 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             'target_purchase_id' => $purchase->id,
         ]);
 
-        // 3. Approve
+        // 3. Approve dispatch (serials returned here)
+        $this->post(route('purchase-returns.dispatch-approve', $pr->id));
+
+        // 4. Approve settlement (purchase modification only)
         $response = $this->post(route('purchase-return-settlements.item.approve', $item->id));
         $response->assertStatus(302);
 
-        // 4. Verify Effects
+        // 5. Verify Effects
         $sn->refresh();
         $this->assertEquals('RETURNED', $sn->status);
         $this->assertNull($sn->received_note_detail_id);

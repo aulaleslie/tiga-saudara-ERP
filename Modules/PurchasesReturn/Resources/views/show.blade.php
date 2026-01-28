@@ -166,16 +166,14 @@
                                     <dl class="row mb-0 small">
                                         <dt class="col-5 text-muted">Invoice</dt>
                                         <dd class="col-7 font-weight-bold">INV/{{ $purchase_return->reference }}</dd>
-                                        @if($purchase_return->location_id)
+                                        @php 
+                                            $headerLocation = $purchase_return->location ?? $purchase_return->purchaseReturnDetails->first()?->location;
+                                        @endphp
+                                        @if($headerLocation)
                                             <dt class="col-5 text-muted">Lokasi</dt>
-                                            <dd class="col-7 font-weight-bold">{{ $purchase_return->location->name ?? '-' }}</dd>
+                                            <dd class="col-7 font-weight-bold">{{ $headerLocation->name }}</dd>
                                         @endif
-                                        <dt class="col-5 text-muted">Metode</dt>
-                                        <dd class="col-7 font-weight-bold">{{ $purchase_return->return_type_label }}</dd>
-                                        <dt class="col-5 text-muted">Status Penyelesaian</dt>
-                                        <dd class="col-7 font-weight-bold">
-                                            @include('purchasesreturn::partials.settlement-status', ['data' => $purchase_return])
-                                        </dd>
+
                                         @if($purchase_return->settled_at)
                                             <dt class="col-5 text-muted">Tanggal Selesai</dt>
                                             <dd class="col-7 font-weight-bold">{{ $purchase_return->settled_at->translatedFormat('d F Y H:i') }}</dd>
@@ -402,6 +400,20 @@
                         </button>
                     </div>
                     <div class="modal-body">
+                        <div class="mb-4">
+                            <label class="form-label font-weight-bold">Lokasi Tujuan Penerimaan</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-muted border-end-0">
+                                    <i class="bi bi-geo-alt-fill"></i>
+                                </span>
+                                @php 
+                                    $prLocation = $purchase_return->location ?? $purchase_return->purchaseReturnDetails->first()?->location;
+                                @endphp
+                                <input type="text" class="form-control bg-light border-start-0" value="{{ $prLocation->name ?? 'N/A' }}" readonly>
+                            </div>
+                            <small class="text-muted"><i class="bi bi-lock-fill me-1"></i>Stok akan otomatis dikembalikan ke lokasi pengiriman asal.</small>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-bordered table-sm align-middle">
                                 <thead class="table-light">
@@ -438,7 +450,7 @@
                                                     <span class="badge bg-warning text-dark">{{ $remaining }}</span>
                                                 </td>
                                                 <td>
-                                                    <input type="number" name="items[{{ $index }}][received_quantity]" class="form-control form-control-sm text-center" min="0" max="{{ $remaining }}" value="{{ $remaining }}">
+                                                    <input type="number" name="items[{{ $index }}][received_quantity]" class="form-control form-control-sm text-center {{ !$good->product->serial_number_required ? 'bg-light' : '' }}" min="0" max="{{ $remaining }}" value="{{ $remaining }}" {{ !$good->product->serial_number_required ? 'readonly' : '' }}>
                                                 </td>
                                                 <td>
                                                     <input type="text" name="items[{{ $index }}][note]" class="form-control form-control-sm" placeholder="Catatan penerimaan...">
@@ -475,12 +487,17 @@
             // But since the requirement mentioned serial management, let's try to make it usable.
             // If Select2 is available globally:
             if (typeof $ !== 'undefined' && $.fn.select2) {
+                // Initialize existing serial number select2
                 $('select[name*="[serial_numbers]"]').length && $('select[name*="[serial_numbers]"]').select2({
                     tags: true,
                     tokenSeparators: [',', ' '],
                     theme: 'bootstrap-5',
                     width: '100%'
                 });
+
+
+
+
 
                 // Prevent Enter key from submitting form on specific inputs
                 $(document).on('keydown', '.prevent-enter-submit', function(e) {

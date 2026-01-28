@@ -44,6 +44,7 @@ class PurchaseReturnSettlementForm extends Component
     {
         $this->purchaseReturn = PurchaseReturn::with([
             'purchaseReturnDetails.product',
+            'purchaseReturnDetails.purchase',
             'purchaseReturnDetails.location',
             'settlementItems',
             'settlement',
@@ -94,6 +95,28 @@ class PurchaseReturnSettlementForm extends Component
                 }
             } else {
                 $existing = $existingSettlements->whereNull('product_serial_number_id')->first();
+                $originPurchase = $detail->purchase;
+                $originPurchaseId = $originPurchase?->id;
+                $originPurchaseStatus = $originPurchase?->payment_status;
+                $originTotal = (float) ($originPurchase?->total_amount ?? 0);
+                $originPaid = (float) ($originPurchase?->paid_amount ?? 0);
+                $originDue = (float) ($originPurchase?->due_amount ?? 0);
+                $originRef = $originPurchase?->supplier_purchase_number ?: $originPurchase?->reference;
+                $originLabel = $originRef ?? '';
+                if ($originPurchase) {
+                    if ($originDue <= 0) {
+                        $originLabel .= ' (Lunas)';
+                    } elseif ($originPaid > 0) {
+                        $originLabel .= ' (Sebagian)';
+                    } else {
+                        $originLabel .= ' (Belum Bayar)';
+                    }
+                }
+
+                $defaultTargetPurchaseId = $existing->target_purchase_id ?? null;
+                if (!$defaultTargetPurchaseId && $originPurchaseId && $originPaid <= 0 && $detail->sub_total <= $originDue) {
+                    $defaultTargetPurchaseId = $originPurchaseId;
+                }
                 
                 $this->settlementLines[] = [
                     'id' => $existing->id ?? null, // Track existing DB ID
@@ -106,9 +129,14 @@ class PurchaseReturnSettlementForm extends Component
                     'method' => $existing->method ?? '',
                     'nominal' => (float) ($existing->nominal ?? $detail->sub_total),
                     'max_nominal' => (float) $detail->sub_total,
-                    'target_purchase_id' => $existing->target_purchase_id ?? null,
+                    'target_purchase_id' => $defaultTargetPurchaseId,
                     'quantity' => $detail->quantity,
-                    'origin_purchase_id' => null,
+                    'origin_purchase_id' => $originPurchaseId,
+                    'origin_purchase_payment_status' => $originPurchaseStatus,
+                    'origin_purchase_total_amount' => $originTotal,
+                    'origin_purchase_paid_amount' => $originPaid,
+                    'origin_purchase_due_amount' => $originDue,
+                    'origin_purchase_label' => $originLabel,
                     'status' => $existing->status ?? \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT,
                     'rejection_reason' => $existing->rejection_reason ?? null,
                 ];
@@ -126,21 +154,22 @@ class PurchaseReturnSettlementForm extends Component
             return;
         }
 
-        // Purchases for MODIFY_PURCHASE (Unpaid/Partial)
+        // Purchases for MODIFY_PURCHASE (Paid/Partial/Unpaid)
         // Grouped by product_id to show only relevant purchases per line
         $productIds = $this->purchaseReturn->purchaseReturnDetails->pluck('product_id')->unique();
         
         $this->unpaidPurchases = [];
         
         foreach ($productIds as $productId) {
-            // Purchases for MODIFY_PURCHASE (Unpaid/Partial)
+            // Purchases for MODIFY_PURCHASE (Paid/Partial/Unpaid)
             $this->unpaidPurchases[$productId]['MODIFY_PURCHASE'] = Purchase::where('supplier_id', $this->purchaseReturn->supplier_id)
                 ->whereIn('status', [
                     Purchase::STATUS_RECEIVED,
                     Purchase::STATUS_RECEIVED_PARTIALLY,
                     Purchase::STATUS_APPROVED,
                 ])
-                ->where('payment_status', '!=', 'Paid') // For MODIFY_PURCHASE, we usually target Unpaid/Partial
+                // Removing payment_status filter to allow Paid/Partial purchases for modification
+
                 ->whereHas('purchaseDetails', function ($query) use ($productId) {
                     $query->where('product_id', $productId);
                 })
@@ -154,7 +183,9 @@ class PurchaseReturnSettlementForm extends Component
                 ->map(function ($purchase) use ($productId) {
                     $ref = $purchase->supplier_purchase_number ?: $purchase->reference;
                     $statusLabel = ' (Sebagian)';
-                    if ($purchase->paid_amount <= 0) {
+                    if ((float) $purchase->due_amount <= 0) {
+                        $statusLabel = ' (Lunas)';
+                    } elseif ((float) $purchase->paid_amount <= 0) {
                         $statusLabel = ' (Belum Bayar)';
                     }
                     
@@ -162,7 +193,7 @@ class PurchaseReturnSettlementForm extends Component
                     
                     return [
                         'id' => $purchase->id,
-                        'label' => $ref . $statusLabel . ' - Sisa: ' . format_currency($purchase->due_amount),
+                        'label' => $ref . $statusLabel . ($purchase->due_amount > 0 ? ' - Sisa: ' . format_currency($purchase->due_amount) : ''),
                         'text' => $ref,
                         'due_amount' => $purchase->due_amount,
                         'product_quantity' => $productQty,
@@ -170,43 +201,8 @@ class PurchaseReturnSettlementForm extends Component
                 })
                 ->toArray();
 
-            // Purchases for CASH (Paid/Partial)
-            // Filter: qty >= return quantity
-            $this->unpaidPurchases[$productId]['CASH'] = Purchase::where('supplier_id', $this->purchaseReturn->supplier_id)
-                ->whereIn('status', [
-                    Purchase::STATUS_RECEIVED,
-                    Purchase::STATUS_RECEIVED_PARTIALLY,
-                    Purchase::STATUS_APPROVED,
-                ])
-                ->whereIn('payment_status', ['Paid', 'Partial'])
-                ->whereHas('purchaseDetails', function ($query) use ($productId) {
-                    $query->where('product_id', $productId);
-                })
-                ->with(['purchaseDetails' => function ($query) use ($productId) {
-                    $query->where('product_id', $productId)->select('id', 'purchase_id', 'product_id', 'quantity');
-                }])
-                ->select(['id', 'reference', 'supplier_purchase_number', 'due_amount', 'total_amount', 'paid_amount', 'date'])
-                ->orderBy('date', 'desc')
-                ->limit(50)
-                ->get()
-                ->map(function ($purchase) use ($productId) {
-                    $ref = $purchase->supplier_purchase_number ?: $purchase->reference;
-                    $statusLabel = ' (Lunas)';
-                    if ($purchase->paid_amount < $purchase->total_amount) {
-                        $statusLabel = ' (Sebagian)';
-                    }
-                    
-                    $productQty = $purchase->purchaseDetails->where('product_id', $productId)->first()?->quantity ?? 0;
-                    
-                    return [
-                        'id' => $purchase->id,
-                        'label' => $ref . $statusLabel . ' - Berbayar: ' . format_currency($purchase->paid_amount),
-                        'text' => $ref,
-                        'due_amount' => $purchase->due_amount,
-                        'product_quantity' => $productQty,
-                    ];
-                })
-                ->toArray();
+
+
         }
     }
 
@@ -248,33 +244,9 @@ class PurchaseReturnSettlementForm extends Component
         $allMethods = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::selectableSettlementMethods();
         $filteredMethods = $allMethods;
 
-        // Custom label per documentation
-        if (isset($filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CREDIT])) {
-            $filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CREDIT] = 'Simpan Sebagai DP';
-        }
-
-        $productId = $line['product_id'];
-        $hasTargetUnpaid = !empty($this->getCreditPurchasesProperty());
-
-        if ($line['serial_number_id']) {
-            // Scenario 1: Serial Number Item
-            $isOriginPaid = strtoupper($line['origin_purchase_payment_status'] ?? '') === 'PAID';
-            
-            if (!($isOriginPaid && $hasTargetUnpaid)) {
-                unset($filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CREDIT]);
-            }
-        } else {
-            // Scenario 2: Non-Serial Number Item
-            $returnQty = $line['quantity'] ?? 0;
-            $hasValidModifyPurchase = collect($this->unpaidPurchases[$productId]['MODIFY_PURCHASE'] ?? [])
-                ->contains(function($p) use ($returnQty) {
-                    return $p['product_quantity'] >= $returnQty;
-                });
-
-            if ($hasValidModifyPurchase || !$hasTargetUnpaid) {
-                unset($filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CREDIT]);
-            }
-        }
+        // Remove CASH and CREDIT as they are no longer supported
+        unset($filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CASH]);
+        unset($filteredMethods[\Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CREDIT]);
 
         return $filteredMethods;
     }
@@ -375,11 +347,21 @@ class PurchaseReturnSettlementForm extends Component
                          ->find($serialNumberId);
                      
                      $purchase = $sn?->receivedNoteDetail?->purchaseDetail?->purchase ?? null;
-                     if ($purchase) {
-                         $this->settlementLines[$index]['target_purchase_id'] = $purchase->id;
-                         
-                         // Ensure it's in the list
-                         $this->ensurePurchaseInList($purchase, $method, $this->settlementLines[$index]['product_id']);
+                         if ($purchase) {
+                             $this->settlementLines[$index]['target_purchase_id'] = $purchase->id;
+                             
+                             // Ensure it's in the list
+                             $this->ensurePurchaseInList($purchase, $method, $this->settlementLines[$index]['product_id']);
+                         }
+                 } else {
+                     // Auto-select purchase for non-serial when origin is unpaid and return <= due
+                     $originPurchaseId = $this->settlementLines[$index]['origin_purchase_id'] ?? null;
+                     $originPaid = (float) ($this->settlementLines[$index]['origin_purchase_paid_amount'] ?? 0);
+                     $originDue = (float) ($this->settlementLines[$index]['origin_purchase_due_amount'] ?? 0);
+                     $returnValue = (float) ($this->settlementLines[$index]['nominal'] ?? 0);
+
+                     if ($originPurchaseId && $originPaid <= 0 && $returnValue <= $originDue) {
+                         $this->settlementLines[$index]['target_purchase_id'] = $originPurchaseId;
                      }
                  }
             } elseif (!in_array($method, [PurchaseReturnDetail::METHOD_CREDIT, PurchaseReturnDetail::METHOD_CASH])) {

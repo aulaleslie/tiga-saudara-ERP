@@ -226,12 +226,16 @@
                                                 $statusClass = match($line['status']) {
                                                     'SUBMITTED' => 'badge-soft-warning',
                                                     'APPROVED' => 'badge-soft-success',
+                                                    'APPROVED_AWAITING_RECEIVE' => 'badge-soft-warning',
+                                                    'RECEIVED' => 'badge-soft-success',
                                                     'REJECTED' => 'badge-soft-danger',
                                                     default => 'badge-soft-secondary',
                                                 };
                                                 $statusLabel = match($line['status']) {
                                                     'SUBMITTED' => 'Menunggu Persetujuan',
                                                     'APPROVED' => 'Disetujui',
+                                                    'APPROVED_AWAITING_RECEIVE' => 'Menunggu Penerimaan',
+                                                    'RECEIVED' => 'Diterima',
                                                     'REJECTED' => 'Ditolak',
                                                     default => 'Draft',
                                                 };
@@ -243,7 +247,7 @@
                                     </td>
                                     <td>
                                         @php
-                                            $isLineReadOnly = $isReadOnly || in_array($line['status'], ['SUBMITTED', 'APPROVED']);
+                                            $isLineReadOnly = $isReadOnly || in_array($line['status'], ['SUBMITTED', 'APPROVED', 'APPROVED_AWAITING_RECEIVE', 'RECEIVED']);
                                             $isRejected = $line['status'] === 'REJECTED';
                                         @endphp
                                         
@@ -327,15 +331,36 @@
                                                         default => []
                                                     };
                                                     $placeholder = match($currentMethod) {
-                                                        'MODIFY_PURCHASE' => 'Cari Nota (Belum Lunas)...',
+                                                        'MODIFY_PURCHASE' => 'Cari Nota...',
                                                         'CASH' => 'Cari Nota (Lunas/Sebagian)...',
                                                         'CREDIT' => 'Cari Nota (Referensi)...',
                                                         default => 'Cari...'
                                                     };
+                                                    $originId = $line['origin_purchase_id'] ?? null;
+                                                    $originPaymentStatus = strtoupper($line['origin_purchase_payment_status'] ?? '');
+                                                    $originPaid = (float) ($line['origin_purchase_paid_amount'] ?? 0);
+                                                    $originDue = (float) ($line['origin_purchase_due_amount'] ?? 0);
+                                                    $originLabel = $line['origin_purchase_label'] ?? '';
+                                                    $returnValue = (float) ($line['nominal'] ?? ($line['max_nominal'] ?? 0));
+                                                    $isOriginUnpaid = $originPaid <= 0 || $originPaymentStatus === 'UNPAID';
+                                                    $isFixedSource = $currentMethod === 'MODIFY_PURCHASE'
+                                                        && empty($line['serial_number_id'])
+                                                        && $originId
+                                                        && $isOriginUnpaid
+                                                        && $returnValue <= $originDue;
                                                     $isLocked = !empty($line['serial_number_id']) && in_array($currentMethod, ['MODIFY_PURCHASE', 'CASH']);
+                                                    $excludedId = $currentMethod === 'CREDIT' ? ($originId ?? null) : null;
                                                 @endphp
-                                                
-                                                @if($showDropdown)
+
+                                                @if($showDropdown && $isFixedSource)
+                                                    <div>
+                                                        <label class="small fw-bold text-muted mb-1">Nota Pembelian Sumber :</label>
+                                                        <div class="form-control form-control-premium form-control-sm d-flex justify-content-between align-items-center bg-light cursor-not-allowed">
+                                                            <span>{{ $originLabel ?: ('Nota #' . $originId) }}</span>
+                                                            <i class="bi bi-lock-fill small text-muted"></i>
+                                                        </div>
+                                                    </div>
+                                                @elseif($showDropdown)
                                                     <div class="" 
                                                          wire:key="dropdown-{{ $index }}-{{ $currentMethod }}"
                                                          x-data="{
@@ -344,7 +369,7 @@
                                                             selectedId: @entangle('settlementLines.'.$index.'.target_purchase_id'),
                                                             options: {{ json_encode($purchaseList) }},
                                                             locked: {{ $isLocked ? 'true' : 'false' }},
-                                                            excludedId: {{ $line['origin_purchase_id'] ?? 'null' }},
+                                                            excludedId: {{ $excludedId ?? 'null' }},
                                                             dropdownStyles: {},
                                                             init() {
                                                                 this.handleScroll = this.handleScroll.bind(this);
@@ -416,7 +441,7 @@
                                                             }
                                                          }"
                                                     >
-                                                        <label class="small fw-bold text-muted mb-1">{{ ($currentMethod == 'MODIFY_PURCHASE') ? 'Nota Pembelian Sisa :' : 'Referensi Nota :' }}</label>
+                                                        <label class="small fw-bold text-muted mb-1">{{ ($currentMethod == 'MODIFY_PURCHASE') ? 'Nota Pembelian Sumber :' : 'Referensi Nota :' }}</label>
                                                         <div class="position-relative">
                                                             <div x-ref="trigger" 
                                                                  @click="if(!locked) open = !open" 
@@ -484,7 +509,7 @@
                                         <td class="text-end">
                                             @php
                                                 $currentMethod = $settlementLines[$index]['method'] ?? '';
-                                                $showNominal = in_array($currentMethod, ['CREDIT', 'CASH']); // Only visible for Credit & Cash
+                                                $showNominal = in_array($currentMethod, ['CREDIT', 'CASH', 'MODIFY_PURCHASE']); // Include Modify Purchase
                                                 $isLineReadOnly = $isReadOnly || in_array($line['status'], ['SUBMITTED', 'APPROVED']);
                                             @endphp
                                             
@@ -502,12 +527,17 @@
                                                             x-data="{ 
                                                                 nominal: @entangle('settlementLines.'.$index.'.nominal'),
                                                                 format(val) { 
-                                                                    if (val === null || val === '') return '';
-                                                                    let numberFn = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                                                    return 'Rp ' + numberFn.format(val); 
+                                                                    if (val === null || val === '' || isNaN(parseFloat(val))) return '';
+                                                                    let num = parseFloat(val);
+                                                                    return 'Rp ' + new Intl.NumberFormat('id-ID', { 
+                                                                        minimumFractionDigits: 0, 
+                                                                        maximumFractionDigits: 0 
+                                                                    }).format(num);
                                                                 },
                                                                 parse(val) { 
-                                                                    return val;
+                                                                    if (typeof val !== 'string') return val;
+                                                                    let clean = val.replace(/[^0-9]/g, '');
+                                                                    return clean === '' ? 0 : parseFloat(clean);
                                                                 }
                                                             }"
                                                             type="text" 
@@ -515,9 +545,9 @@
                                                             wire:key="nominal-input-{{ $index }}"
                                                             class="form-control form-control-premium text-end @error('settlementLines.'.$index.'.nominal') is-invalid @enderror" 
                                                             x-bind:value="format(nominal)"
-                                                            x-on:focus="$el.value = nominal; $el.select()"
+                                                            x-on:focus="$el.value = (nominal || 0); $el.select()"
                                                             x-on:blur="$el.value = format(nominal)"
-                                                            x-on:input="nominal = $el.value"
+                                                            x-on:input="nominal = parse($el.value)"
                                                             placeholder="0"
                                                         >
                                                     </div>

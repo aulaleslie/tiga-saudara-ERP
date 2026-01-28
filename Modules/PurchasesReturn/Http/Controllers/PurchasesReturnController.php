@@ -123,7 +123,7 @@ class PurchasesReturnController extends Controller
     public function show(PurchaseReturn $purchase_return) {
         abort_if(Gate::denies('purchaseReturns.show'), 403);
 
-        $purchase_return->loadMissing([
+        $purchase_return->load([
             'purchaseReturnDetails.product',
             'purchaseReturnDetails.location.setting',
             'goods.product',
@@ -131,7 +131,7 @@ class PurchasesReturnController extends Controller
             'purchaseReturnPayments',
             'location',
             'settlement',
-            'settlementItems.detail',
+            'settlementItems.detail.location',
             'settlementItems.serialNumber',
             'settlementItems.targetPurchase',
         ]);

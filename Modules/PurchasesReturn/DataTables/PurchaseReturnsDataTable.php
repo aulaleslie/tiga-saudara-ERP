@@ -36,13 +36,11 @@ class PurchaseReturnsDataTable extends DataTable
             ->addColumn('status', function ($data) {
                 return view('purchasesreturn::partials.status', compact('data'));
             })
-            ->addColumn('settlement_status', function ($data) {
-                return view('purchasesreturn::partials.settlement-status', compact('data'));
-            })
+
             ->addColumn('action', function ($data) {
                 return view('purchasesreturn::partials.actions', compact('data'));
             })
-            ->rawColumns(['reference', 'status', 'settlement_status', 'action']);
+            ->rawColumns(['reference', 'status', 'action']);
 
         if ($canViewPrice) {
             $table->addColumn('total_amount', function ($data) {
@@ -70,7 +68,7 @@ class PurchaseReturnsDataTable extends DataTable
 
     public function html(): \Yajra\DataTables\Html\Builder
     {
-        $orderByIndex = Gate::allows('purchaseReturns.viewPrice') ? 8 : 5;
+        $orderByIndex = Gate::allows('purchaseReturns.viewPrice') ? 7 : 4;
 
         return $this->builder()
             ->setTableId('purchase-returns-table')
@@ -119,11 +117,6 @@ class PurchaseReturnsDataTable extends DataTable
             $canViewPrice ? Column::computed('due_amount')
                 ->title('Sisa Tagihan')
                 ->className('text-center align-middle') : null,
-
-            Column::computed('settlement_status')
-                ->title('Penyelesaian')
-                ->className('text-center align-middle'),
-
             Column::computed('action')
                 ->title('Aksi')
                 ->exportable(false)

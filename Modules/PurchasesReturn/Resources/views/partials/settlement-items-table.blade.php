@@ -27,6 +27,17 @@
                 <tbody>
 @php
     $methodLabels = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::settlementMethods();
+    // Fetch unpaid purchases for allocation dropdown (once per file)
+    $unpaidPurchasesForAllocation = \Modules\Purchase\Entities\Purchase::where('supplier_id', $purchase_return->supplier_id)
+        ->where('due_amount', '>', 0)
+        ->whereIn('status', [
+            \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED,
+            \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED_PARTIALLY,
+            \Modules\Purchase\Entities\Purchase::STATUS_APPROVED,
+        ])
+        ->select('id', 'reference', 'due_amount', 'supplier_purchase_number', 'date')
+        ->orderBy('date', 'desc')
+        ->get();
 @endphp
 
                     @foreach($purchase_return->settlementItems as $item)
@@ -166,6 +177,24 @@
                             <div class="col-sm-4"><strong>Referensi:</strong></div>
                             <div class="col-sm-8">{{ $targetPurchase?->reference ?: '-' }}</div>
                         </div>
+                        
+                        @if($methodKey === 'MODIFY_PURCHASE')
+                            <div class="mb-3">
+                                <label class="form-label font-weight-bold">Target Alokasi Dana (Opsional)</label>
+                                <select name="allocation_purchase_id" class="form-select form-select-sm">
+                                    <option value="">-- Biarkan Kosong (Refund Manual / Tanpa Alokasi) --</option>
+                                    @foreach($unpaidPurchasesForAllocation as $up)
+                                        @if($targetPurchase && $up->id === $targetPurchase->id)
+                                            @continue
+                                        @endif
+                                        <option value="{{ $up->id }}">
+                                            {{ $up->supplier_purchase_number ?: $up->reference }} (Sisa: {{ format_currency($up->due_amount) }})
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <small class="text-muted">Pilih nota lain untuk memindahkan "Uang Retur" sebagai pembayaran nota tersebut.</small>
+                            </div>
+                        @endif
                     @endif
                     <div class="row mb-3">
                         <div class="col-sm-4"><strong>Nominal:</strong></div>
@@ -198,13 +227,15 @@
 </div>
 @endforeach
 
+
+
 @foreach($purchase_return->settlementItems->where('status', 'APPROVED_AWAITING_RECEIVE') as $item)
 @php
     $isProductRepair = strtoupper($item->method) === 'PRODUCT_REPAIR';
     $isBrokenStock = strtoupper($item->method) === 'BROKEN_STOCK';
     $isSerial = $item->serialNumber !== null;
     $expectedQuantity = $isSerial ? 1 : ($item->detail?->quantity ?? 1);
-    $quantityLocked = ($isProductRepair && $isSerial) || $isBrokenStock;
+    $quantityLocked = $isProductRepair || $isBrokenStock;
 @endphp
 <div class="modal fade" id="receiveItemModal{{ $item->id }}" tabindex="-1" aria-labelledby="receiveItemModalLabel{{ $item->id }}" aria-hidden="true">
     <div class="modal-dialog">
@@ -272,12 +303,18 @@
                         <label class="form-label font-weight-bold">
                             Lokasi Tujuan <span class="text-danger">*</span>
                         </label>
-                        @livewire('modules.setting.location-search-dropdown', [
-                            'selected' => $purchase_return->location_id,
-                            'name' => 'location_id',
-                            'placeholder' => 'Pilih Lokasi...',
-                            'zIndex' => 1100
-                        ], key('location-dropdown-' . $item->id))
+                        @if($quantityLocked)
+                            <input type="text" class="form-control" value="{{ $item->detail->location->name ?? 'N/A' }}" readonly>
+                            <input type="hidden" name="location_id" value="{{ $item->detail->location_id }}">
+                            <small class="text-muted"><i class="bi bi-lock"></i> Lokasi terkunci sesuai dokumen retur.</small>
+                        @else
+                            @livewire('modules.setting.location-search-dropdown', [
+                                'selected' => $item->detail->location_id ?? $purchase_return->location_id,
+                                'name' => 'location_id',
+                                'placeholder' => 'Pilih Lokasi...',
+                                'zIndex' => 1100
+                            ], key('location-dropdown-' . $item->id))
+                        @endif
                     </div>
 
                     {{-- Quantity field --}}
