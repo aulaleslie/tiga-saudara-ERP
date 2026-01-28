@@ -324,29 +324,38 @@ class PurchaseReturnSettlementLogicTest extends TestCase
         ]);
 
         // 5. Approve with Allocation Target
+        // Create an actual payment for source purchase to verify deletion
+        PurchasePayment::create([
+            'purchase_id' => $sourcePurchase->id,
+            'amount' => 10000000, // 100,000 * 100
+            'date' => now(),
+            'reference' => 'PAY-OLD',
+            'payment_method' => 'Cash',
+        ]);
+
         $this->actingAs( \App\Models\User::factory()->create() );
         $response = $this->post(route('purchase-return-settlements.item.approve', $settlementItem->id), [
             'allocation_purchase_id' => $targetPurchase->id, 
         ]);
-        
-        
-        
         
         $response->assertSessionHas('success');
 
         // 6. Assertions
         $sourcePurchase->refresh();
         // Source modified: 100,000 - 20,000 = 80,000 Total.
-        // Paid: 100,000. Surplus: 20,000.
+        // Paid: 80,000 (matched new total since all payments were deleted and moved)
         $this->assertEquals(80000, $sourcePurchase->total_amount);
-        $this->assertTrue($sourcePurchase->paid_amount >= $sourcePurchase->total_amount);
+        $this->assertEquals(80000, $sourcePurchase->paid_amount);
+
+        // Assert source payment is deleted
+        $this->assertEquals(0, PurchasePayment::where('purchase_id', $sourcePurchase->id)->count());
 
         $targetPurchase->refresh();
         // Target: Due should decrase by 20,000 (via new payment)
         $this->assertEquals(180000, $targetPurchase->due_amount);
         $this->assertEquals(20000, $targetPurchase->paid_amount);
         
-        // Assert Payment Created
+        // Assert Payment Created on Target
         $this->assertDatabaseHas('purchase_payments', [
             'purchase_id' => $targetPurchase->id,
             'amount' => 2000000, // PurchasePayment model stores cents (x100)

@@ -721,6 +721,9 @@ class PurchasesReturnSettlementController extends Controller
                                 
                                 // Create Payment on Target
                                 if ($allocationAmount > 0) {
+                                    // Delete all source purchase payments before reallocating
+                                    $purchase->purchasePayments()->delete();
+
                                     \Modules\Purchase\Entities\PurchasePayment::create([
                                         'purchase_id' => $targetPurchase->id,
                                         'amount' => $allocationAmount,
@@ -751,7 +754,9 @@ class PurchasesReturnSettlementController extends Controller
                                 // Source should theoretically have Paid 80 now? Yes, to balance it.
                                 
                                 if ($allocationAmount > 0) {
-                                    $purchase->paid_amount -= $allocationAmount;
+                                    // Set paid_amount to match newTotal since all payments were deleted
+                                    // and the "true" payment value was transferred to target
+                                    $purchase->paid_amount = $newTotal;
                                     $purchase->save();
                                 }
 
