@@ -11,7 +11,6 @@ use Illuminate\Support\Str;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
-use Modules\Product\Entities\Transaction;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 
 class PurchaseReturnDispatchController extends Controller
@@ -116,9 +115,8 @@ class PurchaseReturnDispatchController extends Controller
                 if (! empty($detail->serial_number_ids)) {
                     ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
                         ->update([
-                            'status' => 'RETURNED',
+                            'status' => 'returned',
                             'is_in_return_process' => false,
-                            'purchase_return_id' => $purchase_return->id,
                         ]);
                 }
             }
@@ -236,55 +234,20 @@ class PurchaseReturnDispatchController extends Controller
                 continue;
             }
 
-            $previousProductQty = (int) $product->product_quantity;
-            $previousStockQty = (int) $stock->quantity;
+            $availableNonTax = max(0, (int) ($stock->quantity_non_tax ?? 0));
+            $nonTaxToDeduct = min($quantity, $availableNonTax);
+            $taxToDeduct = $quantity - $nonTaxToDeduct;
 
-            $availableBrokenNonTax = max(0, (int) ($stock->broken_quantity_non_tax ?? 0));
-            $availableBrokenTax = max(0, (int) ($stock->broken_quantity_tax ?? 0));
-            $availableBroken = $availableBrokenNonTax + $availableBrokenTax;
-
-            $brokenToDeduct = min($quantity, $availableBroken);
-            $remainingToDeduct = $quantity - $brokenToDeduct;
-            $brokenNonTaxToDeduct = 0;
-            $brokenTaxToDeduct = 0;
-            $nonTaxToDeduct = 0;
-            $taxToDeduct = 0;
-
-            // Deduct from Broken first
-            if ($brokenToDeduct > 0) {
-                $brokenNonTaxToDeduct = min($brokenToDeduct, $availableBrokenNonTax);
-                $brokenTaxToDeduct = $brokenToDeduct - $brokenNonTaxToDeduct;
-
-                $stock->decrement('broken_quantity', $brokenToDeduct);
-                if ($brokenNonTaxToDeduct > 0) {
-                    $stock->decrement('broken_quantity_non_tax', $brokenNonTaxToDeduct);
-                }
-                if ($brokenTaxToDeduct > 0) {
-                    $stock->decrement('broken_quantity_tax', $brokenTaxToDeduct);
-                }
+            $stock->decrement('quantity', $quantity);
+            if ($nonTaxToDeduct > 0) {
+                $stock->decrement('quantity_non_tax', $nonTaxToDeduct);
+            }
+            if ($taxToDeduct > 0) {
+                $stock->decrement('quantity_tax', $taxToDeduct);
             }
 
-            // Deduct from Good if still needed
-            if ($remainingToDeduct > 0) {
-                $availableNonTax = max(0, (int) ($stock->quantity_non_tax ?? 0));
-                $nonTaxToDeduct = min($remainingToDeduct, $availableNonTax);
-                $taxToDeduct = $remainingToDeduct - $nonTaxToDeduct;
-
-                $stock->decrement('quantity', $remainingToDeduct);
-                if ($nonTaxToDeduct > 0) {
-                    $stock->decrement('quantity_non_tax', $nonTaxToDeduct);
-                }
-                if ($taxToDeduct > 0) {
-                    $stock->decrement('quantity_tax', $taxToDeduct);
-                }
-            }
-
-            $newQuantity = max(0, (int) $product->product_quantity - $remainingToDeduct);
-            $newBrokenQuantity = (int) $product->broken_quantity - $brokenToDeduct;
-            $product->update([
-                'product_quantity' => $newQuantity,
-                'broken_quantity' => max(0, $newBrokenQuantity)
-            ]);
+            $newQuantity = max(0, (int) $product->product_quantity - $quantity);
+            $product->update(['product_quantity' => $newQuantity]);
 
             if (! empty($detail->serial_number_ids)) {
                 ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
@@ -293,29 +256,6 @@ class PurchaseReturnDispatchController extends Controller
                         'purchase_return_id' => $purchase_return->id,
                     ]);
             }
-
-            $product->refresh();
-            $stock->refresh();
-
-            Transaction::create([
-                'product_id' => $detail->product_id,
-                'setting_id' => $purchase_return->setting_id ?? session('setting_id'),
-                'type' => 'PURCHASE_RETURN',
-                'quantity' => -$quantity,
-                'current_quantity' => $product->product_quantity,
-                'broken_quantity' => $stock->broken_quantity,
-                'location_id' => $detail->location_id,
-                'user_id' => auth()->id(),
-                'reason' => "Dispatch retur: {$purchase_return->reference}",
-                'previous_quantity' => $previousProductQty,
-                'after_quantity' => $product->product_quantity,
-                'previous_quantity_at_location' => $previousStockQty,
-                'after_quantity_at_location' => $stock->quantity,
-                'quantity_tax' => -$taxToDeduct,
-                'quantity_non_tax' => -$nonTaxToDeduct,
-                'broken_quantity_tax' => -$brokenTaxToDeduct,
-                'broken_quantity_non_tax' => -$brokenNonTaxToDeduct,
-            ]);
         }
     }
 }
