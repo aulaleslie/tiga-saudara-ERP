@@ -383,6 +383,9 @@ class SaleController extends Controller
                 $sale_detail->delete();
             }
 
+            // Delete existing bundle items
+            SaleBundleItem::where('sale_id', $sale->id)->delete();
+
             $sale->update([
                 'date' => $request->date,
                 'reference' => $request->reference,
@@ -403,9 +406,11 @@ class SaleController extends Controller
             ]);
 
             foreach (Cart::instance('sale')->content() as $cart_item) {
-                SaleDetails::create([
+                $productId = $cart_item->options->product_id;
+                
+                $saleDetail = SaleDetails::create([
                     'sale_id' => $sale->id,
-                    'product_id' => $cart_item->id,
+                    'product_id' => $productId,
                     'product_name' => $cart_item->name,
                     'product_code' => $cart_item->options->code,
                     'quantity' => $cart_item->qty,
@@ -415,10 +420,28 @@ class SaleController extends Controller
                     'product_discount_amount' => round((float) $cart_item->options->product_discount, 2),
                     'product_discount_type' => $cart_item->options->product_discount_type,
                     'product_tax_amount' => round((float) $cart_item->options->product_tax, 2),
+                    'tax_id' => $cart_item->options->product_tax ?: null,
                 ]);
 
+                // Recreate bundle items if they exist
+                if (!empty($cart_item->options->bundle_items)) {
+                    foreach ($cart_item->options->bundle_items as $bundleItem) {
+                        SaleBundleItem::create([
+                            'sale_detail_id' => $saleDetail->id,
+                            'sale_id' => $sale->id,
+                            'bundle_id' => $bundleItem['bundle_id'] ?? null,
+                            'bundle_item_id' => $bundleItem['bundle_item_id'] ?? null,
+                            'product_id' => $bundleItem['product_id'],
+                            'name' => $bundleItem['name'],
+                            'price' => round((float) ($bundleItem['price'] ?? 0), 2),
+                            'quantity' => $bundleItem['quantity'],
+                            'sub_total' => round((float) ($bundleItem['sub_total'] ?? 0), 2),
+                        ]);
+                    }
+                }
+
                 if ($request->status == 'Shipped' || $request->status == 'Completed') {
-                    $product = Product::findOrFail($cart_item->id);
+                    $product = Product::findOrFail($productId);
                     $product->update([
                         'product_quantity' => $product->product_quantity - $cart_item->qty
                     ]);
