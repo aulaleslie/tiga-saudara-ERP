@@ -149,4 +149,163 @@ class SaleRequestAuthorizationTest extends TestCase
 
         $this->assertNotEquals(403, $response->status(), 'Authorized users should not receive a forbidden response when updating sales.');
     }
+
+    public function test_edit_blocked_when_approved_without_permission(): void
+    {
+        $this->withoutMiddleware(CheckUserRoleForSetting::class);
+
+        $setting = $this->createSetting();
+        $paymentTerm = $this->createPaymentTerm($setting);
+        $customer = $this->createCustomer($setting, $paymentTerm);
+
+        Permission::firstOrCreate(['name' => 'sales.edit']);
+        $user = User::factory()->create();
+        $user->givePermissionTo('sales.edit');
+
+        $sale = Sale::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'status' => Sale::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'setting_id' => $setting->id,
+            'is_tax_included' => false,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->put(route('sales.update', $sale), [
+                'customer_id' => $customer->id,
+                'reference' => $sale->reference,
+                'date' => now()->toDateString(),
+                'total_amount' => 1000,
+                'status' => Sale::STATUS_APPROVED,
+                'tax_percentage' => 0,
+                'discount_percentage' => 0,
+                'shipping_amount' => 0,
+                'paid_amount' => 0,
+                'payment_method' => 'cash',
+            ]);
+
+        $this->assertEquals(403, $response->status());
+    }
+
+    public function test_edit_allowed_when_approved_with_permission(): void
+    {
+        $this->withoutMiddleware(CheckUserRoleForSetting::class);
+
+        $setting = $this->createSetting();
+        $paymentTerm = $this->createPaymentTerm($setting);
+        $customer = $this->createCustomer($setting, $paymentTerm);
+
+        Permission::firstOrCreate(['name' => 'sales.edit']);
+        Permission::firstOrCreate(['name' => 'sales.approved.edit']);
+        $user = User::factory()->create();
+        $user->givePermissionTo(['sales.edit', 'sales.approved.edit']);
+
+        $sale = Sale::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'status' => Sale::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'setting_id' => $setting->id,
+            'is_tax_included' => false,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->put(route('sales.update', $sale), [
+                'customer_id' => $customer->id,
+                'reference' => $sale->reference,
+                'date' => now()->toDateString(),
+                'total_amount' => 1000,
+                'status' => Sale::STATUS_APPROVED,
+                'tax_percentage' => 0,
+                'discount_percentage' => 0,
+                'shipping_amount' => 0,
+                'paid_amount' => 0,
+                'payment_method' => 'cash',
+            ]);
+
+        $this->assertNotEquals(403, $response->status());
+    }
+
+    public function test_delete_blocked_when_approved_without_permission(): void
+    {
+        $this->withoutMiddleware(CheckUserRoleForSetting::class);
+
+        $setting = $this->createSetting();
+        $paymentTerm = $this->createPaymentTerm($setting);
+        $customer = $this->createCustomer($setting, $paymentTerm);
+
+        Permission::firstOrCreate(['name' => 'sales.delete']);
+        $user = User::factory()->create();
+        $user->givePermissionTo('sales.delete');
+
+        $sale = Sale::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'status' => Sale::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'setting_id' => $setting->id,
+            'is_tax_included' => false,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->delete(route('sales.destroy', $sale));
+
+        $this->assertEquals(403, $response->status());
+    }
+
+    public function test_delete_allowed_when_drafted(): void
+    {
+        $this->withoutMiddleware(CheckUserRoleForSetting::class);
+
+        $setting = $this->createSetting();
+        $paymentTerm = $this->createPaymentTerm($setting);
+        $customer = $this->createCustomer($setting, $paymentTerm);
+
+        Permission::firstOrCreate(['name' => 'sales.delete']);
+        $user = User::factory()->create();
+        $user->givePermissionTo('sales.delete');
+
+        $sale = Sale::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'status' => Sale::STATUS_DRAFTED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'cash',
+            'setting_id' => $setting->id,
+            'is_tax_included' => false,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->delete(route('sales.destroy', $sale));
+
+        $this->assertNotEquals(403, $response->status());
+    }
 }
