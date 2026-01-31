@@ -11,6 +11,7 @@ use Illuminate\Support\Str;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\Transaction;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 
 class PurchaseReturnDispatchController extends Controller
@@ -234,20 +235,77 @@ class PurchaseReturnDispatchController extends Controller
                 continue;
             }
 
-            $availableNonTax = max(0, (int) ($stock->quantity_non_tax ?? 0));
-            $nonTaxToDeduct = min($quantity, $availableNonTax);
-            $taxToDeduct = $quantity - $nonTaxToDeduct;
+            $prevProductQty = (int) $product->product_quantity;
+            $prevStockQty = (int) $stock->quantity;
+            $prevBrokenQty = (int) $stock->broken_quantity;
 
-            $stock->decrement('quantity', $quantity);
-            if ($nonTaxToDeduct > 0) {
-                $stock->decrement('quantity_non_tax', $nonTaxToDeduct);
-            }
-            if ($taxToDeduct > 0) {
-                $stock->decrement('quantity_tax', $taxToDeduct);
+            $remaining = $quantity;
+            $deducted = [
+                'broken_non_tax' => 0,
+                'broken_tax' => 0,
+                'good_non_tax' => 0,
+                'good_tax' => 0,
+            ];
+
+            // Priority 1: broken_quantity_non_tax
+            $take = min($remaining, (int) ($stock->broken_quantity_non_tax ?? 0));
+            if ($take > 0) {
+                $stock->decrement('broken_quantity_non_tax', $take);
+                $stock->decrement('broken_quantity', $take);
+                $deducted['broken_non_tax'] = $take;
+                $remaining -= $take;
             }
 
-            $newQuantity = max(0, (int) $product->product_quantity - $quantity);
-            $product->update(['product_quantity' => $newQuantity]);
+            // Priority 2: broken_quantity_tax
+            if ($remaining > 0) {
+                $take = min($remaining, (int) ($stock->broken_quantity_tax ?? 0));
+                if ($take > 0) {
+                    $stock->decrement('broken_quantity_tax', $take);
+                    $stock->decrement('broken_quantity', $take);
+                    $deducted['broken_tax'] = $take;
+                    $remaining -= $take;
+                }
+            }
+
+            // Priority 3: quantity_non_tax (Good stock)
+            if ($remaining > 0) {
+                $take = min($remaining, (int) ($stock->quantity_non_tax ?? 0));
+                if ($take > 0) {
+                    $stock->decrement('quantity_non_tax', $take);
+                    $stock->decrement('quantity', $take);
+                    $deducted['good_non_tax'] = $take;
+                    $remaining -= $take;
+                }
+            }
+
+            // Priority 4: quantity_tax (Good stock)
+            if ($remaining > 0) {
+                $take = min($remaining, (int) ($stock->quantity_tax ?? 0));
+                if ($take > 0) {
+                    $stock->decrement('quantity_tax', $take);
+                    $stock->decrement('quantity', $take);
+                    $deducted['good_tax'] = $take;
+                    $remaining -= $take;
+                }
+            }
+
+            if ($remaining > 0) {
+                // Should we throw exception or just deduct whatever left from good?
+                // For safety, we already checked, but if somehow stock is insufficient:
+                // throw new \Exception("Stok tidak mencukupi untuk dispatch {$product->product_name}");
+            }
+
+            // Update Product global quantity (only for Good stock deducted)
+            $totalGoodDeducted = $deducted['good_non_tax'] + $deducted['good_tax'];
+            if ($totalGoodDeducted > 0) {
+                $product->decrement('product_quantity', $totalGoodDeducted);
+            }
+            
+            // Only for broken stock deducted
+            $totalBrokenDeducted = $deducted['broken_non_tax'] + $deducted['broken_tax'];
+            if ($totalBrokenDeducted > 0) {
+               $product->decrement('broken_quantity', $totalBrokenDeducted);
+            }
 
             if (! empty($detail->serial_number_ids)) {
                 ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
@@ -255,6 +313,41 @@ class PurchaseReturnDispatchController extends Controller
                         'is_in_return_process' => true,
                         'purchase_return_id' => $purchase_return->id,
                     ]);
+            }
+
+            // Create Transactions for each deducted bucket
+            $stock->refresh();
+            $product->refresh();
+
+            foreach ($deducted as $source => $qty) {
+                if ($qty <= 0) continue;
+
+                $type = match($source) {
+                    'broken_non_tax' => 'PURCHASE_RETURN_BROKEN_NON_TAX',
+                    'broken_tax' => 'PURCHASE_RETURN_BROKEN_TAX',
+                    'good_non_tax' => 'PURCHASE_RETURN_GOOD_NON_TAX',
+                    'good_tax' => 'PURCHASE_RETURN_GOOD_TAX',
+                };
+
+                Transaction::create([
+                    'product_id' => $product->id,
+                    'setting_id' => $purchase_return->setting_id,
+                    'type' => $type,
+                    'quantity' => -$qty,
+                    'current_quantity' => $product->product_quantity,
+                    'broken_quantity' => $stock->broken_quantity,
+                    'location_id' => $detail->location_id,
+                    'user_id' => auth()->id(),
+                    'reason' => "Dispatch retur: {$purchase_return->reference}",
+                    'previous_quantity' => $prevProductQty,
+                    'after_quantity' => $product->product_quantity,
+                    'previous_quantity_at_location' => $prevStockQty,
+                    'after_quantity_at_location' => $stock->quantity,
+                    'quantity_tax' => ($source === 'good_tax') ? -$qty : 0,
+                    'quantity_non_tax' => ($source === 'good_non_tax') ? -$qty : 0,
+                    'broken_quantity_tax' => ($source === 'broken_tax') ? -$qty : 0,
+                    'broken_quantity_non_tax' => ($source === 'broken_non_tax') ? -$qty : 0,
+                ]);
             }
         }
     }

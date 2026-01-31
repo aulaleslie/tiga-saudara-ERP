@@ -362,4 +362,377 @@ class PurchaseReturnSettlementLogicTest extends TestCase
             'payment_method' => 'SETTLEMENT RETUR', // BaseModel uppercases text
         ]);
     }
+
+    /** @test */
+    public function it_removes_all_payments_when_source_is_paid_without_allocation_target()
+    {
+        // 1. Create Paid Purchase (Source)
+        DB::statement("INSERT INTO purchases (date, due_date, reference, supplier_id, payment_method, tax_percentage, discount_percentage, shipping_amount, paid_amount, total_amount, due_amount, status, payment_status, setting_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+            now(), now(),
+            'PUR-PAID',
+            $this->supplier->id,
+            'Cash',
+            0, 0, 0,
+            100000, 100000, 0,
+            'Received', 'Paid',
+            1,
+            now(), now()
+        ]);
+        $purchaseId = DB::getPdo()->lastInsertId();
+        $purchase = Purchase::find($purchaseId);
+        
+        $detail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 10,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 100000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+             'date' => now(),
+             'reference' => 'GRN-PAID',
+             'supplier_id' => $this->supplier->id,
+             'setting_id' => 1,
+             'status' => ReceivedNote::STATUS_APPROVED,
+             'po_id' => $purchase->id,
+        ]);
+        
+        ReceivedNoteDetail::create([
+             'received_note_id' => $receivedNote->id,
+             'po_detail_id' => $detail->id,
+             'product_id' => $this->product->id,
+             'quantity_received' => 10,
+             'product_code' => $this->product->product_code,
+             'product_name' => $this->product->product_name,
+             'unit_price' => 10000,
+             'sub_total' => 100000,
+             'product_tax_amount' => 0,
+             'product_discount_amount' => 0,
+             'product_discount_type' => 'fixed',
+        ]);
+
+        // Create Payment
+        PurchasePayment::create([
+            'purchase_id' => $purchase->id,
+            'amount' => 10000000, // 100,000 * 100
+            'date' => now(),
+            'reference' => 'PAY-PAID',
+            'payment_method' => 'Cash',
+        ]);
+
+        // 2. Create Return (Return 2 items = 20,000)
+        $return = PurchaseReturn::create([
+            'date' => now(),
+            'reference' => 'PR-PAID',
+            'setting_id' => 1,
+            'location_id' => $this->location->id,
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => $this->supplier->supplier_name,
+            'payment_method' => 'Cash',
+            'total_amount' => 20000,
+            'paid_amount' => 0,
+            'due_amount' => 20000,
+            'status' => 'Pending',
+            'approval_status' => 'Approved',
+            'return_dispatched_at' => now(),
+            'payment_status' => 'Unpaid',
+            'tax_percentage' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+        ]);
+        
+        $returnDetail = PurchaseReturnDetail::create([
+            'purchase_return_id' => $return->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 2,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 20000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        // 3. Create Settlement Item
+        $settlementItem = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $return->id,
+            'purchase_return_detail_id' => $returnDetail->id,
+            'method' => 'MODIFY_PURCHASE',
+            'nominal' => 20000,
+            'target_purchase_id' => $purchase->id,
+            'status' => 'SUBMITTED',
+        ]);
+
+        // 4. Approve
+        $this->actingAs( \App\Models\User::factory()->create() );
+        $response = $this->post(route('purchase-return-settlements.item.approve', $settlementItem->id));
+        
+        $response->assertSessionHas('success');
+
+        // 5. Assertions
+        $purchase->refresh();
+        // New Total: 80,000. Paid: 80,000 (matched new total since all payments were deleted). Due: 0. Status: PAID.
+        $this->assertEquals(80000, $purchase->total_amount);
+        $this->assertEquals(80000, $purchase->paid_amount);
+        $this->assertEquals(0, $purchase->due_amount);
+        $this->assertEquals('PAID', $purchase->payment_status);
+        $this->assertEquals(0, PurchasePayment::where('purchase_id', $purchase->id)->count());
+    }
+
+    /** @test */
+    public function it_removes_all_payments_when_partial_remainder_is_less_than_return()
+    {
+        // 1. Create Partial Purchase (Total 100k, Paid 80k, Due 20k)
+        DB::statement("INSERT INTO purchases (date, due_date, reference, supplier_id, payment_method, tax_percentage, discount_percentage, shipping_amount, paid_amount, total_amount, due_amount, status, payment_status, setting_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+            now(), now(),
+            'PUR-PARTIAL-LESS',
+            $this->supplier->id,
+            'Cash',
+            0, 0, 0,
+            80000, 100000, 20000,
+            'Received', 'Partial',
+            1,
+            now(), now()
+        ]);
+        $purchaseId = DB::getPdo()->lastInsertId();
+        $purchase = Purchase::find($purchaseId);
+        
+        $detail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 10,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 100000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+             'date' => now(),
+             'reference' => 'GRN-PARTIAL-LESS',
+             'supplier_id' => $this->supplier->id,
+             'setting_id' => 1,
+             'status' => ReceivedNote::STATUS_APPROVED,
+             'po_id' => $purchase->id,
+        ]);
+        
+        ReceivedNoteDetail::create([
+             'received_note_id' => $receivedNote->id,
+             'po_detail_id' => $detail->id,
+             'product_id' => $this->product->id,
+             'quantity_received' => 10,
+             'product_code' => $this->product->product_code,
+             'product_name' => $this->product->product_name,
+             'unit_price' => 10000,
+             'sub_total' => 100000,
+             'product_tax_amount' => 0,
+             'product_discount_amount' => 0,
+             'product_discount_type' => 'fixed',
+        ]);
+
+        PurchasePayment::create([
+            'purchase_id' => $purchase->id,
+            'amount' => 8000000, // 80,000 * 100
+            'date' => now(),
+            'reference' => 'PAY-PARTIAL-LESS',
+            'payment_method' => 'Cash',
+        ]);
+
+        // 2. Create Return 30k (Greater than Due 20k)
+        $return = PurchaseReturn::create([
+            'date' => now(),
+            'reference' => 'PR-PARTIAL-LESS',
+            'setting_id' => 1,
+            'location_id' => $this->location->id,
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => $this->supplier->supplier_name,
+            'payment_method' => 'Cash',
+            'total_amount' => 30000,
+            'paid_amount' => 0,
+            'due_amount' => 30000,
+            'status' => 'Pending',
+            'approval_status' => 'Approved',
+            'return_dispatched_at' => now(),
+            'payment_status' => 'Unpaid',
+            'tax_percentage' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+        ]);
+        
+        $returnDetail = PurchaseReturnDetail::create([
+            'purchase_return_id' => $return->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 3,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 30000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        // 3. Create Settlement Item
+        $settlementItem = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $return->id,
+            'purchase_return_detail_id' => $returnDetail->id,
+            'method' => 'MODIFY_PURCHASE',
+            'nominal' => 30000,
+            'target_purchase_id' => $purchase->id,
+            'status' => 'SUBMITTED',
+        ]);
+
+        // 4. Approve
+        $this->actingAs( \App\Models\User::factory()->create() );
+        $response = $this->post(route('purchase-return-settlements.item.approve', $settlementItem->id));
+        
+        $response->assertSessionHas('success');
+
+        // 5. Assertions
+        $purchase->refresh();
+        // New Total: 70,000. Paid: 70,000 (matched new total since all payments were deleted). Due: 0. Status: PAID.
+        $this->assertEquals(70000, $purchase->total_amount);
+        $this->assertEquals(70000, $purchase->paid_amount);
+        $this->assertEquals(0, $purchase->due_amount);
+        $this->assertEquals('PAID', $purchase->payment_status);
+        $this->assertEquals(0, PurchasePayment::where('purchase_id', $purchase->id)->count());
+    }
+
+    /** @test */
+    public function it_keeps_payments_when_partial_remainder_is_greater_than_return()
+    {
+        // 1. Create Partial Purchase (Total 100k, Paid 50k, Due 50k)
+        DB::statement("INSERT INTO purchases (date, due_date, reference, supplier_id, payment_method, tax_percentage, discount_percentage, shipping_amount, paid_amount, total_amount, due_amount, status, payment_status, setting_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+            now(), now(),
+            'PUR-PARTIAL-MORE',
+            $this->supplier->id,
+            'Cash',
+            0, 0, 0,
+            50000, 100000, 50000,
+            'Received', 'Partial',
+            1,
+            now(), now()
+        ]);
+        $purchaseId = DB::getPdo()->lastInsertId();
+        $purchase = Purchase::find($purchaseId);
+        
+        $detail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 10,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 100000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+             'date' => now(),
+             'reference' => 'GRN-PARTIAL-MORE',
+             'supplier_id' => $this->supplier->id,
+             'setting_id' => 1,
+             'status' => ReceivedNote::STATUS_APPROVED,
+             'po_id' => $purchase->id,
+        ]);
+        
+        ReceivedNoteDetail::create([
+             'received_note_id' => $receivedNote->id,
+             'po_detail_id' => $detail->id,
+             'product_id' => $this->product->id,
+             'quantity_received' => 10,
+             'product_code' => $this->product->product_code,
+             'product_name' => $this->product->product_name,
+             'unit_price' => 10000,
+             'sub_total' => 100000,
+             'product_tax_amount' => 0,
+             'product_discount_amount' => 0,
+             'product_discount_type' => 'fixed',
+        ]);
+
+        PurchasePayment::create([
+            'purchase_id' => $purchase->id,
+            'amount' => 5000000, // 50,000 * 100
+            'date' => now(),
+            'reference' => 'PAY-PARTIAL-MORE',
+            'payment_method' => 'Cash',
+        ]);
+
+        // 2. Create Return 20k (Less than Due 50k)
+        $return = PurchaseReturn::create([
+            'date' => now(),
+            'reference' => 'PR-PARTIAL-MORE',
+            'setting_id' => 1,
+            'location_id' => $this->location->id,
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => $this->supplier->supplier_name,
+            'payment_method' => 'Cash',
+            'total_amount' => 20000,
+            'paid_amount' => 0,
+            'due_amount' => 20000,
+            'status' => 'Pending',
+            'approval_status' => 'Approved',
+            'return_dispatched_at' => now(),
+            'payment_status' => 'Unpaid',
+            'tax_percentage' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+        ]);
+        
+        $returnDetail = PurchaseReturnDetail::create([
+            'purchase_return_id' => $return->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 2,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 20000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        // 3. Create Settlement Item
+        $settlementItem = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $return->id,
+            'purchase_return_detail_id' => $returnDetail->id,
+            'method' => 'MODIFY_PURCHASE',
+            'nominal' => 20000,
+            'target_purchase_id' => $purchase->id,
+            'status' => 'SUBMITTED',
+        ]);
+
+        // 4. Approve
+        $this->actingAs( \App\Models\User::factory()->create() );
+        $response = $this->post(route('purchase-return-settlements.item.approve', $settlementItem->id));
+        
+        $response->assertSessionHas('success');
+
+        // 5. Assertions
+        $purchase->refresh();
+        // New Total: 80,000. Paid: 50,000 (kept because return 20k <= due 50k). Due: 30,000. Status: Partial.
+        $this->assertEquals(80000, $purchase->total_amount);
+        $this->assertEquals(50000, $purchase->paid_amount);
+        $this->assertEquals(30000, $purchase->due_amount);
+        $this->assertEquals('PARTIAL', $purchase->payment_status);
+        $this->assertEquals(1, PurchasePayment::where('purchase_id', $purchase->id)->count());
+    }
 }

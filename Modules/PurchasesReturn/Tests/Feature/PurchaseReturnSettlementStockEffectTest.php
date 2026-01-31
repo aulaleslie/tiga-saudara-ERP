@@ -195,11 +195,12 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
 
         $this->assertDatabaseHas('transactions', [
             'product_id' => $product->id,
-            'type' => 'PURCHASE_RETURN',
+            'type' => 'PURCHASE_RETURN_GOOD_NON_TAX',
             'quantity' => -2,
             'current_quantity' => 8,
             'location_id' => $this->location->id,
             'reason' => strtoupper("Dispatch retur: {$pr->reference}"),
+            'quantity_non_tax' => -2,
         ]);
 
         $purchase->refresh();

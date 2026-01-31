@@ -171,7 +171,7 @@ class PurchasesReturnSettlementController extends Controller
                     'approval_note' => $request->approval_note,
                     'attachments' => $request->file('attachments'),
                 ];
-                $this->applySettlementEffect($itemSettlement, $options);
+                $this->applySettlementEffect($itemSettlement, $options, $request);
 
                 // Update item status based on method
                 $finalStatus = \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_APPROVED;
@@ -373,7 +373,7 @@ class PurchasesReturnSettlementController extends Controller
     /**
      * Helper to move stock between locations with transaction
      */
-    protected function moveStock($productId, $sourceId, $targetId, $qty, $type, $reason, $settingId = null)
+    protected function moveStock($productId, $sourceId, $targetId, $qty, $type, $reason, $settingId = null, $isBroken = false)
     {
         $settingId = $settingId ?? session('setting_id');
         
@@ -386,17 +386,41 @@ class PurchasesReturnSettlementController extends Controller
             throw new \Exception("Stok tidak ditemukan di lokasi asal.");
         }
 
-        $nonTaxDeduct = min($qty, $sourceStock->quantity_non_tax);
-        $taxDeduct = max(0, $qty - $nonTaxDeduct);
+        $remaining = $qty;
+        $deductedByBucket = [
+            'non_tax' => 0,
+            'tax' => 0,
+        ];
 
-        if ($taxDeduct > $sourceStock->quantity_tax) {
+        // Priority logic for moving Good or Broken stock
+        $sourceBucketNonTax = $isBroken ? 'broken_quantity_non_tax' : 'quantity_non_tax';
+        $sourceBucketTax = $isBroken ? 'broken_quantity_tax' : 'quantity_tax';
+        $sourceBucketMain = $isBroken ? 'broken_quantity' : 'quantity';
+
+        // 1. Non-tax
+        $take = min($remaining, (int) ($sourceStock->$sourceBucketNonTax ?? 0));
+        if ($take > 0) {
+            $sourceStock->decrement($sourceBucketNonTax, $take);
+            $sourceStock->decrement($sourceBucketMain, $take);
+            $deductedByBucket['non_tax'] = $take;
+            $remaining -= $take;
+        }
+
+        // 2. Tax
+        if ($remaining > 0) {
+            $take = min($remaining, (int) ($sourceStock->$sourceBucketTax ?? 0));
+            if ($take > 0) {
+                $sourceStock->decrement($sourceBucketTax, $take);
+                $sourceStock->decrement($sourceBucketMain, $take);
+                $deductedByBucket['tax'] = $take;
+                $remaining -= $take;
+            }
+        }
+
+        if ($remaining > 0) {
              throw new \Exception("Stok tidak mencukupi di lokasi asal.");
         }
 
-        $prevSourceQty = $sourceStock->quantity;
-        $sourceStock->quantity_non_tax -= $nonTaxDeduct;
-        $sourceStock->quantity_tax -= $taxDeduct;
-        $sourceStock->quantity = $sourceStock->quantity_tax + $sourceStock->quantity_non_tax;
         $sourceStock->save();
 
         $targetStock = ProductStock::firstOrCreate(
@@ -404,50 +428,71 @@ class PurchasesReturnSettlementController extends Controller
             ['quantity' => 0, 'quantity_tax' => 0, 'quantity_non_tax' => 0, 'broken_quantity' => 0, 'broken_quantity_tax' => 0, 'broken_quantity_non_tax' => 0]
         );
 
-        $prevTargetQty = $targetStock->quantity;
-        $targetStock->quantity_non_tax += $nonTaxDeduct;
-        $targetStock->quantity_tax += $taxDeduct;
-        $targetStock->quantity = $targetStock->quantity_tax + $targetStock->quantity_non_tax;
+        $prevTargetQty = (int) $targetStock->$sourceBucketMain;
+        
+        // Apply to target
+        if ($deductedByBucket['non_tax'] > 0) {
+            $targetStock->increment($sourceBucketNonTax, $deductedByBucket['non_tax']);
+            $targetStock->increment($sourceBucketMain, $deductedByBucket['non_tax']);
+        }
+        if ($deductedByBucket['tax'] > 0) {
+            $targetStock->increment($sourceBucketTax, $deductedByBucket['tax']);
+            $targetStock->increment($sourceBucketMain, $deductedByBucket['tax']);
+        }
         $targetStock->save();
 
-        Transaction::create([
-            'product_id' => $productId,
-            'setting_id' => $settingId,
-            'type' => $type,
-            'quantity' => -$qty, // Negative for source
-            'current_quantity' => $sourceStock->quantity,
-            'previous_quantity' => $prevSourceQty,
-            'after_quantity' => $sourceStock->quantity,
-            'previous_quantity_at_location' => $prevSourceQty,
-            'after_quantity_at_location' => $sourceStock->quantity,
-            'quantity_tax' => $sourceStock->quantity_tax,
-            'quantity_non_tax' => $sourceStock->quantity_non_tax,
-            'broken_quantity_tax' => $sourceStock->broken_quantity_tax,
-            'broken_quantity_non_tax' => $sourceStock->broken_quantity_non_tax,
-            'location_id' => $sourceId,
-            'user_id' => auth()->id(),
-            'reason' => $reason,
-        ]);
+        // Create granular transactions
+        $product = Product::find($productId);
+        
+        foreach ($deductedByBucket as $bucket => $bucketQty) {
+            if ($bucketQty <= 0) continue;
 
-        // Record the gain at target location
-        Transaction::create([
-            'product_id' => $productId,
-            'setting_id' => $settingId,
-            'type' => $type,
-            'quantity' => $qty,
-            'current_quantity' => $targetStock->quantity,
-            'previous_quantity' => Product::find($productId)?->product_quantity ?? 0,
-            'after_quantity' => Product::find($productId)?->product_quantity ?? 0,
-            'previous_quantity_at_location' => $prevTargetQty,
-            'after_quantity_at_location' => $targetStock->quantity,
-            'quantity_tax' => $targetStock->quantity_tax,
-            'quantity_non_tax' => $targetStock->quantity_non_tax,
-            'broken_quantity_tax' => $targetStock->broken_quantity_tax,
-            'broken_quantity_non_tax' => $targetStock->broken_quantity_non_tax,
-            'location_id' => $targetId,
-            'user_id' => auth()->id(),
-            'reason' => $reason . " (Diterima)",
-        ]);
+            $granularType = $type;
+            if ($type === 'RETURN_REPAIR') {
+                $granularType = $bucket === 'tax' ? 'PURCHASE_RETURN_GOOD_TAX' : 'PURCHASE_RETURN_GOOD_NON_TAX';
+            }
+
+            Transaction::create([
+                'product_id' => $productId,
+                'setting_id' => $settingId,
+                'type' => $granularType,
+                'quantity' => -$bucketQty, 
+                'current_quantity' => $product?->product_quantity ?? 0,
+                'broken_quantity' => $sourceStock->broken_quantity,
+                'location_id' => $sourceId,
+                'user_id' => auth()->id(),
+                'reason' => $reason,
+                'previous_quantity' => $product?->product_quantity ?? 0, // Simplified
+                'after_quantity' => $product?->product_quantity ?? 0,
+                'previous_quantity_at_location' => (int) $sourceStock->$sourceBucketMain + $bucketQty,
+                'after_quantity_at_location' => (int) $sourceStock->$sourceBucketMain,
+                'quantity_tax' => (!$isBroken && $bucket === 'tax') ? -$bucketQty : 0,
+                'quantity_non_tax' => (!$isBroken && $bucket === 'non_tax') ? -$bucketQty : 0,
+                'broken_quantity_tax' => ($isBroken && $bucket === 'tax') ? -$bucketQty : 0,
+                'broken_quantity_non_tax' => ($isBroken && $bucket === 'non_tax') ? -$bucketQty : 0,
+            ]);
+
+            // Gain at target
+            Transaction::create([
+                'product_id' => $productId,
+                'setting_id' => $settingId,
+                'type' => $granularType,
+                'quantity' => $bucketQty,
+                'current_quantity' => $product?->product_quantity ?? 0,
+                'broken_quantity' => $targetStock->broken_quantity,
+                'location_id' => $targetId,
+                'user_id' => auth()->id(),
+                'reason' => $reason . " (Diterima)",
+                'previous_quantity' => $product?->product_quantity ?? 0,
+                'after_quantity' => $product?->product_quantity ?? 0,
+                'previous_quantity_at_location' => $prevTargetQty,
+                'after_quantity_at_location' => (int) $targetStock->$sourceBucketMain,
+                'quantity_tax' => (!$isBroken && $bucket === 'tax') ? $bucketQty : 0,
+                'quantity_non_tax' => (!$isBroken && $bucket === 'non_tax') ? $bucketQty : 0,
+                'broken_quantity_tax' => ($isBroken && $bucket === 'tax') ? $bucketQty : 0,
+                'broken_quantity_non_tax' => ($isBroken && $bucket === 'non_tax') ? $bucketQty : 0,
+            ]);
+        }
     }
 
     /**
@@ -507,6 +552,11 @@ class PurchasesReturnSettlementController extends Controller
         $settingId = $settingId ?? session('setting_id');
         $product = Product::find($productId);
 
+        $deductedBreakdown = [
+            'non_tax' => 0,
+            'tax' => 0,
+        ];
+
         if (!$isDispatched) {
             $sourceStock = ProductStock::where('product_id', $productId)
                 ->where('location_id', $sourceId)
@@ -520,68 +570,105 @@ class PurchasesReturnSettlementController extends Controller
             $prevSourceQty = $sourceStock?->quantity ?? 0;
             $prevSourceBrokenQty = $sourceStock?->broken_quantity ?? 0;
 
-            // Prioritize broken stock first then good stock
-            $availableBrokenNonTax = max(0, (int) ($sourceStock->broken_quantity_non_tax ?? 0));
-            $availableBrokenTax = max(0, (int) ($sourceStock->broken_quantity_tax ?? 0));
-            $availableBroken = $availableBrokenNonTax + $availableBrokenTax;
+            $remaining = $qty;
+            $deductedByBucket = [
+                'broken_non_tax' => 0,
+                'broken_tax' => 0,
+                'good_non_tax' => 0,
+                'good_tax' => 0,
+            ];
 
-            $brokenToDeduct = min($qty, $availableBroken);
-            $goodToDeduct = $qty - $brokenToDeduct;
+            // Priority 1: broken_quantity_non_tax
+            $take = min($remaining, (int) ($sourceStock->broken_quantity_non_tax ?? 0));
+            if ($take > 0) {
+                $sourceStock->decrement('broken_quantity_non_tax', $take);
+                $sourceStock->decrement('broken_quantity', $take);
+                $deductedByBucket['broken_non_tax'] = $take;
+                $deductedBreakdown['non_tax'] += $take;
+                $remaining -= $take;
+                if ($product) $product->decrement('broken_quantity', $take);
+            }
 
-            // Deduct from Broken source if applicable
-            if ($brokenToDeduct > 0 && $sourceStock) {
-                $bnTaxDeduct = min($brokenToDeduct, $availableBrokenNonTax);
-                $bTaxDeduct = $brokenToDeduct - $bnTaxDeduct;
-
-                $sourceStock->decrement('broken_quantity', $brokenToDeduct);
-                $sourceStock->decrement('broken_quantity_non_tax', $bnTaxDeduct);
-                $sourceStock->decrement('broken_quantity_tax', $bTaxDeduct);
-                
-                if ($product) {
-                    $product->decrement('broken_quantity', $brokenToDeduct);
+            // Priority 2: broken_quantity_tax
+            if ($remaining > 0) {
+                $take = min($remaining, (int) ($sourceStock->broken_quantity_tax ?? 0));
+                if ($take > 0) {
+                    $sourceStock->decrement('broken_quantity_tax', $take);
+                    $sourceStock->decrement('broken_quantity', $take);
+                    $deductedByBucket['broken_tax'] = $take;
+                    $deductedBreakdown['tax'] += $take;
+                    $remaining -= $take;
+                    if ($product) $product->decrement('broken_quantity', $take);
                 }
             }
 
-            // Deduct from Good source if applicable
-            if ($goodToDeduct > 0 && $sourceStock) {
-                $gnTaxDeduct = min($goodToDeduct, $sourceStock->quantity_non_tax);
-                $gTaxDeduct = $goodToDeduct - $gnTaxDeduct;
-
-                if ($gTaxDeduct > $sourceStock->quantity_tax) {
-                    throw new \Exception("Stok tidak mencukupi di lokasi asal.");
+            // Priority 3: quantity_non_tax (Good stock)
+            if ($remaining > 0) {
+                $take = min($remaining, (int) ($sourceStock->quantity_non_tax ?? 0));
+                if ($take > 0) {
+                    $sourceStock->decrement('quantity_non_tax', $take);
+                    $sourceStock->decrement('quantity', $take);
+                    $deductedByBucket['good_non_tax'] = $take;
+                    $deductedBreakdown['non_tax'] += $take;
+                    $remaining -= $take;
+                    if ($product) $product->decrement('product_quantity', $take);
                 }
+            }
 
-                $sourceStock->decrement('quantity', $goodToDeduct);
-                $sourceStock->decrement('quantity_non_tax', $gnTaxDeduct);
-                $sourceStock->decrement('quantity_tax', $gTaxDeduct);
-
-                if ($product) {
-                    $product->decrement('product_quantity', $goodToDeduct);
+            // Priority 4: quantity_tax (Good stock)
+            if ($remaining > 0) {
+                $take = min($remaining, (int) ($sourceStock->quantity_tax ?? 0));
+                if ($take > 0) {
+                    $sourceStock->decrement('quantity_tax', $take);
+                    $sourceStock->decrement('quantity', $take);
+                    $deductedByBucket['good_tax'] = $take;
+                    $deductedBreakdown['tax'] += $take;
+                    $remaining -= $take;
+                    if ($product) $product->decrement('product_quantity', $take);
                 }
+            }
+
+            if ($remaining > 0) {
+                throw new \Exception("Stok tidak mencukupi di lokasi asal (Kurang {$remaining}).");
             }
             
             if ($sourceStock) $sourceStock->save();
 
-            // Record transaction for deduction
-            Transaction::create([
-                'product_id' => $productId,
-                'setting_id' => $settingId,
-                'type' => 'RETURN_BROKEN',
-                'quantity' => -$qty, 
-                'current_quantity' => $sourceStock?->quantity ?? 0,
-                'broken_quantity' => $sourceStock?->broken_quantity ?? 0,
-                'previous_quantity' => $product?->product_quantity ?? 0,
-                'after_quantity' => $product?->product_quantity ?? 0,
-                'previous_quantity_at_location' => $prevSourceQty,
-                'after_quantity_at_location' => $sourceStock?->quantity ?? 0,
-                'quantity_tax' => $sourceStock?->quantity_tax ?? 0,
-                'quantity_non_tax' => $sourceStock?->quantity_non_tax ?? 0,
-                'broken_quantity_tax' => $sourceStock?->broken_quantity_tax ?? 0,
-                'broken_quantity_non_tax' => $sourceStock?->broken_quantity_non_tax ?? 0,
-                'location_id' => $sourceId,
-                'user_id' => auth()->id(),
-                'reason' => 'Penerimaan barang rusak dari retur pembelian (Keluar)',
-            ]);
+            // Record granular transactions for deduction
+            foreach ($deductedByBucket as $source => $bucketQty) {
+                if ($bucketQty <= 0) continue;
+
+                $type = match($source) {
+                    'broken_non_tax' => 'PURCHASE_RETURN_BROKEN_NON_TAX',
+                    'broken_tax' => 'PURCHASE_RETURN_BROKEN_TAX',
+                    'good_non_tax' => 'PURCHASE_RETURN_GOOD_NON_TAX',
+                    'good_tax' => 'PURCHASE_RETURN_GOOD_TAX',
+                };
+
+                Transaction::create([
+                    'product_id' => $productId,
+                    'setting_id' => $settingId,
+                    'type' => $type,
+                    'quantity' => -$bucketQty, 
+                    'current_quantity' => $product?->product_quantity ?? 0,
+                    'broken_quantity' => $sourceStock?->broken_quantity ?? 0,
+                    'previous_quantity' => $product?->product_quantity + $bucketQty, // Approximation
+                    'after_quantity' => $product?->product_quantity ?? 0,
+                    'previous_quantity_at_location' => $prevSourceQty,
+                    'after_quantity_at_location' => $sourceStock?->quantity ?? 0,
+                    'quantity_tax' => $sourceStock?->quantity_tax ?? 0,
+                    'quantity_non_tax' => $sourceStock?->quantity_non_tax ?? 0,
+                    'broken_quantity_tax' => $sourceStock?->broken_quantity_tax ?? 0,
+                    'broken_quantity_non_tax' => $sourceStock?->broken_quantity_non_tax ?? 0,
+                    'location_id' => $sourceId,
+                    'user_id' => auth()->id(),
+                    'reason' => 'Penerimaan barang rusak dari retur pembelian (Keluar)',
+                ]);
+            }
+        } else {
+            // Already dispatched. If we don't know the breakdown, we assume non-tax for simplicity OR attempt to resolve.
+            // But usually we should have tracked it. For now, prioritize non-tax.
+            $deductedBreakdown['non_tax'] = $qty; 
         }
 
         // Add to target Broken
@@ -592,10 +679,15 @@ class PurchasesReturnSettlementController extends Controller
 
         $prevTargetBrokenQty = $targetStock->broken_quantity;
         
-        // We assume returning to Broken stock keeps the tax status if it came from Good, or we treat it as Non-Tax if unsure.
-        // For simplicity, we increment broken_quantity_non_tax unless we have specific info.
-        $targetStock->increment('broken_quantity', $qty);
-        $targetStock->increment('broken_quantity_non_tax', $qty);
+        // Preserve tax status from deducted breakdown
+        if ($deductedBreakdown['non_tax'] > 0) {
+            $targetStock->increment('broken_quantity', $deductedBreakdown['non_tax']);
+            $targetStock->increment('broken_quantity_non_tax', $deductedBreakdown['non_tax']);
+        }
+        if ($deductedBreakdown['tax'] > 0) {
+            $targetStock->increment('broken_quantity', $deductedBreakdown['tax']);
+            $targetStock->increment('broken_quantity_tax', $deductedBreakdown['tax']);
+        }
         $targetStock->save();
 
         if ($product) {
@@ -626,11 +718,12 @@ class PurchasesReturnSettlementController extends Controller
     /**
      * Helper to apply settlement effect for a single item.
      */
-    protected function applySettlementEffect(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $item, array $options = [])
+    protected function applySettlementEffect(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $item, array $options = [], ?Request $request = null)
     {
         $method = strtoupper($item->method);
         $itemAmount = $item->getEffectiveNominal();
         $purchaseReturn = $item->purchaseReturn;
+        $request = $request ?: request(); // Fallback to global request if not provided
 
         switch ($method) {
             case 'MODIFY_PURCHASE':
@@ -701,29 +794,26 @@ class PurchasesReturnSettlementController extends Controller
                     // Smart Allocation Logic (Ticket: Reallocate Surplus)
                     $purchase->refresh();
                     $newTotal = (float) $purchase->total_amount;
-                    $paidAmount = (float) $purchase->paid_amount;
-                    // Case 1: Surplus (Paid > Total)
-                    if ($paidAmount > $newTotal) {
-                        $surplus = $paidAmount - $newTotal;
-                        $remainingSurplus = $surplus;
-                        
-                        // If user selected an allocation target (different purchase)
-                        $allocationTargetId = request('allocation_purchase_id');
-                        
-                        if ($allocationTargetId && $allocationTargetId != $purchase->id) {
-                            $targetPurchase = \Modules\Purchase\Entities\Purchase::find($allocationTargetId);
-                            if ($targetPurchase) {
-                                $allocationAmount = min($surplus, (float) $targetPurchase->due_amount);
-                                $remainingSurplus = $surplus - $allocationAmount;
-                                if ($allocationAmount <= 0) {
-                                    session()->flash('warning', 'Nota target tidak memiliki sisa tagihan untuk dialokasikan. Silakan atur pengembalian dana manual.');
-                                }
-                                
-                                // Create Payment on Target
-                                if ($allocationAmount > 0) {
-                                    // Delete all source purchase payments before reallocating
-                                    $purchase->purchasePayments()->delete();
+                    $currentPaidAmount = (float) $purchase->paid_amount;
+                    $paymentStatus = strtoupper($purchase->payment_status);
+                    $returnAmount = max(0, $previousTotal - $newTotal);
 
+                    // ALWAYS delete source payments for MODIFY_PURCHASE method to maintain integrity.
+                    // The goal is to reset the source purchase and allocate any previous payments (surplus) elsewhere or refund.
+                    if ($currentPaidAmount > 0) {
+                        $potentialSurplus = $currentPaidAmount; // Previous payments are now potential surplus
+                        $purchase->purchasePayments()->delete();
+                        $purchase->paid_amount = 0;
+                        $purchase->save();
+                        
+                        // Handle allocation of surplus to a target purchase if selected
+                        $allocationTargetId = $request->input('allocation_purchase_id');
+                        if ($allocationTargetId && (int)$allocationTargetId !== (int)$purchase->id) {
+                            $targetPurchase = \Modules\Purchase\Entities\Purchase::find($allocationTargetId);
+                            if ($targetPurchase && (float)$targetPurchase->due_amount > 0) {
+                                $allocationAmount = min($potentialSurplus, (float) $targetPurchase->due_amount);
+                                
+                                if ($allocationAmount > 0.01) {
                                     \Modules\Purchase\Entities\PurchasePayment::create([
                                         'purchase_id' => $targetPurchase->id,
                                         'amount' => $allocationAmount,
@@ -731,54 +821,34 @@ class PurchasesReturnSettlementController extends Controller
                                         'reference' => 'PAY-RET/' . $purchaseReturn->reference . '/' . time(),
                                         'note' => 'Alokasi dari retur ' . $purchaseReturn->reference . ' (Asal: ' . $purchase->reference . ')',
                                         'payment_method' => 'Settlement Retur',
+                                        'setting_id' => $purchase->setting_id,
                                     ]);
-                                }
-                                
-                                // Update Target Purchase status
-                                if ($allocationAmount > 0) {
-                                    $targetPurchase->paid_amount += $allocationAmount;
-                                    $targetPurchase->due_amount -= $allocationAmount;
-                                    $targetPurchase->payment_status = ($targetPurchase->due_amount <= 0) ? 'Paid' : 'Partial';
-                                    $targetPurchase->save();
-                                }
-                                
-                                // Update Source Purchase (Reduce Paid Amount to reflect transfer)
-                                // We treat the transfer as if the money moved out, so we reduce the paid_amount on source?
-                                // User Rule: "modify source purchase... append payment to source purchase" (Ambiguous)
-                                // Confirmed Plan Rule: "Source becomes Overpaid" -> "Transfer"
-                                // If we transfer, effectively we took money from Source to pay Target.
-                                // So Source Paid Amount should reduce by allocation Amount?
-                                // "Strict Rule" said: "delete all payments". User said "No, Smart Allocation".
-                                // If I have Paid 100. New Total 80. Surplus 20.
-                                // I move 20 to Target. Target gets +20 Payment.
-                                // Source should theoretically have Paid 80 now? Yes, to balance it.
-                                
-                                if ($allocationAmount > 0) {
-                                    // Set paid_amount to match newTotal since all payments were deleted
-                                    // and the "true" payment value was transferred to target
-                                    $purchase->paid_amount = $newTotal;
-                                    $purchase->save();
-                                }
 
-                                if ($remainingSurplus > 0.01) {
-                                    session()->flash('warning', 'Masih ada kelebihan bayar sebesar ' . format_currency($remainingSurplus) . '. Silakan atur pengembalian dana manual.');
+                                    $targetPurchase->paid_amount += $allocationAmount;
+                                    $targetPurchase->due_amount = max(0, $targetPurchase->total_amount - $targetPurchase->paid_amount);
+                                    $targetPurchase->payment_status = ($targetPurchase->due_amount <= 0.01) ? 'Paid' : 'Partial';
+                                    $targetPurchase->save();
+
+                                    $potentialSurplus -= $allocationAmount;
                                 }
                             }
-                        } else {
-                            // No target selected, but surplus exists.
-                            // Warning: Source is Overpaid. User handles manually.
-                             session()->flash('warning', 'Terdapat kelebihan bayar pada nota asal. Silakan atur pengembalian dana atau alokasi manual.');
                         }
-                    } 
+
+                        if ($potentialSurplus > 0.01) {
+                            // If there's still money left, it should be refunded or kept as record.
+                            // For now, we alert the user.
+                            session()->flash('warning', 'Masih ada kelebihan bayar sebesar ' . format_currency($potentialSurplus) . '. Silakan atur pengembalian dana manual.');
+                        }
+                    }
                     
                     // Update Status based on new numbers
                     $purchase->due_amount = max(0, $purchase->total_amount - $purchase->paid_amount);
-                    if ($purchase->due_amount == 0 && $purchase->paid_amount >= $purchase->total_amount) {
-                         $purchase->payment_status = 'Paid';
-                    } elseif ($purchase->due_amount < $purchase->total_amount && $purchase->paid_amount > 0) {
-                         $purchase->payment_status = 'Partial';
-                    } else {
+                    if ($purchase->paid_amount <= 0.01) {
                          $purchase->payment_status = 'Unpaid';
+                    } elseif ($purchase->due_amount <= 0.01 && $purchase->paid_amount >= $purchase->total_amount) {
+                         $purchase->payment_status = 'Paid';
+                    } else {
+                         $purchase->payment_status = 'Partial';
                     }
                     $purchase->save();
 
@@ -916,6 +986,28 @@ class PurchasesReturnSettlementController extends Controller
                         ]);
                     }
 
+                    // Create PurchaseReturnPayment record for the refund
+                    \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
+                        'date' => now(),
+                        'reference' => 'PAY-RET/' . $purchaseReturn->reference . '/' . time(),
+                        'amount' => $itemAmount,
+                        'purchase_return_id' => $purchaseReturn->id,
+                        'payment_method' => 'CASH',
+                        'note' => 'Refund tunai dari retur item: ' . ($detail->product_name ?? 'N/A'),
+                    ]);
+
+                    // Update Purchase Return financial status
+                    $purchaseReturn->paid_amount += $itemAmount;
+                    $purchaseReturn->due_amount = max(0, $purchaseReturn->total_amount - $purchaseReturn->paid_amount);
+                    if ($purchaseReturn->due_amount <= 0.01) {
+                         $purchaseReturn->payment_status = 'Paid';
+                    } elseif ($purchaseReturn->paid_amount > 0) {
+                         $purchaseReturn->payment_status = 'Partial';
+                    } else {
+                         $purchaseReturn->payment_status = 'Unpaid';
+                    }
+                    $purchaseReturn->save();
+
                     $purchase->refresh();
 
                 }
@@ -929,67 +1021,13 @@ class PurchasesReturnSettlementController extends Controller
     }
 
     /**
-     * Helper to deduct stock for return (either MODIFY_PURCHASE or CASH)
+     * Helper to deduct stock for return (Redundant - handled by dispatch)
      */
     protected function deductStockForReturn(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $item, $detail, $purchaseReturn, int $returnQty)
     {
-        $product = \Modules\Product\Entities\Product::find($detail->product_id);
-        if ($product) {
-            $qtyToDeduct = $returnQty;
-            $locationId = $detail->location_id ?? $purchaseReturn->location_id;
-
-            // Update Product global quantity
-            $previousQtyGlobal = $product->fresh()->product_quantity;
-            $product->decrement('product_quantity', $qtyToDeduct);
-
-            // Update ProductStock (location specific)
-            $productStock = \Modules\Product\Entities\ProductStock::where('product_id', $product->id)
-                ->where('location_id', $locationId)
-                ->first();
-
-            $prevQtyAtLocation = 0;
-            if ($productStock) {
-                $prevQtyAtLocation = $productStock->fresh()->quantity;
-                $productStock->decrement('quantity', $qtyToDeduct);
-            }
-
-            // Handle serial number return
-            $isTaxable = false;
-            if ($item->product_serial_number_id) {
-                $sn = \Modules\Product\Entities\ProductSerialNumber::find($item->product_serial_number_id);
-                if ($sn) {
-                    $isTaxable = $sn->tax_id !== null;
-                    $sn->update([
-                        'status' => 'RETURNED',
-                        'received_note_detail_id' => null,
-                        'is_in_return_process' => false,
-                        'purchase_return_id' => $purchaseReturn->id,
-                    ]);
-                }
-            } elseif ($detail->product_tax_amount > 0) {
-                $isTaxable = true;
-            }
-
-            // Create transaction record
-            \Modules\Product\Entities\Transaction::create([
-                'product_id' => $product->id,
-                'setting_id' => $purchaseReturn->setting_id,
-                'type' => 'PURCHASE_RETURN',
-                'quantity' => -$qtyToDeduct,
-                'current_quantity' => $product->fresh()->product_quantity,
-                'location_id' => $locationId,
-                'user_id' => auth()->id(),
-                'reason' => "Settlement retur: {$purchaseReturn->reference}",
-                'previous_quantity' => $previousQtyGlobal,
-                'after_quantity' => $product->fresh()->product_quantity,
-                'previous_quantity_at_location' => $prevQtyAtLocation,
-                'after_quantity_at_location' => $productStock ? $productStock->fresh()->quantity : 0,
-                'quantity_tax' => $isTaxable ? -$qtyToDeduct : 0,
-                'quantity_non_tax' => ! $isTaxable ? -$qtyToDeduct : 0,
-                'broken_quantity_tax' => 0,
-                'broken_quantity_non_tax' => 0,
-            ]);
-        }
+        // NO-OP: Deduction now happens at dispatch approval.
+        // Serial status is already updated in applySettlementEffect or lockReturnStock.
+        return;
     }
 
     protected function resolveReturnQuantity(\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement $item, $detail): int
