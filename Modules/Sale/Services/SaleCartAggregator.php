@@ -81,7 +81,10 @@ class SaleCartAggregator
                         ];
                     }
 
-                    $bundleQty = (float) ($bundleItem['quantity'] ?? 0);
+                    $baseQty = (float) ($bundleItem['quantity_per_bundle'] ?? $bundleItem['quantity'] ?? 0);
+                    // Expand bundle quantity by parent item qty
+                    $bundleQty = $baseQty * $qty;
+
                     $bundleSubTotal = array_key_exists('sub_total', $bundleItem)
                         ? (float) $bundleItem['sub_total']
                         : null;

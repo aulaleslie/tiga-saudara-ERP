@@ -317,6 +317,7 @@ class SaleController extends Controller
                         'product_id' => $bundleItem->product_id,
                         'name' => $bundleItem->name,
                         'price' => $bundleItem->price,
+                        'quantity_per_bundle' => $saleDetail->quantity > 0 ? (float) ($bundleItem->quantity / $saleDetail->quantity) : (float) $bundleItem->quantity,
                         'quantity' => $bundleItem->quantity, // this is the base quantity
                         'sub_total' => $bundleItem->sub_total,
                     ];

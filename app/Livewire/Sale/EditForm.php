@@ -107,6 +107,7 @@ class EditForm extends Component
                     'product_id'     => $b->product_id,
                     'name'           => $b->name,
                     'price'          => $b->price,
+                    'quantity_per_bundle' => $detail->quantity > 0 ? (float) ($b->quantity / $detail->quantity) : (float) $b->quantity,
                     'quantity'       => $b->quantity,
                     'sub_total'      => $b->sub_total,
                 ];
