@@ -16,6 +16,7 @@ class UpdateSaleRequest extends FormRequest
     {
         return [
             'customer_id' => 'required|numeric',
+            'date' => 'required|date',
             'reference' => 'required|string|max:255|unique:sales,reference,' . $this->route('sale')->id . ',id,setting_id,' . session('setting_id'),
             'tax_percentage' => 'required|integer|min:0|max:100',
             'discount_percentage' => 'required|integer|min:0|max:100',
@@ -38,6 +39,8 @@ class UpdateSaleRequest extends FormRequest
         return [
             'customer_id.required' => 'Pelanggan wajib dipilih.',
             'reference.required' => 'Referensi penjualan wajib diisi.',
+            'date.required' => 'Tanggal penjualan wajib diisi.',
+            'date.date' => 'Format tanggal tidak valid.',
             'reference.unique' => 'Referensi penjualan sudah digunakan.',
             'tax_percentage.required' => 'Persentase pajak wajib diisi.',
             'tax_percentage.integer' => 'Persentase pajak harus berupa angka.',

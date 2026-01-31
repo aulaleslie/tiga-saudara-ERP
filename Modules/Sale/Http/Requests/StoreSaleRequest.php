@@ -16,7 +16,7 @@ class StoreSaleRequest extends FormRequest
     {
         return [
             'customer_id' => 'required|integer|exists:customers,id',
-            'reference' => 'required|string|max:255|unique:sales,reference,NULL,id,setting_id,' . session('setting_id'),
+            'reference' => 'nullable|string|max:255|unique:sales,reference,NULL,id,setting_id,' . session('setting_id'),
             'date' => 'required|date',
             'due_date' => 'required|date|after_or_equal:date',
             'tax_id' => 'nullable|integer|exists:taxes,id',
@@ -39,7 +39,6 @@ class StoreSaleRequest extends FormRequest
         return [
             'customer_id.required' => 'Pelanggan wajib dipilih.',
             'customer_id.exists' => 'Pelanggan yang dipilih tidak valid.',
-            'reference.required' => 'Referensi penjualan wajib diisi.',
             'reference.unique' => 'Referensi penjualan sudah digunakan.',
             'date.required' => 'Tanggal penjualan wajib diisi.',
             'date.date' => 'Format tanggal tidak valid.',

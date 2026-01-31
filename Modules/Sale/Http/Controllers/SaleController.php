@@ -38,9 +38,16 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\Tax;
 use Modules\Sale\Services\SaleCartAggregator;
+use Modules\Sale\Services\SaleService;
 
 class SaleController extends Controller
 {
+    protected $saleService;
+
+    public function __construct(SaleService $saleService)
+    {
+        $this->saleService = $saleService;
+    }
 
     public function index(SalesDataTable $dataTable)
     {
@@ -70,146 +77,29 @@ class SaleController extends Controller
     public function store(StoreSaleRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('sales.create'), 403);
-        Log::info('REQUEST', [
-            'request' => $request->all(),
-            'cart' => Cart::instance('sale')->content()->toArray()
-        ]);
 
-        // Ensure cart is not empty.
         if (Cart::instance('sale')->count() == 0) {
             return redirect()->back()
                 ->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])
                 ->withInput();
         }
 
-        // Validate stock for parent products and bundled items.
-        $parentQuantities = [];
-        $bundleQuantities = [];
-
-        $cartItems = Cart::instance('sale')->content();
-
-        // Loop through each cart item.
-        foreach ($cartItems as $cart_item) {
-            // Parent product ID is stored in options->product_id.
-            $parentId = $cart_item->options->product_id;
-            if (!isset($parentQuantities[$parentId])) {
-                $parentQuantities[$parentId] = 0;
-            }
-            $parentQuantities[$parentId] += $cart_item->qty;
-
-            // If the cart item has bundle items, validate them.
-            if (is_array($cart_item->options->bundle_items)) {
-                foreach ($cart_item->options->bundle_items as $bundleItem) {
-                    // Bundle product ID.
-                    $bundleProductId = $bundleItem['product_id'];
-                    // Assume bundleItem['quantity'] is the base quantity defined in the bundle.
-                    // Multiply by the parent's quantity.
-                    $bundleQty = $bundleItem['quantity'] * $cart_item->qty;
-                    if (!isset($bundleQuantities[$bundleProductId])) {
-                        $bundleQuantities[$bundleProductId] = 0;
-                    }
-                    $bundleQuantities[$bundleProductId] += $bundleQty;
-                }
-            }
-        }
-
-        $errors = [];
-
-        // Validate parent products stock.
-        foreach ($parentQuantities as $productId => $requestedQty) {
-            $product = Product::find($productId);
-            if (!$product) {
-                $errors[] = "Product ID {$productId} not found.";
-            }
-        }
-
-        // Validate bundled products stock.
-        foreach ($bundleQuantities as $productId => $requestedQty) {
-            $product = Product::find($productId);
-            if (!$product) {
-                $errors[] = "Bundle Product ID {$productId} not found.";
-            }
-        }
-
-        // If errors exist, redirect back with error messages.
-        if (!empty($errors)) {
-            return redirect()->back()->withErrors($errors)->withInput();
-        }
-
-        $setting_id = session('setting_id');
-        DB::beginTransaction();
         try {
-            // Create the sale record.
-            $sale = Sale::create([
-                'date' => $request->date,
-                'due_date' => $request->due_date,
-                'customer_id' => $request->customer_id,
-                'customer_name' => Customer::findOrFail($request->customer_id)->customer_name,
-                'tax_id' => $request->tax_id,
-                'tax_percentage' => 0, // Set as needed.
-                'tax_amount' => 0, // Set as needed.
-                'discount_percentage' => $request->discount_percentage ?? 0,
-                'discount_amount' => $request->discount_amount ?? 0,
-                'shipping_amount' => $request->shipping_amount,
-                'total_amount' => $request->total_amount,
-                'due_amount' => $request->total_amount,
-                'status' => Sale::STATUS_DRAFTED, // Adjust as necessary (or use Sale::STATUS_DRAFTED).
-                'payment_status' => 'Unpaid',
-                'payment_term_id' => $request->payment_term_id,
-                'note' => $request->note,
-                'setting_id' => $setting_id,
-                'paid_amount' => 0.0,
-                'is_tax_included' => $request->is_tax_included,
-                'payment_method' => '',
-            ]);
+            $data = $request->validated();
+            $data['setting_id'] = session('setting_id');
+            $data['status'] = Sale::STATUS_DRAFTED;
+            $data['payment_status'] = 'Unpaid';
+            $data['paid_amount'] = 0;
+            $data['due_amount'] = $request->total_amount;
+            
+            $this->saleService->createSale($data, Cart::instance('sale')->content());
 
-            $aggregatedItems = SaleCartAggregator::aggregate($cartItems);
-
-            // Iterate over aggregated cart items and create sale details.
-            foreach ($aggregatedItems as $cart_item) {
-                $saleDetail = SaleDetails::create([
-                    'sale_id' => $sale->id,
-                    'product_id' => $cart_item['product_id'],
-                    'product_name' => $cart_item['product_name'],
-                    'product_code' => $cart_item['product_code'],
-                    'quantity' => $cart_item['quantity'],
-                    'unit_price' => round((float) $cart_item['unit_price'], 2),
-                    'price' => round((float) $cart_item['price'], 2),
-                    'product_discount_type' => $cart_item['product_discount_type'],
-                    'product_discount_amount' => round((float) $cart_item['product_discount_amount'], 2),
-                    'sub_total' => round((float) $cart_item['sub_total'], 2),
-                    'product_tax_amount' => round((float) $cart_item['product_tax_amount'], 2),
-                    'tax_id' => $cart_item['tax_id'],
-                ]);
-
-                // If the cart item has bundle items, iterate and create SaleBundleItem records.
-                if (! empty($cart_item['bundle_items'])) {
-                    foreach ($cart_item['bundle_items'] as $bundleItem) {
-                        // Create a bundle record for each bundle item.
-                        // Note: You might need to adjust fields if you have computed values.
-                        SaleBundleItem::create([
-                            'sale_detail_id' => $saleDetail->id,
-                            'sale_id' => $sale->id,
-                            'bundle_id' => $bundleItem['bundle_id'] ?? null,
-                            'bundle_item_id' => $bundleItem['bundle_item_id'] ?? null,
-                            'product_id' => $bundleItem['product_id'],
-                            'name' => $bundleItem['name'],
-                            'price' => round((float) ($bundleItem['price'] ?? 0), 2),
-                            'quantity' => $bundleItem['quantity'], // base quantity; computed quantity = base * parent qty can be computed as needed.
-                            'sub_total' => round((float) ($bundleItem['sub_total'] ?? 0), 2),
-                        ]);
-                    }
-                }
-            }
-
-            DB::commit();
+            Cart::instance('sale')->destroy();
             toast('Pembelian Ditambahkan!', 'success');
             return redirect()->route('sales.index');
         } catch (Exception $e) {
-            DB::rollBack();
             Log::error('Sale Creation Failed:', ['error' => $e->getMessage()]);
-            toast('An error occurred while creating the sale. Please try again.', 'error');
-            return redirect()->back()->withInput();
+            return redirect()->back()->withErrors(['cart' => $e->getMessage()])->withInput();
         }
     }
 
@@ -348,113 +238,20 @@ class SaleController extends Controller
 
         $this->ensureSaleBelongsToCurrentSetting($sale);
 
-        // Rule: Partially or Fully Dispatched -> Hard Block
-        if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
-            abort(403, 'Tidak dapat memperbarui penjualan yang sudah dikirim barangnya.');
-        }
+        try {
+            $data = $request->validated();
+            $data['tax_amount'] = round((float) Cart::instance('sale')->tax(), 2);
+            $data['discount_amount'] = round((float) Cart::instance('sale')->discount(), 2);
 
-        // Rule: Approved -> Require explicit permission
-        if ($sale->status === Sale::STATUS_APPROVED) {
-            if (!auth()->user()->can('sales.approved.edit')) {
-                abort(403, 'Anda tidak memiliki akses untuk memperbarui penjualan yang sudah disetujui.');
-            }
-        }
-        DB::transaction(function () use ($request, $sale) {
-
-            $due_amount = round((float) $request->total_amount - (float) $request->paid_amount, 2);
-            $due_amount = max($due_amount, 0);
-
-            $total_amount = round((float) $request->total_amount, 2);
-
-            if (round($due_amount, 2) >= $total_amount) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
-            }
-
-            foreach ($sale->saleDetails as $sale_detail) {
-                if ($sale->status == Sale::STATUS_DISPATCHED) {
-                    $product = Product::findOrFail($sale_detail->product_id);
-                    $product->update([
-                        'product_quantity' => $product->product_quantity + $sale_detail->quantity
-                    ]);
-                }
-                $sale_detail->delete();
-            }
-
-            // Delete existing bundle items
-            SaleBundleItem::where('sale_id', $sale->id)->delete();
-
-            $sale->update([
-                'date' => $request->date,
-                'reference' => $request->reference,
-                'customer_id' => $request->customer_id,
-                'customer_name' => Customer::findOrFail($request->customer_id)->customer_name,
-                'tax_percentage' => $request->tax_percentage,
-                'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => round((float) $request->shipping_amount, 2),
-                'paid_amount' => round((float) $request->paid_amount, 2),
-                'total_amount' => $total_amount,
-                'due_amount' => $due_amount,
-                'status' => $request->status,
-                'payment_status' => $payment_status,
-                'payment_method' => $request->payment_method,
-                'note' => $request->note,
-                'tax_amount' => round((float) Cart::instance('sale')->tax(), 2),
-                'discount_amount' => round((float) Cart::instance('sale')->discount(), 2),
-            ]);
-
-            foreach (Cart::instance('sale')->content() as $cart_item) {
-                $productId = $cart_item->options->product_id;
-                
-                $saleDetail = SaleDetails::create([
-                    'sale_id' => $sale->id,
-                    'product_id' => $productId,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options->code,
-                    'quantity' => $cart_item->qty,
-                    'price' => round((float) $cart_item->price, 2),
-                    'unit_price' => round((float) $cart_item->options->unit_price, 2),
-                    'sub_total' => round((float) $cart_item->options->sub_total, 2),
-                    'product_discount_amount' => round((float) $cart_item->options->product_discount, 2),
-                    'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => round((float) $cart_item->options->product_tax, 2),
-                    'tax_id' => $cart_item->options->product_tax ?: null,
-                ]);
-
-                // Recreate bundle items if they exist
-                if (!empty($cart_item->options->bundle_items)) {
-                    foreach ($cart_item->options->bundle_items as $bundleItem) {
-                        SaleBundleItem::create([
-                            'sale_detail_id' => $saleDetail->id,
-                            'sale_id' => $sale->id,
-                            'bundle_id' => $bundleItem['bundle_id'] ?? null,
-                            'bundle_item_id' => $bundleItem['bundle_item_id'] ?? null,
-                            'product_id' => $bundleItem['product_id'],
-                            'name' => $bundleItem['name'],
-                            'price' => round((float) ($bundleItem['price'] ?? 0), 2),
-                            'quantity' => $bundleItem['quantity'],
-                            'sub_total' => round((float) ($bundleItem['sub_total'] ?? 0), 2),
-                        ]);
-                    }
-                }
-
-                if ($request->status == Sale::STATUS_DISPATCHED) {
-                    $product = Product::findOrFail($productId);
-                    $product->update([
-                        'product_quantity' => $product->product_quantity - $cart_item->qty
-                    ]);
-                }
-            }
+            $this->saleService->updateSale($sale, $data, Cart::instance('sale')->content());
 
             Cart::instance('sale')->destroy();
-        });
-
-        toast('Penjualan Diperbaharui!', 'info');
-
-        return redirect()->route('sales.index');
+            toast('Penjualan Diperbaharui!', 'info');
+            return redirect()->route('sales.index');
+        } catch (Exception $e) {
+            Log::error('Sale Update Failed:', ['error' => $e->getMessage()]);
+            return redirect()->back()->withErrors(['cart' => $e->getMessage()])->withInput();
+        }
     }
 
     public function updateStatus(Request $request, Sale $sale): RedirectResponse

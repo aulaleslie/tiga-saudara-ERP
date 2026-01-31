@@ -17,6 +17,7 @@ use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Services\SaleCartAggregator;
+use Modules\Sale\Services\SaleService;
 
 class CreateForm extends Component
 {
@@ -233,88 +234,44 @@ class CreateForm extends Component
                     'paymentTermId' => $this->paymentTermId,
                 ]);
 
-                $settingId = session('setting_id');
                 $cartItems = Cart::instance('sale')->content();
-                $aggregatedItems = SaleCartAggregator::aggregate($cartItems);
 
-                // Totals
-                $totalSub       = $cartItems->sum(fn($i) => $i->options['sub_total']);
-                $taxAmount      = $cartItems->sum(fn($i) => $i->options['sub_total'] - ($i->options['sub_total_before_tax'] ?? 0));
-                $globalDiscount = 0;
-                $shipping       = 0;
-                $grandTotal     = $totalSub - $globalDiscount + $shipping;
-
-                // Create Sale
-                $sale = Sale::create([
+                $data = [
                     'date'               => $this->date,
                     'due_date'           => $this->dueDate,
                     'customer_id'        => $this->customerId,
-                    'customer_name'      => Customer::findOrFail($this->customerId)->customer_name,
                     'tax_id'             => null,
                     'tax_percentage'     => 0,
-                    'tax_amount'         => $taxAmount,
+                    'tax_amount'         => $cartItems->sum(fn($i) => $i->options['sub_total'] - ($i->options['sub_total_before_tax'] ?? 0)),
                     'discount_percentage'=> 0,
-                    'discount_amount'    => $globalDiscount,
-                    'shipping_amount'    => $shipping,
-                    'total_amount'       => $grandTotal,
-                    'due_amount'         => $grandTotal,
+                    'discount_amount'    => 0,
+                    'shipping_amount'    => 0,
+                    'total_amount'       => $cartItems->sum(fn($i) => $i->options['sub_total']),
                     'status'             => Sale::STATUS_DRAFTED,
                     'payment_status'     => 'Unpaid',
                     'payment_term_id'    => $this->paymentTermId,
                     'note'               => $this->note,
-                    'setting_id'         => $settingId,
+                    'setting_id'         => session('setting_id'),
                     'paid_amount'        => 0.0,
                     'is_tax_included'    => false,
                     'payment_method'     => '',
                     'tax_ref_no'         => $this->tax_ref_no ?: null,
-                ]);
+                    'tags'               => $this->tags,
+                ];
 
-                $sale->syncTags($this->tags);
-
-                Log::info('Sale created', ['sale_id' => $sale->id, 'reference' => $sale->reference]);
-
-                // Details & Bundles
-                foreach ($aggregatedItems as $item) {
-                    $detail = SaleDetails::create([
-                        'sale_id'                 => $sale->id,
-                        'product_id'              => $item['product_id'],
-                        'product_name'            => $item['product_name'],
-                        'product_code'            => $item['product_code'],
-                        'quantity'                => $item['quantity'],
-                        'unit_price'              => round((float) $item['unit_price'], 2),
-                        'price'                   => round((float) $item['price'], 2),
-                        'product_discount_type'   => $item['product_discount_type'],
-                        'product_discount_amount' => round((float) $item['product_discount_amount'], 2),
-                        'sub_total'               => round((float) $item['sub_total'], 2),
-                        'product_tax_amount'      => round((float) $item['product_tax_amount'], 2),
-                        'tax_id'                  => $item['tax_id'],
-                    ]);
-
-                    foreach ($item['bundle_items'] ?? [] as $b) {
-                        SaleBundleItem::create([
-                            'sale_detail_id' => $detail->id,
-                            'sale_id'        => $sale->id,
-                            'bundle_id'      => $b['bundle_id'] ?? null,
-                            'bundle_item_id' => $b['bundle_item_id'] ?? null,
-                            'product_id'     => $b['product_id'],
-                            'name'           => $b['name'],
-                            'price'          => round((float) ($b['price'] ?? 0), 2),
-                            'quantity'       => $b['quantity'],
-                            'sub_total'      => round((float) ($b['sub_total'] ?? 0), 2),
-                        ]);
-                    }
-                }
-
-                DB::commit();
+                $saleService = app(SaleService::class);
+                $sale = $saleService->createSale($data, $cartItems);
 
                 Cart::instance('sale')->destroy();
                 session()->flash('success', 'Penjualan Ditambahkan!');
                 Log::info('Sale create completed', ['sale_id' => $sale->id]);
                 return redirect()->route('sales.index');
             } catch (Exception $e) {
-                DB::rollBack();
                 Log::error('Livewire Sale Create Failed: ' . $e->getMessage());
-                session()->flash('error', 'Gagal menyimpan penjualan. Silakan coba lagi.');
+                $this->dispatch('notify', [
+                    'type'    => 'error',
+                    'message' => str_replace("\n", '<br>', $e->getMessage())
+                ]);
             }
         } finally {
             $this->dispatch('sale:submit-finish');

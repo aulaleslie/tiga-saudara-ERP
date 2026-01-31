@@ -69,6 +69,11 @@ class Sale extends BaseModel
         parent::boot();
 
         static::creating(function ($model) {
+            // Respect provided reference if set manually (e.g. from POS or direct API)
+            if ($model->reference) {
+                return;
+            }
+
             // Use the sale date if available, otherwise fallback to now()
             $saleDate = $model->date ? Carbon::parse($model->date) : now();
             $year = $saleDate->year;
