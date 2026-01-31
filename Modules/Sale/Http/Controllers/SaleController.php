@@ -547,7 +547,8 @@ class SaleController extends Controller
         foreach ($sale->saleDetails as $detail) {
             $pid = $detail->product_id;
             $taxId = $detail->tax_id; // assumed to exist on sale detail
-            $key = $pid . '-' . $taxId; // composite key for grouping
+            $bundleId = 0; // Standard items use 0 as bundle_id for keying
+            $key = $pid . '-' . $taxId . '-' . $bundleId; // composite key for grouping
 
             if (!isset($aggregatedProducts[$key])) {
                 // Retrieve product to get the product_code
@@ -558,6 +559,7 @@ class SaleController extends Controller
                 $aggregatedProducts[$key] = [
                     'product_id' => $pid,
                     'tax_id' => $taxId,
+                    'bundle_id' => $bundleId,
                     'product_name' => $detail->product_name,
                     'product_code' => $product ? $product->product_code : null,
                     'tax_name' => $tax ? $tax->name : null,
@@ -575,8 +577,12 @@ class SaleController extends Controller
         foreach ($bundleItems as $bundleItem) {
             $pid = $bundleItem->product_id;
             // Assume bundle item has a tax_id field or follow its sale detail's tax.
-            $taxId = $bundleItem->tax_id;
-            $key = $pid . '-' . $taxId;
+            // For now, if SaleBundleItem doesn't have tax_id, we might need to look it up or default to null.
+            // Based on previous analysis, SaleBundleItem doesn't seem to have tax_id explicitly, 
+            // but the requirement says "Dispatch aggregation uses composite key".
+            $taxId = $bundleItem->tax_id ?? null;
+            $bundleId = $bundleItem->bundle_id ?? 0;
+            $key = $pid . '-' . $taxId . '-' . $bundleId;
 
             if (!isset($aggregatedProducts[$key])) {
                 $product = Product::find($pid);
@@ -585,6 +591,7 @@ class SaleController extends Controller
                 $aggregatedProducts[$key] = [
                     'product_id' => $pid,
                     'tax_id' => $taxId,
+                    'bundle_id' => $bundleId,
                     'product_name' => $bundleItem->name,
                     'product_code' => $product ? $product->product_code : null,
                     'tax_name' => $tax ? $tax->name : null,
@@ -604,7 +611,7 @@ class SaleController extends Controller
         })->get();
 
         foreach ($dispatchedDetails as $d) {
-            $key = $d->product_id . '-' . $d->tax_id;
+            $key = $d->product_id . '-' . $d->tax_id . '-' . ($d->bundle_id ?? 0);
             if (isset($aggregatedProducts[$key])) {
                 $aggregatedProducts[$key]['dispatched_quantity'] += $d->dispatched_quantity;
             }
@@ -648,7 +655,8 @@ class SaleController extends Controller
             foreach ($sale->saleDetails as $detail) {
                 $pid = $detail->product_id;
                 $taxId = $detail->tax_id;
-                $key = $pid . '-' . $taxId;
+                $bundleId = 0;
+                $key = $pid . '-' . $taxId . '-' . $bundleId;
                 if (!isset($aggregated[$key])) {
                     $aggregated[$key] = [
                         'total_quantity' => 0,
@@ -658,12 +666,28 @@ class SaleController extends Controller
                 $aggregated[$key]['total_quantity'] += (int) $detail->quantity;
             }
 
+            // Aggregate from bundle items
+            $bundleItems = SaleBundleItem::where('sale_id', $sale->id)->get();
+            foreach ($bundleItems as $bundleItem) {
+                $pid = $bundleItem->product_id;
+                $taxId = $bundleItem->tax_id ?? null;
+                $bundleId = $bundleItem->bundle_id ?? 0;
+                $key = $pid . '-' . $taxId . '-' . $bundleId;
+                if (!isset($aggregated[$key])) {
+                    $aggregated[$key] = [
+                        'total_quantity' => 0,
+                        'dispatched_quantity' => 0,
+                    ];
+                }
+                $aggregated[$key]['total_quantity'] += (int) $bundleItem->quantity;
+            }
+
             $currentDispatches = DispatchDetail::whereHas('dispatch', function ($query) use ($sale) {
                 $query->where('sale_id', $sale->id);
             })->get();
 
             foreach ($currentDispatches as $d) {
-                $key = $d->product_id . '-' . $d->tax_id;
+                $key = $d->product_id . '-' . $d->tax_id . '-' . ($d->bundle_id ?? 0);
                 if (isset($aggregated[$key])) {
                     $aggregated[$key]['dispatched_quantity'] += (int) $d->dispatched_quantity;
                 }
@@ -672,7 +696,12 @@ class SaleController extends Controller
             foreach ($dispatchedQuantities as $compositeKey => $qty) {
                 if ((int)$qty <= 0) continue;
 
-                list($productId, $taxId) = explode('-', $compositeKey);
+                $parts = explode('-', $compositeKey);
+                if (count($parts) < 2) continue;
+                
+                $productId = $parts[0];
+                $taxId = $parts[1];
+                $bundleId = $parts[2] ?? 0;
                 $product = Product::find($productId);
                 
                 if (!$product) {
