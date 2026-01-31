@@ -19,6 +19,10 @@ class DispatchDetail extends BaseModel
         'tax_id',
     ];
 
+    protected array $uppercaseExcept = [
+        'serial_numbers',
+    ];
+
     public function dispatch(): BelongsTo
     {
         return $this->belongsTo(Dispatch::class);

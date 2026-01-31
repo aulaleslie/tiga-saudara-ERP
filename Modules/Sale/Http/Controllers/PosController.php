@@ -794,6 +794,10 @@ class PosController extends Controller
                     continue;
                 }
 
+                $options = $this->normalizeCartOptions($cartItem->options ?? []);
+                $resolvedSerials = $this->resolveSerialNumbers($options);
+                $serialsJson = $resolvedSerials ? json_encode($resolvedSerials) : null;
+
                 $allocations = $this->applyInventoryAdjustments($sale, $saleDetail, $cartItem, $posLocationId);
 
                 foreach ($allocations as $allocation) {
@@ -808,7 +812,7 @@ class PosController extends Controller
                         'quantity' => $quantity,
                         'location_id' => (int) ($allocation['location_id'] ?? 0),
                         'tax_id' => $quantity > 0 && ($allocation['allocated_tax'] ?? 0) > 0 ? ($saleDetail->tax_id ?: null) : null,
-                        'serial_numbers' => $saleDetail->serial_numbers ?? null,
+                        'serial_numbers' => $serialsJson,
                     ];
                 }
             }
@@ -969,7 +973,7 @@ class PosController extends Controller
                 continue;
             }
 
-            DispatchDetail::create([
+            $dispatchDetail = DispatchDetail::create([
                 'dispatch_id' => $dispatch->id,
                 'sale_id' => $sale->id,
                 'product_id' => $plan['product_id'] ?? null,
@@ -978,6 +982,9 @@ class PosController extends Controller
                 'serial_numbers' => $plan['serial_numbers'] ?? null,
                 'tax_id' => $plan['tax_id'] ?? null,
             ]);
+
+            // Link serial numbers to the actual dispatch detail
+            $this->linkSerialsToDispatchDetail($dispatchDetail, $plan['serial_numbers'] ?? null);
         }
     }
     private function deductProductStock(int $productId, int $locationId, int $deductNonTax, int $deductTax, Sale $sale): void
@@ -1104,7 +1111,7 @@ class PosController extends Controller
                 throw new Exception("Serial number {$record->serial_number} tidak tersedia untuk penjualan.");
             }
 
-            $record->dispatch_detail_id = $saleDetail->id;
+            // Status validation only - dispatch_detail_id is set later by createDispatchesForSale()
             $record->save();
         }
 
@@ -1357,4 +1364,27 @@ class PosController extends Controller
         return back()->with('success', 'Struk transaksi terakhir telah dikirim ke printer');
     }
 
+    private function linkSerialsToDispatchDetail(DispatchDetail $dispatchDetail, ?string $serialsJson): void
+    {
+        if (!$serialsJson) {
+            return;
+        }
+
+        $serials = json_decode($serialsJson, true);
+        if (!is_array($serials) || empty($serials)) {
+            return;
+        }
+
+        $serialIds = collect($serials)
+            ->map(fn($s) => (int) ($s['id'] ?? 0))
+            ->filter()
+            ->values();
+
+        if ($serialIds->isEmpty()) {
+            return;
+        }
+
+        ProductSerialNumber::whereIn('id', $serialIds)
+            ->update(['dispatch_detail_id' => $dispatchDetail->id]);
+    }
 }
