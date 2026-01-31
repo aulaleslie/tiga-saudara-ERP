@@ -25,7 +25,8 @@ class SaleCartAggregator
 
             $productId = $options['product_id'] ?? $item->id;
             $taxId = $options['product_tax'] ?? null;
-            $key = $productId . ':' . ($taxId ?? 'null');
+            $bundleId = self::extractBundleId($options);
+            $key = $productId . ':' . ($taxId ?? 'null') . ':' . ($bundleId ?? 'null');
 
             if (! isset($aggregated[$key])) {
                 $aggregated[$key] = [
@@ -34,6 +35,7 @@ class SaleCartAggregator
                     'product_code' => $options['code'] ?? null,
                     'product_discount_type' => $options['product_discount_type'] ?? null,
                     'tax_id' => $taxId,
+                    'bundle_id' => $bundleId,
                     'quantity' => 0,
                     'unit_price_total' => 0.0,
                     'price_total' => 0.0,
@@ -116,6 +118,30 @@ class SaleCartAggregator
         }
 
         return array_values($aggregated);
+    }
+
+    /**
+     * Extract bundle_id from cart options.
+     * Use the bundle_id of the first item in bundle_items if present.
+     *
+     * @param  array  $options
+     * @return int|null
+     */
+    private static function extractBundleId(array $options): ?int
+    {
+        $bundleItems = $options['bundle_items'] ?? [];
+
+        if (! empty($bundleItems) && is_iterable($bundleItems)) {
+            $firstItem = is_array($bundleItems) ? reset($bundleItems) : null;
+
+            if ($firstItem) {
+                $firstItem = is_array($firstItem) ? $firstItem : (array) $firstItem;
+
+                return isset($firstItem['bundle_id']) ? (int) $firstItem['bundle_id'] : null;
+            }
+        }
+
+        return null;
     }
 }
 
