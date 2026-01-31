@@ -375,7 +375,7 @@ class SaleController extends Controller
             }
 
             foreach ($sale->saleDetails as $sale_detail) {
-                if ($sale->status == 'Shipped' || $sale->status == 'Completed') {
+                if ($sale->status == Sale::STATUS_DISPATCHED) {
                     $product = Product::findOrFail($sale_detail->product_id);
                     $product->update([
                         'product_quantity' => $product->product_quantity + $sale_detail->quantity
@@ -441,7 +441,7 @@ class SaleController extends Controller
                     }
                 }
 
-                if ($request->status == 'Shipped' || $request->status == 'Completed') {
+                if ($request->status == Sale::STATUS_DISPATCHED) {
                     $product = Product::findOrFail($productId);
                     $product->update([
                         'product_quantity' => $product->product_quantity - $cart_item->qty
@@ -807,7 +807,10 @@ class SaleController extends Controller
             foreach ($dispatchedQuantities as $compositeKey => $qty) {
                 if ((int)$qty <= 0) continue;
 
-                list($productId, $taxId) = explode('-', $compositeKey);
+                $parts = explode('-', $compositeKey);
+                $productId = $parts[0];
+                $taxId = $parts[1];
+                $bundleId = $parts[2] ?? 0;
                 $product = Product::where('id', $productId)->lockForUpdate()->first();
                 
                 if ($product->serial_number_required) {
@@ -826,11 +829,11 @@ class SaleController extends Controller
 
                     foreach ($serialsByLocation as $locId => $snsAtLocation) {
                         $qtyAtLoc = count($snsAtLocation);
-                        $this->createDispatchDetailAndAdjustStock($dispatch, $sale, $product, $taxId, $locId, $qtyAtLoc, $snsAtLocation);
+                        $this->createDispatchDetailAndAdjustStock($dispatch, $sale, $product, $taxId, $locId, $qtyAtLoc, $snsAtLocation, $bundleId);
                     }
                 } else {
                     $locId = (int) $selectedLocations[$compositeKey];
-                    $this->createDispatchDetailAndAdjustStock($dispatch, $sale, $product, $taxId, $locId, (int)$qty, []);
+                    $this->createDispatchDetailAndAdjustStock($dispatch, $sale, $product, $taxId, $locId, (int)$qty, [], $bundleId);
                 }
             }
 
@@ -847,7 +850,7 @@ class SaleController extends Controller
         }
     }
 
-    private function createDispatchDetailAndAdjustStock($dispatch, $sale, $product, $taxId, $locationId, $qty, $serials)
+    private function createDispatchDetailAndAdjustStock($dispatch, $sale, $product, $taxId, $locationId, $qty, $serials, $bundleId = 0)
     {
         $productId = $product->id;
         $productStock = ProductStock::where('product_id', $productId)
@@ -902,6 +905,7 @@ class SaleController extends Controller
             'sale_id' => $sale->id,
             'tax_id' => !empty($taxId) ? $taxId : null,
             'product_id' => $productId,
+            'bundle_id' => !empty($bundleId) ? $bundleId : null,
             'dispatched_quantity' => $qty,
             'location_id' => $locationId,
             'serial_numbers' => !empty($serials) ? json_encode($serials) : null,

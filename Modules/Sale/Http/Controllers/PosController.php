@@ -229,7 +229,7 @@ class PosController extends Controller
                     'paid_amount' => 0,
                     'total_amount' => $tenantGroup['total'],
                     'due_amount' => $tenantGroup['total'],
-                    'status' => 'Completed',
+                    'status' => Sale::STATUS_DISPATCHED,
                     'payment_status' => 'Unpaid',
                     'payment_method' => $displayMethodName,
                     'note' => $request->note,

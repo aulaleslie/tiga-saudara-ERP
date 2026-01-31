@@ -105,7 +105,7 @@ class Sale extends BaseModel
     }
 
     public function scopeCompleted($query) {
-        return $query->where('status', 'Completed');
+        return $query->where('status', self::STATUS_DISPATCHED);
     }
 
     public function customer(): BelongsTo

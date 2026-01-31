@@ -17,6 +17,7 @@ class DispatchDetail extends BaseModel
         'location_id',
         'serial_numbers',
         'tax_id',
+        'bundle_id',
     ];
 
     protected array $uppercaseExcept = [
