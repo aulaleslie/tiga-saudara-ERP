@@ -57,7 +57,9 @@ class SaleReferenceSearchDropdown extends Component
                 'id' => $sale->id,
                 'reference' => $sale->reference,
                 'customer_name' => $sale->customer_name,
-                'date' => $sale->date ? $sale->date->format('d/m/Y') : '-',
+                'date' => $sale->date instanceof \DateTimeInterface 
+                    ? $sale->date->format('d/m/Y') 
+                    : (is_string($sale->date) ? \Carbon\Carbon::parse($sale->date)->format('d/m/Y') : '-'),
             ])
             ->values()
             ->all();

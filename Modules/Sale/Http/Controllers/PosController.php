@@ -1107,7 +1107,7 @@ class PosController extends Controller
             ->get();
 
         foreach ($records as $record) {
-            if ($record->status !== 'active' || $record->is_in_return_process) {
+            if (strtolower($record->status) !== 'active' || $record->is_in_return_process) {
                 throw new Exception("Serial number {$record->serial_number} tidak tersedia untuk penjualan.");
             }
 

@@ -10,10 +10,6 @@ use Modules\Setting\Entities\Tax;
 class ProductSerialNumber extends BaseModel
 {
     protected $table = 'product_serial_numbers';
-    
-    protected array $uppercaseExcept = [
-        'status',
-    ];
 
     /**
      * The attributes that are mass assignable.

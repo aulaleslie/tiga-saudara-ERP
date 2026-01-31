@@ -164,7 +164,7 @@ class PurchaseReturnSettlementExecutionTest extends TestCase
         $response->assertSessionHas('success');
         
         $serial->refresh();
-        $this->assertEquals('active', $serial->status);
+        $this->assertEquals('ACTIVE', $serial->status);
         $this->assertFalse($serial->is_broken);
         $this->assertFalse($serial->is_in_return_process);
         $this->assertEquals($this->targetLocation->id, $serial->location_id);
@@ -219,13 +219,13 @@ class PurchaseReturnSettlementExecutionTest extends TestCase
         
         // Old serial should now be 'returned'
         $serial->refresh();
-        $this->assertEquals('returned', $serial->status);
+        $this->assertEquals('RETURNED', $serial->status);
         $this->assertFalse($serial->is_in_return_process);
 
         // New serial should be 'active' in a new record
         $newSerial = ProductSerialNumber::where('serial_number', 'SN-NEW-999')->first();
         $this->assertNotNull($newSerial);
-        $this->assertEquals('active', $newSerial->status);
+        $this->assertEquals('ACTIVE', $newSerial->status);
         $this->assertEquals($this->targetLocation->id, $newSerial->location_id);
     }
 

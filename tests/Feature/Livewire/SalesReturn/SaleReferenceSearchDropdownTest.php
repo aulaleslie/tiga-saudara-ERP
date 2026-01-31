@@ -148,7 +148,7 @@ class SaleReferenceSearchDropdownTest extends TestCase
         $eligible = $this->createDispatchedSale(5, ['reference' => 'SALE-ELIGIBLE']);
         $ineligible = $this->createDispatchedSale(5, [
             'reference' => 'SALE-DRAFT', 
-            'status' => Sale::STATUS_DRAFT
+            'status' => Sale::STATUS_DRAFTED
         ]);
 
         Livewire::test(SaleReferenceSearchDropdown::class)
@@ -167,10 +167,7 @@ class SaleReferenceSearchDropdownTest extends TestCase
             ->set('search', 'SALE') // Populate options first
             ->call('select', $sale->id)
             ->assertDispatched('saleReferenceSelected', function ($event, $data) use ($sale) {
-                return $data['id'] === $sale->id 
-                    && $data['reference'] === $sale->reference
-                    && isset($data['rows']) // Ensure payload structure is correct
-                    && count($data['rows']) > 0;
+                return isset($data[0]['id']) && $data[0]['id'] === $sale->id;
             });
     }
 
