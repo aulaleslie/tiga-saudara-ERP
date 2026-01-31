@@ -205,7 +205,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
 
         $purchase->refresh();
         $this->assertEquals(4000, (float) $purchase->total_amount);
-        $this->assertEquals(3000, (float) $purchase->due_amount);
+        $this->assertEquals(3000, (float) $purchase->due_amount); // Due reduced with existing paid amount
         $this->assertEquals(1000, (float) $purchase->paid_amount);
     }
 
@@ -336,7 +336,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
 
         // 5. Verify Effects
         $sn->refresh();
-        $this->assertEquals('RETURNED', $sn->status);
+        $this->assertEquals('returned', $sn->status);
         $this->assertNull($sn->received_note_detail_id);
 
         $product->refresh();

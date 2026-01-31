@@ -125,7 +125,7 @@ class PurchaseReturnSettlementExecutionTest extends TestCase
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-REP-01',
-            'status' => 'RETURNED',
+            'status' => 'returned',
             'is_broken' => true,
             'is_in_return_process' => true,
         ]);
@@ -164,7 +164,7 @@ class PurchaseReturnSettlementExecutionTest extends TestCase
         $response->assertSessionHas('success');
         
         $serial->refresh();
-        $this->assertEquals('AVAILABLE', $serial->status);
+        $this->assertEquals('active', $serial->status);
         $this->assertFalse($serial->is_broken);
         $this->assertFalse($serial->is_in_return_process);
         $this->assertEquals($this->targetLocation->id, $serial->location_id);
@@ -178,7 +178,7 @@ class PurchaseReturnSettlementExecutionTest extends TestCase
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-OLD-01',
-            'status' => 'RETURNED',
+            'status' => 'returned',
             'is_broken' => true,
             'is_in_return_process' => true,
         ]);
@@ -217,13 +217,16 @@ class PurchaseReturnSettlementExecutionTest extends TestCase
 
         $response->assertSessionHas('success');
         
+        // Old serial should now be 'returned'
         $serial->refresh();
-        $this->assertEquals($originalId, $serial->id, "Serial ID must remain the same (In-place update)");
-        $this->assertEquals('SN-NEW-999', $serial->serial_number);
-        $this->assertEquals('AVAILABLE', $serial->status);
-        $this->assertFalse($serial->is_broken);
+        $this->assertEquals('returned', $serial->status);
         $this->assertFalse($serial->is_in_return_process);
-        $this->assertEquals($this->targetLocation->id, $serial->location_id);
+
+        // New serial should be 'active' in a new record
+        $newSerial = ProductSerialNumber::where('serial_number', 'SN-NEW-999')->first();
+        $this->assertNotNull($newSerial);
+        $this->assertEquals('active', $newSerial->status);
+        $this->assertEquals($this->targetLocation->id, $newSerial->location_id);
     }
 
     /** @test */
@@ -233,14 +236,14 @@ class PurchaseReturnSettlementExecutionTest extends TestCase
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-EXISTS-01',
-            'status' => 'AVAILABLE',
+            'status' => 'active',
         ]);
 
         $serial = ProductSerialNumber::create([
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-OLD-02',
-            'status' => 'RETURNED',
+            'status' => 'returned',
             'is_in_return_process' => true,
         ]);
 

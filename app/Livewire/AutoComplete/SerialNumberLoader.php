@@ -64,7 +64,7 @@ class SerialNumberLoader extends Component
             ]);
 
             $baseQuery = ProductSerialNumber::where('serial_number', 'like', '%' . $this->query . '%')
-                ->where('status', '!=', 'RETURNED')
+                ->where('status', '!=', 'returned')
                 ->when(
                     $this->location_id,
                     fn($query) => $query->where('location_id', $this->location_id)
@@ -99,7 +99,7 @@ class SerialNumberLoader extends Component
     {
         $serialNumber = ProductSerialNumber::query()
             ->whereKey($serialNumberId)
-            ->where('status', '!=', 'RETURNED')
+            ->where('status', '!=', 'returned')
             ->when(
                 $this->location_id,
                 fn($query) => $query->where('location_id', $this->location_id)

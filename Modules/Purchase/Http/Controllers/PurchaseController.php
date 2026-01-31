@@ -22,6 +22,7 @@ use Illuminate\Support\Str;
 use App\Services\PurchaseAttachmentService;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
 use Modules\Purchase\DataTables\PurchaseReceivingsDataTable;
 use Modules\Purchase\Entities\PaymentTerm;
@@ -879,6 +880,37 @@ class PurchaseController extends Controller
 
                     // Update Average Purchase Price
                     $this->updateAveragePurchasePrice($product, $purchaseDetail->price, $receivedQuantity);
+
+                    // Update per-setting ProductPrice (last + average) on approval
+                    $settingId = $purchase->setting_id ?? session('setting_id');
+                    if (!is_null($settingId)) {
+                        $productPrice = ProductPrice::firstOrCreate(
+                            [
+                                'product_id' => $product->id,
+                                'setting_id' => $settingId,
+                            ],
+                            [
+                                'sale_price' => 0,
+                                'last_purchase_price' => 0,
+                                'average_purchase_price' => 0,
+                            ]
+                        );
+
+                        $previousQty = $previous_quantity;
+                        $currentAvgPrice = $productPrice->average_purchase_price ?? 0;
+                        $currentTotalValue = $currentAvgPrice * $previousQty;
+                        $newTotalValue = $purchaseDetail->price * $receivedQuantity;
+                        $newTotalQuantity = $previousQty + $receivedQuantity;
+
+                        $newAveragePrice = $newTotalQuantity > 0
+                            ? ($currentTotalValue + $newTotalValue) / $newTotalQuantity
+                            : $purchaseDetail->price;
+
+                        $productPrice->update([
+                            'last_purchase_price' => $purchaseDetail->price,
+                            'average_purchase_price' => $newAveragePrice,
+                        ]);
+                    }
 
                     // Insert Transaction Log
                     Transaction::create([

@@ -157,10 +157,11 @@ class PurchasesReturnSettlementController extends Controller
                 }
 
                 if (strtoupper($itemSettlement->method) === 'MODIFY_PURCHASE') {
-                    if (!$itemSettlement->target_purchase_id) {
+                    $sourcePurchaseId = $itemSettlement->target_purchase_id ?? $itemSettlement->detail?->po_id;
+                    if (!$sourcePurchaseId) {
                         throw new \Exception('Nota pembelian target harus dipilih untuk metode Ubah Nota.');
                     }
-                    $purchase = \Modules\Purchase\Entities\Purchase::findOrFail($itemSettlement->target_purchase_id);
+                    $purchase = \Modules\Purchase\Entities\Purchase::findOrFail($sourcePurchaseId);
                     if ($nominal > (float) $purchase->total_amount + 0.01) {
                          throw new \Exception('Nominal penyelesaian melebihi total nilai nota pembelian target.');
                     }
@@ -193,6 +194,7 @@ class PurchasesReturnSettlementController extends Controller
 
             return back()->with('success', 'Item penyelesaian berhasil disetujui.');
         } catch (\Exception $e) {
+            \Log::error('Approval failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return back()->with('error', 'Gagal menyetujui item: ' . $e->getMessage());
         }
     }
@@ -304,17 +306,53 @@ class PurchasesReturnSettlementController extends Controller
                             }
                         }
 
-                        // Update existing record (Preserves lineage/ID)
-                        $serial->update([
-                            'serial_number' => $replacementSerialNumber,
-                            'location_id' => $targetLocationId,
-                            'status' => 'AVAILABLE',
-                            'is_broken' => false,
-                            'is_in_return_process' => false,
-                            'purchase_return_id' => null,
-                        ]);
-
-                        $itemSettlement->replacement_serial_number_id = $serial->id;
+                        // Handle serial number replacement logic
+                        if ($replacementSerialNumber !== $serial->serial_number) {
+                            // Mark old serial as returned
+                            $serial->update([
+                                'status' => 'returned',
+                                'is_in_return_process' => false,
+                                'purchase_return_id' => $itemSettlement->purchase_return_id,
+                            ]);
+                            
+                            // Create new record for the replacement (or reactivate if it exists as returned)
+                            $replacementRecord = ProductSerialNumber::where('product_id', $productId)
+                                ->where('serial_number', $replacementSerialNumber)
+                                ->first();
+                                
+                            if ($replacementRecord) {
+                                $replacementRecord->update([
+                                    'location_id' => $targetLocationId,
+                                    'status' => 'active',
+                                    'is_broken' => false,
+                                    'is_in_return_process' => false,
+                                    'purchase_return_id' => null,
+                                ]);
+                                $itemSettlement->replacement_serial_number_id = $replacementRecord->id;
+                            } else {
+                                $newSerial = ProductSerialNumber::create([
+                                    'product_id' => $productId,
+                                    'serial_number' => $replacementSerialNumber,
+                                    'location_id' => $targetLocationId,
+                                    'status' => 'active',
+                                    'is_broken' => false,
+                                    'is_in_return_process' => false,
+                                    'tax_id' => $serial->tax_id, // Preserve tax settings
+                                    'received_note_detail_id' => null,
+                                ]);
+                                $itemSettlement->replacement_serial_number_id = $newSerial->id;
+                            }
+                        } else {
+                            // Same serial number, just reactivate it
+                            $serial->update([
+                                'location_id' => $targetLocationId,
+                                'status' => 'active',
+                                'is_broken' => false,
+                                'is_in_return_process' => false,
+                                'purchase_return_id' => null,
+                            ]);
+                            $itemSettlement->replacement_serial_number_id = $serial->id;
+                        }
                     } else {
                         // Non-serial repair movement
                         if (! $isDispatched && $sourceLocationId != $targetLocationId) {
@@ -339,7 +377,7 @@ class PurchasesReturnSettlementController extends Controller
                     if ($isSerial) {
                         $itemSettlement->serialNumber->update([
                             'is_broken' => true, // Ensure marked as broken
-                            'status' => 'BROKEN',
+                            'status' => 'broken',
                             'location_id' => $targetLocationId,
                             'is_in_return_process' => false,
                             'purchase_return_id' => null,
@@ -727,138 +765,183 @@ class PurchasesReturnSettlementController extends Controller
 
         switch ($method) {
             case 'MODIFY_PURCHASE':
-                if ($item->target_purchase_id) {
-                    $purchase = \Modules\Purchase\Entities\Purchase::with('purchaseDetails')
+                $detail = $item->detail;
+                if (! $detail || ! $detail->product_id) {
+                    throw new \Exception('Detail retur tidak ditemukan untuk penyesuaian nota pembelian.');
+                }
+
+                $sourcePurchaseId = $item->target_purchase_id ?? $detail->po_id;
+                if (! $sourcePurchaseId) {
+                    throw new \Exception('Nota pembelian target harus dipilih untuk metode Ubah Nota.');
+                }
+
+                $purchase = \Modules\Purchase\Entities\Purchase::with('purchaseDetails')
+                    ->lockForUpdate()
+                    ->findOrFail($sourcePurchaseId);
+
+                $returnQty = $this->resolveReturnQuantity($item, $detail);
+                if ($returnQty <= 0) {
+                    break;
+                }
+
+                $previousTotal = (float) $purchase->total_amount;
+                $previousPaidAmount = (float) $purchase->paid_amount;
+                $previousDueAmount = $purchase->due_amount !== null
+                    ? (float) $purchase->due_amount
+                    : max(0, $previousTotal - $previousPaidAmount);
+
+                $serial = null;
+                if ($item->product_serial_number_id) {
+                    $serial = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail'])
                         ->lockForUpdate()
-                        ->findOrFail($item->target_purchase_id);
+                        ->find($item->product_serial_number_id);
+                }
 
-                    $detail = $item->detail;
-                    if (! $detail || ! $detail->product_id) {
-                        throw new \Exception('Detail retur tidak ditemukan untuk penyesuaian nota pembelian.');
+                if ($serial && $serial->receivedNoteDetail && $serial->receivedNoteDetail->purchaseDetail) {
+                    $purchaseDetail = $serial->receivedNoteDetail->purchaseDetail;
+                    if ((int) $purchaseDetail->purchase_id !== (int) $purchase->id) {
+                        throw new \Exception('Nota pembelian target tidak sesuai dengan asal serial number.');
                     }
 
-                    $returnQty = $this->resolveReturnQuantity($item, $detail);
-                    if ($returnQty <= 0) {
-                        break;
+                    $this->ensurePurchaseDetailHasQuantity($purchaseDetail, $returnQty);
+                    $this->reducePurchaseDetailAmounts($purchaseDetail, $returnQty);
+                    $this->reduceReceivedNoteDetailQuantity($serial->receivedNoteDetail, $returnQty);
+                } else {
+                    $purchaseDetails = $purchase->purchaseDetails->where('product_id', $detail->product_id);
+                    if ($purchaseDetails->isEmpty()) {
+                        throw new \Exception('Produk tidak ditemukan pada nota pembelian target.');
                     }
 
-                    $previousTotal = (float) $purchase->total_amount;
+                    $this->ensurePurchaseDetailsHaveQuantity($purchaseDetails, $returnQty);
+                    $this->reducePurchaseDetailCollection($purchaseDetails, $returnQty);
+                }
 
-                    $serial = null;
-                    if ($item->product_serial_number_id) {
-                        $serial = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail'])
-                            ->lockForUpdate()
-                            ->find($item->product_serial_number_id);
-                    }
+                $this->recalculatePurchaseTotals($purchase);
 
-                    if ($serial && $serial->receivedNoteDetail && $serial->receivedNoteDetail->purchaseDetail) {
-                        $purchaseDetail = $serial->receivedNoteDetail->purchaseDetail;
-                        if ((int) $purchaseDetail->purchase_id !== (int) $purchase->id) {
-                            throw new \Exception('Nota pembelian target tidak sesuai dengan asal serial number.');
-                        }
+                if ($serial) {
+                    $serial->update([
+                        'status' => 'returned',
+                        'received_note_detail_id' => null,
+                        'is_in_return_process' => false,
+                        'purchase_return_id' => $purchaseReturn->id,
+                    ]);
+                }
 
-                        $this->ensurePurchaseDetailHasQuantity($purchaseDetail, $returnQty);
-                        $this->reducePurchaseDetailAmounts($purchaseDetail, $returnQty);
-                        $this->reduceReceivedNoteDetailQuantity($serial->receivedNoteDetail, $returnQty);
-                    } else {
-                        $purchaseDetails = $purchase->purchaseDetails->where('product_id', $detail->product_id);
-                        if ($purchaseDetails->isEmpty()) {
-                            throw new \Exception('Produk tidak ditemukan pada nota pembelian target.');
-                        }
+                // Archival logic: if all items are returned (total qty == 0), archive
+                if ((int) $purchase->purchaseDetails()->sum('quantity') === 0) {
+                    $purchase->update([
+                        'archived_at' => now(),
+                        'archived_by' => auth()->id(),
+                        'note' => ($purchase->note ? $purchase->note . "\n" : "") . "Barang sudah diretur {$purchaseReturn->reference}"
+                    ]);
+                }
 
+                // Payment handling based on surplus vs unpaid amount
+                $purchase->refresh();
+                $newTotal = (float) $purchase->total_amount;
+                $returnAmount = max(0, $previousTotal - $newTotal);
+                $unpaidBefore = $previousDueAmount > 0
+                    ? $previousDueAmount
+                    : max(0, $previousTotal - $previousPaidAmount);
 
-                        $this->ensurePurchaseDetailsHaveQuantity($purchaseDetails, $returnQty);
-                        $this->reducePurchaseDetailCollection($purchaseDetails, $returnQty);
-                    }
+                $hasSurplus = $returnAmount > ($unpaidBefore + 0.01);
+                $remainingSurplus = max(0, $previousPaidAmount - $newTotal);
 
-                    $this->recalculatePurchaseTotals($purchase);
-
-                    if ($serial) {
-                        $serial->update([
-                            'status' => 'RETURNED',
-                            'received_note_detail_id' => null,
-                            'is_in_return_process' => false,
-                            'purchase_return_id' => $purchaseReturn->id,
-                        ]);
-                    }
-
-                    // Archival logic: if all items are returned (total qty == 0), archive
-                    if ((int) $purchase->purchaseDetails()->sum('quantity') === 0) {
-                        $purchase->update([
-                            'archived_at' => now(),
-                            'archived_by' => auth()->id(),
-                            'note' => ($purchase->note ? $purchase->note . "\n" : "") . "Barang sudah diretur {$purchaseReturn->reference}"
-                        ]);
-                    }
-
-                    // Smart Allocation Logic (Ticket: Reallocate Surplus)
-                    $purchase->refresh();
-                    $newTotal = (float) $purchase->total_amount;
-                    $currentPaidAmount = (float) $purchase->paid_amount;
-                    $paymentStatus = strtoupper($purchase->payment_status);
-                    $returnAmount = max(0, $previousTotal - $newTotal);
-
-                    // ALWAYS delete source payments for MODIFY_PURCHASE method to maintain integrity.
-                    // The goal is to reset the source purchase and allocate any previous payments (surplus) elsewhere or refund.
-                    if ($currentPaidAmount > 0) {
-                        $potentialSurplus = $currentPaidAmount; // Previous payments are now potential surplus
-                        $purchase->purchasePayments()->delete();
-                        $purchase->paid_amount = 0;
-                        $purchase->save();
-                        
-                        // Handle allocation of surplus to a target purchase if selected
-                        $allocationTargetId = $request->input('allocation_purchase_id');
-                        if ($allocationTargetId && (int)$allocationTargetId !== (int)$purchase->id) {
-                            $targetPurchase = \Modules\Purchase\Entities\Purchase::find($allocationTargetId);
-                            if ($targetPurchase && (float)$targetPurchase->due_amount > 0) {
-                                $allocationAmount = min($potentialSurplus, (float) $targetPurchase->due_amount);
-                                
-                                if ($allocationAmount > 0.01) {
-                                    \Modules\Purchase\Entities\PurchasePayment::create([
-                                        'purchase_id' => $targetPurchase->id,
-                                        'amount' => $allocationAmount,
-                                        'date' => now(),
-                                        'reference' => 'PAY-RET/' . $purchaseReturn->reference . '/' . time(),
-                                        'note' => 'Alokasi dari retur ' . $purchaseReturn->reference . ' (Asal: ' . $purchase->reference . ')',
-                                        'payment_method' => 'Settlement Retur',
-                                        'setting_id' => $purchase->setting_id,
-                                    ]);
-
-                                    $targetPurchase->paid_amount += $allocationAmount;
-                                    $targetPurchase->due_amount = max(0, $targetPurchase->total_amount - $targetPurchase->paid_amount);
-                                    $targetPurchase->payment_status = ($targetPurchase->due_amount <= 0.01) ? 'Paid' : 'Partial';
-                                    $targetPurchase->save();
-
-                                    $potentialSurplus -= $allocationAmount;
-                                }
-                            }
-                        }
-
-                        if ($potentialSurplus > 0.01) {
-                            // If there's still money left, it should be refunded or kept as record.
-                            // For now, we alert the user.
-                            session()->flash('warning', 'Masih ada kelebihan bayar sebesar ' . format_currency($potentialSurplus) . '. Silakan atur pengembalian dana manual.');
-                        }
-                    }
-                    
-                    // Update Status based on new numbers
-                    $purchase->due_amount = max(0, $purchase->total_amount - $purchase->paid_amount);
-                    if ($purchase->paid_amount <= 0.01) {
-                         $purchase->payment_status = 'Unpaid';
-                    } elseif ($purchase->due_amount <= 0.01 && $purchase->paid_amount >= $purchase->total_amount) {
-                         $purchase->payment_status = 'Paid';
-                    } else {
-                         $purchase->payment_status = 'Partial';
-                    }
+                if ($hasSurplus) {
+                    // Remove all source payments when surplus exists
+                    $purchase->purchasePayments()->delete();
+                    $purchase->paid_amount = min($previousPaidAmount, $newTotal);
                     $purchase->save();
 
-                    $purchase->refresh();
-                    $reductionAmount = max(0, $previousTotal - (float) $purchase->total_amount);
-                    if ($reductionAmount > 0 && (float) $item->nominal !== $reductionAmount && strtoupper($item->method) === 'MODIFY_PURCHASE') {
-                        $item->update(['nominal' => $reductionAmount]);
+                    // Allocate surplus to a target purchase if selected
+                    $allocationTargetId = $request->input('allocation_purchase_id');
+                    if ($allocationTargetId && (int) $allocationTargetId !== (int) $purchase->id && $remainingSurplus > 0.01) {
+                        $targetPurchase = \Modules\Purchase\Entities\Purchase::find($allocationTargetId);
+                        if ($targetPurchase) {
+                            $targetDue = max(0, (float) $targetPurchase->due_amount);
+                            $allocationAmount = min($remainingSurplus, $targetDue);
+
+                            if ($allocationAmount > 0.01) {
+                                \Modules\Purchase\Entities\PurchasePayment::create([
+                                    'purchase_id' => $targetPurchase->id,
+                                    'amount' => $allocationAmount,
+                                    'date' => now(),
+                                    'reference' => 'PAY-RET/' . $purchaseReturn->reference . '/' . time(),
+                                    'note' => 'Alokasi dari retur ' . $purchaseReturn->reference . ' (Asal: ' . $purchase->reference . ')',
+                                    'payment_method' => 'Settlement Retur',
+                                ]);
+
+                                $targetPurchase->paid_amount += $allocationAmount;
+                                $targetPurchase->due_amount = max(0, $targetPurchase->total_amount - $targetPurchase->paid_amount);
+                                if ($targetPurchase->paid_amount <= 0.01) {
+                                    $targetPurchase->payment_status = 'Unpaid';
+                                } elseif ($targetPurchase->due_amount <= 0.01) {
+                                    $targetPurchase->payment_status = 'Paid';
+                                } else {
+                                    $targetPurchase->payment_status = 'Partial';
+                                }
+                                $targetPurchase->save();
+
+                                $remainingSurplus -= $allocationAmount;
+                            }
+                        }
                     }
 
+                    if ($remainingSurplus > 0.01) {
+                        session()->flash('warning', 'Masih ada kelebihan bayar sebesar ' . format_currency($remainingSurplus) . '. Silakan atur pengembalian dana manual.');
+                    }
+                } else {
+                    // Keep paid amount and existing payments when no surplus
+                    $purchase->paid_amount = $previousPaidAmount;
                 }
+
+                // Update Status based on new numbers
+                $purchase->due_amount = max(0, $purchase->total_amount - $purchase->paid_amount);
+                if ($purchase->paid_amount <= 0.01) {
+                    $purchase->payment_status = 'Unpaid';
+                } elseif ($purchase->due_amount <= 0.01) {
+                    $purchase->payment_status = 'Paid';
+                } else {
+                    $purchase->payment_status = 'Partial';
+                }
+                $purchase->save();
+
+                $purchase->refresh();
+                $reductionAmount = max(0, $previousTotal - (float) $purchase->total_amount);
+                if ($reductionAmount > 0 && (float) $item->nominal !== $reductionAmount && strtoupper($item->method) === 'MODIFY_PURCHASE') {
+                    $item->update(['nominal' => $reductionAmount]);
+                }
+
+                // Record/Update the usage payment on the purchase return
+                $existingPayment = \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::where('purchase_return_id', $purchaseReturn->id)
+                    ->latest()
+                    ->first();
+                
+                if ($existingPayment) {
+                    $existingPayment->increment('amount', $itemAmount);
+                } else {
+                    \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
+                        'date' => now(),
+                        'reference' => 'PAY-RET/' . $purchaseReturn->reference . '/' . time(),
+                        'amount' => $itemAmount,
+                        'purchase_return_id' => $purchaseReturn->id,
+                        'payment_method' => 'Ubah Nota',
+                        'note' => 'Penyesuaian nilai nota pembelian: ' . ($item->detail->product_name ?? 'N/A'),
+                    ]);
+                }
+
+                // Update Purchase Return financial status
+                $purchaseReturn->paid_amount += $itemAmount;
+                $purchaseReturn->due_amount = max(0, $purchaseReturn->total_amount - $purchaseReturn->paid_amount);
+                if ($purchaseReturn->due_amount <= 0.01) {
+                    $purchaseReturn->payment_status = 'Paid';
+                } elseif ($purchaseReturn->paid_amount > 0) {
+                    $purchaseReturn->payment_status = 'Partial';
+                } else {
+                    $purchaseReturn->payment_status = 'Unpaid';
+                }
+                $purchaseReturn->save();
+
                 break;
 
             case 'CREDIT':
@@ -933,6 +1016,37 @@ class PurchasesReturnSettlementController extends Controller
                         $credit->update(['status' => 'closed']);
                     }
                 }
+
+                // Record/Update the credit payment on the purchase return
+                $existingPayment = \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::where('purchase_return_id', $purchaseReturn->id)
+                    ->latest()
+                    ->first();
+                
+                if ($existingPayment) {
+                    $existingPayment->increment('amount', $itemAmount);
+                } else {
+                    \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
+                        'date' => now(),
+                        'reference' => 'PAY-RET/' . $purchaseReturn->reference . '/' . time(),
+                        'amount' => $itemAmount,
+                        'purchase_return_id' => $purchaseReturn->id,
+                        'payment_method' => 'Kredit Supplier',
+                        'note' => 'Penyelesaian sebagai kredit supplier: ' . ($item->detail->product_name ?? 'N/A'),
+                    ]);
+                }
+
+                // Update Purchase Return financial status
+                $purchaseReturn->paid_amount += $itemAmount;
+                $purchaseReturn->due_amount = max(0, $purchaseReturn->total_amount - $purchaseReturn->paid_amount);
+                if ($purchaseReturn->due_amount <= 0.01) {
+                    $purchaseReturn->payment_status = 'Paid';
+                } elseif ($purchaseReturn->paid_amount > 0) {
+                    $purchaseReturn->payment_status = 'Partial';
+                } else {
+                    $purchaseReturn->payment_status = 'Unpaid';
+                }
+                $purchaseReturn->save();
+
                 break;
 
             case 'CASH':
@@ -947,70 +1061,76 @@ class PurchasesReturnSettlementController extends Controller
                     }
 
                     $returnQty = $this->resolveReturnQuantity($item, $detail);
-                    if ($returnQty <= 0) {
-                        break;
-                    }
+                    if ($returnQty > 0) {
+                        $previousTotal = (float) $purchase->total_amount;
 
-                    $previousTotal = (float) $purchase->total_amount;
-
-                    $serial = null;
-                    if ($item->product_serial_number_id) {
-                        $serial = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail'])
-                            ->lockForUpdate()
-                            ->find($item->product_serial_number_id);
-                    }
-
-                    if ($serial && $serial->receivedNoteDetail && $serial->receivedNoteDetail->purchaseDetail) {
-                        $purchaseDetail = $serial->receivedNoteDetail->purchaseDetail;
-                        $this->ensurePurchaseDetailHasQuantity($purchaseDetail, $returnQty);
-                        $this->reducePurchaseDetailAmounts($purchaseDetail, $returnQty);
-                        $this->reduceReceivedNoteDetailQuantity($serial->receivedNoteDetail, $returnQty);
-                    } else {
-                        $purchaseDetails = $purchase->purchaseDetails->where('product_id', $detail->product_id);
-                        if ($purchaseDetails->isEmpty()) {
-                            throw new \Exception('Produk tidak ditemukan pada nota pembelian target.');
+                        $serial = null;
+                        if ($item->product_serial_number_id) {
+                            $serial = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail'])
+                                ->lockForUpdate()
+                                ->find($item->product_serial_number_id);
                         }
-                        $this->ensurePurchaseDetailsHaveQuantity($purchaseDetails, $returnQty);
-                        $this->reducePurchaseDetailCollection($purchaseDetails, $returnQty);
+
+                        if ($serial && $serial->receivedNoteDetail && $serial->receivedNoteDetail->purchaseDetail) {
+                            $purchaseDetail = $serial->receivedNoteDetail->purchaseDetail;
+                            $this->ensurePurchaseDetailHasQuantity($purchaseDetail, $returnQty);
+                            $this->reducePurchaseDetailAmounts($purchaseDetail, $returnQty);
+                            $this->reduceReceivedNoteDetailQuantity($serial->receivedNoteDetail, $returnQty);
+                        } else {
+                            $purchaseDetails = $purchase->purchaseDetails->where('product_id', $detail->product_id);
+                            if ($purchaseDetails->isEmpty()) {
+                                throw new \Exception('Produk tidak ditemukan pada nota pembelian target.');
+                            }
+                            $this->ensurePurchaseDetailsHaveQuantity($purchaseDetails, $returnQty);
+                            $this->reducePurchaseDetailCollection($purchaseDetails, $returnQty);
+                        }
+
+                        $this->recalculatePurchaseTotals($purchase);
+
+                        // Reset payments and set Unpaid (Cash refund means original payment is returned)
+                        if (in_array(strtoupper($purchase->payment_status), ['PAID', 'PARTIAL'])) {
+                            $purchase->purchasePayments()->delete();
+                            $purchase->update([
+                                'paid_amount' => 0,
+                                'due_amount' => $purchase->total_amount,
+                                'payment_status' => 'Unpaid'
+                            ]);
+                        }
                     }
+                    
+                    $purchase->refresh();
+                }
 
-                    $this->recalculatePurchaseTotals($purchase);
-
-                    // Reset payments and set Unpaid (Cash refund means original payment is returned)
-                    if (in_array(strtoupper($purchase->payment_status), ['PAID', 'PARTIAL'])) {
-                        $purchase->purchasePayments()->delete();
-                        $purchase->update([
-                            'paid_amount' => 0,
-                            'due_amount' => $purchase->total_amount,
-                            'payment_status' => 'Unpaid'
-                        ]);
-                    }
-
-                    // Create PurchaseReturnPayment record for the refund
+                // Record/Update the refund payment on the purchase return regardless of target allocation
+                $existingPayment = \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::where('purchase_return_id', $purchaseReturn->id)
+                    ->latest()
+                    ->first();
+                
+                if ($existingPayment) {
+                    $existingPayment->increment('amount', $itemAmount);
+                } else {
                     \Modules\PurchasesReturn\Entities\PurchaseReturnPayment::create([
                         'date' => now(),
                         'reference' => 'PAY-RET/' . $purchaseReturn->reference . '/' . time(),
                         'amount' => $itemAmount,
                         'purchase_return_id' => $purchaseReturn->id,
                         'payment_method' => 'CASH',
-                        'note' => 'Refund tunai dari retur item: ' . ($detail->product_name ?? 'N/A'),
+                        'note' => 'Refund tunai dari retur item: ' . ($item->detail->product_name ?? 'N/A'),
                     ]);
-
-                    // Update Purchase Return financial status
-                    $purchaseReturn->paid_amount += $itemAmount;
-                    $purchaseReturn->due_amount = max(0, $purchaseReturn->total_amount - $purchaseReturn->paid_amount);
-                    if ($purchaseReturn->due_amount <= 0.01) {
-                         $purchaseReturn->payment_status = 'Paid';
-                    } elseif ($purchaseReturn->paid_amount > 0) {
-                         $purchaseReturn->payment_status = 'Partial';
-                    } else {
-                         $purchaseReturn->payment_status = 'Unpaid';
-                    }
-                    $purchaseReturn->save();
-
-                    $purchase->refresh();
-
                 }
+
+                // Update Purchase Return financial status
+                $purchaseReturn->paid_amount += $itemAmount;
+                $purchaseReturn->due_amount = max(0, $purchaseReturn->total_amount - $purchaseReturn->paid_amount);
+                if ($purchaseReturn->due_amount <= 0.01) {
+                    $purchaseReturn->payment_status = 'Paid';
+                } elseif ($purchaseReturn->paid_amount > 0) {
+                    $purchaseReturn->payment_status = 'Partial';
+                } else {
+                    $purchaseReturn->payment_status = 'Unpaid';
+                }
+                $purchaseReturn->save();
+
                 break;
                 
             case 'PRODUCT_REPAIR':

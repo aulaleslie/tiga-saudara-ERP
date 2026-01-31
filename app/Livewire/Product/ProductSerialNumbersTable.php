@@ -125,7 +125,7 @@ class ProductSerialNumbersTable extends Component
             ->whereNull('dispatch_detail_id')
             ->where(function ($q) {
                 $q->whereNull('status')
-                    ->orWhereRaw('UPPER(status) != ?', ['RETURNED']);
+                    ->orWhereRaw('LOWER(status) != ?', ['returned']);
             })
             ->whereHas('location', function ($q) use ($settingId) {
                 $q->where('setting_id', $settingId);

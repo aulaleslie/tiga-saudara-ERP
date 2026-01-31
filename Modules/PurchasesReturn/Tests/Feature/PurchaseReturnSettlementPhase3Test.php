@@ -182,7 +182,7 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
 
         $response->assertSessionHas('success');
         $sn->refresh();
-        $this->assertEquals('AVAILABLE', $sn->status);
+        $this->assertEquals('active', $sn->status);
         $this->assertFalse((bool)$sn->is_in_return_process);
         $this->assertEquals($this->targetLocation->id, $sn->location_id);
     }
@@ -210,12 +210,12 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         ]);
 
         $sn->refresh();
-        $this->assertEquals('RETURNED', $sn->status);
+        $this->assertEquals('returned', $sn->status);
         $this->assertFalse((bool)$sn->is_in_return_process);
 
         $newSn = ProductSerialNumber::where('serial_number', $newSerialText)->first();
         $this->assertNotNull($newSn);
-        $this->assertEquals('AVAILABLE', $newSn->status);
+        $this->assertEquals('active', $newSn->status);
         $this->assertEquals($this->targetLocation->id, $newSn->location_id);
     }
 
@@ -237,13 +237,13 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         $this->assertEquals(2, $targetStock->quantity);
         
         $this->assertDatabaseHas('transactions', [
-            'type' => 'RETURN_REPAIR',
+            'type' => 'PURCHASE_RETURN_GOOD_TAX',
             'quantity' => -2,
             'location_id' => $this->location->id,
         ]);
         
         $this->assertDatabaseHas('transactions', [
-            'type' => 'RETURN_REPAIR',
+            'type' => 'PURCHASE_RETURN_GOOD_TAX',
             'quantity' => 2,
             'location_id' => $this->targetLocation->id,
         ]);
@@ -267,7 +267,7 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         $this->assertEquals(3, $targetStock->broken_quantity);
         
         $this->assertDatabaseHas('transactions', [
-            'type' => 'RETURN_BROKEN',
+            'type' => 'PURCHASE_RETURN_GOOD_TAX',
             'quantity' => -3,
             'location_id' => $this->location->id,
         ]);
@@ -299,14 +299,14 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         ProductSerialNumber::create([
             'product_id' => $this->serialProduct->id,
             'serial_number' => 'SN-RETURNED-001',
-            'status' => 'RETURNED',
+            'status' => 'returned',
             'location_id' => $this->location->id,
         ]);
 
         ProductSerialNumber::create([
             'product_id' => $this->serialProduct->id,
             'serial_number' => 'SN-ACTIVE-001',
-            'status' => 'AVAILABLE',
+            'status' => 'active',
             'location_id' => $this->location->id,
         ]);
 
@@ -328,7 +328,7 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         ProductSerialNumber::create([
             'product_id' => $this->serialProduct->id,
             'serial_number' => 'SN-PREVIOUSLY-RETURNED',
-            'status' => 'RETURNED',
+            'status' => 'returned',
             'location_id' => $this->location->id,
         ]);
 
