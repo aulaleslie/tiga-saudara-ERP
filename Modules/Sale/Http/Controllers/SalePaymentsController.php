@@ -251,7 +251,33 @@ class SalePaymentsController extends Controller
             return redirect()->route('sale-payments.index', $salePayment->sale_id);
         }
 
-        $salePayment->delete();
+        DB::transaction(function () use ($salePayment) {
+            $sale = $salePayment->sale;
+            $deletedAmount = round((float) $salePayment->amount, 2);
+
+            $salePayment->delete();
+
+            // Recalculate sale balances
+            $paid_amount = round((float) $sale->paid_amount - $deletedAmount, 2);
+            $paid_amount = max($paid_amount, 0);
+            $due_amount = round((float) $sale->total_amount - $paid_amount, 2);
+            $due_amount = max($due_amount, 0);
+            $total_amount = round((float) $sale->total_amount, 2);
+
+            if ($paid_amount <= 0) {
+                $payment_status = 'Unpaid';
+            } elseif ($due_amount > 0) {
+                $payment_status = 'Partial';
+            } else {
+                $payment_status = 'Paid';
+            }
+
+            $sale->update([
+                'paid_amount' => $paid_amount,
+                'due_amount' => $due_amount,
+                'payment_status' => $payment_status,
+            ]);
+        });
 
         toast('Sale Payment Deleted!', 'warning');
 

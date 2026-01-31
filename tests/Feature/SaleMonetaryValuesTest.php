@@ -646,4 +646,100 @@ class SaleMonetaryValuesTest extends TestCase
         $this->assertStringContainsString('badge badge-danger', $data[0]['payment_status']);
         $this->assertStringContainsString('UNPAID', $data[0]['payment_status']);
     }
+
+    public function test_sale_payment_delete_updates_sale_totals(): void
+    {
+        // Create sale with total_amount = 100, paid_amount = 50, due_amount = 50
+        $sale = Sale::create([
+            'date' => '2024-01-10',
+            'due_date' => '2024-01-20',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100.00,
+            'paid_amount' => 50.00,
+            'due_amount' => 50.00,
+            'status' => 'Pending',
+            'payment_status' => 'Partial',
+            'payment_method' => 'Cash',
+            'note' => null,
+            'setting_id' => $this->setting->id,
+            'payment_term_id' => $this->paymentTerm->id,
+            'is_tax_included' => false,
+        ]);
+
+        // Create payment of 30.00
+        $payment = SalePayment::create([
+            'sale_id' => $sale->id,
+            'date' => '2024-01-11',
+            'reference' => 'PAY-DEL-01',
+            'amount' => 30.00,
+            'payment_method_id' => $this->paymentMethod->id,
+            'payment_method' => 'Cash',
+            'note' => null,
+        ]);
+
+        // Delete the payment
+        $response = $this->delete(route('sale-payments.destroy', $payment));
+        $response->assertRedirect(route('sales.index'));
+
+        $sale->refresh();
+
+        // Verify balances updated: paid = 50 - 30 = 20, due = 100 - 20 = 80
+        $this->assertEquals(20.00, (float) $sale->paid_amount);
+        $this->assertEquals(80.00, (float) $sale->due_amount);
+        $this->assertEquals('PARTIAL', $sale->payment_status);
+    }
+
+    public function test_sale_payment_delete_last_payment_sets_unpaid(): void
+    {
+        // Create sale with total_amount = 100, paid_amount = 30, due_amount = 70
+        $sale = Sale::create([
+            'date' => '2024-01-12',
+            'due_date' => '2024-01-22',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100.00,
+            'paid_amount' => 30.00,
+            'due_amount' => 70.00,
+            'status' => 'Pending',
+            'payment_status' => 'Partial',
+            'payment_method' => 'Cash',
+            'note' => null,
+            'setting_id' => $this->setting->id,
+            'payment_term_id' => $this->paymentTerm->id,
+            'is_tax_included' => false,
+        ]);
+
+        // Create payment equal to paid_amount (the only payment)
+        $payment = SalePayment::create([
+            'sale_id' => $sale->id,
+            'date' => '2024-01-13',
+            'reference' => 'PAY-LAST',
+            'amount' => 30.00,
+            'payment_method_id' => $this->paymentMethod->id,
+            'payment_method' => 'Cash',
+            'note' => null,
+        ]);
+
+        // Delete the last payment
+        $response = $this->delete(route('sale-payments.destroy', $payment));
+        $response->assertRedirect(route('sales.index'));
+
+        $sale->refresh();
+
+        // Verify: paid = 0, due = 100, status = Unpaid
+        $this->assertEquals(0.00, (float) $sale->paid_amount);
+        $this->assertEquals(100.00, (float) $sale->due_amount);
+        $this->assertEquals('UNPAID', $sale->payment_status);
+    }
 }
