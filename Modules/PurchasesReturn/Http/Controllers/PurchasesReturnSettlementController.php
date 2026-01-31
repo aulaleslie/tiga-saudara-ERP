@@ -850,7 +850,8 @@ class PurchasesReturnSettlementController extends Controller
                 if ($hasSurplus) {
                     // Remove all source payments when surplus exists
                     $purchase->purchasePayments()->delete();
-                    $purchase->paid_amount = min($previousPaidAmount, $newTotal);
+                    // Reset paid amount since payments are deleted; surplus is handled separately.
+                    $purchase->paid_amount = 0;
                     $purchase->save();
 
                     // Allocate surplus to a target purchase if selected

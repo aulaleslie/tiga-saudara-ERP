@@ -225,7 +225,7 @@ class CreateForm extends Component
                 return;
             }
 
-            DB::beginTransaction();
+            // DB::beginTransaction(); // Removed: logic is handled in SaleService with its own transaction
 
             try {
                 Log::info('Sale create persisting', [

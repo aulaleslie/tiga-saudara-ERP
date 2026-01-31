@@ -98,8 +98,7 @@
                         @else
                             <td class="px-2">
                                 <select id="location_{{ $key }}" class="form-control form-control-sm custom-select"
-                                        wire:model="selectedLocations.{{ $key }}"
-                                        wire:change="locationChanged($event.target.value, '{{ $key }}')">
+                                        wire:model.live="selectedLocations.{{ $key }}">
                                     <option value="">-- Pilih --</option>
                                     @foreach($locations as $location)
                                         <option value="{{ $location->id }}">

@@ -64,10 +64,10 @@ class DispatchSaleTable extends Component
         $this->serialNumberRequiredFlags[$compositeKey] = $product ? $product->serial_number_required : false;
     }
 
-    // When a location is updated for a product, update its stock value.
-    public function locationChanged($value, $compositeKey)
+    // Hook specific for selectedLocations array updates
+    public function updatedSelectedLocations($value, $compositeKey)
     {
-        Log::info('Updated selected location for product', ['compositeKey' => $compositeKey, 'value' => $value]);
+        Log::info('Updated selected location for product (via hook)', ['compositeKey' => $compositeKey, 'value' => $value]);
         $this->stockAtLocations[$compositeKey] = $this->getStockForProduct($compositeKey, $value);
     }
 
