@@ -2,6 +2,7 @@
     <div class="form-group mb-0">
         <div class="input-group">
             <input wire:keydown.escape="resetQuery"
+                   wire:keydown.enter.prevent="addSerial"
                    wire:model.debounce.500ms="query"
                    type="text"
                    class="form-control"
@@ -9,6 +10,9 @@
                    wire:blur="resetFocusAfterDelay"
                    placeholder="Cari nomor seri...">
         </div>
+        @if($error_message)
+            <small class="text-danger">{{ $error_message }}</small>
+        @endif
     </div>
 
     <div wire:loading class="card position-absolute mt-1 border-0" style="z-index: 5; left: 0; right: 0;">

@@ -77,6 +77,7 @@
                                             :dispatch-detail-id="$row['dispatch_detail_id']"
                                             :product-id="$row['product_id']"
                                             :sale-return-id="$saleReturnId"
+                                            :existing-serials="$row['serial_numbers'] ?? []"
                                             wire:key="serial-loader-{{ $index }}"
                                         />
 
