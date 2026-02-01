@@ -59,29 +59,29 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-4 mb-3">
-                        <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'replacement') border-primary bg-light @endif">
-                            <input class="form-check-input" type="radio" id="settlement_replacement" value="replacement" wire:model.live="return_type" @disabled($isReadOnly)>
-                            <label class="form-check-label ms-2" for="settlement_replacement">
-                                <span class="d-block fw-semibold">Penggantian Produk</span>
-                                <small class="text-muted">Barang diganti dengan produk baru setara.</small>
+                        <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'cash_refund') border-primary bg-light @endif">
+                            <input class="form-check-input" type="radio" id="settlement_cash_refund" value="cash_refund" wire:model.live="return_type" @disabled($isReadOnly)>
+                            <label class="form-check-label ms-2" for="settlement_cash_refund">
+                                <span class="d-block fw-semibold">Kembali Tunai</span>
+                                <small class="text-muted">Dana dikembalikan ke pelanggan (butuh bukti).</small>
                             </label>
                         </div>
                     </div>
                     <div class="col-md-4 mb-3">
-                        <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'credit') border-primary bg-light @endif">
-                            <input class="form-check-input" type="radio" id="settlement_credit" value="credit" wire:model.live="return_type" @disabled($isReadOnly)>
-                            <label class="form-check-label ms-2" for="settlement_credit">
-                                <span class="d-block fw-semibold">Konversi ke Kredit</span>
-                                <small class="text-muted">Nilai retur disimpan sebagai kredit pelanggan.</small>
+                        <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'repair') border-primary bg-light @endif">
+                            <input class="form-check-input" type="radio" id="settlement_repair" value="repair" wire:model.live="return_type" @disabled($isReadOnly)>
+                            <label class="form-check-label ms-2" for="settlement_repair">
+                                <span class="d-block fw-semibold">Perbaikan</span>
+                                <small class="text-muted">Barang akan diperbaiki (header-only).</small>
                             </label>
                         </div>
                     </div>
                     <div class="col-md-4 mb-3">
-                        <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'cash') border-primary bg-light @endif">
-                            <input class="form-check-input" type="radio" id="settlement_cash" value="cash" wire:model.live="return_type" @disabled($isReadOnly)>
-                            <label class="form-check-label ms-2" for="settlement_cash">
-                                <span class="d-block fw-semibold">Pengembalian Tunai</span>
-                                <small class="text-muted">Dana dikembalikan sesuai nilai retur.</small>
+                        <div class="form-check form-check-inline w-100 p-3 border rounded @if($return_type === 'unprocessed') border-primary bg-light @endif">
+                            <input class="form-check-input" type="radio" id="settlement_unprocessed" value="unprocessed" wire:model.live="return_type" @disabled($isReadOnly)>
+                            <label class="form-check-label ms-2" for="settlement_unprocessed">
+                                <span class="d-block fw-semibold">Tidak Dapat Diproses</span>
+                                <small class="text-muted">Retur ditolak atau tidak dapat ditindaklanjuti.</small>
                             </label>
                         </div>
                     </div>
@@ -93,78 +93,7 @@
             </div>
         </div>
 
-        @if($return_type === 'replacement')
-            <div class="card shadow-sm mb-4">
-                <div class="card-header bg-white border-0 d-flex align-items-center">
-                    <h5 class="mb-0">Produk Pengganti</h5>
-                    <button type="button" class="btn btn-sm btn-outline-primary ms-auto" wire:click="addReplacementGood" @disabled($isReadOnly)>
-                        <i class="bi bi-plus-circle"></i> Tambah Produk
-                    </button>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive border rounded">
-                        <table class="table table-sm table-hover mb-0">
-                            <thead class="table-light">
-                                <tr class="text-center">
-                                    <th style="width: 35%">Produk</th>
-                                    <th style="width: 15%">Jumlah</th>
-                                    <th style="width: 20%">Nilai Satuan</th>
-                                    <th style="width: 20%">Subtotal</th>
-                                    <th style="width: 10%"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($replacement_goods as $index => $replacement)
-                                    <tr>
-                                        <td>
-                                            @if($isReadOnly)
-                                                <div class="fw-semibold">{{ $replacement['product_name'] }}</div>
-                                                <small class="text-muted">{{ $replacement['product_code'] }}</small>
-                                            @else
-                                                <livewire:sales-return.replacement-product-search :index="$index" wire:key="replacement-{{ $index }}" />
-                                                @error("replacement_goods.$index.product_id")
-                                                    <span class="invalid-feedback d-block">{{ $message }}</span>
-                                                @enderror
-                                            @endif
-                                        </td>
-                                        <td class="text-center">
-                                            <input type="number" min="0" class="form-control text-center" wire:model.lazy="replacement_goods.{{ $index }}.quantity" wire:change="recalculateReplacement({{ $index }})" @disabled($isReadOnly)>
-                                            @error("replacement_goods.$index.quantity")
-                                                <span class="invalid-feedback d-block">{{ $message }}</span>
-                                            @enderror
-                                        </td>
-                                        <td>
-                                            <input type="number" step="0.01" min="0" class="form-control text-end" wire:model.lazy="replacement_goods.{{ $index }}.unit_value" wire:change="recalculateReplacement({{ $index }})" @disabled($isReadOnly)>
-                                        </td>
-                                        <td class="text-end align-middle">
-                                            <span class="fw-semibold">Rp {{ number_format($replacement['sub_total'] ?? 0, 2, ',', '.') }}</span>
-                                        </td>
-                                        <td class="text-center align-middle">
-                                            <button type="button" class="btn btn-outline-danger btn-sm" wire:click="removeReplacementGood({{ $index }})" @disabled($isReadOnly)>
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="5" class="text-center text-muted py-4">Belum ada produk pengganti.</td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-
-                    @error('replacement_goods')
-                        <div class="invalid-feedback d-block mt-2">{{ $message }}</div>
-                    @enderror
-                </div>
-            </div>
-        @elseif($return_type === 'credit')
-            <div class="alert alert-info d-flex align-items-center gap-2 mb-4" role="alert">
-                <i class="bi bi-piggy-bank"></i>
-                <span>Nilai kredit pelanggan yang akan dibuat: <strong>{{ format_currency($creditAmount) }}</strong>.</span>
-            </div>
-        @elseif($return_type === 'cash')
+        @if($return_type === 'cash_refund')
             <div class="card shadow-sm mb-4">
                 <div class="card-header bg-white border-0">
                     <h5 class="mb-1">Bukti Pengembalian Tunai</h5>

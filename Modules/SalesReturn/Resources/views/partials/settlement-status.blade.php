@@ -5,6 +5,12 @@
     $approvalStatus = strtolower($data->approval_status ?? '');
 
     $methodMap = [
+        'cash_refund' => 'Pengembalian Tunai',
+        'repair' => 'Perbaikan',
+        'unprocessed' => 'Tidak Dapat Diproses',
+        'Cash Refund' => 'Pengembalian Tunai',
+        'Repair' => 'Perbaikan',
+        'Unprocessed' => 'Tidak Dapat Diproses',
         'Cash' => 'Pengembalian Tunai',
         'Replacement' => 'Penggantian Produk',
         'Customer Credit' => 'Kredit Pelanggan',
@@ -13,8 +19,9 @@
     if ($data->settled_at) {
         $badgeClass = 'badge bg-success';
         $label = 'Selesai';
-        if ($data->payment_method) {
-            $description = 'Metode: ' . ($methodMap[$data->payment_method] ?? $data->payment_method);
+        $methodKey = $data->return_type ?: $data->payment_method;
+        if ($methodKey) {
+            $description = 'Metode: ' . ($methodMap[$methodKey] ?? $methodKey);
         }
     } elseif ($approvalStatus === 'rejected') {
         $badgeClass = 'badge bg-danger';
