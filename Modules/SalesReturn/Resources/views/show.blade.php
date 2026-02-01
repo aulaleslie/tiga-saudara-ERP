@@ -59,7 +59,7 @@
                                     <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('sale-returns.edit', $sale_return) }}">
                                         <i class="bi bi-pencil"></i> Edit
                                     </a>
-                                @elseif($approvalStatus === 'approved' && ! $sale_return->settled_at)
+                                @elseif($status === 'awaiting settlement' && ! $sale_return->settled_at)
                                     <a class="btn btn-success btn-sm d-print-none me-2 mb-1" href="{{ route('sale-returns.settlement', $sale_return) }}">
                                         <i class="bi bi-clipboard-check"></i> Penyelesaian
                                     </a>

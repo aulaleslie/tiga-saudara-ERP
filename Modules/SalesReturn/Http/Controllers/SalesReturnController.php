@@ -83,10 +83,10 @@ class SalesReturnController extends Controller
     {
         abort_if(Gate::denies('saleReturns.edit'), 403);
 
-        $status = Str::lower($sale_return->approval_status ?? '');
+        $status = Str::lower($sale_return->status ?? '');
 
-        if ($status !== 'approved') {
-            toast('Penyelesaian hanya dapat diproses setelah retur disetujui.', 'error');
+        if ($status !== 'awaiting settlement') {
+            toast('Penyelesaian hanya dapat diproses setelah barang retur diterima (Awaiting Settlement).', 'error');
             return redirect()->route('sale-returns.show', $sale_return);
         }
 
