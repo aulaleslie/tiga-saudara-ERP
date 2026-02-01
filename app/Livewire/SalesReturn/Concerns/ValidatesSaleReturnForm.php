@@ -20,7 +20,7 @@ trait ValidatesSaleReturnForm
             'rows' => 'required|array|min:1',
             'rows.*.dispatch_detail_id' => 'required|exists:dispatch_details,id',
             'rows.*.product_id' => 'required|exists:products,id',
-            'rows.*.quantity' => 'required|integer|min:0',
+            'rows.*.quantity' => 'nullable|integer|min:0',
         ];
     }
 

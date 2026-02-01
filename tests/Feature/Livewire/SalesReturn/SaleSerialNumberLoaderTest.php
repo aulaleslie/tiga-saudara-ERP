@@ -115,7 +115,7 @@ class SaleSerialNumberLoaderTest extends TestCase
         
         $serial = ProductSerialNumber::create([
             'product_id' => $product->id,
-            'dispatch_detail_id' => $dispatchDetail->id,
+            'dispatch_detail_id' => $dispatchDetail2->id,
             'serial_number' => 'SN123',
             'location_id' => 1,
         ]);
