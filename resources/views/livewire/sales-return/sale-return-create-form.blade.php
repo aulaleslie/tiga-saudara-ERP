@@ -76,7 +76,12 @@
             </div>
             <div class="card-body" style="overflow: visible;">
                 @if ($this->sale_id)
-                    <livewire:sales-return.sale-return-table :rows="$rows" :sale-id="$sale_id" :sale-return-id="property_exists($this, 'saleReturn') ? $this->saleReturn->id : null" />
+                    <livewire:sales-return.sale-return-table 
+                        :rows="$rows" 
+                        :sale-id="$sale_id" 
+                        :sale-return-id="property_exists($this, 'saleReturn') ? $this->saleReturn->id : null" 
+                        :approval-locked="$approvalLocked"
+                    />
                 @else
                     <div class="alert alert-light border mb-0" role="alert">
                         Pilih referensi penjualan terlebih dahulu untuk melihat daftar produk yang dapat diretur.

@@ -13,6 +13,7 @@ class SaleReturnTable extends Component
     public ?int $saleId = null;
     public array $validationErrors = [];
     public ?int $saleReturnId = null;
+    public bool $approvalLocked = false;
 
     protected $listeners = [
         'hydrateSaleReturnRows' => 'setRowsFromParent',
@@ -20,23 +21,32 @@ class SaleReturnTable extends Component
         'serialNumberSelected' => 'updateSerialNumberRow',
     ];
 
-    public function mount(array $rows = [], ?int $saleId = null, ?int $saleReturnId = null): void
+    public function mount(array $rows = [], ?int $saleId = null, ?int $saleReturnId = null, bool $approvalLocked = false): void
     {
         $this->rows = $rows;
         $this->saleId = $saleId;
         $this->saleReturnId = $saleReturnId;
+        $this->approvalLocked = $approvalLocked;
     }
 
-    public function setRowsFromParent(array $rows, ?int $saleId = null, ?int $saleReturnId = null): void
+    public function setRowsFromParent(array $rows, ?int $saleId = null, ?int $saleReturnId = null, bool $approvalLocked = false): void
     {
         $this->rows = $rows;
         $this->saleId = $saleId;
         $this->saleReturnId = $saleReturnId;
+        $this->approvalLocked = $approvalLocked;
     }
 
     public function handleValidationErrors(array $errors): void
     {
         $this->validationErrors = $errors;
+    }
+
+    public function updated($propertyName): void
+    {
+        if ($this->approvalLocked && str_starts_with($propertyName, 'rows')) {
+            $this->setRowsFromParent($this->rows, $this->saleId, $this->saleReturnId, $this->approvalLocked);
+        }
     }
 
     public function render(): View|Factory|Application
@@ -50,7 +60,7 @@ class SaleReturnTable extends Component
 
     public function updateQuantity(int $index, $value = null): void
     {
-        if (! isset($this->rows[$index])) {
+        if ($this->approvalLocked || ! isset($this->rows[$index])) {
             return;
         }
 
@@ -73,7 +83,7 @@ class SaleReturnTable extends Component
 
     public function removeRow(int $index): void
     {
-        if (! isset($this->rows[$index])) {
+        if ($this->approvalLocked || ! isset($this->rows[$index])) {
             return;
         }
 
@@ -95,7 +105,7 @@ class SaleReturnTable extends Component
 
     public function updateSerialNumberRow(int $index, array $serial): void
     {
-        if (! isset($this->rows[$index]) || empty($this->rows[$index]['serial_number_required'])) {
+        if ($this->approvalLocked || ! isset($this->rows[$index]) || empty($this->rows[$index]['serial_number_required'])) {
             return;
         }
 
@@ -119,7 +129,7 @@ class SaleReturnTable extends Component
 
     public function removeSerialNumber(int $index, int $serialIndex): void
     {
-        if (! isset($this->rows[$index]['serial_numbers'][$serialIndex])) {
+        if ($this->approvalLocked || ! isset($this->rows[$index]['serial_numbers'][$serialIndex])) {
             return;
         }
 

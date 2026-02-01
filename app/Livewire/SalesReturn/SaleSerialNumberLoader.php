@@ -22,18 +22,20 @@ class SaleSerialNumberLoader extends Component
     public ?int $sale_return_id = null;
     public string $error_message = '';
     public array $existingSerials = [];
+    public bool $approvalLocked = false;
 
     protected $listeners = [
         'refreshSerialLoader' => 'refreshList',
     ];
 
-    public function mount(int $index, ?int $dispatchDetailId = null, ?int $productId = null, ?int $saleReturnId = null, array $existingSerials = []): void
+    public function mount(int $index, ?int $dispatchDetailId = null, ?int $productId = null, ?int $saleReturnId = null, array $existingSerials = [], bool $approvalLocked = false): void
     {
         $this->index = $index;
         $this->dispatch_detail_id = $dispatchDetailId;
         $this->product_id = $productId;
         $this->sale_return_id = $saleReturnId;
         $this->existingSerials = $existingSerials;
+        $this->approvalLocked = $approvalLocked;
     }
 
     public function render(): View|Factory|Application
@@ -43,6 +45,10 @@ class SaleSerialNumberLoader extends Component
 
     public function addSerial(): void
     {
+        if ($this->approvalLocked) {
+            return;
+        }
+
         $this->error_message = '';
         $query = trim($this->query);
 
@@ -146,6 +152,10 @@ class SaleSerialNumberLoader extends Component
 
     public function selectSerial(int $serialId): void
     {
+        if ($this->approvalLocked) {
+            return;
+        }
+
         $serial = ProductSerialNumber::query()
             ->where('dispatch_detail_id', $this->dispatch_detail_id)
             ->find($serialId);

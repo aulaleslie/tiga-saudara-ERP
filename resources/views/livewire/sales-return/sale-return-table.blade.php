@@ -46,7 +46,8 @@
                                 @else
                                     <input type="number" min="0" class="form-control text-center"
                                            wire:model="rows.{{ $index }}.quantity"
-                                           wire:blur="updateQuantity({{ $index }})">
+                                           wire:blur="updateQuantity({{ $index }})"
+                                           @disabled($approvalLocked)>
                                 @endif
                                 @error("rows.".$index.".quantity")
                                     <span class="invalid-feedback d-block">{{ $message }}</span>
@@ -62,9 +63,11 @@
                                 {{ format_currency($row['total'] ?? 0) }}
                             </td>
                             <td class="text-center">
-                                <button type="button" class="btn btn-outline-danger btn-sm rounded-circle" wire:click="removeRow({{ $index }})">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                @if (!$approvalLocked)
+                                    <button type="button" class="btn btn-outline-danger btn-sm rounded-circle" wire:click="removeRow({{ $index }})">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                @endif
                             </td>
                         </tr>
 
@@ -78,6 +81,7 @@
                                             :product-id="$row['product_id']"
                                             :sale-return-id="$saleReturnId"
                                             :existing-serials="$row['serial_numbers'] ?? []"
+                                            :approval-locked="$approvalLocked"
                                             wire:key="serial-loader-{{ $index }}"
                                         />
 
@@ -100,10 +104,12 @@
                                                     <tr>
                                                         <td>{{ $serial['serial_number'] ?? '-' }}</td>
                                                         <td class="text-center">
-                                                            <button type="button" class="btn btn-outline-danger btn-sm rounded-circle"
-                                                                    wire:click="removeSerialNumber({{ $index }}, {{ $serialIndex }})">
-                                                                <i class="bi bi-trash"></i>
-                                                            </button>
+                                                            @if (!$approvalLocked)
+                                                                <button type="button" class="btn btn-outline-danger btn-sm rounded-circle"
+                                                                        wire:click="removeSerialNumber({{ $index }}, {{ $serialIndex }})">
+                                                                    <i class="bi bi-trash"></i>
+                                                                </button>
+                                                            @endif
                                                         </td>
                                                     </tr>
                                                 @empty
