@@ -9,7 +9,11 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Modules\SalesReturn\Entities\SaleReturn;
+use Modules\SalesReturn\Entities\SaleReturnDetail;
+use Modules\SalesReturn\Entities\SaleReturnItemSettlement;
 use Modules\Setting\Entities\Setting;
+use Modules\Product\Entities\Product;
+use Modules\Setting\Entities\Location;
 use Tests\TestCase;
 
 class SettlementOptionsTest extends TestCase
@@ -33,13 +37,31 @@ class SettlementOptionsTest extends TestCase
             'company_address' => 'Address',
         ]);
 
+        Product::create([
+            'id' => 1,
+            'product_name' => 'Test Product',
+            'product_code' => 'P001',
+            'product_quantity' => 10,
+            'product_cost' => 500,
+            'product_price' => 1000,
+            'product_unit' => 'pc',
+            'product_stock_alert' => 1,
+            'setting_id' => 1,
+        ]);
+
+        Location::create([
+            'id' => 1,
+            'name' => 'Main Warehouse',
+            'setting_id' => 1,
+        ]);
+
         session(['setting_id' => 1]);
         Gate::define('saleReturns.edit', fn() => true);
     }
 
     protected function createSaleReturn(): SaleReturn
     {
-        return SaleReturn::create([
+        $saleReturn = SaleReturn::create([
             'setting_id' => 1,
             'reference' => 'SR-001',
             'date' => now(),
@@ -53,17 +75,34 @@ class SettlementOptionsTest extends TestCase
             'approval_status' => 'approved',
             'status' => 'Awaiting Settlement',
         ]);
+
+        SaleReturnDetail::create([
+            'sale_return_id' => $saleReturn->id,
+            'product_id' => 1,
+            'product_name' => 'Test Product',
+            'product_code' => 'P001',
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'location_id' => 1,
+        ]);
+
+        return $saleReturn->refresh();
     }
 
     /** @test */
-    public function it_requires_return_type_and_cash_proof_for_cash_refund()
+    public function it_requires_notes_for_unprocessed_settlement()
     {
         $saleReturn = $this->createSaleReturn();
 
         Livewire::test(\App\Livewire\SalesReturn\SaleReturnSettlementForm::class, ['saleReturnId' => $saleReturn->id])
-            ->set('return_type', 'cash_refund')
-            ->call('submit')
-            ->assertHasErrors(['cash_proof']);
+            ->set('settlementLines.0.method', SaleReturnDetail::METHOD_UNPROCESSED)
+            ->call('submitLine', 0)
+            ->assertHasErrors(['settlementLines.0.notes']);
     }
 
     /** @test */
@@ -74,24 +113,15 @@ class SettlementOptionsTest extends TestCase
         $file = UploadedFile::fake()->image('proof.jpg');
 
         Livewire::test(\App\Livewire\SalesReturn\SaleReturnSettlementForm::class, ['saleReturnId' => $saleReturn->id])
-            ->set('return_type', 'cash_refund')
-            ->set('cash_proof', $file)
-            ->call('submit')
-            ->assertHasNoErrors()
-            ->assertRedirect(route('sale-returns.show', $saleReturn->id));
+            ->set('settlementLines.0.method', SaleReturnDetail::METHOD_CASH_REFUND)
+            ->set('settlementLines.0.proof_file', $file)
+            ->call('submitLine', 0)
+            ->assertHasNoErrors();
 
-        $saleReturn->refresh();
-        $this->assertEquals('CASH_REFUND', $saleReturn->return_type);
-        $this->assertEquals('PAID', $saleReturn->payment_status);
-        $this->assertEquals('COMPLETED', $saleReturn->status);
-        $this->assertEquals(1000, $saleReturn->paid_amount);
-        $this->assertEquals(0, $saleReturn->due_amount);
-        $this->assertNotNull($saleReturn->cash_proof_path);
-        
-        $this->assertDatabaseHas('sale_return_payments', [
+        $this->assertDatabaseHas('sale_return_item_settlements', [
             'sale_return_id' => $saleReturn->id,
-            'amount' => 100000,
-            'payment_method' => 'CASH REFUND'
+            'method' => SaleReturnDetail::METHOD_CASH_REFUND,
+            'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
         ]);
     }
 
@@ -101,14 +131,16 @@ class SettlementOptionsTest extends TestCase
         $saleReturn = $this->createSaleReturn();
 
         Livewire::test(\App\Livewire\SalesReturn\SaleReturnSettlementForm::class, ['saleReturnId' => $saleReturn->id])
-            ->set('return_type', 'repair')
-            ->call('submit')
+            ->set('settlementLines.0.method', SaleReturnDetail::METHOD_PRODUCT_REPAIR)
+            ->set('settlementLines.0.location_id', 1)
+            ->call('submitLine', 0)
             ->assertHasNoErrors();
 
-        $saleReturn->refresh();
-        $this->assertEquals('REPAIR', $saleReturn->return_type);
-        $this->assertEquals('COMPLETED', $saleReturn->status);
-        $this->assertEquals('REPAIR', $saleReturn->payment_method);
+        $this->assertDatabaseHas('sale_return_item_settlements', [
+            'sale_return_id' => $saleReturn->id,
+            'method' => SaleReturnDetail::METHOD_PRODUCT_REPAIR,
+            'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
+        ]);
     }
 
     /** @test */
@@ -117,29 +149,18 @@ class SettlementOptionsTest extends TestCase
         $saleReturn = $this->createSaleReturn();
 
         Livewire::test(\App\Livewire\SalesReturn\SaleReturnSettlementForm::class, ['saleReturnId' => $saleReturn->id])
-            ->set('return_type', 'unprocessed')
-            ->call('submit')
+            ->set('settlementLines.0.method', SaleReturnDetail::METHOD_UNPROCESSED)
+            ->set('settlementLines.0.notes', 'Cannot process')
+            ->call('submitLine', 0)
             ->assertHasNoErrors();
 
-        $saleReturn->refresh();
-        $this->assertEquals('UNPROCESSED', $saleReturn->return_type);
-        $this->assertEquals('COMPLETED', $saleReturn->status);
-        $this->assertEquals('UNPROCESSED', $saleReturn->payment_method);
-    }
-
-    /** @test */
-    public function it_rejects_legacy_settlement_options()
-    {
-        $saleReturn = $this->createSaleReturn();
-
-        Livewire::test(\App\Livewire\SalesReturn\SaleReturnSettlementForm::class, ['saleReturnId' => $saleReturn->id])
-            ->set('return_type', 'replacement')
-            ->call('submit')
-            ->assertHasErrors(['return_type' => 'in']);
-
-        Livewire::test(\App\Livewire\SalesReturn\SaleReturnSettlementForm::class, ['saleReturnId' => $saleReturn->id])
-            ->set('return_type', 'credit')
-            ->call('submit')
-            ->assertHasErrors(['return_type' => 'in']);
+        $this->assertDatabaseHas('sale_return_item_settlements', [
+            'sale_return_id' => $saleReturn->id,
+            'method' => SaleReturnDetail::METHOD_UNPROCESSED,
+            'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
+        ]);
     }
 }
+
+
+

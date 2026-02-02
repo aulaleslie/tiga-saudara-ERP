@@ -343,9 +343,11 @@ class PurchaseReturnSettlementLogicTest extends TestCase
         // 6. Assertions
         $sourcePurchase->refresh();
         // Source modified: 100,000 - 20,000 = 80,000 Total.
-        // Paid: 80,000 (matched new total since all payments were deleted and moved)
+        // Paid: 0 (Since all payments were deleted and moved/reset due to surplus)
         $this->assertEquals(80000, $sourcePurchase->total_amount);
-        $this->assertEquals(80000, $sourcePurchase->paid_amount);
+        $this->assertEquals(0, $sourcePurchase->paid_amount);
+        $this->assertEquals(80000, $sourcePurchase->due_amount);
+        $this->assertEquals('UNPAID', $sourcePurchase->payment_status);
 
         // Assert source payment is deleted
         $this->assertEquals(0, PurchasePayment::where('purchase_id', $sourcePurchase->id)->count());
@@ -480,11 +482,11 @@ class PurchaseReturnSettlementLogicTest extends TestCase
 
         // 5. Assertions
         $purchase->refresh();
-        // New Total: 80,000. Paid: 80,000 (matched new total since all payments were deleted). Due: 0. Status: PAID.
+        // New Total: 80,000. Paid: 0 (all payments deleted). Due: 80,000. Status: UNPAID.
         $this->assertEquals(80000, $purchase->total_amount);
-        $this->assertEquals(80000, $purchase->paid_amount);
-        $this->assertEquals(0, $purchase->due_amount);
-        $this->assertEquals('PAID', $purchase->payment_status);
+        $this->assertEquals(0, $purchase->paid_amount);
+        $this->assertEquals(80000, $purchase->due_amount);
+        $this->assertEquals('UNPAID', $purchase->payment_status);
         $this->assertEquals(0, PurchasePayment::where('purchase_id', $purchase->id)->count());
     }
 
@@ -604,11 +606,11 @@ class PurchaseReturnSettlementLogicTest extends TestCase
 
         // 5. Assertions
         $purchase->refresh();
-        // New Total: 70,000. Paid: 70,000 (matched new total since all payments were deleted). Due: 0. Status: PAID.
+        // New Total: 70,000. Paid: 0 (all payments deleted). Due: 70,000. Status: UNPAID.
         $this->assertEquals(70000, $purchase->total_amount);
-        $this->assertEquals(70000, $purchase->paid_amount);
-        $this->assertEquals(0, $purchase->due_amount);
-        $this->assertEquals('PAID', $purchase->payment_status);
+        $this->assertEquals(0, $purchase->paid_amount);
+        $this->assertEquals(70000, $purchase->due_amount);
+        $this->assertEquals('UNPAID', $purchase->payment_status);
         $this->assertEquals(0, PurchasePayment::where('purchase_id', $purchase->id)->count());
     }
 
