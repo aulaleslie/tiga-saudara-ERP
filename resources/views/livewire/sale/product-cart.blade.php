@@ -34,7 +34,7 @@
                 <tbody>
                 @if($cart_items->isNotEmpty())
                     @foreach($cart_items as $cart_item)
-                        <tr>
+                        <tr wire:key="cart-item-{{ $cart_item->id }}">
                             <td class="align-middle">
                                 <strong>{{ $cart_item->name }}</strong> <br>
                                 <span class="badge badge-success">{{ $cart_item->options->code }}</span>
@@ -195,7 +195,7 @@
                         </tr>
 
                         @if($cart_item->options->bundle_items)
-                            <tr class="collapse" id="bundleCollapse{{ $cart_item->id }}">
+                            <tr wire:ignore wire:key="bundle-{{ $cart_item->id }}" class="collapse" id="bundleCollapse{{ $cart_item->id }}">
                                 <td colspan="9" class="p-0">
                                     <div class="card card-body">
                                         <h6 class="mb-2">Paket Penjualan</h6>

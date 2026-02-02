@@ -73,7 +73,7 @@
                             </div>
                         </td>
                         <td class="text-center">
-                            <span class="fw-bold">{{ $product['total_quantity'] }}</span>
+                            <span class="fw-bold text-dark">{{ $product['total_quantity'] }}</span>
                         </td>
                         <td class="text-center text-muted">
                             {{ $product['dispatched_quantity'] }}
@@ -99,11 +99,11 @@
                             <td class="px-2">
                                 @livewire('modules.setting.location-search-dropdown', [
                                     'name' => $key,
+                                    'formName' => 'selectedLocations[' . $key . ']',
                                     'selected' => $selectedLocations[$key] ?? null,
                                     'placeholder' => 'Pilih...',
                                     'dispatchTo' => 'sale.dispatch-sale-table'
                                 ], key('location-dropdown-' . $key))
-                                <input type="hidden" name="selectedLocations[{{ $key }}]" value="{{ $selectedLocations[$key] ?? '' }}">
                             </td>
                             <td class="text-center">
                                 <span class="badge {{ ($stockAtLocations[$key] ?? 0) > 0 ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger' }} px-2 py-1">

@@ -40,7 +40,7 @@
             </div>
         @endif
 
-        <input type="hidden" name="{{ $name }}" value="{{ $selected ?? '' }}">
+        <input type="hidden" name="{{ $formName ?? $name }}" value="{{ $selected ?? '' }}">
 
         @if($error)
             <div class="text-danger small mt-1">{{ $error }}</div>

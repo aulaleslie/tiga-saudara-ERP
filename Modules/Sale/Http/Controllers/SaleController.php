@@ -402,9 +402,10 @@ class SaleController extends Controller
             $aggregatedProducts[$key]['total_quantity'] += $bundleItem->quantity;
         }
 
-        // Get already dispatched quantities for this sale (if any)
+        // Get already dispatched quantities for this sale (only APPROVED dispatches)
         $dispatchedDetails = DispatchDetail::whereHas('dispatch', function ($query) use ($sale) {
-            $query->where('sale_id', $sale->id);
+            $query->where('sale_id', $sale->id)
+                  ->where('status', Dispatch::STATUS_APPROVED);
         })->get();
 
         foreach ($dispatchedDetails as $d) {

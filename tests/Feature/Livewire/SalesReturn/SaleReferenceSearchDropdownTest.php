@@ -121,6 +121,7 @@ class SaleReferenceSearchDropdownTest extends TestCase
         $dispatch = Dispatch::create([
             'sale_id' => $sale->id,
             'dispatch_date' => now(),
+            'status' => Dispatch::STATUS_APPROVED,
         ]);
 
         $dispatchDetail = DispatchDetail::create([

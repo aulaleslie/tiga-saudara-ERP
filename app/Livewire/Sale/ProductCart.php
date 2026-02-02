@@ -413,29 +413,41 @@ class ProductCart extends Component
         }
 
         $selectedBundleItems = [];
-        $bundleTotal = 0.0;
-        foreach ($bundle->items as $bundleItem) {
-            if ($bundleItem->price !== null) {
-                $itemPrice = (float) $bundleItem->price;
-            } else {
-                $itemPricing = $this->resolveProductPricing($bundleItem->product);
-                $itemPrice = $this->determineTierPrice($itemPricing);
-            }
 
+        // Prefer the bundle's configured price (Harga Paket). If not set, fall back
+        // to summing individual bundle item prices (legacy behavior).
+        $bundleTotal = $bundle->price !== null ? (float) $bundle->price : 0.0;
+
+        foreach ($bundle->items as $bundleItem) {
+            // For create flow we do not use individual bundle item prices for
+            // the cart row. We still keep item records (name, qty) but set
+            // their displayed/used price to 0 so the bundle price alone
+            // represents the package value.
             $initialQuantity = (int) $bundleItem->quantity;
-            $itemSubTotal = round($itemPrice * $initialQuantity, 2);
-            $bundleTotal += $itemSubTotal;
 
             $selectedBundleItems[] = [
                 'bundle_id'           => $bundle->id,
                 'bundle_item_id'      => $bundleItem->id,
                 'product_id'          => $bundleItem->product->id,
                 'name'                => $bundleItem->product->product_name,
-                'price'               => $itemPrice,
+                // price intentionally 0 to avoid double-counting
+                'price'               => 0.0,
                 'quantity'            => $initialQuantity,
                 'quantity_per_bundle' => $initialQuantity,
-                'sub_total'           => $itemSubTotal,
+                'sub_total'           => 0.0,
             ];
+
+            // If bundle has no explicit price, accumulate item prices as fallback.
+            if ($bundle->price === null) {
+                if ($bundleItem->price !== null) {
+                    $itemPrice = (float) $bundleItem->price;
+                } else {
+                    $itemPricing = $this->resolveProductPricing($bundleItem->product);
+                    $itemPrice = $this->determineTierPrice($itemPricing);
+                }
+
+                $bundleTotal += round($itemPrice * $initialQuantity, 2);
+            }
         }
 
         $bundleTotal = round($bundleTotal, 2);
@@ -445,27 +457,33 @@ class ProductCart extends Component
                 ->selectRaw('SUM(quantity_non_tax) as quantity_non_tax, SUM(quantity_tax) as quantity_tax')
                 ->first();
 
+            // Use the parent product's display/unit price for the cart row so
+            // the Harga Jual column shows the product price (e.g., 5,500,000).
+            // Keep the bundle price stored in options (bundle_price) and keep
+            // the combined subtotal (parent + bundle) in options->sub_total.
             $parentCalculated = $this->calculate($this->pendingProduct);
             $parentResolved = $parentCalculated['resolved_prices'] ?? $this->resolveProductPricing($this->pendingProduct);
-            $final_sub_total = $parentCalculated['sub_total'] + $bundleTotal;
+
+            $parentUnitPrice = $parentCalculated['unit_price'] ?? $parentCalculated['price'] ?? 0.0;
+            $combinedSubTotal = $parentCalculated['sub_total'] + $bundleTotal;
 
             $cartItem = $cart->add([
                 'id' => Str::uuid()->toString(),
                 'name' => $this->pendingProduct['product_name'],
                 'qty' => 1,
-                'price' => $final_sub_total, // base product price only
+                'price' => $parentUnitPrice,
                 'weight' => 1,
                 'options' => [
                     'product_id' => $this->pendingProduct['id'],
                     'product_discount' => 0.00,
                     'product_discount_type' => 'fixed',
-                    'sub_total' => $final_sub_total,
-                    'sub_total_before_tax' => $final_sub_total,
+                    'sub_total' => $combinedSubTotal,
+                    'sub_total_before_tax' => $combinedSubTotal,
                     'code' => $this->pendingProduct['product_code'],
                     'stock' => $this->pendingProduct['product_quantity'],
                     'unit' => $this->pendingProduct['product_unit'],
                     'product_tax' => null,
-                    'unit_price' => $final_sub_total,
+                    'unit_price' => $parentUnitPrice,
                     'sale_price' => $parentResolved['sale_price'] ?? 0,
                     'tier_1_price' => $parentResolved['tier_1_price'] ?? 0,
                     'tier_2_price' => $parentResolved['tier_2_price'] ?? 0,

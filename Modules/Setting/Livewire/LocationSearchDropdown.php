@@ -29,6 +29,7 @@ class LocationSearchDropdown extends Component
     ];
 
     public ?string $dispatchTo = null;
+    public ?string $formName = null;
 
     public function mount(
         array $options = [],
@@ -38,6 +39,7 @@ class LocationSearchDropdown extends Component
         bool $allowCreate = false,
         ?string $error = null,
         ?string $dispatchTo = null,
+        ?string $formName = null,
         int $zIndex = 1050
     ): void {
         $this->name = $name;
@@ -45,6 +47,7 @@ class LocationSearchDropdown extends Component
         $this->allowCreate = $allowCreate;
         $this->error = $error;
         $this->dispatchTo = $dispatchTo;
+        $this->formName = $formName;
         $this->zIndex = $zIndex;
 
         $this->options = $this->prepareOptions($options);

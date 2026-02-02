@@ -5,6 +5,7 @@ namespace App\Support\SalesReturn;
 use Illuminate\Support\Collection;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Sale\Entities\DispatchDetail;
+use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SaleBundleItem;
@@ -42,9 +43,14 @@ class SaleReturnEligibilityService
             'saleDetails.product',
         ]);
 
+        // Only consider dispatch details from approved dispatches —
+        // pending/rejected dispatches should not be returnable.
         $dispatchDetails = DispatchDetail::query()
             ->with(['product:id,product_name,product_code,serial_number_required', 'location:id,name'])
             ->where('sale_id', $sale->id)
+            ->whereHas('dispatch', function ($q) {
+                $q->where('status', Dispatch::STATUS_APPROVED);
+            })
             ->get();
 
         if ($dispatchDetails->isEmpty()) {
