@@ -21,9 +21,15 @@
                     </thead>
                     <tbody>
                     @foreach($items as $index => $item)
-                        <tr>
+                        @php($rowKey = $rowKeys[$index] ?? ('bundle_'.$index))
+                        <tr wire:key="bundle-row-{{ $rowKey }}">
                             <td style="min-width: 220px;">
-                                <livewire:auto-complete.product-loader :index="$index" :key="$index" />
+                                <livewire:modules.product.product-search-dropdown
+                                    :index="$rowKey"
+                                    :key="$rowKey"
+                                    :selected="$item['product_id']"
+                                    :exclude-product-id="$productId"
+                                />
                                 @error("items.$index.product_id")
                                 <div class="invalid-feedback">{{ $message }}</div>
                                 @enderror
@@ -36,7 +42,7 @@
                                     min="1">
                             </td>
                             <td class="text-end">
-                                <button type="button" class="btn btn-danger" wire:click="removeItem({{ $index }})">Hapus</button>
+                                <button type="button" class="btn btn-danger" wire:click="removeItem('{{ $rowKey }}')">Hapus</button>
                             </td>
                         </tr>
                     @endforeach
