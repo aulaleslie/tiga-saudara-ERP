@@ -357,24 +357,20 @@ class PurchaseReturnSettlementForm extends Component
                          $this->settlementLines[$index]['target_purchase_id'] = $originPurchaseId;
                      }
                  }
-            } elseif (!in_array($method, [PurchaseReturnDetail::METHOD_CREDIT, PurchaseReturnDetail::METHOD_CASH])) {
-                // For Repair/Broken maybe 0?
-                // Let's safe bet check existing logic:
-                // Existing logic initialized nominal to `unit_price`.
-                // If I repair, I don't get money back. I get a repaired item.
-                // So nominal SHOULD be 0?
-                // But if I change to MODIFY, I want full value.
-                // Re-initializing to max_nominal is safer for debt reduction/refunds.
-                // If Repair, maybe set to 0.
-                
-                if (in_array($method, [PurchaseReturnDetail::METHOD_PRODUCT_REPAIR, PurchaseReturnDetail::METHOD_BROKEN_STOCK])) {
-                     $this->settlementLines[$index]['nominal'] = 0;
-                } else {
-                     $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
+            }
+            // Determine current status and whether the line is editable
+            $status = $this->settlementLines[$index]['status'] ?? \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT;
+            $isEditable = in_array($status, [\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT, \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_REJECTED]);
+
+            if (!in_array($method, [PurchaseReturnDetail::METHOD_CREDIT, PurchaseReturnDetail::METHOD_CASH])) {
+                // For non-financial methods or empty selection, revert nominal back to document price
+                // but only when the line is still editable. Do not override submitted/locked lines.
+                if ($isEditable) {
+                    $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
+                    // Ensure client-side formatted input updates immediately
                 }
             } else {
-                // CREDIT or CASH -> Keep existing or Max? 
-                // Usually reset to Max to be helpful.
+                // CREDIT or CASH -> Keep existing or set to max if empty
                 if (empty($this->settlementLines[$index]['nominal'])) {
                     $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
                 }

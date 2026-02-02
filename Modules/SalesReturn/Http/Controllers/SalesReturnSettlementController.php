@@ -20,7 +20,7 @@ class SalesReturnSettlementController extends Controller
      */
     public function approveItemSettlement(Request $request, SaleReturnItemSettlement $itemSettlement)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('saleReturns.edit'), 403);
+        abort_if(\Illuminate\Support\Facades\Gate::denies('saleReturnSettlements.approve'), 403);
 
         $itemSettlement->load(['detail', 'serialNumber', 'saleReturn']);
 
@@ -30,15 +30,27 @@ class SalesReturnSettlementController extends Controller
 
         try {
             DB::transaction(function () use ($request, $itemSettlement) {
-                // Apply settlement effects
-                $this->applySettlementEffect($itemSettlement, $request);
+                // Decide behavior based on method
+                $method = strtoupper($itemSettlement->method ?? '');
 
-                $itemSettlement->update([
-                    'status' => SaleReturnItemSettlement::STATUS_APPROVED,
-                    'approved_by' => Auth::id(),
-                    'approved_at' => now(),
-                    'approval_note' => $request->approval_note,
-                ]);
+                if ($method === 'CASH_REFUND' || $method === 'CUSTOMER_CREDIT' || $method === 'MODIFY_SALE') {
+                    // immediate effects on approval
+                    $this->applySettlementEffect($itemSettlement, $request);
+                    $itemSettlement->update([
+                        'status' => SaleReturnItemSettlement::STATUS_APPROVED,
+                        'approved_by' => Auth::id(),
+                        'approved_at' => now(),
+                        'approval_note' => $request->approval_note,
+                    ]);
+                } else {
+                    // REPAIR and UNPROCESSED: defer dispatch/stock effects until dispatch phase
+                    $itemSettlement->update([
+                        'status' => SaleReturnItemSettlement::STATUS_APPROVED_AWAITING_DISPATCH,
+                        'approved_by' => Auth::id(),
+                        'approved_at' => now(),
+                        'approval_note' => $request->approval_note,
+                    ]);
+                }
 
                 // Update Sale Return status roll-up
                 $saleReturn = $itemSettlement->saleReturn->load('settlementItems');
@@ -63,7 +75,7 @@ class SalesReturnSettlementController extends Controller
      */
     public function rejectItemSettlement(Request $request, SaleReturnItemSettlement $itemSettlement)
     {
-        abort_if(\Illuminate\Support\Facades\Gate::denies('saleReturns.edit'), 403);
+        abort_if(\Illuminate\Support\Facades\Gate::denies('saleReturnSettlements.approve'), 403);
 
         if (!$itemSettlement->canApprove()) {
             return back()->with('error', 'Item ini tidak dapat ditolak.');

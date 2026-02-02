@@ -87,7 +87,6 @@
             font-weight: 600;
             border: none;
             transition: all 0.2s;
-        }
         .btn-premium-primary:hover {
             background: #1d4ed8;
             transform: translateY(-1px);
@@ -233,7 +232,11 @@
                                     </td>
                                     <td>
                                         @if($line['status'] === 'DRAFT' || $line['status'] === 'REJECTED')
-                                            <select class="form-select form-select-premium form-select-sm" wire:model.live="settlementLines.{{ $index }}.method">
+                                            <select class="form-select form-select-premium form-select-sm @error('settlementLines.'.$index.'.method') is-invalid @enderror" 
+                                                wire:model.live="settlementLines.{{ $index }}.method"
+                                                data-index="{{ $index }}"
+                                                data-status="{{ $line['status'] }}"
+                                                data-max-nominal="{{ $line['max_nominal'] }}">
                                                 <option value="">-- Pilih --</option>
                                                 @foreach($methods as $val => $lab)
                                                     <option value="{{ $val }}">{{ $lab }}</option>
@@ -242,23 +245,7 @@
 
                                             {{-- Dynamic Inputs based on Method --}}
                                             @if($line['method'] === \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_PRODUCT_REPAIR)
-                                                <div class="mt-2">
-                                                    @if($line['serial_number_id'])
-                                                         {{-- Serial Replacement --}}
-                                                        <input type="text" class="form-control form-control-premium form-control-sm" 
-                                                               wire:model.blur="settlementLines.{{ $index }}.new_serial_number" 
-                                                               placeholder="Serial Baru">
-                                                    @else
-                                                        {{-- Non-Serial Replacement --}}
-                                                        <select class="form-select form-select-premium form-select-sm" 
-                                                                wire:model.live="settlementLines.{{ $index }}.location_id">
-                                                            <option value="">-- Pilih Lokasi --</option>
-                                                            @foreach($locations as $loc)
-                                                                <option value="{{ $loc->id }}">{{ $loc->name }}</option>
-                                                            @endforeach
-                                                        </select>
-                                                    @endif
-                                                </div>
+                                                {{-- Replacement details are handled after approval (dispatch) --}}
                                             @endif
 
                                             @if($line['method'] === \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_UNPROCESSED)
@@ -277,17 +264,39 @@
                                     <td>
                                         @if($line['status'] === 'DRAFT' || $line['status'] === 'REJECTED')
                                             @if($line['method'] === \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_CASH_REFUND)
-                                                <div class="input-group input-group-sm">
-                                                    <span class="input-group-text">Rp</span>
-                                                    <input type="number" class="form-control form-control-premium text-end" 
-                                                           wire:model.blur="settlementLines.{{ $index }}.nominal"
-                                                           max="{{ $line['max_nominal'] }}">
+                                                <div class="mb-1 ms-auto" style="max-width: 200px;">
+                                                        <input
+                                                        x-data="{
+                                                            nominal: @entangle('settlementLines.'.$index.'.nominal'),
+                                                            format(val) {
+                                                                if (val === null || val === '' || isNaN(parseFloat(val))) return '';
+                                                                let num = parseFloat(val);
+                                                                return 'Rp ' + new Intl.NumberFormat('id-ID', {
+                                                                    minimumFractionDigits: 0,
+                                                                    maximumFractionDigits: 0
+                                                                }).format(num);
+                                                            },
+                                                            parse(val) {
+                                                                if (typeof val !== 'string') return val;
+                                                                let clean = val.replace(/[^0-9]/g, '');
+                                                                return clean === '' ? 0 : parseFloat(clean);
+                                                            }
+                                                        }"
+                                                        type="text"
+                                                        name="{{ 'settlementLines.'.$index.'.nominal' }}"
+                                                        wire:key="nominal-input-{{ $index }}"
+                                                            class="form-control form-control-premium text-end settlement-nominal @error('settlementLines.'.$index.'.nominal') is-invalid @enderror"
+                                                        x-bind:value="format(nominal)"
+                                                        x-on:focus="$el.value = (nominal || 0); $el.select()"
+                                                        x-on:blur="$el.value = format(nominal)"
+                                                        x-on:input="nominal = parse($el.value)"
+                                                        placeholder="0"
+                                                    >
                                                 </div>
-                                                {{-- Proof Upload Minimalist --}}
-                                                <div class="mt-1">
-                                                     <input type="file" class="form-control form-control-sm" style="font-size: 0.7rem;"
-                                                           wire:model="settlementLines.{{ $index }}.proof_file">
-                                                </div>
+                                                <div class="small text-muted">Maks: <span class="fw-semibold text-dark">{{ format_currency($line['max_nominal']) }}</span></div>
+                                                @error('settlementLines.'.$index.'.nominal')
+                                                    <div class="invalid-feedback d-block text-start">{{ $message }}</div>
+                                                @enderror
                                             @else
                                                <div class="text-end fw-bold">{{ format_currency($line['nominal']) }}</div>
                                             @endif
@@ -308,16 +317,7 @@
                                                         <span class="text-muted">Lokasi:</span> <strong>{{ $locName }}</strong>
                                                     @endif
                                                 @elseif($line['method'] === \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_CASH_REFUND)
-                                                    @if(!empty($line['proof_path'] ?? null))
-                                                        @php 
-                                                            $proof = \Modules\SalesReturn\Entities\SaleReturnItemSettlement::find($line['id'])?->proof_path;
-                                                        @endphp
-                                                        @if($proof)
-                                                            <a href="{{ Storage::url($proof) }}" target="_blank" class="badge badge-soft-info text-decoration-none">
-                                                                <i class="bi bi-paperclip"></i> Bukti
-                                                            </a>
-                                                        @endif
-                                                    @endif
+                                                    {{-- Cash refund amount recorded on settlement approval --}}
                                                 @elseif($line['method'] === \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_UNPROCESSED)
                                                     <div class="text-muted fst-italic">"{{ $line['notes'] }}"</div>
                                                 @endif
@@ -360,3 +360,110 @@
         </form>
     </div>
 </div>
+<script>
+    document.addEventListener('change', function (e) {
+        var target = e.target;
+        if (!target) return;
+        if (target.matches('select[data-index][data-max-nominal]')) {
+            var methodVal = target.value;
+            var index = target.getAttribute('data-index');
+            var status = target.getAttribute('data-status');
+            var maxNom = target.getAttribute('data-max-nominal');
+            // Only revert for editable lines
+            if (!index) return;
+            if (!['DRAFT', 'REJECTED'].includes(status)) return;
+            // If switched away from cash refund, revert nominal
+            if (methodVal !== '{{ \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_CASH_REFUND }}') {
+                var inputSelector = 'input[name="settlementLines.' + index + '.nominal"]';
+                var inputEl = document.querySelector(inputSelector);
+                if (!inputEl) return;
+                var num = parseFloat(maxNom) || 0;
+                // Format as currency similar to Alpine format
+                inputEl.value = 'Rp ' + new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
+                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+    });
+</script>
+
+@push('page_scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var currencySymbol = '{{ settings()->currency->symbol ?? "Rp" }}';
+            var thousandsSeparator = '{{ settings()->currency->thousand_separator ?? "." }}';
+            var decimalSeparator = '{{ settings()->currency->decimal_separator ?? "," }}';
+
+            function formatCurrency(num) {
+                if (num === null || num === undefined || num === '') return '';
+                var parsed = parseFloat(num);
+                if (isNaN(parsed)) return '';
+                // format without decimals (amounts in app are whole units)
+                return currencySymbol + parsed.toLocaleString('id-ID');
+            }
+
+            function unformatCurrency(val) {
+                if (!val) return '';
+                // remove currency symbol and thousands separators
+                var raw = val.replace(new RegExp('\\' + currencySymbol, 'g'), '')
+                    .replace(new RegExp('\\' + thousandsSeparator, 'g'), '')
+                    .replace(new RegExp('\\' + decimalSeparator, 'g'), '.');
+                return raw.trim();
+            }
+
+            // Attach focus/blur handlers for dynamic settlement nominal inputs
+            // Delegated handlers so they survive Livewire DOM updates
+            // Initial formatting for any existing inputs
+            document.querySelectorAll('.settlement-nominal').forEach(function (el) {
+                var v = el.value;
+                if (v !== '' && !isNaN(v)) {
+                    el.value = formatCurrency(v);
+                }
+            });
+
+            // focusin: unformat
+            document.addEventListener('focusin', function (e) {
+                var target = e.target;
+                if (target && target.classList && target.classList.contains('settlement-nominal')) {
+                    var raw = unformatCurrency(target.value);
+                    target.value = raw;
+                    target.select();
+                }
+            });
+
+            // focusout: format and dispatch input for Livewire
+            document.addEventListener('focusout', function (e) {
+                var target = e.target;
+                if (target && target.classList && target.classList.contains('settlement-nominal')) {
+                    var raw = unformatCurrency(target.value);
+                    var num = parseFloat(raw);
+                    if (!isNaN(num)) {
+                        target.value = formatCurrency(num);
+                        // dispatch input so Livewire picks up the raw value via element.value when form/action triggers
+                        var inputEvent = new Event('input', { bubbles: true });
+                        // set the element's value to raw number in a data attribute for Livewire
+                        target.setAttribute('data-raw', raw);
+                        target.dispatchEvent(inputEvent);
+                    } else {
+                        target.value = '';
+                    }
+                }
+            });
+
+            // Delegate click on submitLine buttons to unformat corresponding input before Livewire handles click
+            document.addEventListener('click', function (e) {
+                var btn = e.target.closest('button[wire\:click^="submitLine"]');
+                if (!btn) return;
+                var row = btn.closest('tr');
+                if (!row) return;
+                var input = row.querySelector('.settlement-nominal');
+                if (!input) return;
+                var raw = unformatCurrency(input.value);
+                input.value = raw;
+                // ensure Livewire sees the raw value
+                input.setAttribute('data-raw', raw);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+        });
+    </script>
+@endpush

@@ -295,7 +295,10 @@
                                                 <div class="d-flex gap-2">
                                                     <div class="flex-grow-1">
                                                         <select class="form-select form-select-premium form-select-sm @error('settlementLines.'.$index.'.method') is-invalid @enderror" 
-                                                            wire:model.live="settlementLines.{{ $index }}.method">
+                                                            wire:model.live="settlementLines.{{ $index }}.method"
+                                                            data-index="{{ $index }}"
+                                                            data-status="{{ $line['status'] }}"
+                                                            data-max-nominal="{{ $line['max_nominal'] }}">
                                                             <option value="">-- Pilih Metode --</option>
                                                             @foreach($this->getMethodsForLine($index) as $value => $label)
                                                                 <option value="{{ $value }}">{{ $label }}</option>
@@ -543,7 +546,7 @@
                                                             type="text" 
                                                             name="{{ 'settlementLines.'.$index.'.nominal' }}"
                                                             wire:key="nominal-input-{{ $index }}"
-                                                            class="form-control form-control-premium text-end @error('settlementLines.'.$index.'.nominal') is-invalid @enderror" 
+                                                            class="form-control form-control-premium text-end settlement-nominal @error('settlementLines.'.$index.'.nominal') is-invalid @enderror" 
                                                             x-bind:value="format(nominal)"
                                                             x-on:focus="$el.value = (nominal || 0); $el.select()"
                                                             x-on:blur="$el.value = format(nominal)"
@@ -585,4 +588,28 @@
         </form>
     </div>
 </div>
+<script>
+    document.addEventListener('change', function (e) {
+        var target = e.target;
+        if (!target) return;
+        if (target.matches('select[data-index][data-max-nominal]')) {
+            var methodVal = target.value;
+            var index = target.getAttribute('data-index');
+            var status = target.getAttribute('data-status');
+            var maxNom = target.getAttribute('data-max-nominal');
+            if (!index) return;
+            if (!['DRAFT', 'REJECTED'].includes(status)) return;
+            // For purchase-return, CASH constant is 'CASH'
+            if (methodVal !== '{{ \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CASH }}') {
+                var inputSelector = 'input[name="settlementLines.' + index + '.nominal"]';
+                var inputEl = document.querySelector(inputSelector);
+                if (!inputEl) return;
+                var num = parseFloat(maxNom) || 0;
+                inputEl.value = 'Rp ' + new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
+                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+    });
+</script>
 

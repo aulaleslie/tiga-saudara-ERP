@@ -169,11 +169,23 @@ class SaleReturnSettlementForm extends Component
         if (Str::endsWith($key, '.method')) {
             $index = explode('.', $key)[0];
             $method = $this->settlementLines[$index]['method'] ?? '';
-            
+            // Keep the displayed nominal stable (use the document price).
+            // For cash refund, default to max nominal only if it's not set or empty.
             if (in_array($method, [SaleReturnDetail::METHOD_CASH_REFUND])) {
-                $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
-            } elseif ($method === SaleReturnDetail::METHOD_PRODUCT_REPAIR || $method === SaleReturnDetail::METHOD_UNPROCESSED) {
-                $this->settlementLines[$index]['nominal'] = 0;
+                $current = $this->settlementLines[$index]['nominal'] ?? null;
+                if ($current === null || $current === '' || (float)$current <= 0) {
+                    $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
+                }
+            }
+            // If switched to a non-cash method and the line is still editable,
+            // revert any modified nominal back to the document price (max_nominal).
+            // Do not change if the line has been submitted/locked for approval.
+            if (!in_array($method, [SaleReturnDetail::METHOD_CASH_REFUND])) {
+                $status = $this->settlementLines[$index]['status'] ?? SaleReturnItemSettlement::STATUS_DRAFT;
+                if (in_array($status, [SaleReturnItemSettlement::STATUS_DRAFT, SaleReturnItemSettlement::STATUS_REJECTED])) {
+                    $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
+                    // Dispatch browser event to ensure Alpine-formatted input is updated immediately
+                }
             }
         }
 
@@ -200,38 +212,33 @@ class SaleReturnSettlementForm extends Component
     {
         $line = $this->settlementLines[$index];
         $maxNominal = $line['max_nominal'] ?? 0;
+        $rules = [];
 
-        if ($line['method'] === SaleReturnDetail::METHOD_PRODUCT_REPAIR) {
-            if ($line['serial_number_id']) {
-                $rules["settlementLines.{$index}.new_serial_number"] = 'required|string|different:settlementLines.' . $index . '.serial_number|exists:product_serial_numbers,serial_number';
-            } else {
-                $rules["settlementLines.{$index}.location_id"] = 'required|exists:locations,id';
-            }
-        }
-
+        // For cash refund, require nominal (amount) input only
         if ($line['method'] === SaleReturnDetail::METHOD_CASH_REFUND) {
-            $rules["settlementLines.{$index}.proof_file"] = 'nullable|image|max:2048';
+            $rules["settlementLines.{$index}.nominal"] = 'required|numeric|min:0|max:' . $maxNominal;
         }
 
+        // For 'Tidak dapat diproses' require notes (reason)
         if ($line['method'] === SaleReturnDetail::METHOD_UNPROCESSED) {
             $rules["settlementLines.{$index}.notes"] = 'required|string|max:500';
         }
 
+        // No serial/location/proof validation at settlement stage; deferred to dispatch
         return $rules;
     }
 
     public function submitLine(int $index)
     {
-        $this->validate($this->rulesForLineSubmit($index));
+        $rules = $this->rulesForLineSubmit($index);
+        if (!empty($rules)) {
+            $this->validate($rules);
+        }
 
         try {
             DB::transaction(function () use ($index) {
+
                 $line = $this->settlementLines[$index];
-                
-                $proofPath = $line['id'] ? SaleReturnItemSettlement::find($line['id'])->proof_path : null;
-                if ($line['proof_file']) {
-                    $proofPath = $line['proof_file']->store('sale_return_settlements', 'public');
-                }
 
                 $settlement = SaleReturnItemSettlement::updateOrCreate(
                     [
@@ -243,10 +250,10 @@ class SaleReturnSettlementForm extends Component
                         'method' => $line['method'],
                         'nominal' => $line['nominal'],
                         'target_sale_id' => $line['target_sale_id'] ?? null,
+                        // location and new_serial_number are deferred to dispatch stage
                         'location_id' => $line['location_id'] ?? null,
                         'new_serial_number' => $line['new_serial_number'] ?? null,
                         'notes' => $line['notes'] ?? null,
-                        'proof_path' => $proofPath,
                         'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
                         'submitted_at' => now(),
                         'submitted_by' => Auth::id(),

@@ -59,7 +59,7 @@ class SalesReturnController extends Controller
 
 
     public function edit(SaleReturn $sale_return) {
-        abort_if(Gate::denies('saleReturns.edit'), 403);
+        abort_if(Gate::denies('saleReturnSettlements.submit'), 403);
 
         // Rule: Received -> Hard Block
         if (!is_null($sale_return->received_at)) {

@@ -175,6 +175,16 @@
                                             'purchaseReturnSettlements.receive'  => 'Receive Replacement',
                                         ],
 
+                                        'Settlement Retur Penjualan' => [
+                                            'saleReturnSettlements.access' => 'Akses Settlement',
+                                            'saleReturnSettlements.submit' => 'Submit Settlement',
+                                            'saleReturnSettlements.approve' => 'Approve/Reject Settlement',
+                                            'saleReturnSettlements.dispatchRequest' => 'Ajukan Pengiriman',
+                                            'saleReturnSettlements.dispatchApproval' => 'Persetujuan Pengiriman',
+                                            'saleReturnSettlements.execute' => 'Eksekusi Settlement',
+                                            'saleReturnSettlements.receive' => 'Terima Penggantian',
+                                        ],
+
                                         'Penyesuaian Stok' => [
                                             'adjustments.access'               => 'Hak Akses',
                                             'adjustments.create'               => 'Buat',
