@@ -86,4 +86,19 @@ class SaleReturnDetail extends BaseModel
     {
         return $this->belongsTo(Tax::class, 'tax_id', 'id');
     }
+
+    /**
+     * Get the serial numbers associated with the return detail.
+     *
+     * Returns a collection of serial number strings.
+     */
+    public function getSerialNumbers()
+    {
+        if (empty($this->serial_number_ids)) {
+            return collect();
+        }
+
+        return \Modules\Product\Entities\ProductSerialNumber::whereIn('id', $this->serial_number_ids)
+            ->pluck('serial_number');
+    }
 }

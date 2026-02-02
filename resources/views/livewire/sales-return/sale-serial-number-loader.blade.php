@@ -1,55 +1,32 @@
-<div class="position-relative">
-    @if (!$approvalLocked)
-        <div class="form-group mb-0">
-            <div class="input-group">
-                <input wire:keydown.escape="resetQuery"
-                       wire:keydown.enter.prevent="addSerial"
-                       wire:model.debounce.500ms="query"
-                       type="text"
-                       class="form-control"
-                       wire:focus="$set('isFocused', true)"
-                       wire:blur="resetFocusAfterDelay"
-                       placeholder="Cari nomor seri...">
-            </div>
-            @if($error_message)
-                <small class="text-danger">{{ $error_message }}</small>
-            @endif
-        </div>
-    @endif
-
-    <div wire:loading class="card position-absolute mt-1 border-0" style="z-index: 5; left: 0; right: 0;">
-        <div class="card-body shadow">
-            <div class="d-flex justify-content-center">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="sr-only">Memuat...</span>
-                </div>
+<div class="position-relative"
+     x-data
+     x-on:clear-input.window="if ($event.detail[0].index == {{ $index }}) { $refs.serialInput.value = ''; $refs.serialInput.focus(); }">
+    @if (! $approvalLocked)
+        <div class="input-group mb-2">
+            <input type="text"
+                   class="form-control"
+                   wire:model.live="query"
+                   x-ref="serialInput"
+                   wire:keydown.enter.prevent="addSerial"
+                   placeholder="Scan/Type Serial Number..."
+                   autofocus>
+            <div class="input-group-append">
+                <button class="btn btn-outline-primary" type="button" wire:click="addSerial" wire:loading.attr="disabled">
+                    <i class="bi bi-plus-lg"></i> Tambah
+                </button>
             </div>
         </div>
-    </div>
 
-    @if($isFocused)
-        <div class="card position-absolute mt-1 border-0" style="z-index: 6; left: 0; right: 0;">
-            <div class="card-body shadow">
-                @if(!empty($searchResults))
-                    <ul class="list-group list-group-flush">
-                        @foreach($searchResults as $serial)
-                            <li class="list-group-item list-group-item-action">
-                                <a wire:click.prevent="selectSerial({{ $serial['id'] }})" href="#">
-                                    {{ $serial['serial_number'] }}
-                                </a>
-                            </li>
-                        @endforeach
-                        @if(count($searchResults) >= $howMany)
-                            <li class="list-group-item list-group-item-action text-center">
-                                <a wire:click.prevent="loadMore" class="btn btn-primary btn-sm" href="#">
-                                    Muat lebih <i class="bi bi-arrow-down-circle"></i>
-                                </a>
-                            </li>
-                        @endif
-                    </ul>
-                @elseif($query)
-                    <div class="alert alert-warning mb-0">Nomor seri tidak ditemukan atau telah digunakan.</div>
-                @endif
+        @if($error_message)
+            <div class="text-danger small mb-2">
+                <i class="bi bi-exclamation-circle"></i> {{ $error_message }}
+            </div>
+        @endif
+
+        <div class="d-flex justify-content-between align-items-center">
+            <small class="text-muted">Tekan Enter atau klik Tambah untuk menambahkan.</small>
+            <div wire:loading wire:target="addSerial" class="spinner-border spinner-border-sm text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
             </div>
         </div>
     @endif

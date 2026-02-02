@@ -200,6 +200,13 @@
                                             <span class="badge badge-success">
                                                 {{ $item->product_code }}
                                             </span>
+                                            @if($item->getSerialNumbers()->isNotEmpty())
+                                                <div class="mt-1">
+                                                    @foreach($item->getSerialNumbers() as $serial)
+                                                        <span class="badge bg-secondary">{{ $serial }}</span>
+                                                    @endforeach
+                                                </div>
+                                            @endif
                                         </td>
 
                                         <td class="align-middle">{{ format_currency($item->unit_price) }}</td>
@@ -343,4 +350,12 @@
                             </div>
                         </div>
                     @endif
+
+
+                </div> <!-- /.card -->
+            </div> <!-- /.col-lg-12 -->
+        </div> <!-- /.row -->
+    </div> <!-- /.container-fluid -->
+
+@endsection
 

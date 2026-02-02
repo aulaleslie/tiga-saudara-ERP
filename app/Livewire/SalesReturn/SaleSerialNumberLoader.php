@@ -12,9 +12,7 @@ use Modules\SalesReturn\Entities\SaleReturnDetail;
 class SaleSerialNumberLoader extends Component
 {
     public string $query = '';
-    public array $searchResults = [];
-    public int $howMany = 10;
-    public bool $isFocused = false;
+    // simplified: no autocomplete/search results to support barcode scanners
 
     public int $index;
     public ?int $dispatch_detail_id = null;
@@ -24,9 +22,7 @@ class SaleSerialNumberLoader extends Component
     public array $existingSerials = [];
     public bool $approvalLocked = false;
 
-    protected $listeners = [
-        'refreshSerialLoader' => 'refreshList',
-    ];
+    protected $listeners = [];
 
     public function mount(int $index, ?int $dispatchDetailId = null, ?int $productId = null, ?int $saleReturnId = null, array $existingSerials = [], bool $approvalLocked = false): void
     {
@@ -88,67 +84,11 @@ class SaleSerialNumberLoader extends Component
             'serial_number' => $serial->serial_number,
         ]);
 
-        $this->resetQuery();
+        // clear input and notify frontend to clear/refocus
+        $this->reset('query');
+        $this->dispatch('clear-input', ['index' => $this->index]);
     }
-
-    public function updatedQuery(): void
-    {
-        $this->error_message = '';
-        if ($this->isFocused) {
-            $this->searchSerialNumbers();
-        }
-    }
-
-    public function refreshList(): void
-    {
-        if ($this->isFocused) {
-            $this->searchSerialNumbers();
-        }
-    }
-
-    public function resetQuery(): void
-    {
-        $this->query = '';
-        $this->searchResults = [];
-        $this->isFocused = false;
-        $this->error_message = '';
-    }
-
-    public function searchSerialNumbers(): void
-    {
-        if (! $this->dispatch_detail_id) {
-            $this->searchResults = [];
-            return;
-        }
-
-        $reserved = $this->reservedSerialIds();
-        $excluded = array_merge($reserved, collect($this->existingSerials)->pluck('id')->all());
-
-        $query = ProductSerialNumber::query()
-            ->where('dispatch_detail_id', $this->dispatch_detail_id)
-            ->when($this->query, function ($builder) {
-                $builder->where('serial_number', 'like', '%' . $this->query . '%');
-            })
-            ->when(! empty($excluded), function ($builder) use ($excluded) {
-                $builder->whereNotIn('id', $excluded);
-            })
-            ->orderBy('serial_number')
-            ->limit($this->howMany)
-            ->get(['id', 'serial_number']);
-
-        $this->searchResults = $query->map(function ($serial) {
-            return [
-                'id' => $serial->id,
-                'serial_number' => $serial->serial_number,
-            ];
-        })->all();
-    }
-
-    public function loadMore(): void
-    {
-        $this->howMany += 10;
-        $this->searchSerialNumbers();
-    }
+    // no autocomplete methods: simplified for scanner input
 
     public function selectSerial(int $serialId): void
     {
@@ -156,11 +96,15 @@ class SaleSerialNumberLoader extends Component
             return;
         }
 
-        $serial = ProductSerialNumber::query()
-            ->where('dispatch_detail_id', $this->dispatch_detail_id)
-            ->find($serialId);
+        $serial = ProductSerialNumber::find($serialId);
 
         if (! $serial) {
+            return;
+        }
+
+        // If dispatch_detail_id is set, ensure serial belongs to it
+        if ($this->dispatch_detail_id && $serial->dispatch_detail_id != $this->dispatch_detail_id) {
+            $this->error_message = 'Nomor seri ini tidak berasal dari pengiriman ini.';
             return;
         }
 
@@ -169,15 +113,8 @@ class SaleSerialNumberLoader extends Component
             'serial_number' => $serial->serial_number,
         ]);
 
-        $this->query = '';
-        $this->searchResults = [];
-        $this->isFocused = false;
-    }
-
-    public function resetFocusAfterDelay(): void
-    {
-        usleep(200000);
-        $this->isFocused = false;
+        $this->reset('query');
+        $this->dispatch('clear-input', ['index' => $this->index]);
     }
 
     protected function reservedSerialIds(): array
