@@ -51,6 +51,7 @@ class SalesReturnController extends Controller
             'sale',
             'location',
             'settledBy',
+            'settlementItems',
         ]);
 
         return view('salesreturn::show', compact('sale_return'));

@@ -97,15 +97,12 @@
                             </td>
                         @else
                             <td class="px-2">
-                                <select id="location_{{ $key }}" class="form-control form-control-sm custom-select"
-                                        wire:model.live="selectedLocations.{{ $key }}">
-                                    <option value="">-- Pilih --</option>
-                                    @foreach($locations as $location)
-                                        <option value="{{ $location->id }}">
-                                            {{ $location->name }}
-                                        </option>
-                                    @endforeach
-                                </select>
+                                @livewire('modules.setting.location-search-dropdown', [
+                                    'name' => $key,
+                                    'selected' => $selectedLocations[$key] ?? null,
+                                    'placeholder' => 'Pilih...',
+                                    'dispatchTo' => 'sale.dispatch-sale-table'
+                                ], key('location-dropdown-' . $key))
                                 <input type="hidden" name="selectedLocations[{{ $key }}]" value="{{ $selectedLocations[$key] ?? '' }}">
                             </td>
                             <td class="text-center">
@@ -175,6 +172,19 @@
         .bg-danger-soft { background-color: #fbe9e9; }
         .badge-soft { border: none; }
         .fw-bold { font-weight: 600 !important; }
+        
+        /* Fix for dropdown clipping in responsive tables */
+        .table-responsive {
+            overflow: visible !important;
+        }
+
+        .card {
+            overflow: visible !important;
+        }
+
+        .card-body {
+            min-height: 150px; /* Reduced further to minimize trailing space */
+        }
     </style>
     <script>
         document.addEventListener('livewire:load', function () {

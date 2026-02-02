@@ -68,6 +68,11 @@ class SaleReturn extends BaseModel
         return $this->hasOne(CustomerCredit::class, 'sale_return_id', 'id');
     }
 
+    public function settlementItems(): HasMany
+    {
+        return $this->hasMany(SaleReturnItemSettlement::class, 'sale_return_id');
+    }
+
     public function approvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
@@ -151,5 +156,34 @@ class SaleReturn extends BaseModel
     public function scopeDraft($query)
     {
         return $query->whereRaw('LOWER(approval_status) = ?', ['draft']);
+    }
+
+    /**
+     * Compute roll-up settlement status from per-line item states.
+     * Returns: 'Awaiting Settlement', 'Settled Partially', or 'Settled'
+     *
+     * @return string
+     */
+    public function getSettlementStatusAttribute(): string
+    {
+        $items = $this->relationLoaded('settlementItems')
+            ? $this->settlementItems
+            : $this->settlementItems()->get();
+
+        if ($items->isEmpty()) {
+            return 'Awaiting Settlement';
+        }
+
+        $approvedStatuses = ['APPROVED'];
+        $allApproved = $items->every(fn($i) => in_array(strtoupper($i->status), $approvedStatuses));
+        $anyApproved = $items->contains(fn($i) => in_array(strtoupper($i->status), $approvedStatuses));
+
+        if ($allApproved) {
+            return 'Settled';
+        } elseif ($anyApproved) {
+            return 'Settled Partially';
+        }
+
+        return 'Awaiting Settlement';
     }
 }

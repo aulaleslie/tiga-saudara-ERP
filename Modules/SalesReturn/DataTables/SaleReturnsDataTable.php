@@ -15,6 +15,9 @@ class SaleReturnsDataTable extends DataTable
     public function dataTable($query) {
         return datatables()
             ->eloquent($query)
+            ->editColumn('reference', function ($data) {
+                return '<a href="' . route('sale-returns.show', $data->id) . '" target="_blank">' . $data->reference . '</a>';
+            })
             ->addColumn('total_amount', fn ($data) => format_currency($data->total_amount))
             ->addColumn('paid_amount', fn ($data) => format_currency($data->paid_amount))
             ->addColumn('due_amount', fn ($data) => format_currency($data->due_amount))
@@ -23,7 +26,7 @@ class SaleReturnsDataTable extends DataTable
             ->addColumn('payment_status', fn ($data) => view('salesreturn::partials.payment-status', compact('data')))
             ->addColumn('settlement_status', fn ($data) => view('salesreturn::partials.settlement-status', compact('data')))
             ->addColumn('action', fn ($data) => view('salesreturn::partials.actions', compact('data')))
-            ->rawColumns(['status', 'approval_status', 'payment_status', 'settlement_status', 'action']);
+            ->rawColumns(['reference', 'status', 'approval_status', 'payment_status', 'settlement_status', 'action']);
     }
 
     public function query(SaleReturn $model) {
@@ -54,40 +57,47 @@ class SaleReturnsDataTable extends DataTable
     protected function getColumns() {
         return [
             Column::make('reference')
+                ->title('Referensi')
                 ->className('text-center align-middle'),
 
             Column::make('sale_reference')
-                ->title('Sale Ref')
+                ->title('Ref Penjualan')
                 ->className('text-center align-middle'),
 
             Column::make('customer_name')
-                ->title('Customer')
+                ->title('Pelanggan')
                 ->className('text-center align-middle'),
 
             Column::computed('status')
+                ->title('Status')
                 ->className('text-center align-middle'),
 
             Column::computed('approval_status')
-                ->title('Approval')
+                ->title('Persetujuan')
                 ->className('text-center align-middle'),
 
             Column::computed('total_amount')
+                ->title('Total')
                 ->className('text-center align-middle'),
 
             Column::computed('paid_amount')
+                ->title('Dibayar')
                 ->className('text-center align-middle'),
 
             Column::computed('due_amount')
+                ->title('Kurang')
                 ->className('text-center align-middle'),
 
             Column::computed('payment_status')
+                ->title('Status Pembayaran')
                 ->className('text-center align-middle'),
 
             Column::computed('settlement_status')
-                ->title('Settlement')
+                ->title('Penyelesaian')
                 ->className('text-center align-middle'),
 
             Column::computed('action')
+                ->title('Aksi')
                 ->exportable(false)
                 ->printable(false)
                 ->className('text-center align-middle'),

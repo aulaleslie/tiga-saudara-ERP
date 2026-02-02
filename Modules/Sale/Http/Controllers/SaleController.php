@@ -479,8 +479,9 @@ class SaleController extends Controller
                 $aggregated[$key]['total_quantity'] += (int) $bundleItem->quantity;
             }
 
+            // Also check for PENDING and APPROVED dispatches
             $currentDispatches = DispatchDetail::whereHas('dispatch', function ($query) use ($sale) {
-                $query->where('sale_id', $sale->id);
+                $query->where('sale_id', $sale->id)->whereIn('status', [Dispatch::STATUS_PENDING, Dispatch::STATUS_APPROVED]);
             })->get();
 
             foreach ($currentDispatches as $d) {
@@ -553,6 +554,15 @@ class SaleController extends Controller
                                 $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} tidak aktif.");
                             }
                             
+                            // Check for serials in PENDING dispatches
+                            $pendingDispatch = DispatchDetail::whereHas('dispatch', function($q) {
+                                $q->where('status', Dispatch::STATUS_PENDING);
+                            })->where('serial_numbers', 'LIKE', '%"' . $serialNumber . '"%')->exists();
+
+                            if ($pendingDispatch) {
+                                $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} sedang dalam proses pengiriman.");
+                            }
+
                             // Tax validation
                             $expectedTaxId = !empty($taxId) ? (int)$taxId : null;
                             $actualTaxId = $snRecord->tax_id ? (int)$snRecord->tax_id : null;
@@ -594,6 +604,7 @@ class SaleController extends Controller
             $dispatch = Dispatch::create([
                 'sale_id' => $sale->id,
                 'dispatch_date' => $request->input('dispatch_date'),
+                'status' => Dispatch::STATUS_PENDING,
             ]);
 
             $dispatchedQuantities = $request->input('dispatchedQuantities', []);
@@ -608,12 +619,10 @@ class SaleController extends Controller
                 $productId = $parts[0];
                 $taxId = $parts[1];
                 $bundleId = $parts[2] ?? 0;
-                $product = Product::where('id', $productId)->lockForUpdate()->first();
                 
-                if ($product->serial_number_required) {
-                    // Group serials by location to create separate dispatch details
-                    $serials = $selectedSerialNumbers[$compositeKey] ?? [];
-                    $locations = $serialNumberLocations[$compositeKey] ?? [];
+                if ($selectedSerialNumbers[$compositeKey] ?? null) {
+                    $serials = $selectedSerialNumbers[$compositeKey];
+                    $locations = $serialNumberLocations[$compositeKey];
                     $serialsByLocation = [];
 
                     foreach ($serials as $sn) {
@@ -625,20 +634,35 @@ class SaleController extends Controller
                     }
 
                     foreach ($serialsByLocation as $locId => $snsAtLocation) {
-                        $qtyAtLoc = count($snsAtLocation);
-                        $this->createDispatchDetailAndAdjustStock($dispatch, $sale, $product, $taxId, $locId, $qtyAtLoc, $snsAtLocation, $bundleId);
+                        DispatchDetail::create([
+                            'dispatch_id' => $dispatch->id,
+                            'sale_id' => $sale->id,
+                            'tax_id' => !empty($taxId) ? $taxId : null,
+                            'product_id' => $productId,
+                            'bundle_id' => !empty($bundleId) ? $bundleId : null,
+                            'dispatched_quantity' => count($snsAtLocation),
+                            'location_id' => $locId,
+                            'serial_numbers' => json_encode($snsAtLocation),
+                        ]);
                     }
                 } else {
                     $locId = (int) $selectedLocations[$compositeKey];
-                    $this->createDispatchDetailAndAdjustStock($dispatch, $sale, $product, $taxId, $locId, (int)$qty, [], $bundleId);
+                    DispatchDetail::create([
+                        'dispatch_id' => $dispatch->id,
+                        'sale_id' => $sale->id,
+                        'tax_id' => !empty($taxId) ? $taxId : null,
+                        'product_id' => $productId,
+                        'bundle_id' => !empty($bundleId) ? $bundleId : null,
+                        'dispatched_quantity' => (int)$qty,
+                        'location_id' => $locId,
+                        'serial_numbers' => null,
+                    ]);
                 }
             }
 
-            // Update Sale status
-            $this->updateSaleStatus($sale);
-
             DB::commit();
-            return redirect()->route('sales.index')->with('success', 'Dispatch berhasil disimpan.');
+            toast('Pengiriman berhasil disimpan dan menunggu persetujuan.', 'success');
+            return redirect()->route('sales.index');
 
         } catch (Exception $e) {
             DB::rollBack();
@@ -647,16 +671,87 @@ class SaleController extends Controller
         }
     }
 
-    private function createDispatchDetailAndAdjustStock($dispatch, $sale, $product, $taxId, $locationId, $qty, $serials, $bundleId = 0)
+    public function approveDispatch(Dispatch $dispatch): RedirectResponse
     {
-        $productId = $product->id;
-        $productStock = ProductStock::where('product_id', $productId)
+        abort_if(Gate::denies('sales.approval'), 403);
+        $this->ensureSaleBelongsToCurrentSetting($dispatch->sale);
+
+        if (!$dispatch->isPending()) {
+            toast('Pengiriman ini sudah diproses sebelumnya.', 'error');
+            return redirect()->back();
+        }
+
+        DB::beginTransaction();
+        try {
+            $dispatch->load('details.product');
+            $sale = $dispatch->sale;
+
+            foreach ($dispatch->details as $detail) {
+                $this->adjustStockForDispatchDetail($detail, $sale);
+            }
+
+            $dispatch->update([
+                'status' => Dispatch::STATUS_APPROVED,
+                'approved_by' => auth()->id(),
+                'approved_at' => now(),
+            ]);
+
+            $this->updateSaleStatus($sale);
+
+            DB::commit();
+            toast('Pengiriman berhasil disetujui.', 'success');
+            return redirect()->back();
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Dispatch approval error', ['message' => $e->getMessage()]);
+            toast('Terjadi kesalahan: ' . $e->getMessage(), 'error');
+            return redirect()->back();
+        }
+    }
+
+    public function rejectDispatch(Request $request, Dispatch $dispatch): RedirectResponse
+    {
+        abort_if(Gate::denies('sales.approval'), 403);
+        $this->ensureSaleBelongsToCurrentSetting($dispatch->sale);
+
+        if (!$dispatch->isPending()) {
+            toast('Pengiriman ini sudah diproses sebelumnya.', 'error');
+            return redirect()->back();
+        }
+
+        $request->validate([
+            'rejection_reason' => 'required|string|max:1000',
+        ]);
+
+        $dispatch->update([
+            'status' => Dispatch::STATUS_REJECTED,
+            'rejection_reason' => $request->rejection_reason,
+            'approved_by' => auth()->id(),
+            'approved_at' => now(),
+        ]);
+
+        toast('Pengiriman ditolak.', 'warning');
+        return redirect()->back();
+    }
+
+    private function adjustStockForDispatchDetail(DispatchDetail $detail, Sale $sale)
+    {
+        $product = $detail->product;
+        $qty = $detail->dispatched_quantity;
+        $locationId = $detail->location_id;
+        $taxId = $detail->tax_id;
+
+        $productStock = ProductStock::where('product_id', $product->id)
             ->where('location_id', $locationId)
             ->lockForUpdate()
             ->first();
 
         if (!$productStock) {
             throw new Exception("Stok tidak ditemukan untuk produk {$product->product_name} di lokasi selected.");
+        }
+
+        if ($productStock->quantity < $qty) {
+            throw new Exception("Stok tidak cukup untuk produk {$product->product_name} di lokasi selected.");
         }
 
         $previousQuantity = $product->product_quantity;
@@ -677,7 +772,7 @@ class SaleController extends Controller
 
         // Transaction record
         Transaction::create([
-            'product_id' => $productId,
+            'product_id' => $product->id,
             'setting_id' => session('setting_id'),
             'quantity' => -$qty,
             'current_quantity' => $afterQuantity,
@@ -696,24 +791,13 @@ class SaleController extends Controller
             'broken_quantity_tax' => 0,
         ]);
 
-        // Dispatch detail
-        $dispatchDetail = DispatchDetail::create([
-            'dispatch_id' => $dispatch->id,
-            'sale_id' => $sale->id,
-            'tax_id' => !empty($taxId) ? $taxId : null,
-            'product_id' => $productId,
-            'bundle_id' => !empty($bundleId) ? $bundleId : null,
-            'dispatched_quantity' => $qty,
-            'location_id' => $locationId,
-            'serial_numbers' => !empty($serials) ? json_encode($serials) : null,
-        ]);
-
-        // Update serial numbers
-        if (!empty($serials)) {
+        // Update serial numbers if present
+        if ($detail->serial_numbers) {
+            $serials = json_decode($detail->serial_numbers, true);
             foreach ($serials as $serial) {
-                ProductSerialNumber::where('product_id', $productId)
+                ProductSerialNumber::where('product_id', $product->id)
                     ->where('serial_number', $serial)
-                    ->update(['dispatch_detail_id' => $dispatchDetail->id]);
+                    ->update(['dispatch_detail_id' => $detail->id]);
             }
         }
     }
@@ -721,16 +805,19 @@ class SaleController extends Controller
     private function updateSaleStatus(Sale $sale)
     {
         $totalOrderQty = $sale->saleDetails()->sum('quantity');
-        // Add bundle items if any (per existing code pattern)
+        // Add bundle items if any
         if (class_exists('\Modules\Sale\Entities\SaleBundleItem')) {
             $totalBundleQty = \Modules\Sale\Entities\SaleBundleItem::where('sale_id', $sale->id)->sum('quantity');
             $totalOrderQty += $totalBundleQty;
         }
 
-        $allDispatchedQty = DispatchDetail::where('sale_id', $sale->id)->sum('dispatched_quantity');
+        $allDispatchedQty = DispatchDetail::where('sale_id', $sale->id)
+            ->whereHas('dispatch', function($q) {
+                $q->where('status', Dispatch::STATUS_APPROVED);
+            })->sum('dispatched_quantity');
 
         if ($allDispatchedQty <= 0) {
-            $sale->status = Sale::STATUS_APPROVED;
+            $sale->status = Sale::STATUS_APPROVED; // Or appropriate status before dispatch
         } elseif ($allDispatchedQty < $totalOrderQty) {
             $sale->status = Sale::STATUS_DISPATCHED_PARTIALLY;
         } else {

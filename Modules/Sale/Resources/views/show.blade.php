@@ -214,6 +214,8 @@
                                             <th></th> {{-- expand --}}
                                             <th>Tanggal</th>
                                             <th>Total Dikirim</th>
+                                            <th>Status</th>
+                                            <th class="d-print-none">Aksi</th>
                                         </tr>
                                         </thead>
                                         <tbody>
@@ -230,10 +232,70 @@
                                                 </td>
                                                 <td>{{ \Carbon\Carbon::parse($dispatch->dispatch_date)->format('Y-m-d') }}</td>
                                                 <td>{{ $sumQty }}</td>
+                                                <td>
+                                                    @if($dispatch->isPending())
+                                                        <span class="badge badge-warning">Menunggu Persetujuan</span>
+                                                    @elseif($dispatch->isApproved())
+                                                        <span class="badge badge-success">Disetujui</span>
+                                                    @elseif($dispatch->isRejected())
+                                                        <span class="badge badge-danger">Ditolak</span>
+                                                        @if($dispatch->rejection_reason)
+                                                            <i class="bi bi-info-circle text-danger" title="{{ $dispatch->rejection_reason }}"></i>
+                                                        @endif
+                                                    @endif
+                                                </td>
+                                                <td class="d-print-none">
+                                                    @if($dispatch->isPending())
+                                                        @can('sales.approval')
+                                                            <div class="btn-group">
+                                                                <form action="{{ route('dispatches.approve', $dispatch->id) }}" method="POST" class="d-inline">
+                                                                    @csrf
+                                                                    <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Setujui pengiriman ini? Stok akan dikurangi.')">
+                                                                        <i class="bi bi-check-circle"></i>
+                                                                    </button>
+                                                                </form>
+                                                                <button type="button" class="btn btn-sm btn-danger ms-1" data-toggle="modal" data-target="#rejectDispatch{{ $dispatch->id }}">
+                                                                    <i class="bi bi-x-circle"></i>
+                                                                </button>
+                                                            </div>
+
+                                                            {{-- Reject Modal --}}
+                                                            <div class="modal fade" id="rejectDispatch{{ $dispatch->id }}" tabindex="-1" role="dialog" aria-labelledby="rejectDispatchLabel{{ $dispatch->id }}" aria-hidden="true">
+                                                                <div class="modal-dialog" role="document">
+                                                                    <div class="modal-content">
+                                                                        <form action="{{ route('dispatches.reject', $dispatch->id) }}" method="POST">
+                                                                            @csrf
+                                                                            <div class="modal-header">
+                                                                                <h5 class="modal-title" id="rejectDispatchLabel{{ $dispatch->id }}">Tolak Pengiriman</h5>
+                                                                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                                                    <span aria-hidden="true">&times;</span>
+                                                                                </button>
+                                                                            </div>
+                                                                            <div class="modal-body">
+                                                                                <div class="form-group">
+                                                                                    <label for="rejection_reason">Alasan Penolakan</label>
+                                                                                    <textarea name="rejection_reason" id="rejection_reason" class="form-control" rows="3" required></textarea>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div class="modal-footer">
+                                                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                                                                                <button type="submit" class="btn btn-danger">Tolak</button>
+                                                                            </div>
+                                                                        </form>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        @else
+                                                            -
+                                                        @endcan
+                                                    @else
+                                                        -
+                                                    @endif
+                                                </td>
                                             </tr>
 
                                             <tr id="dispatch-{{ $dispatch->id }}" class="dispatch-details-row d-none">
-                                                <td colspan="3">
+                                                <td colspan="5">
                                                     <div class="table-responsive">
                                                         <table class="table table-sm table-bordered">
                                                             <thead>

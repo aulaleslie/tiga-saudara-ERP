@@ -26,6 +26,37 @@ class SaleReturnDetail extends BaseModel
         'serial_number_ids'       => 'array',
     ];
 
+    const METHOD_PRODUCT_REPAIR = 'REPAIR';
+    const METHOD_UNPROCESSED = 'UNPROCESSED';
+    const METHOD_MODIFY_SALE = 'MODIFY_SALE';
+    const METHOD_CUSTOMER_CREDIT = 'CUSTOMER_CREDIT';
+    const METHOD_CASH_REFUND = 'CASH_REFUND';
+
+    public static function settlementMethods(): array
+    {
+        return [
+            self::METHOD_PRODUCT_REPAIR => 'Perbaikan Produk',
+            self::METHOD_UNPROCESSED    => 'Belum Diproses',
+            self::METHOD_MODIFY_SALE    => 'Ubah Nota Penjualan',
+            self::METHOD_CUSTOMER_CREDIT => 'Simpan Sebagai Kredit',
+            self::METHOD_CASH_REFUND    => 'Pengembalian Tunai',
+        ];
+    }
+
+    public static function selectableSettlementMethods(): array
+    {
+        return [
+            self::METHOD_PRODUCT_REPAIR => 'Perbaikan/Pergantian Produk',
+            self::METHOD_CASH_REFUND    => 'Pengembalian Tunai',
+            self::METHOD_UNPROCESSED    => 'Tidak dapat diproses',
+        ];
+    }
+
+    public function settlementItems(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(SaleReturnItemSettlement::class, 'sale_return_detail_id');
+    }
+
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id', 'id');

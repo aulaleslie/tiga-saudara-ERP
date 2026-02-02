@@ -56,6 +56,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Sales
     Route::post('/sales/{sale}/dispatch', [SaleController::class, 'storeDispatch'])->name('sales.storeDispatch');
     Route::get('/sales/{sale}/dispatch', [SaleController::class, 'dispatch'])->name('sales.dispatch');
+    Route::post('/dispatches/{dispatch}/approve', [SaleController::class, 'approveDispatch'])->name('dispatches.approve');
+    Route::post('/dispatches/{dispatch}/reject', [SaleController::class, 'rejectDispatch'])->name('dispatches.reject');
     Route::patch('sales/{sale}/status', [SaleController::class, 'updateStatus'])->name('sales.updateStatus');
     Route::put('sales/{sale}/archive', [SaleController::class, 'archive'])->name('sales.archive');
     Route::resource('sales', 'SaleController')->middleware('idempotency');

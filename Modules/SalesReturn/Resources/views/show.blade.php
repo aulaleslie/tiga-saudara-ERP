@@ -33,7 +33,7 @@
 @endcan
 
 @section('content')
-    @php($customer = optional($sale_return->sale)->customer)
+    @php $customer = optional($sale_return->sale)->customer; @endphp
     <div class="container-fluid">
         <div class="row">
             <div class="col-lg-12">
@@ -237,7 +237,7 @@
                                         <td class="right">{{ format_currency($sale_return->tax_amount) }}</td>
                                     </tr>
                                     <tr>
-                                        <td class="left"><strong>Shipping)</strong></td>
+                                        <td class="left"><strong>Shipping</strong></td>
                                         <td class="right">{{ format_currency($sale_return->shipping_amount) }}</td>
                                     </tr>
                                     <tr>
@@ -249,9 +249,98 @@
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
-@endsection
+
+                    @if($sale_return->settlementItems->isNotEmpty())
+                        <div class="mt-4 border-top pt-4">
+                            <h5 class="mb-3">Penyelesaian Retur</h5>
+                            <div class="table-responsive">
+                                <table class="table table-bordered table-sm align-middle">
+                                    <thead class="table-light">
+                                        <tr class="text-center">
+                                            <th>Produk</th>
+                                            <th>Metode</th>
+                                            <th>Detail</th>
+                                            <th>Status</th>
+                                            <th>Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($sale_return->settlementItems as $item)
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-bold">{{ $item->saleReturnDetail->product_name ?? '-' }}</div>
+                                                    <small class="text-muted">{{ $item->saleReturnDetail->product_code ?? '-' }}</small>
+                                                </td>
+                                                <td class="text-center">
+                                                    @php
+                                                        $methodMap = [
+                                                            \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_CASH_REFUND => 'Pengembalian Tunai',
+                                                            \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_PRODUCT_REPAIR => 'Perbaikan/Pergantian',
+                                                            \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_UNPROCESSED => 'Tidak Dapat Diproses',
+                                                        ];
+                                                    @endphp
+                                                    <span class="badge bg-light text-dark border">
+                                                        {{ $methodMap[$item->method] ?? $item->method }}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    @if($item->method === \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_CASH_REFUND)
+                                                        <div>Nominal: <strong>{{ format_currency($item->nominal) }}</strong></div>
+                                                        @if($item->proof_path)
+                                                            <a href="{{ Storage::url($item->proof_path) }}" target="_blank" class="small text-primary text-decoration-none">
+                                                                <i class="bi bi-paperclip"></i> Bukti
+                                                            </a>
+                                                        @endif
+                                                    @elseif($item->method === \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_PRODUCT_REPAIR)
+                                                       @if($item->new_serial_number)
+                                                           <div>Serial Baru: <strong>{{ $item->new_serial_number }}</strong></div>
+                                                       @elseif($item->location)
+                                                           <div>Lokasi: <strong>{{ $item->location->name }}</strong></div>
+                                                       @endif
+                                                    @elseif($item->method === \Modules\SalesReturn\Entities\SaleReturnDetail::METHOD_UNPROCESSED)
+                                                        <div class="text-muted fst-italic small">"{{ $item->notes }}"</div>
+                                                    @endif
+                                                </td>
+                                                <td class="text-center">
+                                                    @php
+                                                        $statusClass = match($item->status) {
+                                                            'SUBMITTED' => 'bg-warning text-dark',
+                                                            'APPROVED' => 'bg-success',
+                                                            'REJECTED' => 'bg-danger',
+                                                            default => 'bg-secondary',
+                                                        };
+                                                    @endphp
+                                                    <span class="badge {{ $statusClass }}">{{ $item->status }}</span>
+                                                    @if($item->status === 'REJECTED' && $item->rejection_reason)
+                                                        <div class="small text-danger mt-1">{{ $item->rejection_reason }}</div>
+                                                    @endif
+                                                </td>
+                                                <td class="text-center">
+                                                    @if($item->status === 'SUBMITTED' && Auth::user()->can('saleReturns.approve'))
+                                                        <div class="d-flex justify-content-center gap-1">
+                                                            <form action="{{ route('sale-return-settlements.item.approve', $item->id) }}" method="POST">
+                                                                @csrf
+                                                                <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Setujui item ini?')" title="Setujui">
+                                                                    <i class="bi bi-check-lg"></i>
+                                                                </button>
+                                                            </form>
+                                                            <button type="button" class="btn btn-sm btn-danger" 
+                                                                onclick="let res = prompt('Alasan penolakan:'); if(res) { document.getElementById('reject-item-{{ $item->id }}').querySelector('input[name=rejection_reason]').value = res; document.getElementById('reject-item-{{ $item->id }}').submit(); }"
+                                                                title="Tolak">
+                                                                <i class="bi bi-x-lg"></i>
+                                                            </button>
+                                                            <form id="reject-item-{{ $item->id }}" action="{{ route('sale-return-settlements.item.reject', $item->id) }}" method="POST" class="d-none">
+                                                                @csrf
+                                                                <input type="hidden" name="rejection_reason">
+                                                            </form>
+                                                        </div>
+                                                    @endif
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    @endif
 

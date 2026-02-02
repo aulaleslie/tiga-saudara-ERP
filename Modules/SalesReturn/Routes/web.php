@@ -42,4 +42,12 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Payments
     Route::get('/sale-return-payments/{sale_return_id}', 'SaleReturnPaymentsController@index')
         ->name('sale-return-payments.index');
+
+    //Settlements
+    Route::group(['prefix' => 'sale-returns/settlements', 'as' => 'sale-return-settlements.'], function () {
+        Route::post('/item/{itemSettlement}/approve', 'SalesReturnSettlementController@approveItemSettlement')
+            ->name('item.approve');
+        Route::post('/item/{itemSettlement}/reject', 'SalesReturnSettlementController@rejectItemSettlement')
+            ->name('item.reject');
+    });
 });

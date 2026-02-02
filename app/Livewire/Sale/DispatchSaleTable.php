@@ -22,6 +22,7 @@ class DispatchSaleTable extends Component
     protected $listeners = [
         'addSerialNumber' => 'addSerialNumber',
         'removeSerialNumber' => 'removeSerialNumber',
+        'locationDropdownSelected' => 'handleLocationSelected',
     ];
 
     public function mount($sale, $locations, $aggregatedProducts)
@@ -62,6 +63,17 @@ class DispatchSaleTable extends Component
         // Retrieve the product from the Product entity.
         $product = Product::find($productId);
         $this->serialNumberRequiredFlags[$compositeKey] = $product ? $product->serial_number_required : false;
+    }
+
+    public function handleLocationSelected($name, $value): void
+    {
+        Log::info('Location selected via dropdown', ['name' => $name, 'value' => $value]);
+        
+        // The $name is the composite key of the product
+        if (array_key_exists($name, $this->selectedLocations)) {
+            $this->selectedLocations[$name] = $value;
+            $this->updatedSelectedLocations($value, $name);
+        }
     }
 
     // Hook specific for selectedLocations array updates
