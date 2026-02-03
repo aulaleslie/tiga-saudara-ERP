@@ -7,132 +7,165 @@
 @endphp
 
 @if($sale_return->settlementItems->isNotEmpty())
-<div class="mt-5">
-    <div class="d-flex align-items-center mb-3">
-        <h5 class="mb-0">
-            <i class="bi bi-list-check mr-2"></i>Penyelesaian Per Item
-        </h5>
-        @php
-            $allSettled = $sale_return->settlementItems->every(fn($i) => in_array($i->status, [
-                SaleReturnItemSettlement::STATUS_APPROVED,
-                SaleReturnItemSettlement::STATUS_DISPATCHED
-            ]));
-            $anySettled = $sale_return->settlementItems->contains(fn($i) => in_array($i->status, [
-                SaleReturnItemSettlement::STATUS_APPROVED,
-                SaleReturnItemSettlement::STATUS_DISPATCHED
-            ]));
-        @endphp
-        @if($allSettled)
-            <span class="ml-3 badge bg-success text-uppercase">Fully Settled</span>
-        @elseif($anySettled)
-            <span class="ml-3 badge bg-warning text-dark text-uppercase">Partially Settled</span>
-        @endif
-    </div>
+@php
+    $allSettled = $sale_return->settlementItems->every(fn($i) => in_array($i->status, [
+        SaleReturnItemSettlement::STATUS_APPROVED,
+        SaleReturnItemSettlement::STATUS_DISPATCHED
+    ]));
+    $anySettled = $sale_return->settlementItems->contains(fn($i) => in_array($i->status, [
+        SaleReturnItemSettlement::STATUS_APPROVED,
+        SaleReturnItemSettlement::STATUS_DISPATCHED
+    ]));
+@endphp
 
-    <div class="card border-0 shadow-sm overflow-hidden">
-        <div class="table-responsive">
-            <table class="table table-sm table-hover align-middle mb-0">
-                <thead class="bg-light">
-                    <tr>
-                        <th class="pl-3" style="width: 25%;">Produk</th>
-                        <th style="width: 15%;">Metode</th>
-                        <th style="width: 20%;">Detail</th>
-                        <th class="text-end" style="width: 15%;">Nominal</th>
-                        <th class="text-center" style="width: 12%;">Status</th>
-                        <th class="text-center d-print-none" style="width: 13%;">Aksi</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($sale_return->settlementItems as $item)
-                    <tr>
-                        <td class="pl-3">
-                            <div class="font-weight-bold text-wrap">{{ $item->detail?->product_name ?? 'N/A' }}</div>
-                            <small class="text-muted">{{ $item->detail?->product_code ?? '-' }}</small>
-                            @if($item->serialNumber)
-                                <div class="mt-1">
-                                    <span class="badge bg-secondary">{{ $item->serialNumber->serial_number }}</span>
-                                </div>
-                            @endif
-                        </td>
-                        <td>
-                            @if($item->method)
-                                <span class="font-weight-normal text-primary">{{ $methodLabels[$item->method] ?? $item->method }}</span>
-                            @else
-                                <span class="text-muted small italic">Belum ditentukan</span>
-                            @endif
-                        </td>
-                        <td>
+<div class="mt-4 mb-5">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0 text-primary fw-bold">
+            <i class="bi bi-list-check me-2"></i>Penyelesaian Per Item
+        </h5>
+        <div>
+            @if($allSettled)
+                <span class="badge bg-success px-3 py-2 text-uppercase">Fully Settled</span>
+            @elseif($anySettled)
+                <span class="badge bg-warning text-dark px-3 py-2 text-uppercase">Partially Settled</span>
+            @endif
+        </div>
+    </div>
+    <div class="table-responsive border rounded bg-white shadow-sm">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="bg-light text-muted small text-uppercase">
+                <tr>
+                    <th class="ps-4 py-3" style="width: 25%;">Produk</th>
+                    <th class="py-3" style="width: 15%;">Metode</th>
+                    <th class="py-3" style="width: 20%;">Detail</th>
+                    <th class="py-3 text-end" style="width: 15%;">Nominal</th>
+                    <th class="py-3 text-center" style="width: 12%;">Status</th>
+                    <th class="py-3 text-center d-print-none" style="width: 13%;">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($sale_return->settlementItems as $item)
+                <tr>
+                    <td class="ps-4">
+                        <div class="fw-bold text-dark">{{ $item->detail?->product_name ?? 'N/A' }}</div>
+                        <div class="text-muted small mb-1">{{ $item->detail?->product_code ?? '-' }}</div>
+                        @if($item->serialNumber)
+                            <span class="badge bg-light text-dark border"><i class="bi bi-upc-scan me-1"></i>{{ $item->serialNumber->serial_number }}</span>
+                        @endif
+                    </td>
+                    <td>
+                        @php
+                            $methodClass = match($item->method) {
+                                SaleReturnDetail::METHOD_CASH_REFUND => 'bg-success-soft text-success border-success-subtle',
+                                SaleReturnDetail::METHOD_PRODUCT_REPAIR => 'bg-info-soft text-info border-info-subtle',
+                                SaleReturnDetail::METHOD_UNPROCESSED => 'bg-secondary-soft text-secondary border-secondary-subtle',
+                                default => 'bg-light text-muted',
+                            };
+                            $style = "padding: 0.4em 0.8em; border: 1px solid;";
+                        @endphp
+                        @if($item->method)
+                            <span class="badge {{ $methodClass }} rounded-pill" style="{{ $style }}">
+                                {{ $methodLabels[$item->method] ?? $item->method }}
+                            </span>
+                        @else
+                            <span class="text-muted small fst-italic">Belum ditentukan</span>
+                        @endif
+                    </td>
+                    <td>
+                        <div class="small">
                             @if($item->method === SaleReturnDetail::METHOD_CASH_REFUND)
                                 @if($item->proof_path)
-                                    <a href="{{ Storage::url($item->proof_path) }}" target="_blank" class="small text-primary text-decoration-none">
-                                        <i class="bi bi-paperclip"></i> Bukti
+                                    <a href="{{ Storage::url($item->proof_path) }}" target="_blank" class="text-primary text-decoration-none d-flex align-items-center">
+                                        <i class="bi bi-file-earmark-image me-1"></i> Lihat Bukti
                                     </a>
+                                @else
+                                    <span class="text-muted fst-italic">Tanpa bukti</span>
                                 @endif
                             @elseif($item->method === SaleReturnDetail::METHOD_PRODUCT_REPAIR)
                                 @if($item->new_serial_number)
-                                    <div><small class="text-muted">Serial Baru:</small> <strong>{{ $item->new_serial_number }}</strong></div>
+                                    <div class="mb-1"><span class="text-muted">Serial Baru:</span> <span class="fw-semibold text-dark">{{ $item->new_serial_number }}</span></div>
                                 @endif
                                 @if($item->location)
-                                    <div><small class="text-muted">Lokasi:</small> <strong>{{ $item->location->name }}</strong></div>
+                                    <div><span class="text-muted">Lokasi:</span> <span class="fw-semibold text-dark">{{ $item->location->name }}</span></div>
+                                @endif
+                                @if(!$item->new_serial_number && !$item->location)
+                                    <span class="text-muted">-</span>
                                 @endif
                             @elseif($item->method === SaleReturnDetail::METHOD_UNPROCESSED)
                                 @if($item->notes)
-                                    <div class="text-muted fst-italic small">"{{ Str::limit($item->notes, 50) }}"</div>
+                                    <div class="text-muted fst-italic" title="{{ $item->notes }}">
+                                        <i class="bi bi-chat-left-text me-1"></i>{{ Str::limit($item->notes, 40) }}
+                                    </div>
+                                @else
+                                    <span class="text-muted">-</span>
                                 @endif
+                            @else
+                                <span class="text-muted">-</span>
                             @endif
-                        </td>
-                        <td class="text-end font-weight-bold">
-                            {{ format_currency($item->getEffectiveNominal()) }}
-                        </td>
-                        <td class="text-center">
-                            @include('salesreturn::partials.item-settlement-status', ['item' => $item])
-                            @if($item->status === SaleReturnItemSettlement::STATUS_REJECTED && $item->rejection_reason)
-                                <div class="small text-danger mt-1" title="{{ $item->rejection_reason }}">
-                                    {{ Str::limit($item->rejection_reason, 30) }}
-                                </div>
-                            @endif
-                        </td>
-                        <td class="text-center d-print-none">
+                        </div>
+                    </td>
+                    <td class="text-end fw-bold text-dark">
+                        {{ format_currency($item->getEffectiveNominal()) }}
+                    </td>
+                    <td class="text-center">
+                        @include('salesreturn::partials.item-settlement-status', ['item' => $item])
+                        @if($item->status === SaleReturnItemSettlement::STATUS_REJECTED && $item->rejection_reason)
+                            <div class="small text-danger mt-1" title="{{ $item->rejection_reason }}">
+                                <i class="bi bi-info-circle"></i> {{ Str::limit($item->rejection_reason, 20) }}
+                            </div>
+                        @endif
+                    </td>
+                    <td class="text-center d-print-none">
+                        <div class="btn-group shadow-sm">
                             @if($item->status === SaleReturnItemSettlement::STATUS_SUBMITTED)
                                 @can('saleReturnSettlements.approve')
-                                <div class="btn-group" role="group">
-                                    <button type="button" class="btn btn-sm btn-outline-success border-0" title="Setujui" data-toggle="modal" data-target="#approveItemModal{{ $item->id }}" data-bs-toggle="modal" data-bs-target="#approveItemModal{{ $item->id }}">
-                                        <i class="bi bi-check-circle-fill"></i>
+                                    <button type="button" class="btn btn-sm btn-white text-success border" title="Setujui" 
+                                        data-toggle="modal" data-target="#approveItemModal{{ $item->id }}"
+                                        data-bs-toggle="modal" data-bs-target="#approveItemModal{{ $item->id }}">
+                                        <i class="bi bi-check-lg"></i>
                                     </button>
-                                    <button type="button" class="btn btn-sm btn-outline-danger border-0" title="Tolak" data-toggle="modal" data-target="#rejectItemModal{{ $item->id }}" data-bs-toggle="modal" data-bs-target="#rejectItemModal{{ $item->id }}">
-                                        <i class="bi bi-x-circle-fill"></i>
+                                    <button type="button" class="btn btn-sm btn-white text-danger border" title="Tolak" 
+                                        data-toggle="modal" data-target="#rejectItemModal{{ $item->id }}"
+                                        data-bs-toggle="modal" data-bs-target="#rejectItemModal{{ $item->id }}">
+                                        <i class="bi bi-x-lg"></i>
                                     </button>
-                                </div>
                                 @else
-                                <span class="text-muted small">-</span>
+                                    <span class="text-muted small">-</span>
                                 @endcan
                             @elseif($item->status === SaleReturnItemSettlement::STATUS_APPROVED_AWAITING_DISPATCH)
                                 @can('saleReturnSettlements.dispatch')
-                                <button type="button" class="btn btn-sm btn-warning border-0" title="Proses Pengiriman" data-toggle="modal" data-target="#dispatchItemModal{{ $item->id }}" data-bs-toggle="modal" data-bs-target="#dispatchItemModal{{ $item->id }}">
-                                    <i class="bi bi-truck"></i>
-                                </button>
+                                    <button type="button" class="btn btn-sm btn-warning" title="Proses Pengiriman" 
+                                        data-toggle="modal" data-target="#dispatchItemModal{{ $item->id }}"
+                                        data-bs-toggle="modal" data-bs-target="#dispatchItemModal{{ $item->id }}">
+                                        <i class="bi bi-truck"></i> Proses
+                                    </button>
                                 @else
-                                <span class="text-muted small">-</span>
+                                    <span class="text-muted small">-</span>
                                 @endcan
                             @elseif($item->status === SaleReturnItemSettlement::STATUS_APPROVED && $item->method === SaleReturnDetail::METHOD_CASH_REFUND)
                                 @can('saleReturnPayments.access')
-                                <a href="{{ route('sale-return-payments.index', $sale_return->id) }}" class="btn btn-sm btn-outline-info border-0" title="Lihat Pembayaran">
-                                    <i class="bi bi-eye-fill"></i>
-                                </a>
+                                    <a href="{{ route('sale-return-payments.index', $sale_return->id) }}" class="btn btn-sm btn-outline-info" title="Lihat Pembayaran">
+                                        <i class="bi bi-cash-stack"></i>
+                                    </a>
                                 @else
-                                <span class="text-muted small">-</span>
+                                    <span class="text-muted small">-</span>
                                 @endcan
                             @else
-                                <span class="text-muted small">-</span>
+                                <span class="text-muted small text-muted">Selesai</span>
                             @endif
-                        </td>
-                    </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </div>
+                        </div>
+                    </td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
     </div>
 </div>
+<style>
+    .bg-success-soft { background-color: rgba(25, 135, 84, 0.1); }
+    .bg-info-soft { background-color: rgba(13, 202, 240, 0.1); }
+    .bg-secondary-soft { background-color: rgba(108, 117, 125, 0.1); }
+</style>
 @endif
 
 {{-- Approve Modals --}}

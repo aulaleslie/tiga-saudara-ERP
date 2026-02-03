@@ -180,7 +180,9 @@
                             </div>
                         </div>
 
-                        <div class="table-responsive-sm">
+                        @include('salesreturn::partials.settlement-items-table')
+
+                        <div class="table-responsive-sm mt-4">
                             <table class="table table-striped">
                                 <thead>
                                 <tr>
@@ -257,7 +259,6 @@
                         </div>
                     </div>
 
-                    @include('salesreturn::partials.settlement-items-table')
     </div> <!-- /.container-fluid -->
 
 @endsection
