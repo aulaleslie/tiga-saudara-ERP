@@ -20,6 +20,7 @@ class SaleReturnItemSettlement extends BaseModel
     public const STATUS_REJECTED = 'REJECTED';
     public const STATUS_APPROVED_AWAITING_DISPATCH = 'APPROVED_AWAITING_DISPATCH';
     public const STATUS_DISPATCH_REQUESTED = 'DISPATCH_REQUESTED';
+    public const STATUS_DISPATCHED = 'DISPATCHED';
 
     protected $casts = [
         'nominal' => 'decimal:2',

@@ -179,6 +179,7 @@
                                             'saleReturnSettlements.access' => 'Akses Settlement',
                                             'saleReturnSettlements.submit' => 'Submit Settlement',
                                             'saleReturnSettlements.approve' => 'Approve/Reject Settlement',
+                                            'saleReturnSettlements.dispatch' => 'Proses Pengiriman',
                                             'saleReturnSettlements.dispatchRequest' => 'Ajukan Pengiriman',
                                             'saleReturnSettlements.dispatchApproval' => 'Persetujuan Pengiriman',
                                             'saleReturnSettlements.execute' => 'Eksekusi Settlement',

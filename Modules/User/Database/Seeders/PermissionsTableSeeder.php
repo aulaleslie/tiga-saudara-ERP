@@ -188,6 +188,7 @@ class PermissionsTableSeeder extends Seeder
             'saleReturnSettlements.access',
             'saleReturnSettlements.submit',
             'saleReturnSettlements.approve',
+            'saleReturnSettlements.dispatch',
             'saleReturnSettlements.dispatchRequest',
             'saleReturnSettlements.dispatchApproval',
             'saleReturnSettlements.execute',

@@ -51,7 +51,10 @@ class SalesReturnController extends Controller
             'sale',
             'location',
             'settledBy',
-            'settlementItems',
+            // Eager-load nested relations used in view to avoid lazy-loading violations
+            'settlementItems.location',
+            'settlementItems.detail',
+            'settlementItems.serialNumber',
         ]);
 
         return view('salesreturn::show', compact('sale_return'));

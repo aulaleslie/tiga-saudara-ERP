@@ -49,6 +49,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
             ->name('item.approve');
         Route::post('/item/{itemSettlement}/reject', 'SalesReturnSettlementController@rejectItemSettlement')
             ->name('item.reject');
+        Route::post('/item/{itemSettlement}/dispatch', 'SaleReturnDispatchController@dispatchItem')
+            ->name('item.dispatch');
 
         // Dispatch approve/reject per settlement item
         Route::post('/item/{itemSettlement}/dispatch-approve', 'SaleReturnDispatchController@approveDispatch')
