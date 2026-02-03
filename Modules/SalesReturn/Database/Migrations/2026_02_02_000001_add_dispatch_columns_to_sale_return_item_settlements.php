@@ -20,6 +20,7 @@ return new class extends Migration
             $table->timestamp('dispatch_rejected_at')->nullable()->after('dispatch_approved_by');
             $table->unsignedBigInteger('dispatch_rejected_by')->nullable()->after('dispatch_rejected_at');
             $table->text('dispatch_rejection_reason')->nullable()->after('dispatch_rejected_by');
+            $table->text('dispatch_note')->nullable()->after('dispatch_rejection_reason');
 
             $table->foreign('dispatch_requested_by', 'sr_items_settlement_disp_req_by_foreign')->references('id')->on('users')->onDelete('set null');
             $table->foreign('dispatch_approved_by', 'sr_items_settlement_disp_app_by_foreign')->references('id')->on('users')->onDelete('set null');
@@ -46,6 +47,7 @@ return new class extends Migration
                 'dispatch_rejected_at',
                 'dispatch_rejected_by',
                 'dispatch_rejection_reason',
+                'dispatch_note',
             ]);
         });
     }

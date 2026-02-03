@@ -33,6 +33,7 @@
 @endcan
 
 @section('content')
+    @include('utils.alerts')
     @php $customer = optional($sale_return->sale)->customer; @endphp
     <div class="container-fluid">
         <div class="row">

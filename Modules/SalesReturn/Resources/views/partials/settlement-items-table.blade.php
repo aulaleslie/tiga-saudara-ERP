@@ -114,6 +114,11 @@
                                 <i class="bi bi-info-circle"></i> {{ Str::limit($item->rejection_reason, 20) }}
                             </div>
                         @endif
+                        @if(in_array($item->status, [SaleReturnItemSettlement::STATUS_DISPATCH_REQUESTED, SaleReturnItemSettlement::STATUS_DISPATCHED]) && $item->dispatched_serial_number)
+                            <div class="small text-primary mt-1 fw-bold">
+                                <i class="bi bi-upc-scan"></i> {{ $item->dispatched_serial_number }}
+                            </div>
+                        @endif
                     </td>
                     <td class="text-center d-print-none">
                         <div class="btn-group shadow-sm">
@@ -141,6 +146,22 @@
                                     </button>
                                 @else
                                     <span class="text-muted small">-</span>
+                                @endcan
+                            @elseif($item->status === SaleReturnItemSettlement::STATUS_DISPATCH_REQUESTED)
+                                @can('saleReturnSettlements.dispatchApproval')
+                                    <form method="POST" action="{{ route('sale-return-settlements.item.dispatch.approve', $item->id) }}" class="d-inline">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-white text-success border" title="Setujui Pengiriman" onclick="return confirm('Setujui pengiriman ini?')">
+                                            <i class="bi bi-check-lg"></i>
+                                        </button>
+                                    </form>
+                                    <button type="button" class="btn btn-sm btn-white text-danger border" title="Tolak Pengiriman" 
+                                        data-toggle="modal" data-target="#rejectDispatchModal{{ $item->id }}"
+                                        data-bs-toggle="modal" data-bs-target="#rejectDispatchModal{{ $item->id }}">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                @else
+                                    <span class="text-muted small">Menunggu Persetujuan</span>
                                 @endcan
                             @elseif($item->status === SaleReturnItemSettlement::STATUS_APPROVED && $item->method === SaleReturnDetail::METHOD_CASH_REFUND)
                                 @can('saleReturnPayments.access')
@@ -328,7 +349,8 @@
                             </label>
                             <input type="text" name="dispatched_serial_number" class="form-control" required
                                    value="{{ $item->serialNumber->serial_number }}"
-                                   placeholder="Masukkan serial number yang dikirim...">
+                                   placeholder="Masukkan serial number yang dikirim..."
+                                   onkeydown="if(event.keyCode==13) return false;">
                             <small class="text-muted">
                                 <i class="bi bi-info-circle"></i>
                                 Jika serial sama (barang diperbaiki), biarkan tidak berubah.
@@ -362,7 +384,36 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Batal</button>
-                    <button type="submit" class="btn btn-primary">Proses Pengiriman</button>
+                    <button type="submit" class="btn btn-primary">Ajukan Pengiriman</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+@endforeach
+
+{{-- Reject Dispatch Modals --}}
+@foreach($sale_return->settlementItems->where('status', SaleReturnItemSettlement::STATUS_DISPATCH_REQUESTED) as $item)
+<div class="modal fade" id="rejectDispatchModal{{ $item->id }}" tabindex="-1" aria-labelledby="rejectDispatchModalLabel{{ $item->id }}" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" action="{{ route('sale-return-settlements.item.dispatch.reject', $item->id) }}">
+            @csrf
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="rejectDispatchModalLabel{{ $item->id }}">Tolak Pengiriman: {{ $item->detail?->product_name }}</h5>
+                    <button type="button" class="close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Alasan Penolakan <span class="text-danger">*</span></label>
+                        <textarea name="rejection_reason" class="form-control" rows="3" placeholder="Masukkan alasan penolakan..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-danger">Tolak Pengiriman</button>
                 </div>
             </div>
         </form>
