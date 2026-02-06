@@ -13,9 +13,11 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use App\Services\SerialNumberHistoryService;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Product\Entities\Transaction;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Sale\DataTables\SalePaymentsDataTable;
@@ -796,9 +798,21 @@ class SaleController extends Controller
         if ($detail->serial_numbers) {
             $serials = json_decode($detail->serial_numbers, true);
             foreach ($serials as $serial) {
-                ProductSerialNumber::where('product_id', $product->id)
+                $serialRecord = ProductSerialNumber::where('product_id', $product->id)
                     ->where('serial_number', $serial)
-                    ->update(['dispatch_detail_id' => $detail->id]);
+                    ->first();
+
+                if ($serialRecord) {
+                    $serialRecord->update(['dispatch_detail_id' => $detail->id]);
+
+                    // Record SOLD history event
+                    SerialNumberHistoryService::record(
+                        $serialRecord->id,
+                        SerialNumberHistory::EVENT_SOLD,
+                        $detail->location_id,
+                        $detail
+                    );
+                }
             }
         }
     }

@@ -13,6 +13,8 @@ use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
+use App\Services\SerialNumberHistoryService;
+use Modules\Product\Entities\SerialNumberHistory;
 use Modules\SalesReturn\DataTables\SaleReturnsDataTable;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
@@ -348,6 +350,15 @@ class SalesReturnController extends Controller
                                 'location_id' => $locationId,
                                 'tax_id' => $taxId,
                             ]);
+
+                        foreach ($serials as $serial) {
+                            SerialNumberHistoryService::record(
+                                $serial->id,
+                                SerialNumberHistory::EVENT_SALE_RETURNED,
+                                $locationId,
+                                $detail
+                            );
+                        }
                     }
                 }
 

@@ -308,5 +308,11 @@
             <livewire:product.product-serial-numbers-table :product-id="$product->id" />
         @endif
         <!-- End Serial Numbers -->
+
+        <!-- Serial Number History -->
+        @if ($product->serial_number_required)
+            <livewire:product.product-serial-history-table :product-id="$product->id" />
+        @endif
+        <!-- End Serial Number History -->
     </div>
 @endsection

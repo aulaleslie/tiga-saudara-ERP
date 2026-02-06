@@ -73,4 +73,12 @@ class ProductSerialNumber extends BaseModel
     {
         return $this->belongsTo(\Modules\Purchase\Entities\ReceivedNoteDetail::class, 'received_note_detail_id');
     }
+
+    /**
+     * Get the history of the serial number.
+     */
+    public function histories(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(SerialNumberHistory::class, 'product_serial_number_id');
+    }
 }

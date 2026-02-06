@@ -23,6 +23,8 @@ use App\Services\PurchaseAttachmentService;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
+use App\Services\SerialNumberHistoryService;
+use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
 use Modules\Purchase\DataTables\PurchaseReceivingsDataTable;
 use Modules\Purchase\Entities\PaymentTerm;
@@ -936,13 +938,21 @@ class PurchaseController extends Controller
                     // Commit pending serial numbers to product_serial_numbers table
                     if (!empty($detail->pending_serial_numbers) && is_array($detail->pending_serial_numbers)) {
                         foreach ($detail->pending_serial_numbers as $serialNumber) {
-                            ProductSerialNumber::create([
+                            $serialRecord = ProductSerialNumber::create([
                                 'product_id' => $purchaseDetail->product_id,
                                 'location_id' => $receivedNote->location_id,
                                 'serial_number' => $serialNumber,
                                 'tax_id' => $purchaseDetail->tax_id,
                                 'received_note_detail_id' => $detail->id,
                             ]);
+
+                            // Record RECEIVED history event
+                            SerialNumberHistoryService::record(
+                                $serialRecord->id,
+                                SerialNumberHistory::EVENT_RECEIVED,
+                                $receivedNote->location_id,
+                                $detail
+                            );
                         }
                         // Clear pending serial numbers after commit
                         $detail->update(['pending_serial_numbers' => null]);

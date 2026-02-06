@@ -14,6 +14,8 @@ use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\Transaction;
 use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
+use App\Services\SerialNumberHistoryService;
+use Modules\Product\Entities\SerialNumberHistory;
 
 class PurchasesReturnSettlementController extends Controller
 {
@@ -296,13 +298,17 @@ class PurchasesReturnSettlementController extends Controller
                         
                         // Check uniqueness if serial changed
                         if ($replacementSerialNumber !== $serial->serial_number) {
-                            $existingGlobal = ProductSerialNumber::where('product_id', $productId)
+                            $existingActive = ProductSerialNumber::where('product_id', $productId)
                                 ->where('serial_number', $replacementSerialNumber)
                                 ->where('id', '!=', $serial->id)
+                                ->where(function ($query) {
+                                    $query->where('status', 'ACTIVE')
+                                          ->orWhere('is_in_return_process', true);
+                                })
                                 ->exists();
-                            
-                            if ($existingGlobal) {
-                                throw new \Exception("Serial number {$replacementSerialNumber} sudah terdaftar di database untuk produk ini.");
+
+                            if ($existingActive) {
+                                throw new \Exception("Serial number {$replacementSerialNumber} sudah aktif atau sedang dalam proses retur lain untuk produk ini.");
                             }
                         }
 
@@ -329,6 +335,13 @@ class PurchasesReturnSettlementController extends Controller
                                     'purchase_return_id' => null,
                                 ]);
                                 $itemSettlement->replacement_serial_number_id = $replacementRecord->id;
+
+                                SerialNumberHistoryService::record(
+                                    $replacementRecord->id,
+                                    SerialNumberHistory::EVENT_REPAIR_RECEIVED,
+                                    $targetLocationId,
+                                    $itemSettlement
+                                );
                             } else {
                                 $newSerial = ProductSerialNumber::create([
                                     'product_id' => $productId,
@@ -341,6 +354,13 @@ class PurchasesReturnSettlementController extends Controller
                                     'received_note_detail_id' => null,
                                 ]);
                                 $itemSettlement->replacement_serial_number_id = $newSerial->id;
+
+                                SerialNumberHistoryService::record(
+                                    $newSerial->id,
+                                    SerialNumberHistory::EVENT_REPAIR_RECEIVED,
+                                    $targetLocationId,
+                                    $itemSettlement
+                                );
                             }
                         } else {
                             // Same serial number, just reactivate it
@@ -352,6 +372,13 @@ class PurchasesReturnSettlementController extends Controller
                                 'purchase_return_id' => null,
                             ]);
                             $itemSettlement->replacement_serial_number_id = $serial->id;
+
+                            SerialNumberHistoryService::record(
+                                $serial->id,
+                                SerialNumberHistory::EVENT_REPAIR_RECEIVED,
+                                $targetLocationId,
+                                $itemSettlement
+                            );
                         }
                     } else {
                         // Non-serial repair movement
@@ -382,6 +409,13 @@ class PurchasesReturnSettlementController extends Controller
                             'is_in_return_process' => false,
                             'purchase_return_id' => null,
                         ]);
+
+                        SerialNumberHistoryService::record(
+                            $itemSettlement->serialNumber->id,
+                            SerialNumberHistory::EVENT_MARKED_BROKEN,
+                            $targetLocationId,
+                            $itemSettlement
+                        );
                     }
                     
                     $this->breakStock($productId, $sourceLocationId, $targetLocationId, $receivedQty, $isSerial, $isDispatched, $itemSettlement->purchaseReturn->setting_id);
@@ -825,6 +859,13 @@ class PurchasesReturnSettlementController extends Controller
                         'is_in_return_process' => false,
                         'purchase_return_id' => $purchaseReturn->id,
                     ]);
+
+                    SerialNumberHistoryService::record(
+                        $serial->id,
+                        SerialNumberHistory::EVENT_PURCHASE_RETURNED,
+                        $detail->location_id ?? $purchaseReturn->location_id,
+                        $item
+                    );
                 }
 
                 // Archival logic: if all items are returned (total qty == 0), archive

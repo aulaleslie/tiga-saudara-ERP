@@ -25,6 +25,8 @@ use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use App\Services\SerialNumberHistoryService;
+use Modules\Product\Entities\SerialNumberHistory;
 use Throwable;
 
 class TransferStockController extends Controller
@@ -240,6 +242,21 @@ class TransferStockController extends Controller
                     if ($serialsToMove->isNotEmpty()) {
                         ProductSerialNumber::whereIn('id', $serialsToMove->pluck('id')->all())
                             ->update(['location_id' => $transfer->destination_location_id]);
+
+                        // Record LOCATION_TRANSFER history for each serial
+                        foreach ($serialsToMove as $serial) {
+                            SerialNumberHistoryService::record(
+                                $serial->id,
+                                SerialNumberHistory::EVENT_LOCATION_TRANSFER,
+                                $transfer->destination_location_id,
+                                $transfer,
+                                sprintf(
+                                    'Transfer dari %s ke %s',
+                                    $transfer->originLocation->name ?? '-',
+                                    $transfer->destinationLocation->name ?? '-'
+                                )
+                            );
+                        }
                     }
 
                     $stock = $this->ensureStock($transferProduct->product_id, $transfer->origin_location_id, false);
@@ -409,6 +426,21 @@ class TransferStockController extends Controller
                     if ($serialsToMove->isNotEmpty()) {
                         ProductSerialNumber::whereIn('id', $serialsToMove->pluck('id')->all())
                             ->update(['location_id' => $transfer->origin_location_id]);
+
+                        // Record LOCATION_TRANSFER history for each serial (return flow)
+                        foreach ($serialsToMove as $serial) {
+                            SerialNumberHistoryService::record(
+                                $serial->id,
+                                SerialNumberHistory::EVENT_LOCATION_TRANSFER,
+                                $transfer->origin_location_id,
+                                $transfer,
+                                sprintf(
+                                    'Return dari %s ke %s',
+                                    $transfer->destinationLocation->name ?? '-',
+                                    $transfer->originLocation->name ?? '-'
+                                )
+                            );
+                        }
                     }
 
                     $stock = $this->ensureStock($transferProduct->product_id, $transfer->destination_location_id, false);

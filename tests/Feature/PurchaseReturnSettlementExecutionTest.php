@@ -278,6 +278,6 @@ class PurchaseReturnSettlementExecutionTest extends TestCase
             ]);
 
         $response->assertSessionHas('error');
-        $this->assertStringContainsString('sudah terdaftar', session('error'));
+        $this->assertStringContainsString('sudah aktif', session('error'));
     }
 }
