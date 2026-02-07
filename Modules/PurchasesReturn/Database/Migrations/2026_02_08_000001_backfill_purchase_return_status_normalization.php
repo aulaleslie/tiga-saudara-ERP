@@ -52,9 +52,12 @@ return new class extends Migration
 
     protected function reconcileSerialLifecycle(): void
     {
-        // Serials with is_in_return_process=true but status != 'RETURN_IN_PROCESS'
+        // Serials with is_in_return_process=true OR purchase_return_id NOT NULL but status != 'RETURN_IN_PROCESS'
         DB::table('product_serial_numbers')
-            ->where('is_in_return_process', true)
+            ->where(function($q) {
+                $q->where('is_in_return_process', true)
+                  ->orWhereNotNull('purchase_return_id');
+            })
             ->whereRaw("UPPER(status) != 'RETURN_IN_PROCESS'")
             ->update(['status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS]);
 

@@ -118,9 +118,12 @@ class BackfillMigrationTest extends TestCase
 
             protected function reconcileSerialLifecycle(): void
             {
-                // Serials with is_in_return_process=true but status != 'RETURN_IN_PROCESS'
+                // Serials with is_in_return_process=true OR purchase_return_id NOT NULL but status != 'RETURN_IN_PROCESS'
                 DB::table('product_serial_numbers')
-                    ->where('is_in_return_process', true)
+                    ->where(function($q) {
+                        $q->where('is_in_return_process', true)
+                          ->orWhereNotNull('purchase_return_id');
+                    })
                     ->whereRaw("UPPER(status) != 'RETURN_IN_PROCESS'")
                     ->update(['status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS]);
 
@@ -267,5 +270,152 @@ class BackfillMigrationTest extends TestCase
 
         $this->assertEquals(PurchaseReturn::STATUS_PENDING_APPROVAL, DB::table('purchase_returns')->where('id', 6)->value('status'));
         $this->assertEquals('PENDING', DB::table('purchase_returns')->where('id', 6)->value('approval_status'));
+    }
+
+    /** @test */
+    public function it_normalizes_settlement_item_statuses()
+    {
+        DB::table('purchase_return_item_settlements')->insert([
+            ['id' => 1, 'purchase_return_id' => 1, 'purchase_return_detail_id' => 1, 'status' => 'draft'],
+            ['id' => 2, 'purchase_return_id' => 1, 'purchase_return_detail_id' => 2, 'status' => 'submitted'],
+            ['id' => 3, 'purchase_return_id' => 1, 'purchase_return_detail_id' => 3, 'status' => 'Approved'],
+            ['id' => 4, 'purchase_return_id' => 1, 'purchase_return_detail_id' => 4, 'status' => 'REJECTED'],
+        ]);
+
+        $this->runBackfillMigration();
+
+        $this->assertEquals('DRAFT', DB::table('purchase_return_item_settlements')->where('id', 1)->value('status'));
+        $this->assertEquals('SUBMITTED', DB::table('purchase_return_item_settlements')->where('id', 2)->value('status'));
+        $this->assertEquals('APPROVED', DB::table('purchase_return_item_settlements')->where('id', 3)->value('status'));
+        $this->assertEquals('REJECTED', DB::table('purchase_return_item_settlements')->where('id', 4)->value('status'));
+    }
+
+    /** @test */
+    public function it_handles_documents_with_missing_settlement_data()
+    {
+        $defaults = [
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'tax_amount' => 0,
+            'discount_amount' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'setting_id' => 1,
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'date' => now(),
+        ];
+
+        // PR dispatched but no settlement items yet
+        DB::table('purchase_returns')->insert(
+            array_merge($defaults, [
+                'id' => 10, 
+                'reference' => 'PR-010', 
+                'status' => 'approved', 
+                'approval_status' => 'approved',
+                'return_dispatch_status' => 'dispatched'
+            ])
+        );
+
+        $this->runBackfillMigration();
+
+        $pr = PurchaseReturn::find(10);
+        $this->assertEquals(PurchaseReturn::STATUS_IN_RETURN, $pr->unified_status);
+    }
+
+    /** @test */
+    public function it_handles_documents_with_partial_settlement_data()
+    {
+        $defaults = [
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'tax_amount' => 0,
+            'discount_amount' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'setting_id' => 1,
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'date' => now(),
+        ];
+
+        DB::table('purchase_returns')->insert(
+            array_merge($defaults, [
+                'id' => 11, 
+                'reference' => 'PR-011', 
+                'status' => 'partially_settled', 
+                'approval_status' => 'approved',
+                'return_dispatch_status' => 'dispatched'
+            ])
+        );
+
+        DB::table('purchase_return_item_settlements')->insert([
+            ['id' => 11, 'purchase_return_id' => 11, 'purchase_return_detail_id' => 11, 'status' => 'APPROVED', 'method' => 'MODIFY_PURCHASE'],
+            ['id' => 12, 'purchase_return_id' => 11, 'purchase_return_detail_id' => 12, 'status' => 'SUBMITTED', 'method' => 'MODIFY_PURCHASE'],
+        ]);
+
+        $this->runBackfillMigration();
+
+        $pr = PurchaseReturn::find(11);
+        $this->assertEquals(PurchaseReturn::STATUS_PARTIAL_SETTLEMENT, $pr->unified_status);
+    }
+
+    /** @test */
+    public function it_reconciles_serial_with_purchase_return_id_but_wrong_status()
+    {
+        DB::table('product_serial_numbers')->insert([
+            [
+                'id' => 10, 
+                'product_id' => 1, 
+                'location_id' => 1, 
+                'serial_number' => 'SN-010', 
+                'status' => 'active', 
+                'is_in_return_process' => false,
+                'purchase_return_id' => 1
+            ],
+        ]);
+
+        $this->runBackfillMigration();
+
+        $sn = DB::table('product_serial_numbers')->where('id', 10)->first();
+        $this->assertEquals('RETURN_IN_PROCESS', $sn->status);
+        $this->assertTrue((bool)$sn->is_in_return_process);
+    }
+
+    /** @test */
+    public function it_handles_null_status_fields_gracefully()
+    {
+        $defaults = [
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'tax_amount' => 0,
+            'discount_amount' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'setting_id' => 1,
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'date' => now(),
+        ];
+
+        DB::table('purchase_returns')->insert([
+            array_merge($defaults, ['id' => 12, 'reference' => 'PR-012', 'status' => 'Draft', 'approval_status' => 'draft', 'return_dispatch_status' => null]),
+        ]);
+
+        $this->runBackfillMigration();
+
+        $pr = DB::table('purchase_returns')->where('id', 12)->first();
+        $this->assertEquals(PurchaseReturn::STATUS_DRAFT, $pr->status);
+        $this->assertEquals('DRAFT', $pr->approval_status); // Normalized to uppercase
+        $this->assertNull($pr->return_dispatch_status);
     }
 }

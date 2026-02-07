@@ -182,15 +182,31 @@ class PurchasesReturnSettlementController extends Controller
                     $finalStatus = \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_APPROVED_AWAITING_RECEIVE;
                 }
 
-                $itemSettlement->update([
+                $updateResult = $itemSettlement->update([
                     'status' => $finalStatus,
                     'approved_by' => auth()->id(),
                     'approved_at' => now(),
                     'approval_note' => $request->approval_note,
                 ]);
 
+                \Log::info('Approval Update Detail', [
+                    'item_id' => $itemSettlement->id,
+                    'status_before' => $itemSettlement->getOriginal('status'),
+                    'status_after' => $itemSettlement->status,
+                    'finalStatus' => $finalStatus,
+                    'updateResult' => $updateResult,
+                ]);
+
                 // Update Purchase Return status roll-up using derived attribute
-                $purchaseReturn = $itemSettlement->purchaseReturn->load('settlementItems');
+                $itemsRelation = $itemSettlement->purchaseReturn->settlementItems();
+                $purchaseReturn = $itemSettlement->purchaseReturn;
+                $purchaseReturn->setRelation('settlementItems', $itemsRelation->get());
+                
+                \Log::info('PR Load Items', [
+                    'pr_id' => $purchaseReturn->id,
+                    'items_in_pr' => $purchaseReturn->settlementItems->pluck('status', 'id')->toArray(),
+                ]);
+
                 $purchaseReturn->update(['status' => $purchaseReturn->unified_status]);
             });
 
@@ -315,9 +331,6 @@ class PurchasesReturnSettlementController extends Controller
                                     throw new \Exception("Serial number {$replacementSerialNumber} sedang dalam proses retur.");
                                 }
 
-                                if ($status === 'RETURNED') {
-                                    throw new \Exception("Serial number {$replacementSerialNumber} sudah terdaftar.");
-                                }
                             }
                         }
 

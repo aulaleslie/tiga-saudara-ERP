@@ -143,7 +143,7 @@ class PurchaseReturnNoMutationTest extends TestCase
             'product_id' => $serialProduct->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-TEST-001',
-            'status' => 'active',
+            'status' => 'ACTIVE',
             'is_in_return_process' => false,
             'created_at' => now(),
             'updated_at' => now(),
@@ -195,7 +195,7 @@ class PurchaseReturnNoMutationTest extends TestCase
 
         // Verify SERIAL FLAGS
         $snFresh = $sn->fresh();
-        $this->assertEquals('active', $snFresh->status, 'Serial status should NOT change to returned yet');
+        $this->assertEquals('ACTIVE', $snFresh->status, 'Serial status should NOT change to returned yet');
         $this->assertFalse((bool)$snFresh->is_in_return_process, 'is_in_return_process should remain false until dispatch/settlement');
     }
 
