@@ -125,7 +125,7 @@ class PurchaseReturnSettlementExecutionTest extends TestCase
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-REP-01',
-            'status' => 'returned',
+            'status' => 'RETURNED',
             'is_broken' => true,
             'is_in_return_process' => true,
         ]);
@@ -178,7 +178,7 @@ class PurchaseReturnSettlementExecutionTest extends TestCase
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-OLD-01',
-            'status' => 'returned',
+            'status' => 'RETURNED',
             'is_broken' => true,
             'is_in_return_process' => true,
         ]);

@@ -197,7 +197,7 @@ class PurchaseReturnRepairReceivedHistoryTest extends TestCase
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => $returnedSN,
-            'status' => 'returned',
+            'status' => 'RETURNED',
             'is_in_return_process' => false,
         ]);
 
@@ -207,6 +207,7 @@ class PurchaseReturnRepairReceivedHistoryTest extends TestCase
             'replacement_serial_number' => $returnedSN,
             'note' => 'Test returned serial replacement'
         ]);
+
 
         $response->assertSessionHas('success');
 

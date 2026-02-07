@@ -4,11 +4,6 @@
         <h5 class="mb-0">
             <i class="bi bi-list-check mr-2"></i>Penyelesaian Per Item
         </h5>
-        @if($purchase_return->settlementItems->every(fn($i) => $i->status === 'APPROVED'))
-             <span class="ml-3 badge bg-success text-uppercase">Fully Settled</span>
-        @elseif($purchase_return->settlementItems->contains(fn($i) => $i->status === 'APPROVED'))
-             <span class="ml-3 badge bg-warning text-dark text-uppercase">Partially Settled</span>
-        @endif
     </div>
     
     <div class="card border-0 shadow-sm overflow-hidden">

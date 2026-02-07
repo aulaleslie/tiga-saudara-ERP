@@ -210,7 +210,7 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         ]);
 
         $sn->refresh();
-        $this->assertEquals('returned', $sn->status);
+        $this->assertEquals('RETURNED', $sn->status);
         $this->assertFalse((bool)$sn->is_in_return_process);
 
         $newSn = ProductSerialNumber::where('serial_number', $newSerialText)->first();
@@ -299,7 +299,7 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         ProductSerialNumber::create([
             'product_id' => $this->serialProduct->id,
             'serial_number' => 'SN-RETURNED-001',
-            'status' => 'returned',
+            'status' => 'RETURNED',
             'location_id' => $this->location->id,
         ]);
 

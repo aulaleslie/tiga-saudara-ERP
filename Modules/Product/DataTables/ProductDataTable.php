@@ -11,9 +11,12 @@ use Yajra\DataTables\Exceptions\Exception;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
 use Yajra\DataTables\Services\DataTable;
+use App\Services\ProductQuantityProjectionService;
 
 class ProductDataTable extends DataTable
 {
+    protected $projectedQuantities = null;
+
     /**
      * @throws Exception
      */
@@ -26,59 +29,35 @@ class ProductDataTable extends DataTable
             })
             ->editColumn('product_code', function ($data) {
                 $link = route('products.show', $data->id);
-                $codeHtml = '<a href="' . $link . '" target="_blank" class="text-primary font-weight-bold" style="text-decoration: underline;">' . $data->product_code . '</a>';
-
-                // Resolve active setting ID
-                $user = auth()->user();
-                $settingId = session('setting_id')
-                    ?? optional($user?->settings()->select('settings.id')->first())->id
-                    ?? Setting::query()->min('id');
-
-                $settingStocks = $data->productStocks->filter(function ($stock) use ($settingId) {
-                    return $stock->location && $stock->location->setting_id == $settingId;
-                });
-
-                $totalQty = $settingStocks->sum('quantity');
-                $brokenQty = $settingStocks->sum('broken_quantity');
-                $goodQty = $totalQty - $brokenQty;
-
-                $format = function($val) use ($data) {
-                     return $this->formatQuantityValue($data, $val);
-                };
-
-                $stockHtml = '<div style="font-size: 0.8em; margin-top: 5px;">' .
-                             '<div>Total Stok: <span class="font-weight-bold">' . $format($totalQty) . '</span></div>' .
-                             '<div>Stok Baik: <span class="font-weight-bold text-success">' . $format($goodQty) . '</span></div>' .
-                             '<div>Stok Rusak: <span class="font-weight-bold text-danger">' . $format($brokenQty) . '</span></div>' .
-                             '</div>';
-
-                return $codeHtml . $stockHtml;
+                return '<a href="' . $link . '" target="_blank" class="text-primary font-weight-bold" style="text-decoration: underline;">' . $data->product_code . '</a>';
+            })
+            ->addColumn('total_stock', function ($data) {
+                return $this->renderStockColumn($data, 'total_stock');
+            })
+            ->addColumn('good_stock', function ($data) {
+                return $this->renderStockColumn($data, 'good_stock', 'text-success');
+            })
+            ->addColumn('broken_stock', function ($data) {
+                return $this->renderStockColumn($data, 'broken_stock', 'text-danger');
+            })
+            ->addColumn('on_order_stock', function ($data) {
+                return $this->renderStockColumn($data, 'on_order_stock', 'text-info');
+            })
+            ->addColumn('in_return_process_stock', function ($data) {
+                return $this->renderStockColumn($data, 'in_return_process_stock', 'text-warning');
             })
             ->addColumn('product_image', function ($data) {
                 $url = $data->getFirstMediaUrl('images', 'thumb');
                 return '<img src="' . $url . '" border="0" width="50" class="img-thumbnail" align="center"/>';
             })
-            // Add columns for Last Purchase Price and Average Purchase Price
             ->addColumn('last_purchase_price', function ($data) {
-                return $data->pp_last_purchase_price !== null
-                    ? format_currency($data->pp_last_purchase_price)
-                    : '-';
+                return $data->pp_last_purchase_price !== null ? format_currency($data->pp_last_purchase_price) : '-';
             })
             ->addColumn('average_purchase_price', function ($data) {
-                return $data->pp_average_purchase_price !== null
-                    ? format_currency($data->pp_average_purchase_price)
-                    : '-';
+                return $data->pp_average_purchase_price !== null ? format_currency($data->pp_average_purchase_price) : '-';
             })
             ->addColumn('sale_price', function ($data) {
-                return $data->pp_sale_price !== null
-                    ? format_currency($data->pp_sale_price)
-                    : '-';
-            })
-            ->addColumn('product_quantity', function ($data) {
-                return $this->formatQuantity($data, 'available');
-            })
-            ->addColumn('broken_quantity', function ($data) {
-                return $this->formatQuantity($data, 'broken');
+                return $data->pp_sale_price !== null ? format_currency($data->pp_sale_price) : '-';
             })
             ->addColumn('category', function ($data) {
                 return optional($data->category)->category_name ?? 'N/A';
@@ -86,7 +65,34 @@ class ProductDataTable extends DataTable
             ->addColumn('brand', function ($data) {
                 return optional($data->brand)->name ?? 'N/A';
             })
-            ->rawColumns(['product_image', 'product_code']);
+            ->rawColumns(['product_image', 'product_code', 'total_stock', 'good_stock', 'broken_stock', 'on_order_stock', 'in_return_process_stock']);
+    }
+
+    protected function renderStockColumn($data, $key, $class = '')
+    {
+        if (!$data->stock_managed) {
+            return '-';
+        }
+
+        if (is_null($this->projectedQuantities) || !$this->projectedQuantities->has($data->id)) {
+            $user = auth()->user();
+            $settingId = (int) (session('setting_id')
+                ?? optional($user?->settings()->select('settings.id')->first())->id
+                ?? Setting::query()->min('id'));
+            
+            if (is_null($this->projectedQuantities)) {
+                $this->projectedQuantities = collect();
+            }
+
+            $currentProjected = ProductQuantityProjectionService::getProjectedQuantities($data->id, $settingId);
+            $this->projectedQuantities->put($data->id, $currentProjected);
+        }
+
+        $projected = $this->projectedQuantities->get($data->id);
+        $qty = $projected[$key] ?? 0;
+        $formatted = $this->formatQuantityValue($data, $qty);
+
+        return $class ? "<span class=\"font-weight-bold {$class}\">{$formatted}</span>" : "<span class=\"font-weight-bold\">{$formatted}</span>";
     }
 
     /**
@@ -178,6 +184,26 @@ class ProductDataTable extends DataTable
 
             Column::make('brand')
                 ->title('Brand')
+                ->className('text-center align-middle'),
+
+            Column::computed('total_stock')
+                ->title('Total')
+                ->className('text-center align-middle'),
+
+            Column::computed('good_stock')
+                ->title('Stok Baik')
+                ->className('text-center align-middle'),
+
+            Column::computed('broken_stock')
+                ->title('Stok Rusak')
+                ->className('text-center align-middle'),
+
+            Column::computed('on_order_stock')
+                ->title('Stok Sedang Dipesan')
+                ->className('text-center align-middle'),
+
+            Column::computed('in_return_process_stock')
+                ->title('Stok Sedang Diretur')
                 ->className('text-center align-middle'),
 
             // Add columns for Last Purchase Price and Average Purchase Price

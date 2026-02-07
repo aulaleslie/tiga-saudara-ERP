@@ -116,15 +116,15 @@ class PurchaseReturnDispatchController extends Controller
                 if (! empty($detail->serial_number_ids)) {
                     ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
                         ->update([
-                            'status' => 'returned',
-                            'is_in_return_process' => false,
+                            'status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS,
+                            'is_in_return_process' => true,
                         ]);
                 }
             }
 
             $purchase_return->update([
                 'return_dispatch_status' => 'dispatched',
-                'status' => 'Return Dispatched',
+                'status' => PurchaseReturn::STATUS_IN_RETURN,
                 'return_dispatched_at' => now(),
                 'return_dispatched_by' => auth()->id(),
                 'dispatch_approved_by' => auth()->id(),
@@ -310,6 +310,7 @@ class PurchaseReturnDispatchController extends Controller
             if (! empty($detail->serial_number_ids)) {
                 ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
                     ->update([
+                        'status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS,
                         'is_in_return_process' => true,
                         'purchase_return_id' => $purchase_return->id,
                     ]);

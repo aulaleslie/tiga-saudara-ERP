@@ -96,7 +96,6 @@ class SalesImportDateErrorTest extends TestCase
         $batch = SalesImportBatch::create([
             'user_id' => $user->id,
             'source_csv_path' => 'dummy.csv',
-            'file_name' => 'dummy.csv',
             'file_sha256' => 'dummy',
             'status' => SalesImportBatch::STATUS_PROCESSING,
         ]);

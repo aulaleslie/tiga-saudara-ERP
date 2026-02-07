@@ -121,25 +121,15 @@ class PurchaseReturnSettlementLogicTest extends TestCase
 
         $receivedNote = ReceivedNote::create([
              'date' => now(),
-             'reference' => 'GRN-001',
-             'supplier_id' => $this->supplier->id,
-             'setting_id' => 1,
-             'status' => ReceivedNote::STATUS_APPROVED,
+             'external_delivery_number' => 'GRN-001',
              'po_id' => $purchase->id,
+             'status' => ReceivedNote::STATUS_APPROVED,
         ]);
         
         ReceivedNoteDetail::create([
              'received_note_id' => $receivedNote->id,
              'po_detail_id' => $purchaseDetail->id,
-             'product_id' => $this->product->id,
              'quantity_received' => 10,
-             'product_code' => $this->product->product_code,
-             'product_name' => $this->product->product_name,
-             'unit_price' => 10000,
-             'sub_total' => 100000,
-             'product_tax_amount' => 0,
-             'product_discount_amount' => 0,
-             'product_discount_type' => 'fixed',
         ]);
 
         // 2. Create Return (Return 2 items = 20,000)
@@ -191,11 +181,6 @@ class PurchaseReturnSettlementLogicTest extends TestCase
         // Note: Logic allows debt reduction if Surplus <= 0
         $this->actingAs( \App\Models\User::factory()->create() );
         $response = $this->post(route('purchase-return-settlements.item.approve', $settlementItem->id));
-        
-        
-        
-        
-        
         $response->assertSessionHas('success');
 
         // 5. Assertions
@@ -245,25 +230,15 @@ class PurchaseReturnSettlementLogicTest extends TestCase
 
         $receivedNote2 = ReceivedNote::create([
              'date' => now(),
-             'reference' => 'GRN-002',
-             'supplier_id' => $this->supplier->id,
-             'setting_id' => 1,
-             'status' => ReceivedNote::STATUS_APPROVED,
+             'external_delivery_number' => 'GRN-002',
              'po_id' => $sourcePurchase->id,
+             'status' => ReceivedNote::STATUS_APPROVED,
         ]);
         
         ReceivedNoteDetail::create([
              'received_note_id' => $receivedNote2->id,
              'po_detail_id' => $sourceDetail->id,
-             'product_id' => $this->product->id,
              'quantity_received' => 10,
-             'product_code' => $this->product->product_code,
-             'product_name' => $this->product->product_name,
-             'unit_price' => 10000,
-             'sub_total' => 100000,
-             'product_tax_amount' => 0,
-             'product_discount_amount' => 0,
-             'product_discount_type' => 'fixed',
         ]);
 
         // 2. Create Unpaid Purchase (Target)
@@ -399,25 +374,15 @@ class PurchaseReturnSettlementLogicTest extends TestCase
 
         $receivedNote = ReceivedNote::create([
              'date' => now(),
-             'reference' => 'GRN-PAID',
-             'supplier_id' => $this->supplier->id,
-             'setting_id' => 1,
-             'status' => ReceivedNote::STATUS_APPROVED,
+             'external_delivery_number' => 'GRN-PAID',
              'po_id' => $purchase->id,
+             'status' => ReceivedNote::STATUS_APPROVED,
         ]);
         
         ReceivedNoteDetail::create([
              'received_note_id' => $receivedNote->id,
              'po_detail_id' => $detail->id,
-             'product_id' => $this->product->id,
-             'quantity_received' => 10,
-             'product_code' => $this->product->product_code,
-             'product_name' => $this->product->product_name,
-             'unit_price' => 10000,
-             'sub_total' => 100000,
-             'product_tax_amount' => 0,
-             'product_discount_amount' => 0,
-             'product_discount_type' => 'fixed',
+             'quantity_received' => 5,
         ]);
 
         // Create Payment
@@ -524,25 +489,15 @@ class PurchaseReturnSettlementLogicTest extends TestCase
 
         $receivedNote = ReceivedNote::create([
              'date' => now(),
-             'reference' => 'GRN-PARTIAL-LESS',
-             'supplier_id' => $this->supplier->id,
-             'setting_id' => 1,
-             'status' => ReceivedNote::STATUS_APPROVED,
+             'external_delivery_number' => 'GRN-PARTIAL-LESS',
              'po_id' => $purchase->id,
+             'status' => ReceivedNote::STATUS_APPROVED,
         ]);
         
         ReceivedNoteDetail::create([
              'received_note_id' => $receivedNote->id,
              'po_detail_id' => $detail->id,
-             'product_id' => $this->product->id,
-             'quantity_received' => 10,
-             'product_code' => $this->product->product_code,
-             'product_name' => $this->product->product_name,
-             'unit_price' => 10000,
-             'sub_total' => 100000,
-             'product_tax_amount' => 0,
-             'product_discount_amount' => 0,
-             'product_discount_type' => 'fixed',
+             'quantity_received' => 5,
         ]);
 
         PurchasePayment::create([
@@ -648,25 +603,15 @@ class PurchaseReturnSettlementLogicTest extends TestCase
 
         $receivedNote = ReceivedNote::create([
              'date' => now(),
-             'reference' => 'GRN-PARTIAL-MORE',
-             'supplier_id' => $this->supplier->id,
-             'setting_id' => 1,
-             'status' => ReceivedNote::STATUS_APPROVED,
+             'external_delivery_number' => 'GRN-PARTIAL-MORE',
              'po_id' => $purchase->id,
+             'status' => ReceivedNote::STATUS_APPROVED,
         ]);
         
         ReceivedNoteDetail::create([
              'received_note_id' => $receivedNote->id,
              'po_detail_id' => $detail->id,
-             'product_id' => $this->product->id,
              'quantity_received' => 10,
-             'product_code' => $this->product->product_code,
-             'product_name' => $this->product->product_name,
-             'unit_price' => 10000,
-             'sub_total' => 100000,
-             'product_tax_amount' => 0,
-             'product_discount_amount' => 0,
-             'product_discount_type' => 'fixed',
         ]);
 
         PurchasePayment::create([

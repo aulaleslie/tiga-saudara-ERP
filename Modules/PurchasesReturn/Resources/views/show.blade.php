@@ -52,11 +52,7 @@
                                                 <i class="bi bi-truck"></i> Ajukan Pengiriman Retur
                                             </button>
                                         @endcan
-                                        @if($dispatchStatus === 'rejected')
-                                            <span class="badge bg-danger mr-2 mb-1">Pengiriman Retur Ditolak</span>
-                                        @endif
                                     @elseif($dispatchStatus === 'pending_approval')
-                                        <span class="badge bg-warning text-dark mr-2 mb-1">Sedang Menunggu Persetujuan</span>
                                         @can('purchaseReturns.dispatchApproval')
                                             <button type="button" class="btn btn-success btn-sm d-print-none mr-2 mb-1" data-toggle="modal" data-target="#approveDispatchModal" data-bs-toggle="modal" data-bs-target="#approveDispatchModal">
                                                 <i class="bi bi-check-circle"></i> Setujui Pengiriman Retur
@@ -65,11 +61,7 @@
                                                 <i class="bi bi-x-circle"></i> Tolak Pengiriman Retur
                                             </button>
                                         @endcan
-                                    @elseif($dispatchStatus === 'dispatched')
-                                        <span class="badge bg-success mr-2 mb-1">Pengiriman Retur Disetujui</span>
                                     @endif
-                                @else
-                                    <span class="badge bg-info text-dark mr-2 mb-1">Telah Dikirim: {{ $purchase_return->return_dispatched_at->format('d M Y') }}</span>
                                 @endif
 
                                 @if($dispatchStatus === 'dispatched')
@@ -92,7 +84,6 @@
                                     @canany(['purchaseReturnSettlements.approve', 'purchaseReturnSettlements.execute', 'purchaseReturnSettlements.receive'])
                                         @if($purchase_return->settlement)
                                             @if($purchase_return->settlement->status === 'pending')
-                                                <span class="badge bg-warning text-dark mr-2 mb-1">Settlement Pending</span>
                                                 @can('purchaseReturnSettlements.approve')
                                                     <form method="POST" action="{{ route('purchase-return-settlements.approve', $purchase_return->settlement->id) }}" class="d-inline">
                                                         @csrf
@@ -105,7 +96,6 @@
                                                     </button>
                                                 @endcan
                                             @elseif($purchase_return->settlement->status === 'approved')
-                                                <span class="badge bg-success mr-2 mb-1">Settlement Approved</span>
                                                 @can('purchaseReturnSettlements.execute')
                                                     <form method="POST" action="{{ route('purchase-return-settlements.execute', $purchase_return->settlement->id) }}" class="d-inline">
                                                         @csrf
@@ -115,8 +105,6 @@
                                                     </form>
                                                 @endcan
                                             @elseif($purchase_return->settlement->status === 'executing')
-                                                <span class="badge bg-info text-dark mr-2 mb-1">Settlement Executing (Awaiting Replacement)</span>
-                                                
                                                 {{-- Batch 7: Receive Replacement --}}
                                                 @if($purchase_return->return_dispatched_at && $purchase_return->goods->where('received_quantity', '<', 'quantity')->isNotEmpty())
                                                     @can('purchaseReturnSettlements.receive')
@@ -125,8 +113,6 @@
                                                         </button>
                                                     @endcan
                                                 @endif
-                                            @elseif($purchase_return->settlement->status === 'rejected')
-                                                <span class="badge bg-danger mr-2 mb-1">Settlement Rejected</span>
                                             @endif
                                         @endif
                                     @endcanany
@@ -179,6 +165,40 @@
                                             <dd class="col-7 font-weight-bold">{{ $purchase_return->settled_at->translatedFormat('d F Y H:i') }}</dd>
                                         @endif
                                     </dl>
+                                    <hr class="my-2">
+                                    <h6 class="text-uppercase text-muted x-small mb-2 font-weight-bold">Riwayat Status</h6>
+                                    <ul class="list-unstyled mb-0 small">
+                                        @if($purchase_return->approved_at)
+                                            <li class="d-flex align-items-center mb-1">
+                                                <i class="bi bi-check-circle text-success mr-2"></i>
+                                                <span>Disetujui: {{ $purchase_return->approved_at->format('d/m/Y H:i') }}</span>
+                                            </li>
+                                        @elseif($purchase_return->rejected_at)
+                                            <li class="d-flex align-items-center mb-1 text-danger">
+                                                <i class="bi bi-x-circle mr-2"></i>
+                                                <span>Ditolak: {{ $purchase_return->rejected_at->format('d/m/Y H:i') }}</span>
+                                            </li>
+                                        @endif
+
+                                        @if($purchase_return->return_dispatched_at)
+                                            <li class="d-flex align-items-center mb-1">
+                                                <i class="bi bi-truck text-info mr-2"></i>
+                                                <span>Dikirim: {{ $purchase_return->return_dispatched_at->format('d/m/Y H:i') }}</span>
+                                            </li>
+                                        @elseif($purchase_return->dispatch_requested_at)
+                                            <li class="d-flex align-items-center mb-1 text-warning">
+                                                <i class="bi bi-clock mr-2"></i>
+                                                <span>Menunggu Dispatch: {{ $purchase_return->dispatch_requested_at->format('d/m/Y H:i') }}</span>
+                                            </li>
+                                        @endif
+
+                                        @if($purchase_return->settled_at)
+                                            <li class="d-flex align-items-center">
+                                                <i class="bi bi-flag-fill text-primary mr-2"></i>
+                                                <span>Selesai: {{ $purchase_return->settled_at->format('d/m/Y H:i') }}</span>
+                                            </li>
+                                        @endif
+                                    </ul>
                                 </div>
                             </div>
                         </div>

@@ -176,17 +176,18 @@ class PurchaseReturnSerialLookupTest extends TestCase
             'status' => 'RECEIVED',
             'payment_status' => 'PAID',
             'payment_method' => 'Cash',
-            'supplier_name' =>'Supplier Test',
             'due_date' => now(),
             'total_amount' => 50000,
             'paid_amount' => 50000,
             'due_amount' => 0,
+            'reference' => 'PO-TEST-001', // Adding reference just in case
         ]);
 
         $rn = \Modules\Purchase\Entities\ReceivedNote::create([
             'po_id' => $purchase->id,
             'date' => now(),
             'location_id' => $this->location->id,
+            'external_delivery_number' => 'GRN-001',
             'status' => 'APPROVED',
         ]);
 

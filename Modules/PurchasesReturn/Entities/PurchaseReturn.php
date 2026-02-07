@@ -151,7 +151,7 @@ class PurchaseReturn extends BaseModel implements HasMedia
 
     public function scopeCompleted($query)
     {
-        return $query->where('status', 'Completed');
+        return $query->whereIn('status', ['Completed', self::STATUS_COMPLETED]);
     }
 
     public function scopePending($q)
@@ -177,6 +177,120 @@ class PurchaseReturn extends BaseModel implements HasMedia
         return $this->belongsTo(User::class, 'return_dispatched_by');
     }
 
+    // Unified document status constants (precedence order)
+    public const STATUS_DRAFT = 'DRAFT';
+    public const STATUS_PENDING_APPROVAL = 'PENDING_APPROVAL';
+    public const STATUS_REJECTED = 'REJECTED';
+    public const STATUS_AWAITING_DISPATCH = 'AWAITING_DISPATCH';
+    public const STATUS_DISPATCH_PENDING_APPROVAL = 'DISPATCH_PENDING_APPROVAL';
+    public const STATUS_IN_RETURN = 'IN_RETURN';
+    public const STATUS_PARTIAL_SETTLEMENT = 'PARTIAL_SETTLEMENT';
+    public const STATUS_COMPLETED = 'COMPLETED';
+
+    public static function unifiedStatusLabels(): array
+    {
+        return [
+            self::STATUS_DRAFT => 'Draft',
+            self::STATUS_PENDING_APPROVAL => 'Menunggu Persetujuan',
+            self::STATUS_REJECTED => 'Ditolak',
+            self::STATUS_AWAITING_DISPATCH => 'Menunggu Pengiriman Retur',
+            self::STATUS_DISPATCH_PENDING_APPROVAL => 'Menunggu Persetujuan Dispatch',
+            self::STATUS_IN_RETURN => 'Sedang Diretur',
+            self::STATUS_PARTIAL_SETTLEMENT => 'Penyelesaian Sebagian',
+            self::STATUS_COMPLETED => 'Selesai',
+        ];
+    }
+
+    public function getUnifiedStatusAttribute(): string
+    {
+        $approvalStatus = strtolower($this->approval_status ?? '');
+        $dispatchStatus = strtolower($this->return_dispatch_status ?? '');
+
+        // 1. Draft: approval_status is draft or empty
+        if ($approvalStatus === 'draft' || $approvalStatus === '') {
+            return self::STATUS_DRAFT;
+        }
+
+        // 2. Pending Approval: waiting for document approval
+        if ($approvalStatus === 'pending') {
+            return self::STATUS_PENDING_APPROVAL;
+        }
+
+        // 3. Rejected: document was rejected
+        if ($approvalStatus === 'rejected') {
+            return self::STATUS_REJECTED;
+        }
+
+        // From here, document is approved
+
+        // 4. Awaiting Dispatch: approved but no dispatch requested
+        if ($dispatchStatus === '' || $dispatchStatus === 'rejected') {
+            return self::STATUS_AWAITING_DISPATCH;
+        }
+
+        // 5. Dispatch Pending Approval: dispatch requested, awaiting approval
+        if ($dispatchStatus === 'pending_approval') {
+            return self::STATUS_DISPATCH_PENDING_APPROVAL;
+        }
+
+        // From here, dispatch is approved (status = 'dispatched')
+
+        // 6-8. Check settlement status
+        $items = $this->relationLoaded('settlementItems')
+            ? $this->settlementItems
+            : $this->settlementItems()->get();
+
+        if ($items->isEmpty()) {
+            return self::STATUS_IN_RETURN;
+        }
+
+        // Check finality by method
+        $allFinal = $items->every(fn($i) => $this->isItemFinal($i));
+        $anyFinal = $items->contains(fn($i) => $this->isItemFinal($i));
+
+        if ($allFinal) {
+            return self::STATUS_COMPLETED;
+        }
+
+        if ($anyFinal) {
+            return self::STATUS_PARTIAL_SETTLEMENT;
+        }
+
+        return self::STATUS_IN_RETURN;
+    }
+
+    /**
+     * Check if a settlement item is in final state.
+     * NOTE: REJECTED items are explicitly NOT final - they remain unresolved
+     * and count toward "in return process" stock until re-submitted and approved.
+     * - MODIFY_PURCHASE: final at APPROVED
+     * - PRODUCT_REPAIR, BROKEN_STOCK: final at RECEIVED
+     * - CREDIT, CASH: final at APPROVED
+     */
+    protected function isItemFinal(PurchaseReturnItemSettlement $item): bool
+    {
+        $status = strtoupper($item->status);
+        $method = strtoupper($item->method ?? '');
+
+        // MODIFY_PURCHASE, CREDIT, CASH are final at APPROVED
+        if (in_array($method, ['MODIFY_PURCHASE', 'CREDIT', 'CASH'])) {
+            return $status === 'APPROVED';
+        }
+
+        // PRODUCT_REPAIR, BROKEN_STOCK are final at RECEIVED
+        if (in_array($method, ['PRODUCT_REPAIR', 'BROKEN_STOCK'])) {
+            return $status === 'RECEIVED';
+        }
+
+        // For unknown methods, treat APPROVED or RECEIVED as final
+        return in_array($status, ['APPROVED', 'RECEIVED']);
+    }
+
+    public function getUnifiedStatusLabelAttribute(): string
+    {
+        return self::unifiedStatusLabels()[$this->unified_status] ?? $this->unified_status;
+    }
+
     public function getReturnTypeLabelAttribute(): string
     {
         return match($this->return_type) {
@@ -192,6 +306,7 @@ class PurchaseReturn extends BaseModel implements HasMedia
      * Returns: 'Awaiting Settlement', 'Settled Partially', or 'Settled'
      * 
      * @return string
+     * @deprecated Use unified_status or unified_status_label instead.
      */
     public function getSettlementStatusAttribute(): string
     {
@@ -200,19 +315,19 @@ class PurchaseReturn extends BaseModel implements HasMedia
             : $this->settlementItems()->get();
         
         if ($items->isEmpty()) {
-            return 'Awaiting Settlement';
+            return self::STATUS_IN_RETURN;
         }
         
-        $approvedStatuses = ['APPROVED', 'APPROVED_AWAITING_RECEIVE', 'RECEIVED'];
+        $approvedStatuses = ['APPROVED', 'RECEIVED'];
         $allApproved = $items->every(fn($i) => in_array(strtoupper($i->status), $approvedStatuses));
         $anyApproved = $items->contains(fn($i) => in_array(strtoupper($i->status), $approvedStatuses));
         
         if ($allApproved) {
-            return 'Settled';
+            return self::STATUS_COMPLETED;
         } elseif ($anyApproved) {
-            return 'Settled Partially';
+            return self::STATUS_PARTIAL_SETTLEMENT;
         }
         
-        return 'Awaiting Settlement';
+        return self::STATUS_IN_RETURN;
     }
 }

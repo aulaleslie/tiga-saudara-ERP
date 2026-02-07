@@ -165,7 +165,7 @@ class PurchaseReturnSerialReuseTest extends TestCase
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SERIAL-A',
-            'status' => 'returned',
+            'status' => 'RETURNED',
             'is_in_return_process' => false,
         ]);
 
@@ -257,7 +257,7 @@ class PurchaseReturnSerialReuseTest extends TestCase
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SERIAL-D',
-            'status' => 'returned',
+            'status' => 'RETURNED',
             'is_in_return_process' => true,
         ]);
 
@@ -298,7 +298,7 @@ class PurchaseReturnSerialReuseTest extends TestCase
             'product_id' => $this->product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SERIAL-A',
-            'status' => 'returned',
+            'status' => 'RETURNED',
             'is_in_return_process' => false,
         ]);
         $originalId = $serialA->id;

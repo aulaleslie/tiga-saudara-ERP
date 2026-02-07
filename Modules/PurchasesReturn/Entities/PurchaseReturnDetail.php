@@ -46,6 +46,8 @@ class PurchaseReturnDetail extends BaseModel
             self::METHOD_PRODUCT_REPAIR => 'Perbaikan Produk',
             self::METHOD_BROKEN_STOCK   => 'Kembali Barang Rusak',
             self::METHOD_MODIFY_PURCHASE => 'Ubah Nota Pembelian',
+            self::METHOD_CREDIT         => 'Simpan Sebagai Kredit',
+            self::METHOD_CASH           => 'Pengembalian Tunai',
         ];
     }
 

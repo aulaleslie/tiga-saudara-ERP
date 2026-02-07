@@ -169,7 +169,7 @@ class PurchaseReturnSettlementRefinementTest extends TestCase
             ->assertSee('Perbaikan Produk')
             ->assertSee('Ubah Nota Pembelian')
             ->assertDontSee('Simpan Sebagai DP')
-            ->assertDontSee('Pengembalian Tunai');
+            ->assertSee('Pengembalian Tunai');
     }
 
     /** @test */

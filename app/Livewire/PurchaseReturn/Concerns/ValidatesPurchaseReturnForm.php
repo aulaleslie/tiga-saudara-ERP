@@ -124,7 +124,7 @@ trait ValidatesPurchaseReturnForm
                                 "Nomor seri '{$psn->serial_number}' berada di lokasi yang berbeda."
                             );
                         }
-                        if ($psn->status !== 'active') {
+                        if (strtoupper($psn->status) !== ProductSerialNumber::STATUS_ACTIVE) {
                             $validator->errors()->add(
                                 "rows.$index.serial_numbers",
                                 "Nomor seri '{$psn->serial_number}' tidak aktif ({$psn->status})."

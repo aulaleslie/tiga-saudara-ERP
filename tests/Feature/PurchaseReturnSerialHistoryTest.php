@@ -124,25 +124,15 @@ class PurchaseReturnSerialHistoryTest extends TestCase
 
         $receivedNote = ReceivedNote::create([
             'date' => now(),
-            'reference' => 'GRN-TEST-001',
-            'supplier_id' => $this->supplier->id,
-            'setting_id' => 1,
-            'status' => ReceivedNote::STATUS_APPROVED,
+            'external_delivery_number' => 'GRN-TEST-001',
             'po_id' => $purchase->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
         ]);
 
         $receivedNoteDetail = ReceivedNoteDetail::create([
             'received_note_id' => $receivedNote->id,
             'po_detail_id' => $purchaseDetail->id,
-            'product_id' => $this->product->id,
             'quantity_received' => 1,
-            'product_code' => $this->product->product_code,
-            'product_name' => $this->product->product_name,
-            'unit_price' => 5000000,
-            'sub_total' => 5000000,
-            'product_tax_amount' => 0,
-            'product_discount_amount' => 0,
-            'product_discount_type' => 'fixed',
         ]);
 
         // 2. Setup Serial Number

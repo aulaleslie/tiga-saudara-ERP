@@ -109,7 +109,7 @@ class PurchasesReturnSettlementController extends Controller
                     'paid_amount'    => $totalSettled,
                     'settled_at'     => $isFullySettled ? now() : null,
                     'settled_by'     => $isFullySettled ? auth()->id() : null,
-                    'status'         => $isFullySettled ? 'Completed' : $purchaseReturn->status,
+                    'status'         => $isFullySettled ? PurchaseReturn::STATUS_COMPLETED : $purchaseReturn->status,
                 ]);
 
                 $newSettlementStatus = $hasExecutingState ? 'executing' : 'completed';
@@ -191,7 +191,7 @@ class PurchasesReturnSettlementController extends Controller
 
                 // Update Purchase Return status roll-up using derived attribute
                 $purchaseReturn = $itemSettlement->purchaseReturn->load('settlementItems');
-                $purchaseReturn->update(['status' => $purchaseReturn->settlement_status]);
+                $purchaseReturn->update(['status' => $purchaseReturn->unified_status]);
             });
 
             return back()->with('success', 'Item penyelesaian berhasil disetujui.');
@@ -230,7 +230,7 @@ class PurchasesReturnSettlementController extends Controller
 
         // Update Purchase Return status roll-up
         $purchaseReturn = $itemSettlement->purchaseReturn->load('settlementItems');
-        $purchaseReturn->update(['status' => $purchaseReturn->settlement_status]);
+        $purchaseReturn->update(['status' => $purchaseReturn->unified_status]);
 
         return back()->with('success', 'Item penyelesaian ditolak.');
     }
@@ -298,17 +298,24 @@ class PurchasesReturnSettlementController extends Controller
                         
                         // Check uniqueness if serial changed
                         if ($replacementSerialNumber !== $serial->serial_number) {
-                            $existingActive = ProductSerialNumber::where('product_id', $productId)
+                            $existingSerial = ProductSerialNumber::where('product_id', $productId)
                                 ->where('serial_number', $replacementSerialNumber)
                                 ->where('id', '!=', $serial->id)
-                                ->where(function ($query) {
-                                    $query->where('status', 'ACTIVE')
-                                          ->orWhere('is_in_return_process', true);
-                                })
-                                ->exists();
+                                ->first();
 
-                            if ($existingActive) {
-                                throw new \Exception("Serial number {$replacementSerialNumber} sudah aktif atau sedang dalam proses retur lain untuk produk ini.");
+                            if ($existingSerial) {
+                                // Check specific conditions for rejection
+                                $status = strtoupper($existingSerial->status ?? '');
+                                
+                                if ($status === 'ACTIVE') {
+                                    throw new \Exception("Serial number {$replacementSerialNumber} sudah aktif.");
+                                }
+                                
+                                if ($existingSerial->is_in_return_process) {
+                                    throw new \Exception("Serial number {$replacementSerialNumber} sedang dalam proses retur.");
+                                }
+                                
+                                // RETURNED status is allowed for reuse - no exception thrown
                             }
                         }
 
@@ -316,7 +323,7 @@ class PurchasesReturnSettlementController extends Controller
                         if ($replacementSerialNumber !== $serial->serial_number) {
                             // Mark old serial as returned
                             $serial->update([
-                                'status' => 'returned',
+                                'status' => ProductSerialNumber::STATUS_RETURNED,
                                 'is_in_return_process' => false,
                                 'purchase_return_id' => $itemSettlement->purchase_return_id,
                             ]);
@@ -329,7 +336,7 @@ class PurchasesReturnSettlementController extends Controller
                             if ($replacementRecord) {
                                 $replacementRecord->update([
                                     'location_id' => $targetLocationId,
-                                    'status' => 'active',
+                                    'status' => ProductSerialNumber::STATUS_ACTIVE,
                                     'is_broken' => false,
                                     'is_in_return_process' => false,
                                     'purchase_return_id' => null,
@@ -347,7 +354,7 @@ class PurchasesReturnSettlementController extends Controller
                                     'product_id' => $productId,
                                     'serial_number' => $replacementSerialNumber,
                                     'location_id' => $targetLocationId,
-                                    'status' => 'active',
+                                    'status' => ProductSerialNumber::STATUS_ACTIVE,
                                     'is_broken' => false,
                                     'is_in_return_process' => false,
                                     'tax_id' => $serial->tax_id, // Preserve tax settings
@@ -366,7 +373,7 @@ class PurchasesReturnSettlementController extends Controller
                             // Same serial number, just reactivate it
                             $serial->update([
                                 'location_id' => $targetLocationId,
-                                'status' => 'active',
+                                'status' => ProductSerialNumber::STATUS_ACTIVE,
                                 'is_broken' => false,
                                 'is_in_return_process' => false,
                                 'purchase_return_id' => null,
@@ -404,7 +411,7 @@ class PurchasesReturnSettlementController extends Controller
                     if ($isSerial) {
                         $itemSettlement->serialNumber->update([
                             'is_broken' => true, // Ensure marked as broken
-                            'status' => 'broken',
+                            'status' => ProductSerialNumber::STATUS_BROKEN,
                             'location_id' => $targetLocationId,
                             'is_in_return_process' => false,
                             'purchase_return_id' => null,
@@ -433,7 +440,7 @@ class PurchasesReturnSettlementController extends Controller
 
                 // Update Purchase Return status roll-up
                 $purchaseReturn = $itemSettlement->purchaseReturn->load('settlementItems');
-                $purchaseReturn->update(['status' => $purchaseReturn->settlement_status]);
+                $purchaseReturn->update(['status' => $purchaseReturn->unified_status]);
             });
 
             return back()->with('success', 'Item berhasil diterima.');

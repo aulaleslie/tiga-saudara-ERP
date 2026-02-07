@@ -336,7 +336,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
 
         // 5. Verify Effects
         $sn->refresh();
-        $this->assertEquals('returned', $sn->status);
+        $this->assertEquals('RETURNED', $sn->status);
         $this->assertNull($sn->received_note_detail_id);
 
         $product->refresh();

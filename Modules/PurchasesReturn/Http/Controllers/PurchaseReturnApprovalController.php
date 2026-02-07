@@ -39,7 +39,7 @@ class PurchaseReturnApprovalController extends Controller
                 'approval_status' => 'approved',
                 'approved_by' => auth()->id(),
                 'approved_at' => now(),
-                'status' => 'Awaiting Settlement',
+                'status' => PurchaseReturn::STATUS_AWAITING_DISPATCH,
                 'rejected_by' => null,
                 'rejected_at' => null,
                 'rejection_reason' => null,
@@ -70,7 +70,7 @@ class PurchaseReturnApprovalController extends Controller
 
         $purchase_return->update([
             'approval_status' => 'rejected',
-            'status' => 'Rejected',
+            'status' => PurchaseReturn::STATUS_REJECTED,
             'rejected_by' => auth()->id(),
             'rejected_at' => now(),
             'rejection_reason' => $data['reason'] ?? null,
@@ -114,7 +114,7 @@ class PurchaseReturnApprovalController extends Controller
                     if ($serial->location_id != $locationId) {
                         $errors[] = "Nomor seri '{$serial->serial_number}' sekarang berada di lokasi yang berbeda.";
                     }
-                    if ($serial->status !== 'active') {
+                    if (strtoupper($serial->status) !== ProductSerialNumber::STATUS_ACTIVE) {
                         $errors[] = "Nomor seri '{$serial->serial_number}' sudah tidak aktif ({$serial->status}).";
                     }
                     if ($serial->is_in_return_process) {

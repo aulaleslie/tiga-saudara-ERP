@@ -80,7 +80,7 @@ class PurchaseOrderSerialNumberLoader extends Component
             return;
         }
 
-        if ($serial->status !== 'active') {
+        if (strtoupper($serial->status) !== ProductSerialNumber::STATUS_ACTIVE) {
             $this->error_message = "Serial number tidak aktif ({$serial->status}).";
             $this->dispatch('error-occurred', ['index' => $this->index]);
             return;

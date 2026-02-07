@@ -67,7 +67,7 @@ class PurchasesReturnController extends Controller
                 'total_amount' => $request->total_amount * 100,
                 'due_amount' => $due_amount * 100,
                 'approval_status' => 'pending',
-                'status' => 'Pending Approval',
+                'status' => PurchaseReturn::STATUS_PENDING_APPROVAL,
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
@@ -251,7 +251,11 @@ class PurchasesReturnController extends Controller
                 'total_amount' => $request->total_amount * 100,
                 'due_amount' => $due_amount * 100,
                 'approval_status' => $approvalStatus,
-                'status' => $request->status,
+                'status' => $approvalStatus === 'approved'
+                    ? ($purchase_return->return_dispatch_status === 'dispatched'
+                        ? $purchase_return->unified_status
+                        : PurchaseReturn::STATUS_AWAITING_DISPATCH)
+                    : PurchaseReturn::STATUS_PENDING_APPROVAL,
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,

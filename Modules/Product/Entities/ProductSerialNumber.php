@@ -29,6 +29,20 @@ class ProductSerialNumber extends BaseModel
         'purchase_return_id',
     ];
 
+    // Status Constants
+    const STATUS_ACTIVE = 'ACTIVE';
+    const STATUS_RETURN_IN_PROCESS = 'RETURN_IN_PROCESS';
+    const STATUS_RETURNED = 'RETURNED';
+    const STATUS_BROKEN = 'BROKEN';
+
+    /**
+     * Normalize status read to UPPERCASE.
+     */
+    public function getStatusAttribute($value)
+    {
+        return strtoupper($value ?? self::STATUS_ACTIVE);
+    }
+
     protected $casts = [
         'is_broken' => 'boolean',
         'is_in_return_process' => 'boolean',

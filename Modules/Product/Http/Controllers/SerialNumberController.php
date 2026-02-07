@@ -107,7 +107,7 @@ class SerialNumberController extends Controller
             ], 200);
         }
 
-        if ($serial->status !== 'active') {
+        if ($serial->status !== ProductSerialNumber::STATUS_ACTIVE) {
             return response()->json([
                 'valid' => false,
                 'message' => "Serial number tidak aktif ({$serial->status}).",
@@ -217,7 +217,7 @@ class SerialNumberController extends Controller
             ], 200);
         }
 
-        if ($serial->status !== 'active') {
+        if ($serial->status !== ProductSerialNumber::STATUS_ACTIVE) {
             return response()->json([
                 'valid' => false,
                 'message' => "Serial number tidak aktif ({$serial->status}).",
