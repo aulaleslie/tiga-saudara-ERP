@@ -15,6 +15,9 @@ use Modules\Setting\Entities\Location;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
@@ -111,6 +114,54 @@ class PurchaseReturnLifecycleWorkflowTest extends TestCase
             'setting_id' => $this->setting->id,
         ]);
 
+        // Add dummy details and received note to satisfy MODIFY_PURCHASE requirements
+        $pd1 = PurchaseDetail::create([
+            'purchase_id' => $this->dummyPurchase->id,
+            'product_id' => 1, // Will be updated by real product id after product creation
+            'quantity' => 10,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'sub_total' => 10000,
+            'product_name' => 'Temp',
+            'product_code' => 'Temp',
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $pd2 = PurchaseDetail::create([
+            'purchase_id' => $this->dummyPurchase->id,
+            'product_id' => 2, // Will be updated by real product id after product creation
+            'quantity' => 10,
+            'unit_price' => 2000,
+            'price' => 2000,
+            'sub_total' => 20000,
+            'product_name' => 'Temp',
+            'product_code' => 'Temp',
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $rn = ReceivedNote::create([
+            'po_id' => $this->dummyPurchase->id,
+            'date' => now(),
+            'location_id' => $this->location->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $rn->id,
+            'po_detail_id' => $pd1->id,
+            'quantity_received' => 10,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $rn->id,
+            'po_detail_id' => $pd2->id,
+            'quantity_received' => 10,
+        ]);
+
         $category = \Modules\Product\Entities\Category::create([
             'category_code' => 'CAT001',
             'category_name' => 'Category 1',
@@ -140,6 +191,18 @@ class PurchaseReturnLifecycleWorkflowTest extends TestCase
             'setting_id' => $this->setting->id,
             'product_quantity' => 5,
             'serial_number_required' => true,
+        ]);
+
+        // Update dummy purchase details with real product info
+        $pd1->update([
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+        ]);
+        $pd2->update([
+            'product_id' => $this->serialProduct->id,
+            'product_name' => $this->serialProduct->product_name,
+            'product_code' => $this->serialProduct->product_code,
         ]);
 
         ProductStock::create([

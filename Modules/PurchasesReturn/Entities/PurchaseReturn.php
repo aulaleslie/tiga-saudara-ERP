@@ -250,24 +250,9 @@ class PurchaseReturn extends BaseModel implements HasMedia
 
         $allDetailsSettled = !empty($detailIds) && count(array_intersect($detailIds, $settledDetailIds)) === count($detailIds);
         $anyDetailsSettled = count($settledDetailIds) > 0;
+        $allSettlementItemsFinal = $items->every(fn($i) => $this->isItemFinal($i));
 
-        \Log::info("UnifiedStatus Detailed Check", [
-            'pr_id' => $this->id,
-            'detailIds' => $detailIds,
-            'settledDetailIds' => $settledDetailIds,
-            'intersection' => array_intersect($detailIds, $settledDetailIds),
-            'allDetailsSettled' => $allDetailsSettled,
-            'anyDetailsSettled' => $anyDetailsSettled,
-            'items' => $items->map(fn($i) => [
-                'id' => $i->id,
-                'status' => $i->status,
-                'method' => $i->method,
-                'detail_id' => $i->purchase_return_detail_id,
-                'is_final' => $this->isItemFinal($i)
-            ])->toArray()
-        ]);
-
-        if ($allDetailsSettled) {
+        if ($allDetailsSettled && $allSettlementItemsFinal) {
             return self::STATUS_COMPLETED;
         }
 
