@@ -208,7 +208,7 @@ class PurchaseReturnSettlementCreditTest extends TestCase
             'product_id' => $product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-123',
-            'status' => 'active',
+            'status' => 'ACTIVE',
             'received_note_detail_id' => $rnd->id,
         ]);
 

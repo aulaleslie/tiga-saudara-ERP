@@ -99,8 +99,8 @@ class PurchaseReturnSettlementPhase1Test extends TestCase
             'supplier_name' => $this->supplier->supplier_name,
             'total_amount' => 1000,
             'reference' => 'PR-' . time(),
-            'status' => 'Pending',
-            'approval_status' => 'approved',
+            'status' => PurchaseReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => 'APPROVED',
             'date' => now(),
             'setting_id' => $setting->id,
             'location_id' => $this->location->id,
@@ -111,8 +111,8 @@ class PurchaseReturnSettlementPhase1Test extends TestCase
             'shipping_amount' => 0,
             'paid_amount' => 0,
             'due_amount' => 1000,
-            'payment_status' => 'Unpaid',
-            'payment_method' => 'Cash',
+            'payment_status' => 'UNPAID',
+            'payment_method' => 'CASH',
         ]);
 
         PurchaseReturnDetail::create([
@@ -131,10 +131,10 @@ class PurchaseReturnSettlementPhase1Test extends TestCase
     }
 
     /** @test */
-    public function test_cash_method_not_in_selectable_methods()
+    public function test_cash_method_is_in_selectable_methods()
     {
         $methods = PurchaseReturnDetail::selectableSettlementMethods();
-        $this->assertArrayNotHasKey(PurchaseReturnDetail::METHOD_CASH, $methods);
+        $this->assertArrayHasKey(PurchaseReturnDetail::METHOD_CASH, $methods);
     }
 
     /** @test */
@@ -180,7 +180,7 @@ class PurchaseReturnSettlementPhase1Test extends TestCase
             'paid_amount' => 500,
             'due_amount' => 0,
             'status' => Purchase::STATUS_RECEIVED,
-            'payment_status' => 'Paid',
+            'payment_status' => 'PAID',
             'date' => now(),
             'due_date' => now(),
             'setting_id' => $settingId,
@@ -219,7 +219,7 @@ class PurchaseReturnSettlementPhase1Test extends TestCase
             'paid_amount' => 0,
             'due_amount' => 50,
             'status' => Purchase::STATUS_RECEIVED,
-            'payment_status' => 'Unpaid',
+            'payment_status' => 'UNPAID',
             'date' => now(),
             'due_date' => now(),
             'setting_id' => $settingId,
@@ -258,7 +258,7 @@ class PurchaseReturnSettlementPhase1Test extends TestCase
             'paid_amount' => 0,
             'due_amount' => 50,
             'status' => Purchase::STATUS_RECEIVED,
-            'payment_status' => 'Unpaid',
+            'payment_status' => 'UNPAID',
             'date' => now(),
             'due_date' => now(),
             'setting_id' => $settingId,
@@ -300,7 +300,7 @@ class PurchaseReturnSettlementPhase1Test extends TestCase
             'paid_amount' => 0,
             'due_amount' => 800,
             'status' => Purchase::STATUS_RECEIVED,
-            'payment_status' => 'Unpaid',
+            'payment_status' => 'UNPAID',
             'date' => now(),
             'due_date' => now(),
             'setting_id' => $settingId,

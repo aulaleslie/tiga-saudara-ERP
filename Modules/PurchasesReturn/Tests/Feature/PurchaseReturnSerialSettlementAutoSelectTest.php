@@ -145,7 +145,7 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
             'product_id' => $product->id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-AUTOSELECT-123',
-            'status' => 'active',
+            'status' => 'ACTIVE',
             'received_note_detail_id' => $rnd->id,
         ]);
 
@@ -159,8 +159,8 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
             'total_amount' => 10000,
             'paid_amount' => 0,
             'due_amount' => 10000,
-            'status' => 'Pending Approval',
-            'payment_status' => 'Unpaid',
+            'status' => PurchaseReturn::STATUS_PENDING_APPROVAL,
+            'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
             'reference' => 'PR-123',
@@ -191,7 +191,7 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
         // Check if unpaidPurchases for this product contains the purchase reference (priority: supplier_purchase_number)
         $unpaid = $component->get('unpaidPurchases');
         $this->assertArrayHasKey($product->id, $unpaid);
-        $this->assertEquals('SUPP-ABC-123', $unpaid[$product->id][0]['text']);
+        $this->assertEquals('SUPP-ABC-123', $unpaid[$product->id]['MODIFY_PURCHASE'][0]['text']);
     }
 
     public function test_non_serial_product_filters_purchases_by_product_id(): void
@@ -256,8 +256,8 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
             'tax_amount' => 0,
             'discount_amount' => 0,
             'shipping_amount' => 0,
-            'status' => 'Pending Approval',
-            'payment_status' => 'Unpaid',
+            'status' => PurchaseReturn::STATUS_PENDING_APPROVAL,
+            'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
             'reference' => 'PR-456',
@@ -293,10 +293,10 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
         $unpaid = $component->get('unpaidPurchases');
 
         // Product 1 should have purchase1
-        $this->assertCount(1, $unpaid[$product1->id]);
-        $this->assertEquals($purchase1->id, $unpaid[$product1->id][0]['id']);
+        $this->assertCount(1, $unpaid[$product1->id]['MODIFY_PURCHASE']);
+        $this->assertEquals($purchase1->id, $unpaid[$product1->id]['MODIFY_PURCHASE'][0]['id']);
 
         // Product 2 should have no purchases
-        $this->assertEmpty($unpaid[$product2->id]);
+        $this->assertEmpty($unpaid[$product2->id]['MODIFY_PURCHASE']);
     }
 }

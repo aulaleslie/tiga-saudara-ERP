@@ -314,8 +314,10 @@ class PurchasesReturnSettlementController extends Controller
                                 if ($existingSerial->is_in_return_process) {
                                     throw new \Exception("Serial number {$replacementSerialNumber} sedang dalam proses retur.");
                                 }
-                                
-                                // RETURNED status is allowed for reuse - no exception thrown
+
+                                if ($status === 'RETURNED') {
+                                    throw new \Exception("Serial number {$replacementSerialNumber} sudah terdaftar.");
+                                }
                             }
                         }
 

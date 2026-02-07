@@ -237,7 +237,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
         $sn = ProductSerialNumber::create([
             'product_id' => $product->id,
             'serial_number' => 'SN-001',
-            'status' => 'active',
+            'status' => 'ACTIVE',
             'location_id' => $this->location->id,
         ]);
 

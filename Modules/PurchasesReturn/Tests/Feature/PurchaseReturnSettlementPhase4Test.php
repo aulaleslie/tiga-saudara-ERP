@@ -208,7 +208,7 @@ class PurchaseReturnSettlementPhase4Test extends TestCase
     public function test_roll_up_status_shows_awaiting_when_no_items()
     {
         // No settlement items created yet
-        $this->assertEquals('Awaiting Settlement', $this->purchaseReturn->fresh()->settlement_status);
+        $this->assertEquals(PurchaseReturn::STATUS_IN_RETURN, $this->purchaseReturn->fresh()->settlement_status);
     }
 
     public function test_roll_up_status_shows_partial_when_some_approved()
@@ -245,7 +245,7 @@ class PurchaseReturnSettlementPhase4Test extends TestCase
             'status' => 'DRAFT',
         ]);
 
-        $this->assertEquals('Settled Partially', $this->purchaseReturn->fresh()->settlement_status);
+        $this->assertEquals(PurchaseReturn::STATUS_PARTIAL_SETTLEMENT, $this->purchaseReturn->fresh()->settlement_status);
     }
 
     public function test_roll_up_status_shows_settled_when_all_approved()
@@ -259,7 +259,7 @@ class PurchaseReturnSettlementPhase4Test extends TestCase
             'status' => 'APPROVED',
         ]);
 
-        $this->assertEquals('Settled', $this->purchaseReturn->fresh()->settlement_status);
+        $this->assertEquals(PurchaseReturn::STATUS_COMPLETED, $this->purchaseReturn->fresh()->settlement_status);
     }
 
     public function test_roll_up_status_shows_awaiting_when_submitted_but_not_approved()
@@ -274,7 +274,7 @@ class PurchaseReturnSettlementPhase4Test extends TestCase
         ]);
 
         // Awaiting Settlement until there are approved items
-        $this->assertEquals('Awaiting Settlement', $this->purchaseReturn->fresh()->settlement_status);
+        $this->assertEquals(PurchaseReturn::STATUS_IN_RETURN, $this->purchaseReturn->fresh()->settlement_status);
     }
 }
 

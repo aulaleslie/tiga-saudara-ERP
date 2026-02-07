@@ -52,7 +52,7 @@ class PurchaseReturnSettlementForm extends Component
 
         // Check if settlement is already approved or further
         if ($this->purchaseReturn->settlement && 
-            in_array($this->purchaseReturn->settlement->status, ['pending', 'approved', 'executing', 'completed'])) {
+            in_array(\Illuminate\Support\Str::lower($this->purchaseReturn->settlement->status), ['pending', 'approved', 'executing', 'completed'])) {
             $this->isReadOnly = true;
         }
 

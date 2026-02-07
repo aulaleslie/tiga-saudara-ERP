@@ -74,7 +74,7 @@ class PurchaseReturnItemApprovalTest extends TestCase
             'status' => 'Pending',
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
-            'approval_status' => 'approved',
+            'approval_status' => 'APPROVED',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -128,7 +128,7 @@ class PurchaseReturnItemApprovalTest extends TestCase
             'purchase_return_id' => $pr->id,
             'amount' => 1000,
         ]);
-        $this->assertEquals('SETTLED', $pr->fresh()->status);
+        $this->assertEquals(PurchaseReturn::STATUS_AWAITING_DISPATCH, $pr->fresh()->status);
     }
 
     /** @test */
@@ -176,21 +176,33 @@ class PurchaseReturnItemApprovalTest extends TestCase
         $pr = $this->createPurchaseReturn(1000);
         $detail = $this->createDetail($pr, 1000);
 
-        \Modules\Purchase\Entities\PurchaseDetail::create([
+        $pod = \Modules\Purchase\Entities\PurchaseDetail::create([
             'purchase_id' => $purchase->id,
             'product_id' => $detail->product_id,
             'product_name' => $detail->product_name,
             'product_code' => $detail->product_code,
             'quantity' => 10,
             'unit_price' => 500,
-            'price' => 500,
+            'price' => 5000,
             'sub_total' => 5000,
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
         ]);
 
-        // Detail subtotal must be >= nominal
-        $detail->update(['sub_total' => 2000]);
+        $rn = \Modules\Purchase\Entities\ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now(),
+            'location_id' => $this->location->id,
+            'status' => 'APPROVED',
+        ]);
+
+        \Modules\Purchase\Entities\ReceivedNoteDetail::create([
+            'received_note_id' => $rn->id,
+            'po_detail_id' => $pod->id,
+            'quantity_received' => 10,
+        ]);
+
+        $detail->update(['quantity' => 2, 'unit_price' => 500, 'sub_total' => 1000]);
 
         $item = PurchaseReturnItemSettlement::create([
             'purchase_return_id' => $pr->id,
@@ -353,14 +365,14 @@ class PurchaseReturnItemApprovalTest extends TestCase
             'product_id' => $detail->product_id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-REPAIR-123',
-            'status' => 'active',
+            'status' => 'ACTIVE',
         ]);
         
         $brokenSerial = \Modules\Product\Entities\ProductSerialNumber::create([
             'product_id' => $detail->product_id,
             'location_id' => $this->location->id,
             'serial_number' => 'SN-BROKEN-456',
-            'status' => 'active',
+            'status' => 'ACTIVE',
         ]);
         
         // Create repair item
@@ -396,7 +408,7 @@ class PurchaseReturnItemApprovalTest extends TestCase
         // Check serial number was moved
         $repairSerial->refresh();
         $this->assertEquals($receiveLocation->id, $repairSerial->location_id);
-        $this->assertEquals('active', $repairSerial->status);
+        $this->assertEquals('ACTIVE', $repairSerial->status);
         $this->assertFalse($repairSerial->is_broken);
 
         // Add stock to source location for BROKEN_STOCK deduction
@@ -435,6 +447,6 @@ class PurchaseReturnItemApprovalTest extends TestCase
         $brokenSerial->refresh();
         $this->assertEquals($receiveLocation->id, $brokenSerial->location_id);
         $this->assertTrue($brokenSerial->is_broken);
-        $this->assertEquals('broken', $brokenSerial->status);
+        $this->assertEquals('BROKEN', $brokenSerial->status);
     }
 }

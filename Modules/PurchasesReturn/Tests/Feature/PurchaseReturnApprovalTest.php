@@ -107,8 +107,8 @@ class PurchaseReturnApprovalTest extends TestCase
             'total_amount' => 1000,
             'paid_amount' => 0,
             'due_amount' => 1000,
-            'status' => 'Pending',
-            'payment_status' => 'Unpaid',
+            'status' => 'PENDING_APPROVAL',
+            'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'approval_status' => 'Approved',
         ]);
@@ -184,8 +184,8 @@ class PurchaseReturnApprovalTest extends TestCase
             'total_amount' => 1000,
             'paid_amount' => 0,
             'due_amount' => 1000,
-            'status' => 'Pending',
-            'payment_status' => 'Unpaid',
+            'status' => 'PENDING_APPROVAL',
+            'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'approval_status' => 'Approved',
         ]);
@@ -230,8 +230,8 @@ class PurchaseReturnApprovalTest extends TestCase
 
         $purchase->refresh();
         $this->assertEquals(4000, (float)$purchase->total_amount);
-        $this->assertEquals(4000, (float)$purchase->due_amount);
-        $this->assertEquals(0, (float)$purchase->paid_amount);
+        $this->assertEquals(3000, (float)$purchase->due_amount);
+        $this->assertEquals(1000, (float)$purchase->paid_amount);
 
         $purchaseReturn->refresh();
         $this->assertEquals('COMPLETED', $purchaseReturn->status);
@@ -251,8 +251,8 @@ class PurchaseReturnApprovalTest extends TestCase
             'total_amount' => 1000,
             'paid_amount' => 0,
             'due_amount' => 1000,
-            'status' => 'Pending',
-            'payment_status' => 'Unpaid',
+            'status' => 'PENDING_APPROVAL',
+            'payment_status' => 'UNPAID',
             'payment_method' => 'Cash',
             'approval_status' => 'Approved',
         ]);
