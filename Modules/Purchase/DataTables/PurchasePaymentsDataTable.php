@@ -39,7 +39,11 @@ class PurchasePaymentsDataTable extends DataTable
             ->addColumn('action', function ($data) {
                 return view('purchase::payments.partials.actions', compact('data'));
             })
-            ->rawColumns(['attachment', 'action']); // Allow raw HTML for the "attachment" and "action" columns
+            ->addColumn('status', function ($data) {
+                $badgeType = $data->isActive() ? 'success' : 'danger';
+                return '<span class="badge badge-' . $badgeType . '">' . $data->status . '</span>';
+            })
+            ->rawColumns(['attachment', 'action', 'status']); // Allow raw HTML for the "attachment", "action", and "status" columns
     }
 
     public function query(PurchasePayment $model) {
@@ -95,6 +99,10 @@ class PurchasePaymentsDataTable extends DataTable
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
+                ->className('align-middle text-center'),
+
+            Column::make('status')
+                ->title('Status')
                 ->className('align-middle text-center'),
 
             Column::make('created_at')

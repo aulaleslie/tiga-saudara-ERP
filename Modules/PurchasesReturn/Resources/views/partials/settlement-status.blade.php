@@ -1,5 +1,5 @@
 @php
-    $badgeClass = 'badge bg-secondary';
+    $badgeClass = 'badge bg-dark text-white';
     $label = 'Belum Diproses';
     $description = null;
     $approvalStatus = strtolower($data->approval_status ?? '');
@@ -14,7 +14,7 @@
     $anySubmitted = $items->contains(fn($i) => strtoupper($i->status) === 'SUBMITTED');
 
     if ($allApproved) {
-        $badgeClass = 'badge bg-success';
+        $badgeClass = 'badge bg-success text-white';
         $label = 'Selesai';
         $methodLabels = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::settlementMethods();
         $methods = $items->pluck('method')->unique()->filter()->map(fn($m) => $methodLabels[$m] ?? $m)->implode(', ');
@@ -27,7 +27,7 @@
         $approvedCount = $items->filter(fn($i) => strtoupper($i->status) === 'APPROVED')->count();
         $description = $approvedCount . ' dari ' . $items->count() . ' item disetujui';
     } elseif ($approvalStatus === 'rejected') {
-        $badgeClass = 'badge bg-danger';
+        $badgeClass = 'badge bg-danger text-white';
         $label = 'Ditolak';
         if ($data->rejection_reason) {
             $description = 'Alasan: ' . $data->rejection_reason;

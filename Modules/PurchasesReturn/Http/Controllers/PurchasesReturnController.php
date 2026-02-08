@@ -146,10 +146,10 @@ class PurchasesReturnController extends Controller
     {
         abort_if(Gate::denies('purchaseReturnSettlements.submit'), 403);
 
-        $status = Str::lower($purchase_return->approval_status ?? '');
+        $dispatchStatus = Str::lower($purchase_return->return_dispatch_status ?? '');
 
-        if ($status !== 'approved') {
-            toast('Penyelesaian hanya dapat diproses setelah retur disetujui.', 'error');
+        if ($dispatchStatus !== 'dispatched') {
+            toast('Penyelesaian hanya dapat diproses setelah retur dikirim.', 'error');
             return redirect()->route('purchase-returns.show', $purchase_return);
         }
 

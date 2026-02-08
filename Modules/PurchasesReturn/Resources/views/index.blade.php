@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Purchase Returns')
+@section('title', 'Retur Pembelian')
 
 @section('third_party_stylesheets')
     <link rel="stylesheet" href="{{ asset('vendor/datatables/datatables.min.css') }}">

@@ -50,6 +50,10 @@ class PurchaseReturnSettlementForm extends Component
             'settlement',
         ])->findOrFail($this->purchaseReturnId);
 
+        if (Str::lower($this->purchaseReturn->return_dispatch_status ?? '') !== 'dispatched') {
+            abort(403, 'Penyelesaian hanya dapat diproses setelah retur dikirim.');
+        }
+
         // Check if settlement is already approved or further
         if ($this->purchaseReturn->settlement && 
             in_array(\Illuminate\Support\Str::lower($this->purchaseReturn->settlement->status), ['pending', 'approved', 'executing', 'completed'])) {
@@ -245,16 +249,6 @@ class PurchaseReturnSettlementForm extends Component
     }
 
     /**
-     * Check if any settlement line uses the CASH method.
-     */
-    public function hasCashMethod(): bool
-    {
-        return collect($this->settlementLines)->contains(function ($line) {
-            return strtoupper($line['method'] ?? '') === PurchaseReturnDetail::METHOD_CASH;
-        });
-    }
-
-    /**
      * Check if any settlement line uses the MODIFY_PURCHASE method.
      */
     public function hasModifyPurchaseMethod(): bool
@@ -290,11 +284,7 @@ class PurchaseReturnSettlementForm extends Component
             "settlementLines.{$index}.nominal" => "required|numeric|min:0|max:{$maxNominal}",
         ];
 
-        if (in_array(strtoupper($line['method'] ?? ''), [
-            PurchaseReturnDetail::METHOD_MODIFY_PURCHASE,
-            PurchaseReturnDetail::METHOD_CREDIT,
-            PurchaseReturnDetail::METHOD_CASH
-        ])) {
+        if (strtoupper($line['method'] ?? '') === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE) {
             $rules["settlementLines.{$index}.target_purchase_id"] = 'required|exists:purchases,id';
         }
 
@@ -312,25 +302,8 @@ class PurchaseReturnSettlementForm extends Component
             // Check the new method
             $method = $this->settlementLines[$index]['method'] ?? '';
             
-            // If the method implies hidden nominal (not CREDIT or CASH), reset nominal to max
-            // Adjust logic based on business rule. Usually "Repair" = No refund? Or Full Refund?
-            // "Modify Purchase" = Full Refund (reduction).
-            // "Credit" = Editable.
-            // "Cash" = Editable.
-            // "Repair" = 0? Or user shouldn't care?
-            // "Broken Stock" = ?
-            
-            // Based on View, we hide input for !CREDIT && !CASH.
-            // If hidden, we assume it's "Automatic".
-            // For MODIFY_PURCHASE -> Max Nominal.
-            // For REPAIR/BROKEN_STOCK -> ?
-            // Let's assume Max Nominal for now or 0 if it's not a financial settlement?
-            // Actually, "Product Repair" might involve NO money back. So 0.
-            // "Broken Stock" might be replacement -> 0.
-            // "Modify Purchase" -> Money back (Modify Invoice) -> Max Nominal.
-            
-            if (in_array($method, [PurchaseReturnDetail::METHOD_MODIFY_PURCHASE, PurchaseReturnDetail::METHOD_CASH])) {
-                // Return full value for modification or cash refund
+            if ($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE) {
+                // Default to full line value before target purchase recalculation.
                  $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
 
                  // Auto-select purchase for serial number
@@ -343,7 +316,7 @@ class PurchaseReturnSettlementForm extends Component
                          if ($purchase) {
                              $this->settlementLines[$index]['target_purchase_id'] = $purchase->id;
                              
-                             // Ensure it's in the list
+                             // Ensure it exists in dropdown options.
                              $this->ensurePurchaseInList($purchase, $method, $this->settlementLines[$index]['product_id']);
                          }
                  } else {
@@ -362,16 +335,9 @@ class PurchaseReturnSettlementForm extends Component
             $status = $this->settlementLines[$index]['status'] ?? \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT;
             $isEditable = in_array($status, [\Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_DRAFT, \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::STATUS_REJECTED]);
 
-            if (!in_array($method, [PurchaseReturnDetail::METHOD_CREDIT, PurchaseReturnDetail::METHOD_CASH])) {
-                // For non-financial methods or empty selection, revert nominal back to document price
-                // but only when the line is still editable. Do not override submitted/locked lines.
+            if ($method !== PurchaseReturnDetail::METHOD_MODIFY_PURCHASE) {
+                // Non-modify methods use the line's max value for consistency.
                 if ($isEditable) {
-                    $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
-                    // Ensure client-side formatted input updates immediately
-                }
-            } else {
-                // CREDIT or CASH -> Keep existing or set to max if empty
-                if (empty($this->settlementLines[$index]['nominal'])) {
                     $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
                 }
             }
@@ -425,8 +391,8 @@ class PurchaseReturnSettlementForm extends Component
             'product_unit_price' => (float) ($purchase->purchaseDetails->where('product_id', $productId)->first()?->unit_price ?? 0),
         ];
 
-        if (($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE || $method === PurchaseReturnDetail::METHOD_CASH) && $productId) {
-            $subMethod = $method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE ? 'MODIFY_PURCHASE' : 'CASH';
+        if ($method === PurchaseReturnDetail::METHOD_MODIFY_PURCHASE && $productId) {
+            $subMethod = 'MODIFY_PURCHASE';
             if (!isset($this->unpaidPurchases[$productId][$subMethod])) {
                 $this->unpaidPurchases[$productId][$subMethod] = [];
             }
@@ -434,9 +400,6 @@ class PurchaseReturnSettlementForm extends Component
                 $this->unpaidPurchases[$productId][$subMethod][] = $newItem;
             }
         }
-        // Note: For CREDIT, it's a dynamic property and usually includes Paid items
-        // which the auto-select purchase might be. If we need to support CREDIT auto-select,
-        // we'd need to modify getCreditPurchasesProperty.
     }
 
     protected function messages(): array
@@ -463,6 +426,11 @@ class PurchaseReturnSettlementForm extends Component
     public function submitLine(int $index)
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.submit'), 403);
+        $this->purchaseReturn->refresh();
+        if (Str::lower($this->purchaseReturn->return_dispatch_status ?? '') !== 'dispatched') {
+            session()->flash('error', 'Penyelesaian hanya dapat diproses setelah retur dikirim.');
+            return;
+        }
 
         $this->validate($this->rulesForLineSubmit($index));
 
@@ -550,6 +518,11 @@ class PurchaseReturnSettlementForm extends Component
     public function submit()
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.submit'), 403);
+        $this->purchaseReturn->refresh();
+        if (Str::lower($this->purchaseReturn->return_dispatch_status ?? '') !== 'dispatched') {
+            session()->flash('error', 'Penyelesaian hanya dapat diproses setelah retur dikirim.');
+            return null;
+        }
 
         if ($this->isReadOnly) {
             session()->flash('info', 'Penyelesaian sudah dikunci.');

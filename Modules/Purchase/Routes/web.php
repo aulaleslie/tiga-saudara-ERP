@@ -86,6 +86,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/purchase-payments/store', 'PurchasePaymentsController@store')->name('purchase-payments.store');
     Route::get('/purchase-payments/{purchase_id}/edit/{purchasePayment}', 'PurchasePaymentsController@edit')->name('purchase-payments.edit');
     Route::patch('/purchase-payments/update/{purchasePayment}', 'PurchasePaymentsController@update')->name('purchase-payments.update');
-    Route::delete('/purchase-payments/destroy/{purchasePayment}', 'PurchasePaymentsController@destroy')->name('purchase-payments.destroy');
+    Route::delete('/purchase-payments/destroy/{purchasePayment}', [PurchasePaymentsController::class, 'destroy'])->name('purchase-payments.destroy');
+    Route::post('/purchase-payments/{purchasePayment}/invalidate', [PurchasePaymentsController::class, 'invalidate'])->name('purchase-payments.invalidate');
 
 });

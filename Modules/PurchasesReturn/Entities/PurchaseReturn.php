@@ -184,19 +184,23 @@ class PurchaseReturn extends BaseModel implements HasMedia
     public const STATUS_AWAITING_DISPATCH = 'AWAITING_DISPATCH';
     public const STATUS_DISPATCH_PENDING_APPROVAL = 'DISPATCH_PENDING_APPROVAL';
     public const STATUS_IN_RETURN = 'IN_RETURN';
+    public const STATUS_SETTLEMENT_CONFIRMATION_PENDING = 'SETTLEMENT_CONFIRMATION_PENDING';
+    public const STATUS_WAITING_REPLACEMENT_GOODS = 'WAITING_REPLACEMENT_GOODS';
     public const STATUS_PARTIAL_SETTLEMENT = 'PARTIAL_SETTLEMENT';
     public const STATUS_COMPLETED = 'COMPLETED';
 
     public static function unifiedStatusLabels(): array
     {
         return [
-            self::STATUS_DRAFT => 'Draft',
+            self::STATUS_DRAFT => 'Draf',
             self::STATUS_PENDING_APPROVAL => 'Menunggu Persetujuan',
             self::STATUS_REJECTED => 'Ditolak',
             self::STATUS_AWAITING_DISPATCH => 'Menunggu Pengiriman Retur',
-            self::STATUS_DISPATCH_PENDING_APPROVAL => 'Menunggu Persetujuan Dispatch',
-            self::STATUS_IN_RETURN => 'Sedang Diretur',
-            self::STATUS_PARTIAL_SETTLEMENT => 'Penyelesaian Sebagian',
+            self::STATUS_DISPATCH_PENDING_APPROVAL => 'Menunggu Persetujuan Pengiriman',
+            self::STATUS_IN_RETURN => 'Sedang Dalam Retur, Menunggu Input Penyelesaian',
+            self::STATUS_SETTLEMENT_CONFIRMATION_PENDING => 'Menunggu Konfirmasi Penyelesaian',
+            self::STATUS_WAITING_REPLACEMENT_GOODS => 'Menunggu Barang Pengganti',
+            self::STATUS_PARTIAL_SETTLEMENT => 'Penyelesaian Disetujui Sebagian',
             self::STATUS_COMPLETED => 'Selesai',
         ];
     }
@@ -235,7 +239,7 @@ class PurchaseReturn extends BaseModel implements HasMedia
 
         // From here, dispatch is approved (status = 'dispatched')
 
-        // 6-8. Check settlement status
+        // 6-10. Check settlement status
         $items = $this->relationLoaded('settlementItems')
             ? $this->settlementItems
             : $this->settlementItems()->get();
@@ -258,6 +262,20 @@ class PurchaseReturn extends BaseModel implements HasMedia
 
         if ($anyDetailsSettled) {
             return self::STATUS_PARTIAL_SETTLEMENT;
+        }
+
+        $hasAwaitingReceive = $items->contains(
+            fn($i) => strtoupper($i->status ?? '') === PurchaseReturnItemSettlement::STATUS_APPROVED_AWAITING_RECEIVE
+        );
+        if ($hasAwaitingReceive) {
+            return self::STATUS_WAITING_REPLACEMENT_GOODS;
+        }
+
+        $hasSubmitted = $items->contains(
+            fn($i) => strtoupper($i->status ?? '') === PurchaseReturnItemSettlement::STATUS_SUBMITTED
+        );
+        if ($hasSubmitted) {
+            return self::STATUS_SETTLEMENT_CONFIRMATION_PENDING;
         }
 
         return self::STATUS_IN_RETURN;

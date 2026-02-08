@@ -34,6 +34,31 @@ class PurchaseReceivingsDataTable extends DataTable
                 return $data->receivedNoteDetails->sum('quantity_received');
             })
             ->addColumn('details', function ($data) {
+                // Fetch returned serials that were originally part of this received note note but are now unlinked
+                $detailIds = $data->receivedNoteDetails->pluck('id');
+                $returnedSerials = \Modules\Product\Entities\ProductSerialNumber::whereNotNull('purchase_return_id')
+                    ->whereIn('id', function ($query) use ($detailIds) {
+                        $query->select('product_serial_number_id')
+                            ->from('serial_number_histories')
+                            ->where('event_type', \Modules\Product\Entities\SerialNumberHistory::EVENT_RECEIVED)
+                            ->where('reference_type', \Modules\Purchase\Entities\ReceivedNoteDetail::class)
+                            ->whereIn('reference_id', $detailIds);
+                    })->get();
+
+                if ($returnedSerials->isNotEmpty()) {
+                    $histories = \Modules\Product\Entities\SerialNumberHistory::whereIn('product_serial_number_id', $returnedSerials->pluck('id'))
+                        ->where('event_type', \Modules\Product\Entities\SerialNumberHistory::EVENT_RECEIVED)
+                        ->where('reference_type', \Modules\Purchase\Entities\ReceivedNoteDetail::class)
+                        ->get()
+                        ->groupBy('reference_id');
+
+                    foreach ($data->receivedNoteDetails as $detail) {
+                        $detail->returnedSerialNumbers = $histories->get($detail->id)
+                            ? $returnedSerials->whereIn('id', $histories->get($detail->id)->pluck('product_serial_number_id'))
+                            : collect([]);
+                    }
+                }
+
                 return view('purchase::receivings.receiving-details', compact('data'))->render();
             })
             ->addColumn('supplier_purchase_number', function ($data) {

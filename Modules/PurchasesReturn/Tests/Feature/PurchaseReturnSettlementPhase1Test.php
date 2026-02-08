@@ -99,8 +99,10 @@ class PurchaseReturnSettlementPhase1Test extends TestCase
             'supplier_name' => $this->supplier->supplier_name,
             'total_amount' => 1000,
             'reference' => 'PR-' . time(),
-            'status' => PurchaseReturn::STATUS_PENDING_APPROVAL,
+            'status' => PurchaseReturn::STATUS_IN_RETURN,
             'approval_status' => 'APPROVED',
+            'return_dispatch_status' => 'DISPATCHED',
+            'return_dispatched_at' => now(),
             'date' => now(),
             'setting_id' => $setting->id,
             'location_id' => $this->location->id,
@@ -131,10 +133,11 @@ class PurchaseReturnSettlementPhase1Test extends TestCase
     }
 
     /** @test */
-    public function test_cash_method_is_in_selectable_methods()
+    public function test_cash_and_credit_methods_are_not_in_selectable_methods()
     {
         $methods = PurchaseReturnDetail::selectableSettlementMethods();
-        $this->assertArrayHasKey(PurchaseReturnDetail::METHOD_CASH, $methods);
+        $this->assertArrayNotHasKey(PurchaseReturnDetail::METHOD_CASH, $methods);
+        $this->assertArrayNotHasKey(PurchaseReturnDetail::METHOD_CREDIT, $methods);
     }
 
     /** @test */

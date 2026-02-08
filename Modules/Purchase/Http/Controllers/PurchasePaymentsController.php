@@ -71,14 +71,15 @@ class PurchasePaymentsController extends Controller
                 $payment->addMedia(Storage::path('temp/dropzone/' . $request->attachment))->toMediaCollection('attachments');
             }
 
-            $due_amount = $purchase->due_amount - $request->amount;
-
-            $payment_status = $due_amount == $purchase->total_amount ? 'Unpaid' : ($due_amount > 0 ? 'Partial' : 'Paid');
+            // After creating payment, recalculate from active payments
+            $effectivePaid = $purchase->getEffectivePaidAmount();
+            $dueAmount = max(0, $purchase->total_amount - $effectivePaid);
+            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($effectivePaid > 0 ? 'PARTIAL' : 'UNPAID');
 
             $purchase->update([
-                'paid_amount' => $purchase->paid_amount + $request->amount,
-                'due_amount' => $due_amount,
-                'payment_status' => $payment_status,
+                'paid_amount' => $effectivePaid,
+                'due_amount' => $dueAmount,
+                'payment_status' => $paymentStatus,
             ]);
         });
 
@@ -115,22 +116,6 @@ class PurchasePaymentsController extends Controller
         DB::transaction(function () use ($request, $purchasePayment) {
             $purchase = $purchasePayment->purchase;
 
-            $due_amount = ($purchase->due_amount + $purchasePayment->amount) - $request->amount;
-
-            if ($due_amount == $purchase->total_amount) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
-            }
-
-            $purchase->update([
-                'paid_amount' => (($purchase->paid_amount - $purchasePayment->amount) + $request->amount) * 100,
-                'due_amount' => $due_amount * 100,
-                'payment_status' => $payment_status
-            ]);
-
             $purchasePayment->update([
                 'date' => $request->date,
                 'reference' => $request->reference,
@@ -138,6 +123,17 @@ class PurchasePaymentsController extends Controller
                 'note' => $request->note,
                 'purchase_id' => $request->purchase_id,
                 'payment_method' => $request->payment_method
+            ]);
+
+            // After updating payment, recalculate from active payments
+            $effectivePaid = $purchase->getEffectivePaidAmount();
+            $dueAmount = max(0, $purchase->total_amount - $effectivePaid);
+            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($effectivePaid > 0 ? 'PARTIAL' : 'UNPAID');
+
+            $purchase->update([
+                'paid_amount' => $effectivePaid,
+                'due_amount' => $dueAmount,
+                'payment_status' => $paymentStatus
             ]);
         });
 
@@ -152,11 +148,65 @@ class PurchasePaymentsController extends Controller
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
 
-        $purchasePayment->delete();
+        // Per TODO 5: Only allow delete for invalidated payments
+        if ($purchasePayment->status !== PurchasePayment::STATUS_INVALIDATED) {
+            abort(403, 'Hanya pembayaran yang sudah dibatalkan (invalidated) yang dapat dihapus.');
+        }
 
-        toast('Purchase Payment Deleted!', 'warning');
+        DB::transaction(function () use ($purchasePayment) {
+            $purchase = $purchasePayment->purchase;
+            $purchasePayment->delete();
+
+            // After deleting, recalculate totals
+            $effectivePaid = $purchase->getEffectivePaidAmount();
+            $dueAmount = max(0, $purchase->total_amount - $effectivePaid);
+            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($effectivePaid > 0 ? 'PARTIAL' : 'UNPAID');
+
+            $purchase->update([
+                'paid_amount' => $effectivePaid,
+                'due_amount' => $dueAmount,
+                'payment_status' => $paymentStatus,
+            ]);
+        });
+
+        toast('Pembayaran Pembelian Berhasil Dihapus!', 'warning');
 
         return redirect()->route('purchases.index');
+    }
+
+    public function invalidate(PurchasePayment $purchasePayment) {
+        abort_if(Gate::denies('purchasePayments.delete'), 403);
+
+        $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
+
+        if ($purchasePayment->status !== PurchasePayment::STATUS_ACTIVE) {
+            abort(403, 'Hanya pembayaran aktif yang dapat dibatalkan.');
+        }
+
+        DB::transaction(function () use ($purchasePayment) {
+            $purchase = $purchasePayment->purchase;
+            
+            $purchasePayment->update([
+                'status' => PurchasePayment::STATUS_INVALIDATED,
+                'invalidated_at' => now(),
+                'invalidated_by' => auth()->id(),
+            ]);
+
+            // After invalidating, recalculate totals
+            $effectivePaid = $purchase->getEffectivePaidAmount();
+            $dueAmount = max(0, $purchase->total_amount - $effectivePaid);
+            $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($effectivePaid > 0 ? 'PARTIAL' : 'UNPAID');
+
+            $purchase->update([
+                'paid_amount' => $effectivePaid,
+                'due_amount' => $dueAmount,
+                'payment_status' => $paymentStatus,
+            ]);
+        });
+
+        toast('Pembayaran Pembelian Berhasil Dibatalkan!', 'info');
+
+        return redirect()->back();
     }
 
     public function datatable($purchase_id, PurchasePaymentsDataTable $dataTable)

@@ -326,17 +326,13 @@
                                                 <!-- Searchable Dropdown Integration via Alpine -->
                                                 @php
                                                     $currentMethod = $settlementLines[$index]['method'] ?? '';
-                                                    $showDropdown = in_array($currentMethod, ['MODIFY_PURCHASE', 'CREDIT', 'CASH']);
+                                                    $showDropdown = $currentMethod === 'MODIFY_PURCHASE';
                                                     $purchaseList = match($currentMethod) {
                                                         'MODIFY_PURCHASE' => $unpaidPurchases[$line['product_id']]['MODIFY_PURCHASE'] ?? [],
-                                                        'CASH' => $unpaidPurchases[$line['product_id']]['CASH'] ?? [],
-                                                        'CREDIT' => $creditPurchases,
                                                         default => []
                                                     };
                                                     $placeholder = match($currentMethod) {
                                                         'MODIFY_PURCHASE' => 'Cari Nota...',
-                                                        'CASH' => 'Cari Nota (Lunas/Sebagian)...',
-                                                        'CREDIT' => 'Cari Nota (Referensi)...',
                                                         default => 'Cari...'
                                                     };
                                                     $originId = $line['origin_purchase_id'] ?? null;
@@ -351,8 +347,7 @@
                                                         && $originId
                                                         && $isOriginUnpaid
                                                         && $returnValue <= $originDue;
-                                                    $isLocked = !empty($line['serial_number_id']) && in_array($currentMethod, ['MODIFY_PURCHASE', 'CASH']);
-                                                    $excludedId = $currentMethod === 'CREDIT' ? ($originId ?? null) : null;
+                                                    $isLocked = !empty($line['serial_number_id']) && $currentMethod === 'MODIFY_PURCHASE';
                                                 @endphp
 
                                                 @if($showDropdown && $isFixedSource)
@@ -372,7 +367,6 @@
                                                             selectedId: @entangle('settlementLines.'.$index.'.target_purchase_id'),
                                                             options: {{ json_encode($purchaseList) }},
                                                             locked: {{ $isLocked ? 'true' : 'false' }},
-                                                            excludedId: {{ $excludedId ?? 'null' }},
                                                             dropdownStyles: {},
                                                             init() {
                                                                 this.handleScroll = this.handleScroll.bind(this);
@@ -424,9 +418,6 @@
                                                             },
                                                             get filteredOptions() {
                                                                 let filtered = this.options;
-                                                                if (this.excludedId) {
-                                                                    filtered = filtered.filter(o => o.id != this.excludedId);
-                                                                }
                                                                 if (this.search === '') return filtered;
                                                                 return filtered.filter(option => 
                                                                     option.text.toLowerCase().includes(this.search.toLowerCase())
@@ -489,7 +480,7 @@
                                                         @enderror
 
                                                         {{-- Ticket 3: Quantity Mismatch Warning --}}
-                                                        @if($showDropdown && in_array($currentMethod, ['MODIFY_PURCHASE', 'CASH']) && empty($line['serial_number']))
+                                                        @if($showDropdown && $currentMethod === 'MODIFY_PURCHASE' && empty($line['serial_number']))
                                                             @php
                                                                 $selectedPurchaseData = collect($purchaseList)->firstWhere('id', $line['target_purchase_id']);
                                                                 $purchaseQty = $selectedPurchaseData['product_quantity'] ?? 0;
@@ -512,8 +503,9 @@
                                         <td class="text-end">
                                             @php
                                                 $currentMethod = $settlementLines[$index]['method'] ?? '';
-                                                $showNominal = in_array($currentMethod, ['CREDIT', 'CASH', 'MODIFY_PURCHASE']); // Include Modify Purchase
-                                                $isLineReadOnly = $isReadOnly || in_array($line['status'], ['SUBMITTED', 'APPROVED']);
+                                                $isLineReadOnly = $isReadOnly || in_array($line['status'], ['SUBMITTED', 'APPROVED', 'APPROVED_AWAITING_RECEIVE', 'RECEIVED']);
+                                                $showNominal = $currentMethod === 'MODIFY_PURCHASE'
+                                                    || ($isLineReadOnly && in_array($currentMethod, ['CREDIT', 'CASH']));
                                             @endphp
                                             
                                             @if($isLineReadOnly)
@@ -599,16 +591,13 @@
             var maxNom = target.getAttribute('data-max-nominal');
             if (!index) return;
             if (!['DRAFT', 'REJECTED'].includes(status)) return;
-            // For purchase-return, CASH constant is 'CASH'
-            if (methodVal !== '{{ \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::METHOD_CASH }}') {
-                var inputSelector = 'input[name="settlementLines.' + index + '.nominal"]';
-                var inputEl = document.querySelector(inputSelector);
-                if (!inputEl) return;
-                var num = parseFloat(maxNom) || 0;
-                inputEl.value = 'Rp ' + new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
-                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-                inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-            }
+            var inputSelector = 'input[name="settlementLines.' + index + '.nominal"]';
+            var inputEl = document.querySelector(inputSelector);
+            if (!inputEl) return;
+            var num = parseFloat(maxNom) || 0;
+            inputEl.value = 'Rp ' + new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
+            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
         }
     });
 </script>

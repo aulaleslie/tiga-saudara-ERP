@@ -294,7 +294,8 @@ class PurchaseReturnSettlementArchivalTest extends TestCase
         // Assertions
         $this->assertEquals(0, $purchase->paid_amount);
         $this->assertEquals('UNPAID', strtoupper($purchase->payment_status));
-        $this->assertCount(0, $purchase->purchasePayments);
+        $this->assertEquals(0, $purchase->purchasePayments()->active()->count(), 'Found active payments but expected none');
+        $this->assertEquals(1, $purchase->purchasePayments()->invalidated()->count(), 'Expected 1 invalidated payment');
         $this->assertEquals(3000, $purchase->total_amount); // 5000 - 2000
         $this->assertNull($purchase->archived_at); // Not fully returned
     }

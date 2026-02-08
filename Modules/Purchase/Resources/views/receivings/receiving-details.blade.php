@@ -14,11 +14,28 @@
                 <td>{{ optional($detail->purchaseDetail)->product_name ?? 'Unknown' }}</td>
                 <td>{{ $detail->quantity_received }}</td>
                 <td>
-                    @if($detail->productSerialNumbers->isNotEmpty())
+                    @php
+                        $hasActiveSerials = $detail->productSerialNumbers->isNotEmpty();
+                        $hasReturnedSerials = isset($detail->returnedSerialNumbers) && $detail->returnedSerialNumbers->isNotEmpty();
+                    @endphp
+
+                    @if($hasActiveSerials || $hasReturnedSerials)
                         <ul class="list-unstyled mb-0">
-                            @foreach($detail->productSerialNumbers as $serial)
-                                <li class="badge bg-info me-1">{{ $serial->serial_number }}</li>
-                            @endforeach
+                            @if($hasActiveSerials)
+                                @foreach($detail->productSerialNumbers as $serial)
+                                    <li class="badge {{ !in_array($serial->status, [\Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE, 'active']) ? 'bg-danger' : 'bg-info' }} me-1">
+                                        {{ $serial->serial_number }}
+                                    </li>
+                                @endforeach
+                            @endif
+
+                            @if($hasReturnedSerials)
+                                @foreach($detail->returnedSerialNumbers as $serial)
+                                    <li class="badge bg-danger me-1" title="Returned">
+                                        {{ $serial->serial_number }}
+                                    </li>
+                                @endforeach
+                            @endif
                         </ul>
                     @elseif(!empty($detail->pending_serial_numbers))
                         <ul class="list-unstyled mb-0">

@@ -263,6 +263,36 @@ class PurchaseController extends Controller
             ])
             ->get();
 
+        // Fetch all received detail IDs for this purchase to find related returned serials
+        $receivedDetailIds = $receivedNotes->flatMap->receivedNoteDetails->pluck('id');
+
+        // Fetch returned serials that were originally from this purchase but are now unlinked
+        $returnedSerials = ProductSerialNumber::whereNotNull('purchase_return_id')
+            ->whereIn('id', function ($query) use ($receivedDetailIds) {
+                $query->select('product_serial_number_id')
+                    ->from('serial_number_histories')
+                    ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+                    ->where('reference_type', ReceivedNoteDetail::class)
+                    ->whereIn('reference_id', $receivedDetailIds);
+            })->get();
+
+
+        if ($returnedSerials->isNotEmpty()) {
+            $histories = SerialNumberHistory::whereIn('product_serial_number_id', $returnedSerials->pluck('id'))
+                ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+                ->where('reference_type', ReceivedNoteDetail::class)
+                ->get()
+                ->groupBy('reference_id');
+
+            foreach ($receivedNotes as $note) {
+                foreach ($note->receivedNoteDetails as $detail) {
+                    $detail->returnedSerialNumbers = $histories->get($detail->id)
+                        ? $returnedSerials->whereIn('id', $histories->get($detail->id)->pluck('product_serial_number_id'))
+                        : collect([]);
+                }
+            }
+        }
+
         return $dataTable->with(['purchase_id' => $purchase->id])
             ->render('purchase::show', compact('purchase', 'supplier', 'receivedNotes'));
     }

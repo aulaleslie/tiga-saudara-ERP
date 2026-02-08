@@ -98,7 +98,7 @@ class PurchaseReturnUnifiedStatusTest extends TestCase
 
         $this->assertEquals(PurchaseReturn::STATUS_DRAFT, $pr1->unified_status);
         $this->assertEquals(PurchaseReturn::STATUS_DRAFT, $pr2->unified_status);
-        $this->assertEquals('Draft', $pr1->unified_status_label);
+        $this->assertEquals('Draf', $pr1->unified_status_label);
     }
 
     /** @test */
@@ -150,7 +150,73 @@ class PurchaseReturnUnifiedStatusTest extends TestCase
         ]);
 
         $this->assertEquals(PurchaseReturn::STATUS_IN_RETURN, $pr->unified_status);
-        $this->assertEquals('Sedang Diretur', $pr->unified_status_label);
+        $this->assertEquals('Sedang Dalam Retur, Menunggu Input Penyelesaian', $pr->unified_status_label);
+    }
+
+    /** @test */
+    public function it_returns_waiting_settlement_confirmation_when_items_are_submitted()
+    {
+        $pr = $this->createPR([
+            'approval_status' => 'approved',
+            'return_dispatch_status' => 'dispatched',
+        ]);
+
+        $detail = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::create([
+            'purchase_return_id' => $pr->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 1,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 10000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $pr->id,
+            'purchase_return_detail_id' => $detail->id,
+            'method' => 'MODIFY_PURCHASE',
+            'status' => 'SUBMITTED',
+        ]);
+
+        $this->assertEquals(PurchaseReturn::STATUS_SETTLEMENT_CONFIRMATION_PENDING, $pr->unified_status);
+        $this->assertEquals('Menunggu Konfirmasi Penyelesaian', $pr->unified_status_label);
+    }
+
+    /** @test */
+    public function it_returns_waiting_replacement_goods_when_approved_awaiting_receive_exists_without_final_items()
+    {
+        $pr = $this->createPR([
+            'approval_status' => 'approved',
+            'return_dispatch_status' => 'dispatched',
+        ]);
+
+        $detail = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::create([
+            'purchase_return_id' => $pr->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 1,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 10000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $pr->id,
+            'purchase_return_detail_id' => $detail->id,
+            'method' => 'PRODUCT_REPAIR',
+            'status' => 'APPROVED_AWAITING_RECEIVE',
+        ]);
+
+        $this->assertEquals(PurchaseReturn::STATUS_WAITING_REPLACEMENT_GOODS, $pr->unified_status);
+        $this->assertEquals('Menunggu Barang Pengganti', $pr->unified_status_label);
     }
 
     /** @test */
@@ -192,7 +258,7 @@ class PurchaseReturnUnifiedStatusTest extends TestCase
         ]);
 
         $this->assertEquals(PurchaseReturn::STATUS_PARTIAL_SETTLEMENT, $pr->unified_status);
-        $this->assertEquals('Penyelesaian Sebagian', $pr->unified_status_label);
+        $this->assertEquals('Penyelesaian Disetujui Sebagian', $pr->unified_status_label);
     }
 
     /** @test */

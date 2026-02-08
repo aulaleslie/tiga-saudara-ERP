@@ -897,9 +897,13 @@ class PurchasesReturnSettlementController extends Controller
                 $remainingSurplus = max(0, $previousPaidAmount - $newTotal);
 
                 if ($hasSurplus) {
-                    // Remove all source payments when surplus exists
-                    $purchase->purchasePayments()->delete();
-                    // Reset paid amount since payments are deleted; surplus is handled separately.
+                    // Invalidate all active source payments when surplus exists
+                    \Modules\Purchase\Entities\PurchasePayment::invalidateAllActiveForPurchase(
+                        $purchase->id,
+                        'MODIFY_PURCHASE_SETTLEMENT',
+                        $item->id
+                    );
+                    // Reset paid amount since payments are invalidated; surplus is handled separately.
                     $purchase->paid_amount = 0;
                     $purchase->save();
 
@@ -1365,14 +1369,15 @@ class PurchasesReturnSettlementController extends Controller
         }
 
         $grandTotal = max($baseTotal - $discountAmount + $shipping, 0);
-        $paidAmount = (float) $purchase->paid_amount;
+        $paidAmount = $purchase->getEffectivePaidAmount();
         $dueAmount = max($grandTotal - $paidAmount, 0);
-        $paymentStatus = $dueAmount <= 0.01 ? 'Paid' : ($paidAmount > 0 ? 'Partial' : 'Unpaid');
+        $paymentStatus = $dueAmount <= 0.01 ? 'PAID' : ($paidAmount > 0 ? 'PARTIAL' : 'UNPAID');
 
         $purchase->fill([
             'tax_amount' => $taxTotal,
             'discount_amount' => $discountAmount,
             'total_amount' => $grandTotal,
+            'paid_amount' => $paidAmount,
             'due_amount' => $dueAmount,
             'payment_status' => $paymentStatus,
         ]);

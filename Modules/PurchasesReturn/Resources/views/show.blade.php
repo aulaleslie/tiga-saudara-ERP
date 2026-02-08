@@ -1,6 +1,22 @@
 @php use Illuminate\Support\Facades\Storage; @endphp
 @php $approvalStatus = strtolower($purchase_return->approval_status ?? ''); @endphp
 @php $dispatchStatus = strtolower($purchase_return->return_dispatch_status ?? ''); @endphp
+@php
+    $unifiedStatus = $purchase_return->unified_status;
+    $statusBadgeClass = match($unifiedStatus) {
+        \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_DRAFT => 'bg-dark text-white',
+        \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_PENDING_APPROVAL => 'bg-warning text-dark',
+        \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_REJECTED => 'bg-danger text-white',
+        \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_AWAITING_DISPATCH => 'bg-info text-dark',
+        \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_DISPATCH_PENDING_APPROVAL => 'bg-warning text-dark',
+        \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_IN_RETURN => 'bg-primary text-white',
+        \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_SETTLEMENT_CONFIRMATION_PENDING => 'bg-info text-dark',
+        \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_WAITING_REPLACEMENT_GOODS => 'bg-primary text-white',
+        \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_PARTIAL_SETTLEMENT => 'bg-warning text-dark',
+        \Modules\PurchasesReturn\Entities\PurchaseReturn::STATUS_COMPLETED => 'bg-success text-white',
+        default => 'bg-secondary text-white',
+    };
+@endphp
 @extends('layouts.app')
 
 @section('title', 'Detail Retur Pembelian')
@@ -8,8 +24,8 @@
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('purchase-returns.index') }}">Purchase Returns</a></li>
-        <li class="breadcrumb-item active">Details</li>
+        <li class="breadcrumb-item"><a href="{{ route('purchase-returns.index') }}">Retur Pembelian</a></li>
+        <li class="breadcrumb-item active">Detail</li>
     </ol>
 @endsection
 
@@ -25,8 +41,7 @@
                             <div class="small text-muted">Dibuat pada {{ \Carbon\Carbon::parse($purchase_return->date)->translatedFormat('d F Y') }}</div>
                         </div>
                         <div class="ml-auto d-flex flex-wrap align-items-center">
-                            <span class="badge bg-secondary text-uppercase mr-2 mb-1">{{ $purchase_return->status }}</span>
-                            <span class="badge {{ $approvalStatus === 'approved' ? 'bg-success' : ($approvalStatus === 'rejected' ? 'bg-danger' : 'bg-warning text-dark') }} text-uppercase mr-2 mb-1">{{ $purchase_return->approval_status }}</span>
+                            <span class="badge {{ $statusBadgeClass }} mr-2 mb-1">{{ $purchase_return->unified_status_label }}</span>
                             @if($dispatchStatus !== 'dispatched')
                                 @can('purchaseReturns.edit')
                                     <a class="btn btn-primary btn-sm d-print-none mr-2 mb-1" href="{{ route('purchase-returns.edit', $purchase_return) }}">

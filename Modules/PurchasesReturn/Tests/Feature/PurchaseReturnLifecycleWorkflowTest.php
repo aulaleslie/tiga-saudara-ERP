@@ -300,7 +300,7 @@ class PurchaseReturnLifecycleWorkflowTest extends TestCase
         ]);
         
         $pr->refresh();
-        $this->assertEquals(PurchaseReturn::STATUS_IN_RETURN, $pr->unified_status);
+        $this->assertEquals(PurchaseReturn::STATUS_SETTLEMENT_CONFIRMATION_PENDING, $pr->unified_status);
 
         // 7. Approve settlement
         $this->post(route('purchase-return-settlements.item.approve', $item->id));
@@ -452,7 +452,7 @@ class PurchaseReturnLifecycleWorkflowTest extends TestCase
         $this->post(route('purchase-return-settlements.item.approve', $item->id));
         
         $pr->refresh();
-        $this->assertEquals(PurchaseReturn::STATUS_IN_RETURN, $pr->unified_status);
+        $this->assertEquals(PurchaseReturn::STATUS_WAITING_REPLACEMENT_GOODS, $pr->unified_status);
 
         // Receive repair
         $newSnText = 'SN-NEW-001';

@@ -70,10 +70,12 @@ class PurchaseReturnSettlementPermissionTest extends TestCase
             'total_amount' => 1000,
             'paid_amount' => 0,
             'due_amount' => 1000,
-            'status' => 'Pending',
+            'status' => PurchaseReturn::STATUS_IN_RETURN,
             'payment_status' => 'Unpaid',
             'payment_method' => 'Cash',
             'approval_status' => 'Approved',
+            'return_dispatch_status' => 'DISPATCHED',
+            'return_dispatched_at' => now(),
         ]);
 
         $category = \Modules\Product\Entities\Category::create([

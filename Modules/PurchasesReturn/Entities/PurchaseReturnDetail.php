@@ -26,7 +26,15 @@ class PurchaseReturnDetail extends BaseModel
     const METHOD_PRODUCT_REPAIR = 'PRODUCT_REPAIR';
     const METHOD_BROKEN_STOCK = 'BROKEN_STOCK';
     const METHOD_MODIFY_PURCHASE = 'MODIFY_PURCHASE';
+    /**
+     * @deprecated Legacy settlement method for historical records only.
+     * Do not re-enable in selectableSettlementMethods().
+     */
     const METHOD_CREDIT = 'CREDIT';
+    /**
+     * @deprecated Legacy settlement method for historical records only.
+     * Do not re-enable in selectableSettlementMethods().
+     */
     const METHOD_CASH = 'CASH';
 
     public static function settlementMethods(): array
@@ -35,7 +43,9 @@ class PurchaseReturnDetail extends BaseModel
             self::METHOD_PRODUCT_REPAIR => 'Perbaikan Produk',
             self::METHOD_BROKEN_STOCK   => 'Kembali Barang Rusak',
             self::METHOD_MODIFY_PURCHASE => 'Ubah Nota Pembelian',
+            // Deprecated but kept for old data readability.
             self::METHOD_CREDIT         => 'Simpan Sebagai Kredit',
+            // Deprecated but kept for old data readability.
             self::METHOD_CASH           => 'Pengembalian Tunai',
         ];
     }
@@ -46,8 +56,6 @@ class PurchaseReturnDetail extends BaseModel
             self::METHOD_PRODUCT_REPAIR => 'Perbaikan Produk',
             self::METHOD_BROKEN_STOCK   => 'Kembali Barang Rusak',
             self::METHOD_MODIFY_PURCHASE => 'Ubah Nota Pembelian',
-            self::METHOD_CREDIT         => 'Simpan Sebagai Kredit',
-            self::METHOD_CASH           => 'Pengembalian Tunai',
         ];
     }
 
