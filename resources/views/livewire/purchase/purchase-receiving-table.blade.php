@@ -43,7 +43,7 @@
         </thead>
         <tbody>
         @forelse ($purchases as $purchase)
-            <tr>
+            <tr wire:key="{{ $purchase->id }}">
                 <td>
                     {{ $purchase->reference }}
                 </td>

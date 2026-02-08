@@ -58,7 +58,7 @@
         </thead>
         <tbody>
         @forelse ($purchases as $purchase)
-            <tr>
+            <tr wire:key="{{ $purchase->id }}">
                 <td>
                     @php
                         $productsTooltip = $purchase->purchaseDetails->map(function($detail) {

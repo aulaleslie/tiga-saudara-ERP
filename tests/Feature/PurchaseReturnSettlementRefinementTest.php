@@ -129,6 +129,8 @@ class PurchaseReturnSettlementRefinementTest extends TestCase
             'supplier_name' => $this->supplier->supplier_name,
             'status' => 'Pending',
             'approval_status' => 'Approved',
+            'return_dispatch_status' => 'DISPATCHED',
+            'return_dispatched_at' => now(),
             'total_amount' => 1000,
             'paid_amount' => 0,
             'due_amount' => 1000,
@@ -167,9 +169,11 @@ class PurchaseReturnSettlementRefinementTest extends TestCase
         Livewire::actingAs($this->user)
             ->test(\App\Livewire\PurchaseReturn\PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $this->purchaseReturn->id])
             ->assertSee('Perbaikan Produk')
+            ->assertSee('Kembali Barang Rusak')
             ->assertSee('Ubah Nota Pembelian')
             ->assertDontSee('Simpan Sebagai DP')
-            ->assertSee('Pengembalian Tunai');
+            ->assertDontSee('Simpan Sebagai Kredit')
+            ->assertDontSee('Pengembalian Tunai');
     }
 
     /** @test */
