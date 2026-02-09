@@ -661,40 +661,48 @@ class PurchaseController extends Controller
 
         $data = $validator->validated();
 
-        // Collect all serial numbers submitted by the user
-        $inputtedSerialNumbers = collect($data['serial_numbers'] ?? [])
-            ->flatten()
-            ->filter() // Remove null or empty values
-            ->unique(); // Avoid duplicate checks within the input itself
+        // Prepare to check duplicates
+        $duplicateErrors = [];
+        $checkedSerials = []; // To track duplicates within the request itself
 
-        // Find duplicate serial numbers in committed product_serial_numbers
-        $existingSerialNumbers = ProductSerialNumber::whereIn('serial_number', $inputtedSerialNumbers)->pluck('serial_number')->toArray();
+        // Get relevant purchase details to map detail_id -> product_id
+        $inputtedDetailIds = array_keys($data['serial_numbers'] ?? []);
+        $details = PurchaseDetail::whereIn('id', $inputtedDetailIds)->get()->keyBy('id');
 
-        // Also check for serial numbers pending in PENDING receivings
-        $pendingSerialNumbers = [];
-        if ($inputtedSerialNumbers->isNotEmpty()) {
-            $pendingDetails = ReceivedNoteDetail::whereHas('receivedNote', function ($q) {
-                $q->where('status', ReceivedNote::STATUS_PENDING);
-            })
-                ->whereNotNull('pending_serial_numbers')
-                ->get();
-            
-            foreach ($pendingDetails as $detail) {
-                $pendingSerials = $detail->pending_serial_numbers ?? [];
-                foreach ($pendingSerials as $serial) {
-                    if ($inputtedSerialNumbers->contains($serial)) {
-                        $pendingSerialNumbers[] = $serial;
+        foreach ($data['serial_numbers'] ?? [] as $detailId => $serials) {
+            $detail = $details->get($detailId);
+            if (!$detail) continue;
+
+            $productId = $detail->product_id;
+
+            foreach ($serials as $serial) {
+                if (!$serial) continue;
+
+                // 1. Check for duplicates within the current request (same product)
+                $key = $productId . '|' . $serial;
+                if (isset($checkedSerials[$key])) {
+                    $duplicateErrors[] = "Serial number '$serial' digandakan dalam input untuk produk yang sama.";
+                    continue;
+                }
+                $checkedSerials[$key] = true;
+
+                // 2. Check against committed serials for this product
+                // Allow reuse if status is RETURNED
+                $existing = ProductSerialNumber::where('product_id', $productId)
+                    ->where('serial_number', $serial)
+                    ->first();
+
+                if ($existing) {
+                    if ($existing->status !== ProductSerialNumber::STATUS_RETURNED) {
+                        $duplicateErrors[] = "Serial number '$serial' sudah ada untuk produk ini (Status: {$existing->status}).";
                     }
                 }
             }
         }
 
-        $allDuplicates = array_unique(array_merge($existingSerialNumbers, $pendingSerialNumbers));
-
-        // If any duplicate serial numbers exist, return a validation error
-        if (!empty($allDuplicates)) {
+        if (!empty($duplicateErrors)) {
             return redirect()->back()->withErrors([
-                'serial_numbers' => 'Serial Number berikut sudah ada atau sedang dalam proses penerimaan: ' . implode(', ', $allDuplicates),
+                'serial_numbers' => implode(' ', array_unique($duplicateErrors)),
             ])->withInput();
         }
 
