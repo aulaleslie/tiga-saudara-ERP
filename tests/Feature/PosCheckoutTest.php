@@ -76,7 +76,7 @@ class PosCheckoutTest extends TestCase
 
         SettingSaleLocation::updateOrCreate(
             ['location_id' => $location->id],
-            ['setting_id' => $this->setting->id, 'is_pos' => true, 'position' => 1]
+            ['setting_id' => $this->setting->id, 'position' => 1]
         );
 
         $unit = Unit::create([

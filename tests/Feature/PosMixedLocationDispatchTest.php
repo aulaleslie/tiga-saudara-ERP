@@ -91,12 +91,12 @@ class PosMixedLocationDispatchTest extends TestCase
 
         SettingSaleLocation::updateOrCreate(
             ['location_id' => $this->locationA->id],
-            ['setting_id' => $this->settingA->id, 'is_pos' => true, 'position' => 1]
+            ['setting_id' => $this->settingA->id, 'position' => 1]
         );
 
         SettingSaleLocation::updateOrCreate(
             ['location_id' => $this->locationB->id],
-            ['setting_id' => $this->settingB->id, 'is_pos' => true, 'position' => 1]
+            ['setting_id' => $this->settingB->id, 'position' => 1]
         );
 
         $unit = Unit::create([

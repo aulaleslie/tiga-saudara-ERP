@@ -61,7 +61,7 @@ class Location extends BaseModel
     public function tenants(): BelongsToMany
     {
         return $this->belongsToMany(Setting::class, 'setting_sale_locations')
-            ->withPivot(['is_pos', 'position'])
+            ->withPivot(['position'])
             ->withTimestamps();
     }
 

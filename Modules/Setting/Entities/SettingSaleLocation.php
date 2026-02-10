@@ -13,12 +13,11 @@ class SettingSaleLocation extends BaseModel
     protected $fillable = [
         'setting_id',
         'location_id',
-        'is_pos',
         'position',
     ];
 
     protected $casts = [
-        'is_pos' => 'bool',
+
         'position' => 'int',
     ];
 
@@ -54,7 +53,7 @@ class SettingSaleLocation extends BaseModel
             if (
                 $assignment->wasChanged('setting_id') ||
                 $assignment->wasChanged('location_id') ||
-                $assignment->wasChanged('is_pos') ||
+
                 $assignment->wasChanged('position')
             ) {
                 $settingIds = collect([

@@ -50,10 +50,10 @@ class PosLocationResolverTest extends TestCase
         $loc3 = Location::create(['name' => 'Loc 3', 'setting_id' => $this->setting->id]);
 
         // Assign them to the setting with specific positions
-        // Note: is_pos should be irrelevant now, but we'll set it to false to prove it's ignored
-        $this->assignLocation($loc3, 1, false);
-        $this->assignLocation($loc1, 2, true); // Mixed is_pos state
-        $this->assignLocation($loc2, 3, false);
+        // Note: is_pos is removed, all assigned locations are valid
+        $this->assignLocation($loc3, 1);
+        $this->assignLocation($loc1, 2);
+        $this->assignLocation($loc2, 3);
 
         $resolvedIds = PosLocationResolver::resolveLocationIds($this->setting->id);
 
@@ -67,33 +67,20 @@ class PosLocationResolverTest extends TestCase
         $loc2 = Location::create(['name' => 'Loc 2', 'setting_id' => $this->setting->id]);
 
         // Loc 2 is first
-        $this->assignLocation($loc2, 1, false);
-        $this->assignLocation($loc1, 2, true);
+        $this->assignLocation($loc2, 1);
+        $this->assignLocation($loc1, 2);
 
         $primaryId = PosLocationResolver::resolveId($this->setting->id);
 
         $this->assertEquals($loc2->id, $primaryId);
     }
 
-    public function test_ignores_is_pos_flag_completely(): void
-    {
-        $loc1 = Location::create(['name' => 'Loc 1', 'setting_id' => $this->setting->id]);
-        $loc2 = Location::create(['name' => 'Loc 2', 'setting_id' => $this->setting->id]);
 
-        // Both is_pos = false
-        $this->assignLocation($loc1, 1, false);
-        $this->assignLocation($loc2, 2, false);
-
-        $resolvedIds = PosLocationResolver::resolveLocationIds($this->setting->id);
-
-        $this->assertCount(2, $resolvedIds);
-        $this->assertEquals([$loc1->id, $loc2->id], $resolvedIds->toArray());
-    }
 
     public function test_respects_session_assignment_override(): void
     {
         $loc1 = Location::create(['name' => 'Loc 1', 'setting_id' => $this->setting->id]);
-        $assignment = $this->assignLocation($loc1, 1, true);
+        $assignment = $this->assignLocation($loc1, 1);
 
         // Manually set session assignment
         PosLocationResolver::setActiveAssignment($assignment->id);
@@ -127,7 +114,7 @@ class PosLocationResolverTest extends TestCase
         $this->assertCount(2, $ids);
     }
 
-    private function assignLocation(Location $location, int $position, bool $isPos = true)
+    private function assignLocation(Location $location, int $position)
     {
         // Use updateOrCreate since Location model auto-creates an assignment on boot
         return SettingSaleLocation::updateOrCreate(
@@ -135,7 +122,6 @@ class PosLocationResolverTest extends TestCase
             [
                 'setting_id' => $this->setting->id,
                 'position' => $position,
-                'is_pos' => $isPos,
             ]
         );
     }

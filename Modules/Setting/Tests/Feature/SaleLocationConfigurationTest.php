@@ -106,7 +106,7 @@ class SaleLocationConfigurationTest extends TestCase
 
         $response->assertRedirect(route('sales-location-configurations.index'));
         $this->assertEquals($settingA->id, $borrowable->fresh()->saleAssignment->setting_id);
-        $this->assertFalse($borrowable->fresh()->saleAssignment->is_pos);
+
     }
 
     public function test_cannot_attach_location_already_borrowed(): void
@@ -150,7 +150,7 @@ class SaleLocationConfigurationTest extends TestCase
 
         $response->assertRedirect(route('sales-location-configurations.index'));
         $this->assertEquals($settingB->id, $location->fresh()->saleAssignment->setting_id);
-        $this->assertFalse($location->fresh()->saleAssignment->is_pos);
+
     }
 
 

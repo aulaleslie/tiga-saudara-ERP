@@ -82,7 +82,6 @@ class SaleLocationConfigurationController extends Controller
             ['location_id' => $location->id],
             [
                 'setting_id' => $currentSettingId,
-                'is_pos'     => false,
                 'position'   => ($nextPosition ?: 0) + 1,
             ]
         );
@@ -175,7 +174,6 @@ class SaleLocationConfigurationController extends Controller
 
         $assignment->update([
             'setting_id' => $ownerId,
-            'is_pos'     => false,
             'position'   => ($nextPosition ?: 0) + 1,
         ]);
 
