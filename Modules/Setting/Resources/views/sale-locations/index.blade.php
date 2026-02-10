@@ -12,7 +12,7 @@
                         <span>Lokasi Penjualan Aktif</span>
                         <div class="d-flex align-items-center gap-2">
                             <span class="badge bg-primary text-white">{{ $setting->company_name }}</span>
-                            @if($canEdit && $assignedLocations->isNotEmpty())
+                            @if($canEdit && count($assignedLocations) > 0)
                                 <form id="reorder-form" action="{{ route('sales-location-configurations.order') }}" method="POST" class="d-flex align-items-center gap-2">
                                     @csrf
                                     @method('PUT')
@@ -38,7 +38,7 @@
                                     @if($canEdit)
                                         <th class="text-center">Prioritas</th>
                                     @endif
-                                    <th class="text-center">POS</th>
+
                                     @if($canEdit)
                                         <th class="text-end">Aksi</th>
                                     @endif
@@ -69,25 +69,11 @@
                                                 </div>
                                             </td>
                                         @endif
-                                        <td class="text-center">
-                                            @if($location->saleAssignment?->is_pos)
-                                                <span class="badge bg-primary">Aktif</span>
-                                            @else
-                                                <span class="badge bg-secondary">Nonaktif</span>
-                                            @endif
-                                        </td>
+
                                         @if($canEdit)
                                             <td class="text-end">
                                                 <div class="d-flex justify-content-end flex-wrap gap-2">
-                                                    <form action="{{ route('sales-location-configurations.update', $location->id) }}" method="POST" class="d-inline">
-                                                        @csrf
-                                                        @method('PATCH')
-                                                        <input type="hidden" name="is_pos" value="{{ $location->saleAssignment?->is_pos ? 0 : 1 }}">
-                                                        <button type="submit"
-                                                                class="btn btn-sm {{ $location->saleAssignment?->is_pos ? 'btn-outline-secondary' : 'btn-outline-primary' }}">
-                                                            {{ $location->saleAssignment?->is_pos ? 'Nonaktifkan POS' : 'Jadikan POS' }}
-                                                        </button>
-                                                    </form>
+
 
                                                     @if($location->setting_id !== $setting->id)
                                                         <form action="{{ route('sales-location-configurations.destroy', $location->id) }}" method="POST" class="d-inline"
@@ -155,7 +141,7 @@
 @endsection
 
 @push('page_scripts')
-    @if($canEdit && $assignedLocations->isNotEmpty())
+    @if($canEdit && count($assignedLocations) > 0)
         <script>
             document.addEventListener('DOMContentLoaded', function () {
                 const tableBody = document.querySelector('[data-assigned-locations]');

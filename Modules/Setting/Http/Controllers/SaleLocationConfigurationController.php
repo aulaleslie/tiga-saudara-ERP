@@ -143,67 +143,7 @@ class SaleLocationConfigurationController extends Controller
         return redirect()->route('sales-location-configurations.index');
     }
 
-    public function update(Request $request, int $locationId): RedirectResponse
-    {
-        abort_if(Gate::denies('saleLocations.edit'), 403);
 
-        $validated = $request->validate([
-            'is_pos' => ['required', 'boolean'],
-        ]);
-
-        $currentSettingId = (int) session('setting_id');
-
-        $assignment = SettingSaleLocation::query()
-            ->where('location_id', $locationId)
-            ->firstOrFail();
-
-        if ($assignment->setting_id !== $currentSettingId) {
-            abort(404);
-        }
-
-        $enablePos = (bool) $validated['is_pos'];
-        $maxPosLocations = (int) config('setting.max_pos_locations', 0);
-
-        if ($enablePos) {
-            if ($maxPosLocations === 1) {
-                SettingSaleLocation::query()
-                    ->where('setting_id', $currentSettingId)
-                    ->where('location_id', '!=', $locationId)
-                    ->where('is_pos', true)
-                    ->update([
-                        'is_pos'     => false,
-                        'updated_at' => now(),
-                    ]);
-            } elseif ($maxPosLocations > 1) {
-                $currentPosCount = SettingSaleLocation::query()
-                    ->where('setting_id', $currentSettingId)
-                    ->where('is_pos', true)
-                    ->count();
-
-                if (!$assignment->is_pos) {
-                    $currentPosCount++;
-                }
-
-                if ($currentPosCount > $maxPosLocations) {
-                    toast('Jumlah lokasi POS melebihi batas konfigurasi.', 'error');
-
-                    return redirect()->route('sales-location-configurations.index');
-                }
-            }
-        }
-
-        $assignment->update(['is_pos' => $enablePos]);
-
-        PosLocationResolver::forget($currentSettingId);
-
-        if ($enablePos) {
-            toast('Lokasi berhasil ditetapkan sebagai titik POS.', 'success');
-        } else {
-            toast('Lokasi tidak lagi digunakan sebagai titik POS.', 'success');
-        }
-
-        return redirect()->route('sales-location-configurations.index');
-    }
 
     public function destroy(int $locationId): RedirectResponse
     {

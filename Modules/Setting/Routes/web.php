@@ -34,7 +34,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::put('sales-location-configurations/order', [SaleLocationConfigurationController::class, 'order'])
         ->name('sales-location-configurations.order');
     Route::resource('sales-location-configurations', SaleLocationConfigurationController::class)
-        ->only(['index', 'store', 'update', 'destroy']);
+        ->only(['index', 'store', 'destroy']);
     // Taxes
     Route::resource('taxes', 'TaxController')->except('show');
     // PaymentTerms

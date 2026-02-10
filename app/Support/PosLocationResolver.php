@@ -36,7 +36,6 @@ class PosLocationResolver
         return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($settingId) {
             return SettingSaleLocation::query()
                 ->where('setting_id', $settingId)
-                ->where('is_pos', true)
                 ->orderBy('position')
                 ->orderBy('id')
                 ->pluck('location_id')

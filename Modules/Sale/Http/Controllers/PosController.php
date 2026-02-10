@@ -678,10 +678,13 @@ class PosController extends Controller
 
         // Map location_id to the LOCATION OWNER's setting_id (not the POS config setting_id)
         // This ensures sales are attributed to the tenant who owns the stock/location
+        // Scoped to current setting's assignments only
         $map = SettingSaleLocation::query()
             ->select(['setting_sale_locations.location_id', 'locations.setting_id'])
             ->join('locations', 'locations.id', '=', 'setting_sale_locations.location_id')
-            ->where('setting_sale_locations.is_pos', true)
+            ->where('setting_sale_locations.setting_id', session('setting_id'))
+            ->orderBy('setting_sale_locations.position')
+            ->orderBy('setting_sale_locations.id')
             ->get()
             ->mapWithKeys(fn ($row) => [(int) $row->location_id => (int) $row->setting_id])
             ->toArray();

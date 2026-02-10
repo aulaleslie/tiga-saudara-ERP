@@ -53,7 +53,7 @@ class SaleLocationConfigurationTest extends TestCase
 
         $this->actingAs($user)->withSession([
             'setting_id'    => $setting->id,
-            'user_settings' => [$setting],
+            'user_settings' => collect([$setting]),
         ]);
 
         return $user;
@@ -82,6 +82,8 @@ class SaleLocationConfigurationTest extends TestCase
         $response->assertSee('CVTN 1');
         $response->assertSee('TIT 1');
         $response->assertSee('Konfigurasi Gudang Penjualan');
+        $response->assertDontSee('Jadikan POS');
+        $response->assertDontSee('Nonaktifkan POS');
         $this->assertEquals($settingA->id, $ownedLocation->saleAssignment->setting_id);
         $this->assertEquals($settingB->id, $borrowable->saleAssignment->setting_id);
     }
@@ -151,102 +153,7 @@ class SaleLocationConfigurationTest extends TestCase
         $this->assertFalse($location->fresh()->saleAssignment->is_pos);
     }
 
-    public function test_can_toggle_pos_location_within_setting(): void
-    {
-        $setting = $this->createSetting('CV Tiga Nusa');
-        $this->actingAsSuperAdminForSetting($setting);
 
-        $primary = Location::create([
-            'name'       => 'Gudang Utama',
-            'setting_id' => $setting->id,
-        ]);
-
-        $secondary = Location::create([
-            'name'       => 'Gudang Cabang',
-            'setting_id' => $setting->id,
-        ]);
-
-        $this->patch(route('sales-location-configurations.update', $primary->id), [
-            'is_pos' => true,
-        ])->assertRedirect(route('sales-location-configurations.index'));
-
-        $this->assertTrue($primary->fresh()->saleAssignment->is_pos);
-        $this->assertFalse($secondary->fresh()->saleAssignment->is_pos);
-
-        $this->patch(route('sales-location-configurations.update', $secondary->id), [
-            'is_pos' => true,
-        ])->assertRedirect(route('sales-location-configurations.index'));
-
-        $this->assertTrue($primary->fresh()->saleAssignment->is_pos);
-        $this->assertTrue($secondary->fresh()->saleAssignment->is_pos);
-
-        $this->patch(route('sales-location-configurations.update', $secondary->id), [
-            'is_pos' => false,
-        ])->assertRedirect(route('sales-location-configurations.index'));
-
-        $this->assertTrue($primary->fresh()->saleAssignment->is_pos);
-        $this->assertFalse($secondary->fresh()->saleAssignment->is_pos);
-
-        $this->patch(route('sales-location-configurations.update', $primary->id), [
-            'is_pos' => false,
-        ])->assertRedirect(route('sales-location-configurations.index'));
-
-        $this->assertFalse($primary->fresh()->saleAssignment->is_pos);
-        $this->assertFalse($secondary->fresh()->saleAssignment->is_pos);
-    }
-
-    public function test_respects_configured_maximum_pos_locations(): void
-    {
-        config()->set('setting.max_pos_locations', 2);
-
-        $setting = $this->createSetting('CV Tiga Nusa');
-        $this->actingAsSuperAdminForSetting($setting);
-
-        $locations = collect([
-            Location::create(['name' => 'Gudang 1', 'setting_id' => $setting->id]),
-            Location::create(['name' => 'Gudang 2', 'setting_id' => $setting->id]),
-            Location::create(['name' => 'Gudang 3', 'setting_id' => $setting->id]),
-        ]);
-
-        $locations->take(2)->each(function (Location $location) {
-            $this->patch(route('sales-location-configurations.update', $location->id), [
-                'is_pos' => true,
-            ])->assertRedirect(route('sales-location-configurations.index'));
-        });
-
-        $this->patch(route('sales-location-configurations.update', $locations[2]->id), [
-            'is_pos' => true,
-        ])->assertRedirect(route('sales-location-configurations.index'));
-
-        $this->assertTrue($locations[0]->fresh()->saleAssignment->is_pos);
-        $this->assertTrue($locations[1]->fresh()->saleAssignment->is_pos);
-        $this->assertFalse($locations[2]->fresh()->saleAssignment->is_pos);
-
-        $this->assertSame(2, SettingSaleLocation::query()
-            ->where('setting_id', $setting->id)
-            ->where('is_pos', true)
-            ->count());
-    }
-
-    public function test_toggle_pos_requires_edit_permission(): void
-    {
-        $setting = $this->createSetting('CV Tiga Nusa');
-
-        $location = Location::create([
-            'name'       => 'Gudang Utama',
-            'setting_id' => $setting->id,
-        ]);
-
-        $user = User::factory()->create();
-        $this->actingAs($user)->withSession([
-            'setting_id'    => $setting->id,
-            'user_settings' => [$setting],
-        ]);
-
-        $this->patch(route('sales-location-configurations.update', $location->id), [
-            'is_pos' => true,
-        ])->assertStatus(403);
-    }
 
     public function test_can_reorder_locations(): void
     {
