@@ -193,6 +193,22 @@ class PurchaseShowReturnedSerialVisibilityTest extends TestCase
             'setting_id'  => $this->setting->id,
         ]);
 
+        // Create return detail to link to PO
+        \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'po_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'serial_number_ids' => [$serial->id],
+        ]);
+
         // Manually record history to simulate what happens during receiving
         \Modules\Product\Entities\SerialNumberHistory::create([
             'product_serial_number_id' => $serial->id,
@@ -200,6 +216,16 @@ class PurchaseShowReturnedSerialVisibilityTest extends TestCase
             'location_id' => 1,
             'reference_type' => \Modules\Purchase\Entities\ReceivedNoteDetail::class,
             'reference_id' => $receivedNoteDetail->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        // Record history for return
+        \Modules\Product\Entities\SerialNumberHistory::create([
+            'product_serial_number_id' => $serial->id,
+            'event_type' => \Modules\Product\Entities\SerialNumberHistory::EVENT_PURCHASE_RETURNED,
+            'location_id' => 1,
+            'reference_type' => \Modules\PurchasesReturn\Entities\PurchaseReturn::class,
+            'reference_id' => $purchaseReturn->id,
             'user_id' => $this->user->id,
         ]);
 

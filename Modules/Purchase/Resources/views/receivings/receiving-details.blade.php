@@ -15,27 +15,37 @@
                 <td>{{ $detail->quantity_received }}</td>
                 <td>
                     @php
-                        $hasActiveSerials = $detail->productSerialNumbers->isNotEmpty();
-                        $hasReturnedSerials = isset($detail->returnedSerialNumbers) && $detail->returnedSerialNumbers->isNotEmpty();
+                        $regularSerials = $detail->productSerialNumbers ?? collect([]);
+                        $returnedSerials = $detail->returnedSerialNumbers ?? collect([]);
+
+                        // Deduplicate: If a serial is in both, prioritize the "returned" status for visual state
+                        // but ensure it's not rendered twice.
+                        $returnedSerialNumbers = $returnedSerials->pluck('serial_number')->toArray();
+                        
+                        $allSerials = $regularSerials->filter(function($s) use ($returnedSerialNumbers) {
+                            return !in_array($s->serial_number, $returnedSerialNumbers);
+                        })->map(function($s) {
+                            return (object)[
+                                'serial_number' => $s->serial_number,
+                                'is_returned' => !in_array($s->status, [\Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE, 'active']),
+                                'title' => ''
+                            ];
+                        })->concat($returnedSerials->map(function($s) {
+                            return (object)[
+                                'serial_number' => $s->serial_number,
+                                'is_returned' => true,
+                                'title' => 'Returned'
+                            ];
+                        }))->sortBy('serial_number');
                     @endphp
 
-                    @if($hasActiveSerials || $hasReturnedSerials)
+                    @if($allSerials->isNotEmpty())
                         <ul class="list-unstyled mb-0">
-                            @if($hasActiveSerials)
-                                @foreach($detail->productSerialNumbers as $serial)
-                                    <li class="badge {{ !in_array($serial->status, [\Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE, 'active']) ? 'bg-danger' : 'bg-info' }} me-1">
-                                        {{ $serial->serial_number }}
-                                    </li>
-                                @endforeach
-                            @endif
-
-                            @if($hasReturnedSerials)
-                                @foreach($detail->returnedSerialNumbers as $serial)
-                                    <li class="badge bg-danger me-1" title="Returned">
-                                        {{ $serial->serial_number }}
-                                    </li>
-                                @endforeach
-                            @endif
+                            @foreach($allSerials as $serial)
+                                <li class="badge {{ $serial->is_returned ? 'bg-danger' : 'bg-info' }} me-1" title="{{ $serial->title }}">
+                                    {{ $serial->serial_number }}
+                                </li>
+                            @endforeach
                         </ul>
                     @elseif(!empty($detail->pending_serial_numbers))
                         <ul class="list-unstyled mb-0">

@@ -68,6 +68,12 @@ class PurchaseSerialValidateReturnedReuseTest extends TestCase
             'category_name' => 'Category',
             'setting_id' => $this->setting->id,
         ]);
+
+        $this->location = \Modules\Setting\Entities\Location::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'Test Location',
+        ]);
+
         $this->actingAs($user);
     }
 
@@ -84,14 +90,8 @@ class PurchaseSerialValidateReturnedReuseTest extends TestCase
             'product_price' => 1000, // 10.00 * 100
             'product_unit' => 'PCS',
             'product_stock_alert' => 5,
-            'product_order_tax' => 0,
-            'product_tax_type' => 0,
-            'stock_managed' => true,
             'unit_id' => $this->unit->id,
             'base_unit_id' => $this->unit->id,
-            'sale_price' => 1000,
-            'tier_1_price' => 1000,
-            'tier_2_price' => 1000,
         ]);
     }
 
@@ -103,7 +103,7 @@ class PurchaseSerialValidateReturnedReuseTest extends TestCase
             'status' => $status,
             'is_in_return_process' => $isInReturnProcess,
             // Add other required fields with defaults to avoid sql errors
-            'location_id' => null, // Assuming nullable
+            'location_id' => $this->location->id,
             'tax_id' => null,
             'received_note_detail_id' => null,
             'dispatch_detail_id' => null,
@@ -206,20 +206,52 @@ class PurchaseSerialValidateReturnedReuseTest extends TestCase
         // Given 'SN-PENDING-001' is in a pending receiving for the same product
         $product = $this->createProduct();
         
-        // We need to create Note and Detail manually too since they likely don't have factories
+        $supplier = \Modules\People\Entities\Supplier::create([
+            'supplier_name' => 'Supplier',
+            'supplier_phone' => '123',
+            'supplier_email' => 'sup@test.com',
+            'city' => 'City',
+            'country' => 'Country',
+            'address' => 'Address',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $purchase = \Modules\Purchase\Entities\Purchase::create([
+            'date' => now(),
+            'due_date' => now(),
+            'supplier_id' => $supplier->id,
+            'supplier_purchase_number' => 'SUP-001',
+            'tax_ref_no' => 'TAX-001',
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1000,
+            'due_amount' => 1000,
+            'status' => 'Pending',
+            'payment_status' => 'Unpaid',
+            'payment_term_id' => null,
+            'note' => null,
+            'setting_id' => $this->setting->id,
+            'paid_amount' => 0,
+            'is_tax_included' => false,
+            'payment_method' => '',
+            'reference' => 'PO-001',
+        ]);
+
         $receivedNote = ReceivedNote::create([
             'date' => now(),
-            'reference' => 'RN-001',
             'status' => ReceivedNote::STATUS_PENDING,
-            'user_id' => 1,
-            'setting_id' => $this->setting->id,
-            'document_path' => null,
-            'purchase_id' => 1, // dummy
+            'po_id' => $purchase->id,
+            'location_id' => $this->location->id,
         ]);
 
         $purchaseDetail = PurchaseDetail::create([
-            'purchase_id' => 1, // dummy
+            'purchase_id' => $purchase->id,
             'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
             'quantity' => 10,
             'price' => 1000,
             'unit_price' => 1000,
@@ -231,10 +263,8 @@ class PurchaseSerialValidateReturnedReuseTest extends TestCase
         
         ReceivedNoteDetail::create([
             'received_note_id' => $receivedNote->id,
-            'purchase_detail_id' => $purchaseDetail->id,
-            'item_type' => 'product', // Assuming standard setup
-            'product_id' => $product->id,
-            'quantity' => 1,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 1,
             'pending_serial_numbers' => ['SN-PENDING-001'],
         ]);
 

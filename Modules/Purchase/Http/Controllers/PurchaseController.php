@@ -8,6 +8,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Modules\Product\Entities\ProductSerialNumber;
@@ -27,6 +28,9 @@ use App\Services\SerialNumberHistoryService;
 use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
 use Modules\Purchase\DataTables\PurchaseReceivingsDataTable;
+use Modules\PurchasesReturn\Entities\PurchaseReturn;
+use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
+use Modules\Setting\Entities\Setting;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
@@ -266,15 +270,40 @@ class PurchaseController extends Controller
         // Fetch all received detail IDs for this purchase to find related returned serials
         $receivedDetailIds = $receivedNotes->flatMap->receivedNoteDetails->pluck('id');
 
-        // Fetch returned serials that were originally from this purchase but are now unlinked
-        $returnedSerials = ProductSerialNumber::whereNotNull('purchase_return_id')
-            ->whereIn('id', function ($query) use ($receivedDetailIds) {
-                $query->select('product_serial_number_id')
-                    ->from('serial_number_histories')
-                    ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
-                    ->where('reference_type', ReceivedNoteDetail::class)
-                    ->whereIn('reference_id', $receivedDetailIds);
-            })->get();
+        // Fetch serials that were received in this purchase AND have a return event explicitly linked to this purchase in history
+        $returnedSerials = ProductSerialNumber::whereIn('id', function ($query) use ($receivedDetailIds) {
+            $query->select('product_serial_number_id')
+                ->from('serial_number_histories')
+                ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+                ->where('reference_type', ReceivedNoteDetail::class)
+                ->whereIn('reference_id', $receivedDetailIds);
+        })->whereIn('id', function ($query) use ($purchase) {
+            $query->select('product_serial_number_id')
+                ->from('serial_number_histories')
+                ->where('event_type', SerialNumberHistory::EVENT_PURCHASE_RETURNED)
+                ->where(function ($q) use ($purchase) {
+                    $q->where(function ($q1) use ($purchase) {
+                        $q1->where('reference_type', PurchaseReturn::class)
+                            ->whereIn('reference_id', function ($sub) use ($purchase) {
+                                $sub->select('purchase_return_id')
+                                    ->from('purchase_return_details')
+                                    ->where('po_id', $purchase->id);
+                            });
+                    })
+                    ->orWhere(function ($q2) use ($purchase) {
+                        $q2->where('reference_type', \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::class)
+                            ->whereIn('reference_id', function ($sub) use ($purchase) {
+                                $sub->select('id')
+                                    ->from('purchase_return_item_settlements')
+                                    ->whereIn('purchase_return_detail_id', function ($sub2) use ($purchase) {
+                                        $sub2->select('id')
+                                            ->from('purchase_return_details')
+                                            ->where('po_id', $purchase->id);
+                                    });
+                            });
+                    });
+                });
+        })->get();
 
 
         if ($returnedSerials->isNotEmpty()) {
@@ -289,6 +318,13 @@ class PurchaseController extends Controller
                     $detail->returnedSerialNumbers = $histories->get($detail->id)
                         ? $returnedSerials->whereIn('id', $histories->get($detail->id)->pluck('product_serial_number_id'))
                         : collect([]);
+                }
+            }
+        } else {
+            // Ensure the property exists even if empty to avoid "contains on null" in tests/views
+            foreach ($receivedNotes as $note) {
+                foreach ($note->receivedNoteDetails as $detail) {
+                    $detail->returnedSerialNumbers = collect([]);
                 }
             }
         }
@@ -790,10 +826,11 @@ class PurchaseController extends Controller
     /**
      * Approve a receiving and increment stock.
      */
-    public function approveReceiving(ReceivedNote $receivedNote): RedirectResponse|\Illuminate\Http\JsonResponse
+    public function approveReceiving(ReceivedNote $receivedNote): RedirectResponse|\Illuminate\Http\JsonResponse|\Illuminate\Http\Response
     {
         abort_if(Gate::denies('purchaseReceivings.approval'), 403);
 
+        // Initial check
         if (!$receivedNote->isPending()) {
             if (request()->ajax() || request()->wantsJson()) {
                 return response()->json([
@@ -806,235 +843,307 @@ class PurchaseController extends Controller
             return redirect()->back();
         }
 
-        // Validate for over-receiving before approval
         $purchase = $receivedNote->purchase;
-        $receivedNote->load('receivedNoteDetails.purchaseDetail');
-        
-        // Get already approved quantities for this purchase
-        $approvedQuantities = ReceivedNoteDetail::whereHas('receivedNote', function ($q) use ($purchase) {
-            $q->where('po_id', $purchase->id)->where('status', ReceivedNote::STATUS_APPROVED);
-        })->selectRaw('po_detail_id, SUM(quantity_received) as total_received')
-          ->groupBy('po_detail_id')
-          ->pluck('total_received', 'po_detail_id');
+        $lock = Cache::lock('purchase_approval_' . $purchase->id, 10);
 
-        $overReceivingErrors = [];
-        
-        foreach ($receivedNote->receivedNoteDetails as $detail) {
-            $purchaseDetail = $detail->purchaseDetail;
-            if (!$purchaseDetail) {
-                continue;
-            }
-            
-            $orderedQuantity = $purchaseDetail->quantity;
-            $alreadyReceived = $approvedQuantities[$purchaseDetail->id] ?? 0;
-            $pendingQuantity = $detail->quantity_received;
-            $totalAfterApproval = $alreadyReceived + $pendingQuantity;
-            
-            if ($totalAfterApproval > $orderedQuantity) {
-                $overReceivingErrors[] = [
-                    'product_name' => $purchaseDetail->product_name,
-                    'product_code' => $purchaseDetail->product_code,
-                    'ordered_quantity' => $orderedQuantity,
-                    'already_received' => $alreadyReceived,
-                    'pending_quantity' => $pendingQuantity,
-                    'excess' => $totalAfterApproval - $orderedQuantity,
-                ];
-            }
-        }
-        
-        if (!empty($overReceivingErrors)) {
-            if (request()->ajax() || request()->wantsJson()) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'over_receiving',
-                    'message' => 'Jumlah penerimaan melebihi jumlah pesanan',
-                    'details' => $overReceivingErrors,
-                    'received_note_id' => $receivedNote->id,
-                ], 422);
-            }
-            // Fallback for non-AJAX requests
-            toast('Jumlah penerimaan melebihi jumlah pesanan. Silakan tolak penerimaan ini.', 'error');
-            return redirect()->back();
-        }
+        try {
+            $result = $lock->get(function () use ($receivedNote, $purchase) {
+                // Re-check status inside lock to handle race conditions
+                if (!$receivedNote->fresh()->isPending()) {
+                    if (request()->ajax() || request()->wantsJson()) {
+                        return response()->json([
+                            'success' => false,
+                            'error' => 'already_processed',
+                            'message' => 'Penerimaan ini sudah diproses sebelumnya.',
+                        ], 422);
+                    }
+                    toast('Penerimaan ini sudah diproses sebelumnya.', 'error');
+                    return redirect()->back();
+                }
 
-        DB::transaction(function () use ($receivedNote) {
-            $receivedNote->lockForUpdate();
-            $purchase = $receivedNote->purchase;
-            
-            // Load received note details with purchase details
-            $receivedNote->load('receivedNoteDetails.purchaseDetail.product');
-            
-            $productIds = $receivedNote->receivedNoteDetails->pluck('purchaseDetail.product_id')->unique();
-            $products = Product::whereIn('id', $productIds)->lockForUpdate()->get();
-            $productStocks = ProductStock::whereIn('product_id', $productIds)
-                ->where('location_id', $receivedNote->location_id)
-                ->lockForUpdate()
-                ->get();
+                // Validate for over-receiving before approval
+                $receivedNote->load('receivedNoteDetails.purchaseDetail');
+                
+                // Get already approved quantities for this purchase
+                $approvedQuantities = ReceivedNoteDetail::whereHas('receivedNote', function ($q) use ($purchase) {
+                    $q->where('po_id', $purchase->id)->where('status', ReceivedNote::STATUS_APPROVED);
+                })->selectRaw('po_detail_id, SUM(quantity_received) as total_received')
+                  ->groupBy('po_detail_id')
+                  ->pluck('total_received', 'po_detail_id');
 
-            foreach ($receivedNote->receivedNoteDetails as $detail) {
-                $purchaseDetail = $detail->purchaseDetail;
-                $receivedQuantity = $detail->quantity_received;
+                $overReceivingErrors = [];
+                
+                foreach ($receivedNote->receivedNoteDetails as $detail) {
+                    $purchaseDetail = $detail->purchaseDetail;
+                    if (!$purchaseDetail) {
+                        continue;
+                    }
+                    
+                    $orderedQuantity = $purchaseDetail->quantity;
+                    $alreadyReceived = $approvedQuantities[$purchaseDetail->id] ?? 0;
+                    $pendingQuantity = $detail->quantity_received;
+                    $totalAfterApproval = $alreadyReceived + $pendingQuantity;
+                    
+                    if ($totalAfterApproval > $orderedQuantity) {
+                        $overReceivingErrors[] = [
+                            'product_name' => $purchaseDetail->product_name,
+                            'product_code' => $purchaseDetail->product_code,
+                            'ordered_quantity' => $orderedQuantity,
+                            'already_received' => $alreadyReceived,
+                            'pending_quantity' => $pendingQuantity,
+                            'excess' => $totalAfterApproval - $orderedQuantity,
+                        ];
+                    }
+                }
+                
+                if (!empty($overReceivingErrors)) {
+                    if (request()->ajax() || request()->wantsJson()) {
+                        return response()->json([
+                            'success' => false,
+                            'error' => 'over_receiving',
+                            'message' => 'Jumlah penerimaan melebihi jumlah pesanan',
+                            'details' => $overReceivingErrors,
+                            'received_note_id' => $receivedNote->id,
+                        ], 422);
+                    }
+                    // Fallback for non-AJAX requests
+                    toast('Jumlah penerimaan melebihi jumlah pesanan. Silakan tolak penerimaan ini.', 'error');
+                    return redirect()->back();
+                }
 
-                if ($receivedQuantity > 0) {
-                    $product = $products->where('id', $purchaseDetail->product_id)->first();
-
-                    // Update product stock
-                    $productStock = $productStocks->where('product_id', $purchaseDetail->product_id)
+                DB::transaction(function () use ($receivedNote) {
+                    $receivedNote->lockForUpdate();
+                    $purchase = $receivedNote->purchase;
+                    
+                    // Load received note details with purchase details
+                    $receivedNote->load('receivedNoteDetails.purchaseDetail.product');
+                    
+                    $productIds = $receivedNote->receivedNoteDetails->pluck('purchaseDetail.product_id')->unique();
+                    $products = Product::whereIn('id', $productIds)->lockForUpdate()->get();
+                    $productStocks = ProductStock::whereIn('product_id', $productIds)
                         ->where('location_id', $receivedNote->location_id)
-                        ->first();
+                        ->lockForUpdate()
+                        ->get();
 
-                    if (!$productStock) {
-                        $productStock = ProductStock::create([
-                            'product_id' => $purchaseDetail->product_id,
-                            'location_id' => $receivedNote->location_id,
-                            'quantity' => 0,
-                            'quantity_tax' => 0,
-                            'quantity_non_tax' => 0,
-                            'broken_quantity_non_tax' => 0,
-                            'broken_quantity_tax' => 0,
-                            'broken_quantity' => 0,
-                        ]);
-                    }
+                    foreach ($receivedNote->receivedNoteDetails as $detail) {
+                        $purchaseDetail = $detail->purchaseDetail;
+                        $receivedQuantity = $detail->quantity_received;
 
-                    // Capture previous stock
-                    $previous_quantity = $product->product_quantity;
-                    $previous_quantity_at_location = $productStock->quantity;
+                        if ($receivedQuantity > 0) {
+                            $product = $products->where('id', $purchaseDetail->product_id)->first();
 
-                    // Increment stock quantity
-                    $productStock->increment('quantity', $receivedQuantity);
+                            // Update product stock
+                            $productStock = $productStocks->where('product_id', $purchaseDetail->product_id)
+                                ->where('location_id', $receivedNote->location_id)
+                                ->first();
 
-                    if ($purchaseDetail->tax_id) {
-                        $productStock->increment('quantity_tax', $receivedQuantity);
-                    } else {
-                        $productStock->increment('quantity_non_tax', $receivedQuantity);
-                    }
+                            if (!$productStock) {
+                                $productStock = ProductStock::create([
+                                    'product_id' => $purchaseDetail->product_id,
+                                    'location_id' => $receivedNote->location_id,
+                                    'quantity' => 0,
+                                    'quantity_tax' => 0,
+                                    'quantity_non_tax' => 0,
+                                    'broken_quantity_non_tax' => 0,
+                                    'broken_quantity_tax' => 0,
+                                    'broken_quantity' => 0,
+                                ]);
+                            }
 
-                    $product->increment('product_quantity', $receivedQuantity);
+                            // Capture previous stock
+                            $previous_quantity = $product->product_quantity;
+                            $previous_quantity_at_location = $productStock->quantity;
 
-                    // Capture after stock
-                    $after_quantity = $product->product_quantity;
-                    $after_quantity_at_location = $productStock->quantity;
+                            // Increment stock quantity
+                            $productStock->increment('quantity', $receivedQuantity);
 
-                    // Update Last Purchase Price
-                    $product->update(['last_purchase_price' => $purchaseDetail->price]);
+                            if ($purchaseDetail->tax_id) {
+                                $productStock->increment('quantity_tax', $receivedQuantity);
+                            } else {
+                                $productStock->increment('quantity_non_tax', $receivedQuantity);
+                            }
 
-                    // Update Average Purchase Price
-                    $this->updateAveragePurchasePrice($product, $purchaseDetail->price, $receivedQuantity);
+                            $product->increment('product_quantity', $receivedQuantity);
 
-                    // Update per-setting ProductPrice (last + average) on approval
-                    $settingId = $purchase->setting_id ?? session('setting_id');
-                    if (!is_null($settingId)) {
-                        $productPrice = ProductPrice::firstOrCreate(
-                            [
-                                'product_id' => $product->id,
-                                'setting_id' => $settingId,
-                            ],
-                            [
-                                'sale_price' => 0,
-                                'last_purchase_price' => 0,
-                                'average_purchase_price' => 0,
-                            ]
-                        );
+                            // Capture after stock
+                            $after_quantity = $product->product_quantity;
+                            $after_quantity_at_location = $productStock->quantity;
 
-                        $previousQty = $previous_quantity;
-                        $currentAvgPrice = $productPrice->average_purchase_price ?? 0;
-                        $currentTotalValue = $currentAvgPrice * $previousQty;
-                        $newTotalValue = $purchaseDetail->price * $receivedQuantity;
-                        $newTotalQuantity = $previousQty + $receivedQuantity;
+                            // Update Last Purchase Price
+                            $product->update(['last_purchase_price' => $purchaseDetail->price]);
 
-                        $newAveragePrice = $newTotalQuantity > 0
-                            ? ($currentTotalValue + $newTotalValue) / $newTotalQuantity
-                            : $purchaseDetail->price;
+                            // Update Average Purchase Price
+                            $this->updateAveragePurchasePrice($product, $purchaseDetail->price, $receivedQuantity);
 
-                        $productPrice->update([
-                            'last_purchase_price' => $purchaseDetail->price,
-                            'average_purchase_price' => $newAveragePrice,
-                        ]);
-                    }
+                            // Update per-setting ProductPrice (last + average) on approval
+                            $settingId = $purchase->setting_id ?? session('setting_id');
+                            if (!is_null($settingId)) {
+                                $productPrice = ProductPrice::firstOrCreate(
+                                    [
+                                        'product_id' => $product->id,
+                                        'setting_id' => $settingId,
+                                    ],
+                                    [
+                                        'sale_price' => 0,
+                                        'last_purchase_price' => 0,
+                                        'average_purchase_price' => 0,
+                                    ]
+                                );
 
-                    // Insert Transaction Log
-                    Transaction::create([
-                        'product_id' => $purchaseDetail->product_id,
-                        'setting_id' => session('setting_id'),
-                        'quantity' => $receivedQuantity,
-                        'current_quantity' => $after_quantity,
-                        'broken_quantity' => 0,
-                        'location_id' => $receivedNote->location_id,
-                        'user_id' => auth()->id(),
-                        'reason' => 'Received from Purchase Order #' . $purchase->reference . ' (Approved)',
-                        'type' => 'BUY',
-                        'previous_quantity' => $previous_quantity,
-                        'after_quantity' => $after_quantity,
-                        'previous_quantity_at_location' => $previous_quantity_at_location,
-                        'after_quantity_at_location' => $after_quantity_at_location,
-                        'quantity_non_tax' => $purchaseDetail->tax_id ? 0 : $receivedQuantity,
-                        'quantity_tax' => $purchaseDetail->tax_id ? $receivedQuantity : 0,
-                        'broken_quantity_non_tax' => 0,
-                        'broken_quantity_tax' => 0,
-                    ]);
+                                $previousQty = $previous_quantity;
+                                $currentAvgPrice = $productPrice->average_purchase_price ?? 0;
+                                $currentTotalValue = $currentAvgPrice * $previousQty;
+                                $newTotalValue = $purchaseDetail->price * $receivedQuantity;
+                                $newTotalQuantity = $previousQty + $receivedQuantity;
 
-                    // Commit pending serial numbers to product_serial_numbers table
-                    if (!empty($detail->pending_serial_numbers) && is_array($detail->pending_serial_numbers)) {
-                        foreach ($detail->pending_serial_numbers as $serialNumber) {
-                            $serialRecord = ProductSerialNumber::create([
+                                $newAveragePrice = $newTotalQuantity > 0
+                                    ? ($currentTotalValue + $newTotalValue) / $newTotalQuantity
+                                    : $purchaseDetail->price;
+
+                                $productPrice->update([
+                                    'last_purchase_price' => $purchaseDetail->price,
+                                    'average_purchase_price' => $newAveragePrice,
+                                ]);
+                            }
+
+                            // Insert Transaction Log
+                            Transaction::create([
                                 'product_id' => $purchaseDetail->product_id,
+                                'setting_id' => session('setting_id'),
+                                'quantity' => $receivedQuantity,
+                                'current_quantity' => $after_quantity,
+                                'broken_quantity' => 0,
                                 'location_id' => $receivedNote->location_id,
-                                'serial_number' => $serialNumber,
-                                'tax_id' => $purchaseDetail->tax_id,
-                                'received_note_detail_id' => $detail->id,
+                                'user_id' => auth()->id(),
+                                'reason' => 'Received from Purchase Order #' . $purchase->reference . ' (Approved)',
+                                'type' => 'BUY',
+                                'previous_quantity' => $previous_quantity,
+                                'after_quantity' => $after_quantity,
+                                'previous_quantity_at_location' => $previous_quantity_at_location,
+                                'after_quantity_at_location' => $after_quantity_at_location,
+                                'quantity_non_tax' => $purchaseDetail->tax_id ? 0 : $receivedQuantity,
+                                'quantity_tax' => $purchaseDetail->tax_id ? $receivedQuantity : 0,
+                                'broken_quantity_non_tax' => 0,
+                                'broken_quantity_tax' => 0,
                             ]);
 
-                            // Record RECEIVED history event
-                            SerialNumberHistoryService::record(
-                                $serialRecord->id,
-                                SerialNumberHistory::EVENT_RECEIVED,
-                                $receivedNote->location_id,
-                                $detail
-                            );
+                            // Commit pending serial numbers to product_serial_numbers table
+                            if (!empty($detail->pending_serial_numbers) && is_array($detail->pending_serial_numbers)) {
+                                foreach ($detail->pending_serial_numbers as $serialNumber) {
+                                    
+                                    $existingSerial = ProductSerialNumber::where('product_id', $purchaseDetail->product_id)
+                                        ->where('serial_number', $serialNumber)
+                                        ->first();
+                                        
+                                    if ($existingSerial) {
+                                        if ($existingSerial->status === ProductSerialNumber::STATUS_RETURNED) {
+                                            // Reactivate existing serial
+                                            $existingSerial->update([
+                                                'status' => ProductSerialNumber::STATUS_ACTIVE,
+                                                'location_id' => $receivedNote->location_id,
+                                                'tax_id' => $purchaseDetail->tax_id,
+                                                // 'received_note_detail_id' => $detail->id, // Optional: Update this if we want to track latest source
+                                                'purchase_return_id' => null,
+                                                'is_in_return_process' => false,
+                                            ]);
+                                            $serialRecord = $existingSerial;
+                                        } else {
+                                            throw new Exception("Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED.");
+                                        }
+                                    } else {
+                                        $serialRecord = ProductSerialNumber::create([
+                                            'product_id' => $purchaseDetail->product_id,
+                                            'location_id' => $receivedNote->location_id,
+                                            'serial_number' => $serialNumber,
+                                            'tax_id' => $purchaseDetail->tax_id,
+                                            'received_note_detail_id' => $detail->id,
+                                        ]);
+                                    }
+
+                                    // Record RECEIVED history event
+                                    SerialNumberHistoryService::record(
+                                        $serialRecord->id,
+                                        SerialNumberHistory::EVENT_RECEIVED,
+                                        $receivedNote->location_id,
+                                        $detail
+                                    );
+                                }
+                                // Clear pending serial numbers after commit
+                                $detail->update(['pending_serial_numbers' => null]);
+                            }
                         }
-                        // Clear pending serial numbers after commit
-                        $detail->update(['pending_serial_numbers' => null]);
                     }
+
+                    // Update receiving status to APPROVED
+                    $receivedNote->update([
+                        'status' => ReceivedNote::STATUS_APPROVED,
+                        'approved_at' => now(),
+                        'approved_by' => auth()->id(),
+                    ]);
+
+                    // Calculate and update purchase status based on all APPROVED receivings
+                    $purchaseDetails = $purchase->purchaseDetails;
+                    $approvedReceiveds = ReceivedNoteDetail::whereHas('receivedNote', function ($q) use ($purchase) {
+                        $q->where('po_id', $purchase->id)->where('status', ReceivedNote::STATUS_APPROVED);
+                    })->selectRaw('po_detail_id, SUM(quantity_received) as total_received')
+                      ->groupBy('po_detail_id')
+                      ->pluck('total_received', 'po_detail_id');
+
+                    $allFullyReceived = true;
+                    foreach ($purchaseDetails as $detail) {
+                        $totalReceived = $approvedReceiveds[$detail->id] ?? 0;
+                        if ($totalReceived < $detail->quantity) {
+                            $allFullyReceived = false;
+                            break;
+                        }
+                    }
+
+                    $status = $allFullyReceived ? Purchase::STATUS_RECEIVED : Purchase::STATUS_RECEIVED_PARTIALLY;
+                    $purchase->update(['status' => $status]);
+                });
+
+                if (request()->ajax() || request()->wantsJson()) {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Penerimaan berhasil disetujui dan stok telah diperbarui.',
+                    ]);
                 }
+
+                toast('Penerimaan berhasil disetujui dan stok telah diperbarui.', 'success');
+                return redirect()->back();
+            });
+
+            if ($result === false) {
+                if (request()->ajax() || request()->wantsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'conflict',
+                        'message' => 'Pembelian ini sedang diproses oleh pengguna lain. Silakan coba lagi.',
+                    ], 409);
+                }
+                return response('Pembelian ini sedang diproses oleh pengguna lain. Silakan coba lagi.', 409);
             }
 
-            // Update receiving status to APPROVED
-            $receivedNote->update([
-                'status' => ReceivedNote::STATUS_APPROVED,
-                'approved_at' => now(),
-                'approved_by' => auth()->id(),
-            ]);
+            return $result;
 
-            // Calculate and update purchase status based on all APPROVED receivings
-            $purchaseDetails = $purchase->purchaseDetails;
-            $approvedReceiveds = ReceivedNoteDetail::whereHas('receivedNote', function ($q) use ($purchase) {
-                $q->where('po_id', $purchase->id)->where('status', ReceivedNote::STATUS_APPROVED);
-            })->selectRaw('po_detail_id, SUM(quantity_received) as total_received')
-              ->groupBy('po_detail_id')
-              ->pluck('total_received', 'po_detail_id');
-
-            $allFullyReceived = true;
-            foreach ($purchaseDetails as $detail) {
-                $totalReceived = $approvedReceiveds[$detail->id] ?? 0;
-                if ($totalReceived < $detail->quantity) {
-                    $allFullyReceived = false;
-                    break;
+        } catch (\Throwable $e) {
+            // Handle serial number conflict
+            if (Str::contains($e->getMessage(), 'sudah ada dan statusnya bukan RETURNED')) {
+                $message = $e->getMessage();
+                if (request()->ajax() || request()->wantsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'conflict',
+                        'message' => $message,
+                    ], 409);
                 }
+                return response($message, 409);
             }
 
-            $status = $allFullyReceived ? Purchase::STATUS_RECEIVED : Purchase::STATUS_RECEIVED_PARTIALLY;
-            $purchase->update(['status' => $status]);
-        });
-
-        if (request()->ajax() || request()->wantsJson()) {
-            return response()->json([
-                'success' => true,
-                'message' => 'Penerimaan berhasil disetujui dan stok telah diperbarui.',
-            ]);
+            // Ensure lock is released if it was acquired manually, but get() helper releases it automatically.
+            // But we should rethrow to not silence errors.
+            throw $e;
         }
-
-        toast('Penerimaan berhasil disetujui dan stok telah diperbarui.', 'success');
-        return redirect()->back();
     }
 
     /**

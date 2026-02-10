@@ -26,6 +26,7 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
     protected $category;
     protected $user;
     protected $location;
+    protected $supplier;
 
     protected function setUp(): void
     {
@@ -76,8 +77,20 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
         $this->location = \Modules\Setting\Entities\Location::create([
             'setting_id' => $this->setting->id,
             'name' => 'Main Warehouse',
-            'is_default' => true,
         ]);
+
+        $this->supplier = \Modules\People\Entities\Supplier::create([
+            'supplier_name' => 'Supplier A',
+            'supplier_phone' => '123456',
+            'supplier_email' => 'supplier@example.com',
+            'city' => 'City',
+            'country' => 'Country',
+            'address' => 'Address',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        \Illuminate\Support\Facades\Gate::define('purchases.receive', fn() => true);
+        session(['setting_id' => $this->setting->id]);
     }
 
     private function createProduct()
@@ -93,15 +106,8 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
             'product_price' => 1000,
             'product_unit' => 'PCS',
             'product_stock_alert' => 5,
-            'product_order_tax' => 0,
-            'product_tax_type' => 0,
-            'stock_managed' => true,
             'unit_id' => $this->unit->id,
             'base_unit_id' => $this->unit->id,
-            'sale_price' => 1000,
-            'tier_1_price' => 1000,
-            'tier_2_price' => 1000,
-            'serial_number_required' => true,
         ]);
     }
 
@@ -109,9 +115,9 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
     {
         $purchase = Purchase::create([
             'date' => now()->format('Y-m-d'),
+            'due_date' => now()->format('Y-m-d'),
             'reference' => 'PO-001',
-            'supplier_id' => 1, // dummy
-            'supplier_name' => 'Supplier A',
+            'supplier_id' => $this->supplier->id,
             'tax_percentage' => 0,
             'tax_amount' => 0,
             'discount_percentage' => 0,
@@ -139,8 +145,6 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
-            'product_order_tax' => 0,
-            'product_unit' => 'PCS',
         ]);
 
         return [$purchase, $detail];
@@ -168,7 +172,7 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
         $product = $this->createProduct();
         list($purchase, $detail) = $this->createPurchase($product, 2);
 
-        $response = $this->post(route('purchase.store-receive', $purchase->id), [
+        $response = $this->post(route('purchases.storeReceive', $purchase->id), [
             'received' => [$detail->id => 2],
             'serial_numbers' => [$detail->id => ['SN-DUP', 'SN-DUP']],
             'location_id' => $this->location->id,
@@ -208,7 +212,7 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
 
         list($purchase, $detail) = $this->createPurchase($product, 1);
 
-        $response = $this->post(route('purchase.store-receive', $purchase->id), [
+        $response = $this->post(route('purchases.storeReceive', $purchase->id), [
             'received' => [$detail->id => 1],
             'serial_numbers' => [$detail->id => ['SN-EXIST']],
             'location_id' => $this->location->id,
@@ -232,7 +236,7 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
 
         list($purchase, $detail) = $this->createPurchase($product, 1);
 
-        $response = $this->post(route('purchase.store-receive', $purchase->id), [
+        $response = $this->post(route('purchases.storeReceive', $purchase->id), [
             'received' => [$detail->id => 1],
             'serial_numbers' => [$detail->id => ['SN-RETURNED']],
             'location_id' => $this->location->id,
@@ -262,7 +266,7 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
         // Purchase for Product B
         list($purchase, $detail) = $this->createPurchase($productB, 1);
 
-        $response = $this->post(route('purchase.store-receive', $purchase->id), [
+        $response = $this->post(route('purchases.storeReceive', $purchase->id), [
             'received' => [$detail->id => 1],
             'serial_numbers' => [$detail->id => ['SN-COMMON']],
             'location_id' => $this->location->id,
@@ -277,15 +281,16 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
         $productA = $this->createProduct();
         
         // Pending receiving for Product A with 'SN-PENDING'
+        list($dummyPurchase, $dummyDetail) = $this->createPurchase($productA, 1);
         $rn = ReceivedNote::create([
-            'po_id' => 1, 
+            'po_id' => $dummyPurchase->id, 
             'status' => ReceivedNote::STATUS_PENDING, 
             'location_id' => $this->location->id, 
             'date' => now()
         ]);
         ReceivedNoteDetail::create([
             'received_note_id' => $rn->id,
-            'product_id' => $productA->id,
+            'po_detail_id' => $dummyDetail->id,
             'quantity_received' => 1,
             'pending_serial_numbers' => ['SN-PENDING'],
         ]);
@@ -294,7 +299,7 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
         $productB = $this->createProduct();
         list($purchase, $detail) = $this->createPurchase($productB, 1);
 
-        $response = $this->post(route('purchase.store-receive', $purchase->id), [
+        $response = $this->post(route('purchases.storeReceive', $purchase->id), [
             'received' => [$detail->id => 1],
             'serial_numbers' => [$detail->id => ['SN-PENDING']],
             'location_id' => $this->location->id,
@@ -312,15 +317,16 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
         $product = $this->createProduct();
         
         // Pending receiving for Product with 'SN-PENDING-SAME'
+        list($dummyPurchase, $dummyDetail) = $this->createPurchase($product, 1);
         $rn = ReceivedNote::create([
-            'po_id' => 1, 
+            'po_id' => $dummyPurchase->id, 
             'status' => ReceivedNote::STATUS_PENDING, 
             'location_id' => $this->location->id, 
             'date' => now()
         ]);
         ReceivedNoteDetail::create([
             'received_note_id' => $rn->id,
-            'product_id' => $product->id,
+            'po_detail_id' => $dummyDetail->id,
             'quantity_received' => 1,
             'pending_serial_numbers' => ['SN-PENDING-SAME'],
         ]);
@@ -328,7 +334,7 @@ class PurchaseStoreReceiveSerialPolicyTest extends TestCase
         // Another purchase for same Product with 'SN-PENDING-SAME'
         list($purchase, $detail) = $this->createPurchase($product, 1);
 
-        $response = $this->post(route('purchase.store-receive', $purchase->id), [
+        $response = $this->post(route('purchases.storeReceive', $purchase->id), [
             'received' => [$detail->id => 1],
             'serial_numbers' => [$detail->id => ['SN-PENDING-SAME']],
             'location_id' => $this->location->id,

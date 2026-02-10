@@ -117,6 +117,7 @@
                                                             </div>
                                                         </div>
                                                         <div id="serial-error-{{ $detail->id }}" class="text-danger small mb-2 d-none"></div>
+                                                        <div id="serial-info-{{ $detail->id }}" class="text-info small mb-2 d-none"></div>
                                                         <small class="text-muted d-block mb-2">Tekan Enter untuk menambahkan setelah scan.</small>
 
                                                         <div id="serial-pills-container-{{ $detail->id }}" class="d-flex flex-wrap">
@@ -208,12 +209,33 @@
             }
         }
 
+        function showInfo(detailId, message) {
+            const infoContainer = document.getElementById(`serial-info-${detailId}`);
+            if (infoContainer) {
+                infoContainer.textContent = message;
+                infoContainer.classList.remove('d-none');
+                // Auto-hide after 5 seconds to avoid clutter
+                setTimeout(() => {
+                    clearInfo(detailId);
+                }, 5000);
+            }
+        }
+
+        function clearInfo(detailId) {
+            const infoContainer = document.getElementById(`serial-info-${detailId}`);
+            if (infoContainer) {
+                infoContainer.textContent = '';
+                infoContainer.classList.add('d-none');
+            }
+        }
+
         async function addSerialFromInput(detailId, productId) {
             const input = document.getElementById(`serial-input-${detailId}`);
             const serial = input.value.trim();
 
             // Clear previous error
             clearError(detailId);
+            clearInfo(detailId);
 
             if (!serial) return;
 
@@ -259,6 +281,11 @@
 
                 // Success - add pill
                 addSerialPill(detailId, serial);
+                
+                if (data.info_message) {
+                    showInfo(detailId, data.info_message);
+                }
+
                 input.value = '';
                 input.disabled = false;
                 input.focus();
