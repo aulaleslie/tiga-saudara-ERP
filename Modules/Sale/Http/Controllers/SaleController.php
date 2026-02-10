@@ -240,6 +240,12 @@ class SaleController extends Controller
 
         $this->ensureSaleBelongsToCurrentSetting($sale);
 
+        if ($sale->status === Sale::STATUS_APPROVED) {
+            if (Gate::denies('sales.approved.edit')) {
+                abort(403, 'Anda tidak memiliki akses untuk memperbarui penjualan yang sudah disetujui.');
+            }
+        }
+
         try {
             $data = $request->validated();
             $data['tax_amount'] = round((float) Cart::instance('sale')->tax(), 2);
@@ -585,7 +591,7 @@ class SaleController extends Controller
                     if (!in_array($locationId, $allowedLocationIds, true)) {
                         $validator->errors()->add("selectedLocations.$compositeKey", "Lokasi tidak valid untuk bisnis ini.");
                     }
-
+                    
                     $stock = $this->getStockAtLocation($productId, $taxId, $locationId);
                     if ((int)$qty > $stock) {
                         $validator->errors()->add("dispatchedQuantities.$compositeKey", "Stok tidak mencukupi di lokasi terpilih (Tersedia: {$stock}).");
@@ -597,11 +603,10 @@ class SaleController extends Controller
         if ($validator->fails()) {
             Log::debug('Dispatch validation failed', [
                 'errors' => $validator->errors()->toArray(),
-                'request' => $request->all()
+                'request' => $request->only(['dispatchedQuantities', 'selectedLocations', 'selectedSerialNumbers', 'serialNumberLocations'])
             ]);
             return redirect()->back()->withErrors($validator)->withInput();
         }
-
         DB::beginTransaction();
         try {
             $dispatch = Dispatch::create([
