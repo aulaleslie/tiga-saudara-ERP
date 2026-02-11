@@ -96,7 +96,7 @@ class PosMixedLocationDispatchTest extends TestCase
 
         SettingSaleLocation::updateOrCreate(
             ['location_id' => $this->locationB->id],
-            ['setting_id' => $this->settingB->id, 'position' => 1]
+            ['setting_id' => $this->settingA->id, 'position' => 2]
         );
 
         $unit = Unit::create([
@@ -200,6 +200,12 @@ class PosMixedLocationDispatchTest extends TestCase
             'currency_position' => 'left',
         ]);
 
+        $this->assertSame($this->settingB->id, (int) $this->locationB->fresh()->setting_id);
+        $this->assertSame(
+            $this->settingA->id,
+            (int) SettingSaleLocation::where('location_id', $this->locationB->id)->value('setting_id')
+        );
+
         PosLocationResolver::setActiveAssignment(
             SettingSaleLocation::where('setting_id', $this->settingA->id)->value('id')
         );
@@ -254,4 +260,3 @@ class PosMixedLocationDispatchTest extends TestCase
         $this->assertSame(1, $saleB?->saleDispatches->first()?->details->sum('dispatched_quantity'));
     }
 }
-
