@@ -193,7 +193,110 @@ class PurchaseReturnSettlementPhase2Test extends TestCase
         $purchase->refresh();
         $this->assertEquals(0, $purchase->paid_amount);
         $this->assertEquals('UNPAID', $purchase->payment_status);
-        $this->assertEquals(0, PurchasePayment::count());
+        $this->assertEquals(0, PurchasePayment::where('purchase_id', $purchase->id)->active()->count());
+        $this->assertEquals(1, PurchasePayment::where('purchase_id', $purchase->id)->invalidated()->count());
+    }
+
+    /** @test */
+    public function test_modify_purchase_allocation_can_store_optional_attachment_on_target_payment()
+    {
+        $sourcePurchase = Purchase::create([
+            'supplier_id' => $this->supplier->id,
+            'total_amount' => 1000,
+            'paid_amount' => 1000,
+            'due_amount' => 0,
+            'payment_status' => 'Paid',
+            'status' => Purchase::STATUS_RECEIVED,
+            'setting_id' => $this->setting->id,
+            'date' => now(),
+            'due_date' => now(),
+            'reference' => 'PO-SOURCE-ATTACH',
+            'payment_method' => 'Cash',
+        ]);
+
+        $sourceDetail = PurchaseDetail::create([
+            'purchase_id' => $sourcePurchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        PurchasePayment::create([
+            'purchase_id' => $sourcePurchase->id,
+            'amount' => 1000,
+            'date' => now(),
+            'payment_method' => 'Cash',
+            'reference' => 'PAY-SOURCE-ATTACH',
+        ]);
+
+        $receivedNote = \Modules\Purchase\Entities\ReceivedNote::create([
+            'po_id' => $sourcePurchase->id,
+            'external_delivery_number' => 'DEL-ATTACH',
+            'date' => now(),
+            'status' => \Modules\Purchase\Entities\ReceivedNote::STATUS_APPROVED,
+            'location_id' => $this->location->id,
+        ]);
+
+        \Modules\Purchase\Entities\ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'product_id' => $this->product->id,
+            'po_detail_id' => $sourceDetail->id,
+            'quantity_received' => 1,
+        ]);
+
+        $targetPurchase = Purchase::create([
+            'supplier_id' => $this->supplier->id,
+            'total_amount' => 5000,
+            'paid_amount' => 0,
+            'due_amount' => 5000,
+            'payment_status' => 'UNPAID',
+            'status' => Purchase::STATUS_RECEIVED,
+            'setting_id' => $this->setting->id,
+            'date' => now(),
+            'due_date' => now(),
+            'reference' => 'PO-TARGET-ATTACH',
+            'payment_method' => 'Cash',
+        ]);
+
+        PurchaseDetail::create([
+            'purchase_id' => $targetPurchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 5,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 5000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $itemSettlement = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $this->purchaseReturn->id,
+            'purchase_return_detail_id' => $this->purchaseReturn->purchaseReturnDetails->first()->id,
+            'method' => 'MODIFY_PURCHASE',
+            'target_purchase_id' => $sourcePurchase->id,
+            'nominal' => 1000,
+            'status' => 'SUBMITTED',
+        ]);
+
+        $file = UploadedFile::fake()->image('allocation-attachment.jpg');
+        $response = $this->post(route('purchase-return-settlements.item.approve', $itemSettlement->id), [
+            'allocation_purchase_id' => $targetPurchase->id,
+            'attachments' => [$file],
+        ]);
+
+        $response->assertSessionHas('success');
+
+        $targetPayment = PurchasePayment::where('purchase_id', $targetPurchase->id)->first();
+        $this->assertNotNull($targetPayment);
+        $this->assertEquals(1, $targetPayment->getMedia('attachments')->count());
     }
 
     /** @test */

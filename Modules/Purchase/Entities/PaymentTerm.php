@@ -37,4 +37,29 @@ class PaymentTerm extends BaseModel
     {
         return $this->hasMany(Supplier::class, 'payment_term_id', 'id');
     }
+
+    public static function defaultCodTerm(): ?self
+    {
+        $directMatch = static::query()
+            ->where(function ($query) {
+                $query->whereRaw('LOWER(name) = ?', ['cod'])
+                    ->orWhereRaw('LOWER(name) = ?', ['cash on delivery']);
+            })
+            ->orderBy('id')
+            ->first();
+
+        if ($directMatch) {
+            return $directMatch;
+        }
+
+        return static::query()
+            ->where('longevity', 0)
+            ->orderBy('id')
+            ->first();
+    }
+
+    public static function defaultCodTermId(): ?int
+    {
+        return static::defaultCodTerm()?->id;
+    }
 }

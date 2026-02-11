@@ -87,12 +87,26 @@ class SaleController extends Controller
         }
 
         try {
+            $settingId = (int) session('setting_id');
+            $isPkp = (bool) (Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
+
+            if ($isPkp) {
+                foreach (Cart::instance('sale')->content() as $item) {
+                    if (empty($item->options['product_tax'])) {
+                        return redirect()->back()
+                            ->withErrors(['cart' => 'Semua produk wajib memilih pajak karena bisnis PKP.'])
+                            ->withInput();
+                    }
+                }
+            }
+
             $data = $request->validated();
-            $data['setting_id'] = session('setting_id');
+            $data['setting_id'] = $settingId;
             $data['status'] = Sale::STATUS_DRAFTED;
             $data['payment_status'] = 'Unpaid';
             $data['paid_amount'] = 0;
             $data['due_amount'] = $request->total_amount;
+            $data['payment_term_id'] = $data['payment_term_id'] ?: PaymentTerm::defaultCodTermId();
             
             $this->saleService->createSale($data, Cart::instance('sale')->content());
 
@@ -731,12 +745,25 @@ class SaleController extends Controller
             'rejection_reason' => 'required|string|max:1000',
         ]);
 
-        $dispatch->update([
-            'status' => Dispatch::STATUS_REJECTED,
-            'rejection_reason' => $request->rejection_reason,
-            'approved_by' => auth()->id(),
-            'approved_at' => now(),
-        ]);
+        DB::beginTransaction();
+        try {
+            $dispatch->update([
+                'status' => Dispatch::STATUS_REJECTED,
+                'rejection_reason' => $request->rejection_reason,
+                'approved_by' => auth()->id(),
+                'approved_at' => now(),
+            ]);
+
+            // Keep sale status in sync after reject, mirroring receiving reject consistency.
+            $this->updateSaleStatus($dispatch->sale);
+
+            DB::commit();
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Dispatch rejection error', ['message' => $e->getMessage()]);
+            toast('Terjadi kesalahan: ' . $e->getMessage(), 'error');
+            return redirect()->back();
+        }
 
         toast('Pengiriman ditolak.', 'warning');
         return redirect()->back();

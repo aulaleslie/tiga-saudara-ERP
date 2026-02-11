@@ -95,6 +95,18 @@
                             </div>
 
                             <div class="form-row">
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="is_pkp">Status PKP</label>
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" id="is_pkp" name="is_pkp" value="1"
+                                                   {{ old('is_pkp', (bool) ($business->is_pkp ?? false)) ? 'checked' : '' }}>
+                                            <label class="form-check-label" for="is_pkp">
+                                                Bisnis ini PKP
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="col-lg-12">
                                     <div class="form-group">
                                         <label for="company_address">Alamat Bisnis<span class="text-danger">*</span></label>
@@ -127,4 +139,3 @@
         });
     </script>
 @endpush
-

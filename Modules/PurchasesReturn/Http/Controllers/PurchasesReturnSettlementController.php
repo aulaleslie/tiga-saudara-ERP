@@ -141,7 +141,7 @@ class PurchasesReturnSettlementController extends Controller
             return back()->with('error', 'Item ini tidak dapat disetujui.');
         }
 
-        if (strtoupper($itemSettlement->method) === 'CREDIT') {
+        if (in_array(strtoupper($itemSettlement->method), ['CREDIT', 'MODIFY_PURCHASE'], true)) {
             $request->validate([
                 'approval_note' => 'nullable|string|max:255',
                 'attachments.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
@@ -916,7 +916,7 @@ class PurchasesReturnSettlementController extends Controller
                             $allocationAmount = min($remainingSurplus, $targetDue);
 
                             if ($allocationAmount > 0.01) {
-                                \Modules\Purchase\Entities\PurchasePayment::create([
+                                $allocationPayment = \Modules\Purchase\Entities\PurchasePayment::create([
                                     'purchase_id' => $targetPurchase->id,
                                     'amount' => $allocationAmount,
                                     'date' => now(),
@@ -924,6 +924,12 @@ class PurchasesReturnSettlementController extends Controller
                                     'note' => 'Alokasi dari retur ' . $purchaseReturn->reference . ' (Asal: ' . $purchase->reference . ')',
                                     'payment_method' => 'Settlement Retur',
                                 ]);
+
+                                if (! empty($options['attachments'])) {
+                                    foreach ($options['attachments'] as $file) {
+                                        $allocationPayment->addMedia($file)->toMediaCollection('attachments');
+                                    }
+                                }
 
                                 $targetPurchase->paid_amount += $allocationAmount;
                                 $targetPurchase->due_amount = max(0, $targetPurchase->total_amount - $targetPurchase->paid_amount);

@@ -43,6 +43,7 @@ class StoreSettingsRequest extends FormRequest
                 }
             ],
             'company_address' => 'required|string|max:500',
+            'is_pkp' => 'nullable|boolean',
             'footer_text' => 'nullable|string|max:255',
             'pos_idle_threshold_minutes' => 'nullable|integer|min:0|max:1440',
             'pos_default_cash_threshold' => 'nullable|numeric|min:0',

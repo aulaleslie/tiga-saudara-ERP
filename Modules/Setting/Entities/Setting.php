@@ -26,6 +26,7 @@ class Setting extends BaseModel
     protected $casts = [
         'pos_idle_threshold_minutes' => 'integer',
         'pos_default_cash_threshold' => 'decimal:2',
+        'is_pkp' => 'boolean',
     ];
 
     protected $with = ['currency'];

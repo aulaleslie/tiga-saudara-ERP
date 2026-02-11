@@ -17,6 +17,7 @@ use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
+use Modules\Setting\Entities\Setting;
 use Throwable;
 
 class CreateForm extends Component
@@ -45,10 +46,12 @@ class CreateForm extends Component
     public $global_discount = 0;
     public $is_tax_included = false;
     public string $idempotencyToken;
+    public bool $isPkp = false;
 
     public function mount(string $idempotencyToken, ?int $duplicateId = null): void
     {
         $this->idempotencyToken = $idempotencyToken;
+        $this->isPkp = $this->isPkpEnabled();
         $this->reference = 'PR'; // This can be dynamic if needed
         $this->date = now()->format('Y-m-d');
         $this->due_date = now()->format('Y-m-d');
@@ -56,6 +59,8 @@ class CreateForm extends Component
         $this->tax_ref_no = null;
         // Ensure a fresh cart when starting a new purchase
         Cart::instance('purchase')->destroy();
+
+        $this->syncPaymentTermAndDueDate($this->resolveDefaultPaymentTermId());
 
         if ($duplicateId) {
             $this->prefillFromPurchase((int) $duplicateId);
@@ -76,6 +81,37 @@ class CreateForm extends Component
             // Sync the payment term dropdown UI
             $this->dispatch('setPaymentTerm', $this->payment_term)
                 ->to(PaymentTermSearchDropdown::class);
+        }
+    }
+
+    private function resolveDefaultPaymentTermId(): ?int
+    {
+        return PaymentTerm::defaultCodTermId();
+    }
+
+    private function isPkpEnabled(): bool
+    {
+        $settingId = (int) session('setting_id');
+        if ($settingId <= 0) {
+            return false;
+        }
+
+        return (bool) (Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
+    }
+
+    private function ensureCartTaxesForPkp($cartItems): void
+    {
+        if (! $this->isPkpEnabled()) {
+            return;
+        }
+
+        foreach ($cartItems as $index => $item) {
+            $taxId = $item->options['product_tax'] ?? null;
+            if (empty($taxId)) {
+                throw ValidationException::withMessages([
+                    'payment_term' => 'Semua produk wajib memilih pajak karena bisnis PKP.',
+                ]);
+            }
         }
     }
 
@@ -113,10 +149,12 @@ class CreateForm extends Component
         $supplierId = $value ?: null;
         $this->supplier_id = $supplierId;
 
-        $paymentTermId = null;
+        $paymentTermId = $this->resolveDefaultPaymentTermId();
         if ($supplierId) {
             $supplier = Supplier::find($supplierId);
-            $paymentTermId = $supplier?->payment_term_id ? (int) $supplier->payment_term_id : null;
+            if ($supplier?->payment_term_id) {
+                $paymentTermId = (int) $supplier->payment_term_id;
+            }
         }
 
         $this->syncPaymentTermAndDueDate($paymentTermId, true);
@@ -145,7 +183,9 @@ class CreateForm extends Component
         // Supplier was just created, the dropdown will auto-select it
         // We need to set the payment term from the newly created supplier
         $this->supplier_id = $supplier['id'] ?? null;
-        $paymentTermId = isset($supplier['payment_term_id']) ? (int) $supplier['payment_term_id'] : null;
+        $paymentTermId = isset($supplier['payment_term_id']) && $supplier['payment_term_id']
+            ? (int) $supplier['payment_term_id']
+            : $this->resolveDefaultPaymentTermId();
 
         $this->syncPaymentTermAndDueDate($paymentTermId, true);
     }
@@ -224,10 +264,8 @@ class CreateForm extends Component
         // Fallback: Re-sync payment_term from supplier if still not set
         if ($this->supplier_id && !$this->payment_term) {
             $supplier = Supplier::find($this->supplier_id);
-            if ($supplier && $supplier->payment_term_id) {
-                $this->payment_term = $supplier->payment_term_id;
-                $this->updateDueDateFromPaymentTerm();
-            }
+            $this->payment_term = $supplier?->payment_term_id ?: $this->resolveDefaultPaymentTermId();
+            $this->updateDueDateFromPaymentTerm();
         }
 
         $purchase = null;
@@ -261,6 +299,8 @@ class CreateForm extends Component
                 $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk harus dipilih']);
                 return;
             }
+
+            $this->ensureCartTaxesForPkp($cart->content());
 
             if (! IdempotencyService::claim($this->idempotencyToken, 'purchases.store', auth()->id())) {
                 session()->flash('error', 'Permintaan pembelian sudah diproses. Silakan tunggu sebelum mencoba lagi.');

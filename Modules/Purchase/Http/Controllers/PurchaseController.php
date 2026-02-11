@@ -92,6 +92,7 @@ class PurchaseController extends Controller
         $categories = \Modules\Product\Entities\Category::all();
         $brands = \Modules\Product\Entities\Brand::all();
         $units = \Modules\Setting\Entities\Unit::all();
+        $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
         $idempotencyToken = (string) Str::uuid();
 
         return view('purchase::create-alpine', compact(
@@ -101,6 +102,7 @@ class PurchaseController extends Controller
             'categories',
             'brands',
             'units',
+            'isPkp',
             'idempotencyToken'
         ));
     }
@@ -142,6 +144,28 @@ class PurchaseController extends Controller
         }
 
         $setting_id = session('setting_id');
+        $isPkp = (bool) (Setting::query()->whereKey((int) $setting_id)->value('is_pkp') ?? false);
+
+        if ($isPkp) {
+            if ($request->has('cart')) {
+                foreach ((array) $request->cart as $index => $cartItem) {
+                    if (empty($cartItem['tax_id'])) {
+                        return redirect()->back()
+                            ->withErrors(['cart' => 'Semua produk wajib memilih pajak karena bisnis PKP.'])
+                            ->withInput();
+                    }
+                }
+            } else {
+                foreach ($cartItems as $cartItem) {
+                    if (empty($cartItem->options['product_tax'])) {
+                        return redirect()->back()
+                            ->withErrors(['cart' => 'Semua produk wajib memilih pajak karena bisnis PKP.'])
+                            ->withInput();
+                    }
+                }
+            }
+        }
+
         DB::beginTransaction(); // Start the transaction manually
         try {
             // Create the purchase record
@@ -161,7 +185,7 @@ class PurchaseController extends Controller
                 'due_amount' => $request->total_amount,
                 'status' => Purchase::STATUS_DRAFTED,
                 'payment_status' => 'Unpaid',
-                'payment_term_id' => $request->payment_term,
+                'payment_term_id' => $request->payment_term ?: PaymentTerm::defaultCodTermId(),
                 'note' => $request->note,
                 'setting_id' => $setting_id,
                 'paid_amount' => 0.0,

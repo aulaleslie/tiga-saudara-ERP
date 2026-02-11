@@ -15,6 +15,7 @@ use Modules\Purchase\Entities\PurchasePayment;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Currency\Entities\Currency;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
 use Illuminate\Support\Facades\Gate;
@@ -339,6 +340,126 @@ class PurchaseReturnSettlementLogicTest extends TestCase
             'amount' => 2000000, // PurchasePayment model stores cents (x100)
             'payment_method' => 'SETTLEMENT RETUR', // BaseModel uppercases text
         ]);
+    }
+
+    /** @test */
+    public function it_attaches_files_to_target_payment_when_modify_purchase_allocates_to_other_purchase()
+    {
+        DB::statement("INSERT INTO purchases (date, due_date, reference, supplier_id, payment_method, tax_percentage, discount_percentage, shipping_amount, paid_amount, total_amount, due_amount, status, payment_status, setting_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+            now(), now(),
+            'PUR-SOURCE-ATTACH',
+            $this->supplier->id,
+            'Cash',
+            0, 0, 0,
+            100000, 100000, 0,
+            'Received', 'Paid',
+            1,
+            now(), now()
+        ]);
+        $sourceId = DB::getPdo()->lastInsertId();
+        $sourcePurchase = Purchase::find($sourceId);
+
+        $sourceDetail = PurchaseDetail::create([
+            'purchase_id' => $sourcePurchase->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 10,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 100000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'date' => now(),
+            'external_delivery_number' => 'GRN-ATTACH',
+            'po_id' => $sourcePurchase->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $sourceDetail->id,
+            'quantity_received' => 10,
+        ]);
+
+        DB::statement("INSERT INTO purchases (date, due_date, reference, supplier_id, payment_method, tax_percentage, discount_percentage, shipping_amount, paid_amount, total_amount, due_amount, status, payment_status, setting_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+            now(), now(),
+            'PUR-TARGET-ATTACH',
+            $this->supplier->id,
+            'Cash',
+            0, 0, 0,
+            0, 200000, 200000,
+            'Received', 'Unpaid',
+            1,
+            now(), now()
+        ]);
+        $targetId = DB::getPdo()->lastInsertId();
+        $targetPurchase = Purchase::find($targetId);
+
+        $return = PurchaseReturn::create([
+            'date' => now(),
+            'reference' => 'PR-ATTACH',
+            'setting_id' => 1,
+            'location_id' => $this->location->id,
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => $this->supplier->supplier_name,
+            'payment_method' => 'Cash',
+            'paid_amount' => 0,
+            'total_amount' => 20000,
+            'due_amount' => 20000,
+            'status' => 'Pending',
+            'approval_status' => 'Approved',
+            'return_dispatched_at' => now(),
+            'payment_status' => 'Unpaid',
+        ]);
+
+        $returnDetail = PurchaseReturnDetail::create([
+            'purchase_return_id' => $return->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
+            'product_code' => $this->product->product_code,
+            'quantity' => 2,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 20000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $settlementItem = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $return->id,
+            'purchase_return_detail_id' => $returnDetail->id,
+            'method' => 'MODIFY_PURCHASE',
+            'nominal' => 20000,
+            'target_purchase_id' => $sourcePurchase->id,
+            'status' => 'SUBMITTED',
+        ]);
+
+        PurchasePayment::create([
+            'purchase_id' => $sourcePurchase->id,
+            'amount' => 10000000,
+            'date' => now(),
+            'reference' => 'PAY-OLD-ATTACH',
+            'payment_method' => 'Cash',
+        ]);
+
+        $this->actingAs(\App\Models\User::factory()->create());
+        $file = UploadedFile::fake()->image('allocation-proof.jpg');
+        $response = $this->post(route('purchase-return-settlements.item.approve', $settlementItem->id), [
+            'allocation_purchase_id' => $targetPurchase->id,
+            'attachments' => [$file],
+        ]);
+
+        $response->assertSessionHas('success');
+
+        $targetPayment = PurchasePayment::where('purchase_id', $targetPurchase->id)->first();
+        $this->assertNotNull($targetPayment);
+        $this->assertEquals(1, $targetPayment->getMedia('attachments')->count());
     }
 
     /** @test */

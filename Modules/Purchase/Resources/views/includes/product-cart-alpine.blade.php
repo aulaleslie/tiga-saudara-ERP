@@ -98,7 +98,7 @@
                                 x-model="item.tax_id"
                                 @change="updateItem(index)"
                             >
-                                <option value="">Non Pajak</option>
+                                <option value="" :disabled="isPkp">{{ ($isPkp ?? false) ? 'Wajib Pilih Pajak' : 'Non Pajak' }}</option>
                                 <template x-for="tax in taxes" :key="tax.id">
                                     <option :value="tax.id" x-text="tax.name + ' (' + tax.value + '%)'"></option>
                                 </template>
@@ -235,6 +235,7 @@ function productCart() {
     return {
         cart: [],
         taxes: @js($taxes ?? []),
+        isPkp: @js((bool) ($isPkp ?? false)),
         isTaxIncluded: true,
         globalDiscount: 0,
         globalDiscountType: 'percentage',
@@ -276,6 +277,7 @@ function productCart() {
 
             const purchasePrice = this.getProductPurchasePrice(product);
             const purchaseTaxId = this.getProductPurchaseTaxId(product);
+            const defaultTaxId = purchaseTaxId || (this.isPkp && this.taxes.length ? this.taxes[0].id : null);
 
             // Add new product
             const newItem = {
@@ -292,7 +294,7 @@ function productCart() {
                 quantity: 1,
                 discount_type: 'fixed',
                 discount: 0,
-                tax_id: purchaseTaxId,
+                tax_id: defaultTaxId,
                 taxAmount: 0,
                 subtotalBeforeTax: 0,
                 total: 0

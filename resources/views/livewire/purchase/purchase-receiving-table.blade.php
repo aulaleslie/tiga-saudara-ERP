@@ -37,7 +37,6 @@
             <th wire:click="sortBy('supplier_id')" style="cursor:pointer">
                 Supplier {!! $this->sortIcon('supplier_id') !!}
             </th>
-            <th>Status</th>
             <th>Action</th>
         </tr>
         </thead>
@@ -52,12 +51,11 @@
                     {{ Carbon::parse($purchase->date)->format('d M Y') }}
                 </td>
                 <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
-                <td>@include('purchase::partials.status', ['data' => $purchase])</td>
                 <td>@include('purchase::partials.actions-receiving', ['data' => $purchase])</td>
             </tr>
         @empty
             <tr>
-                <td colspan="7">Tidak ada data yang ditemukan.</td>
+                <td colspan="5">Tidak ada data yang ditemukan.</td>
             </tr>
         @endforelse
         </tbody>

@@ -180,7 +180,7 @@
                         <div class="col-sm-4"><strong>Nominal:</strong></div>
                         <div class="col-sm-8">{{ format_currency($item->getEffectiveNominal()) }}</div>
                     </div>
-                    @if($methodKey === 'CREDIT')
+                    @if(in_array($methodKey, ['CREDIT', 'MODIFY_PURCHASE'], true))
                         <hr>
                         <div class="mb-3">
                             <label class="form-label font-weight-bold">Catatan Approval</label>
@@ -189,7 +189,12 @@
                         <div class="mb-3">
                             <label class="form-label font-weight-bold">Lampiran (JPG, PNG, PDF)</label>
                             <input type="file" name="attachments[]" class="form-control" multiple accept=".jpg,.jpeg,.png,.pdf">
-                            <small class="text-muted">Opsional. Maksimal 5MB per file.</small>
+                            <small class="text-muted">
+                                Opsional. Maksimal 5MB per file.
+                                @if($methodKey === 'MODIFY_PURCHASE')
+                                    Lampiran akan disimpan pada pembayaran nota target jika alokasi dibuat.
+                                @endif
+                            </small>
                         </div>
                     @endif
                     <div class="alert alert-info">

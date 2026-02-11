@@ -272,6 +272,7 @@ function purchaseForm() {
         submitting: false,
         paymentTerms: @js($paymentTerms ?? []),
         taxes: @js($taxes ?? []),
+        isPkp: @js((bool) ($isPkp ?? false)),
         form: {
             reference: 'PR',
             supplier_id: null,
@@ -293,10 +294,36 @@ function purchaseForm() {
             // Generate reference if needed
             this.updateReference();
 
+            // Default payment term to COD fallback
+            this.form.payment_term = this.resolveDefaultPaymentTermId();
+            if (this.form.payment_term) {
+                const term = this.paymentTerms.find(t => t.id == this.form.payment_term);
+                this.$nextTick(() => {
+                    window.dispatchEvent(new CustomEvent('payment-term-update', {
+                        detail: { id: this.form.payment_term, name: term?.name }
+                    }));
+                });
+            }
+            this.updateDueDate();
+
             // Keep due date in sync whenever payment term changes
             this.$watch('form.payment_term', () => {
                 this.updateDueDate();
             });
+        },
+
+        resolveDefaultPaymentTermId() {
+            const direct = this.paymentTerms.find((term) => {
+                const name = (term.name || '').toString().trim().toLowerCase();
+                return name === 'cod' || name === 'cash on delivery';
+            });
+
+            if (direct) {
+                return direct.id;
+            }
+
+            const fallback = this.paymentTerms.find((term) => Number(term.longevity) === 0);
+            return fallback ? fallback.id : null;
         },
 
         updateReference() {
@@ -308,7 +335,7 @@ function purchaseForm() {
             if (!data) return;
 
             this.form.supplier_id = data.id || null;
-            const paymentTermId = data.payment_term_id ?? data.item?.payment_term_id ?? null;
+            const paymentTermId = data.payment_term_id ?? data.item?.payment_term_id ?? this.resolveDefaultPaymentTermId();
 
             if (paymentTermId) {
                 const term = this.paymentTerms.find(t => t.id == paymentTermId);

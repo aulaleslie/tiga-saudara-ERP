@@ -51,6 +51,13 @@ class ProductSerialNumbersTable extends Component
         $this->resetPage();
     }
 
+    public function clearSearch(): void
+    {
+        $this->searchQuery = '';
+        $this->currentTab = 'sellable';
+        $this->resetPage();
+    }
+
     public function startEdit($id, $currentValue): void
     {
         $this->editingId = $id;

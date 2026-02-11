@@ -151,7 +151,9 @@
                                         class="form-control form-control-sm"
                                         wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
                                     >
-                                        <option value="">Non Pajak</option>
+                                        <option value="" {{ $isPkp ? 'disabled' : '' }}>
+                                            {{ $isPkp ? 'Wajib Pilih Pajak' : 'Non Pajak' }}
+                                        </option>
                                         @foreach($taxes as $tax)
                                             <option
                                                 value="{{ $tax->id }}"

@@ -4,6 +4,8 @@ namespace Modules\Purchase\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
+use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Setting\Entities\Setting;
 
 class StorePurchaseRequest extends FormRequest
 {
@@ -77,5 +79,37 @@ class StorePurchaseRequest extends FormRequest
     public function authorize(): bool
     {
         return Gate::allows('purchases.create');
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (! $this->filled('payment_term')) {
+            $this->merge([
+                'payment_term' => PaymentTerm::defaultCodTermId(),
+            ]);
+        }
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            $settingId = (int) session('setting_id');
+            $isPkp = (bool) (Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
+            if (! $isPkp) {
+                return;
+            }
+
+            $cartItems = (array) $this->input('cart', []);
+            if (empty($cartItems)) {
+                return;
+            }
+
+            foreach ($cartItems as $index => $item) {
+                if (empty($item['tax_id'])) {
+                    $validator->errors()->add('cart', 'Semua produk wajib memilih pajak karena bisnis PKP.');
+                    break;
+                }
+            }
+        });
     }
 }

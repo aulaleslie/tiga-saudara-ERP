@@ -15,6 +15,7 @@ use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 
@@ -50,6 +51,7 @@ class ProductCart extends Component
     public $priceBreakdowns = [];
 
     public ?int $settingId = null;
+    public bool $isPkp = false;
 
     protected $rules = [
         'unit_price.*' => 'required|numeric|min:0', // Unit price per row.
@@ -65,6 +67,7 @@ class ProductCart extends Component
     {
         $this->cart_instance = $cartInstance;
         $this->settingId = (int) session('setting_id');
+        $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->settingId)->value('is_pkp') ?? false);
         $this->taxes = Tax::all();
 
         if ($data) {
@@ -303,6 +306,7 @@ class ProductCart extends Component
 
         $calculated = $this->calculate($product);
         $resolvedPrices = $calculated['resolved_prices'] ?? $this->resolveProductPricing($product);
+        $defaultTaxId = $this->isPkp ? optional($this->taxes->first())->id : null;
 
         $cartItem = $cart->add([
             'id' => Str::uuid()->toString(),
@@ -319,7 +323,7 @@ class ProductCart extends Component
                 'code' => $product['product_code'],
                 'stock' => $product['product_quantity'],
                 'unit' => $product['product_unit'],
-                'product_tax' => null, // Initialize as null
+                'product_tax' => $defaultTaxId,
                 'unit_price' => $calculated['unit_price'],
                 'sale_price' => $resolvedPrices['sale_price'] ?? 0,
                 'tier_1_price' => $resolvedPrices['tier_1_price'] ?? 0,
@@ -482,7 +486,7 @@ class ProductCart extends Component
                     'code' => $this->pendingProduct['product_code'],
                     'stock' => $this->pendingProduct['product_quantity'],
                     'unit' => $this->pendingProduct['product_unit'],
-                    'product_tax' => null,
+                    'product_tax' => $this->isPkp ? optional($this->taxes->first())->id : null,
                     'unit_price' => $parentUnitPrice,
                     'sale_price' => $parentResolved['sale_price'] ?? 0,
                     'tier_1_price' => $parentResolved['tier_1_price'] ?? 0,

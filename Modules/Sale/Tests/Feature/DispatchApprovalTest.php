@@ -204,6 +204,9 @@ class DispatchApprovalTest extends TestCase
     {
         [$setting, $user, $sale, $product, $location] = $this->createSetup();
 
+        // Force mismatched status so reject flow must recalculate to current dispatch reality.
+        $sale->update(['status' => Sale::STATUS_DISPATCHED_PARTIALLY]);
+
         $dispatch = Dispatch::create([
             'sale_id' => $sale->id,
             'dispatch_date' => now()->toDateString(),
@@ -221,10 +224,60 @@ class DispatchApprovalTest extends TestCase
         $dispatch->refresh();
         $this->assertEquals(Dispatch::STATUS_REJECTED, $dispatch->status);
         $this->assertEquals('DAMAGED GOODS', $dispatch->rejection_reason); // BaseModel uppercases this!
+        $this->assertEquals($user->id, $dispatch->approved_by);
+        $this->assertNotNull($dispatch->approved_at);
+
+        // Sale status must be recalculated after rejection.
+        $sale->refresh();
+        $this->assertEquals(Sale::STATUS_APPROVED, $sale->status);
 
         // Verify stock NOT deducted
         $product->refresh();
         $this->assertEquals(100, $product->product_quantity);
+    }
+
+    public function test_dispatch_rejection_requires_reason(): void
+    {
+        [$setting, $user, $sale] = $this->createSetup();
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_PENDING,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.reject', $dispatch), [
+                'rejection_reason' => '',
+            ]);
+
+        $response->assertSessionHasErrors(['rejection_reason']);
+        $dispatch->refresh();
+        $this->assertEquals(Dispatch::STATUS_PENDING, $dispatch->status);
+    }
+
+    public function test_rejected_dispatch_cannot_be_reprocessed_from_same_document(): void
+    {
+        [$setting, $user, $sale] = $this->createSetup();
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_REJECTED,
+            'rejection_reason' => 'INITIAL REJECT',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('dispatches.reject', $dispatch), [
+                'rejection_reason' => 'Retry reject',
+            ]);
+
+        $response->assertRedirect();
+        $dispatch->refresh();
+        $this->assertEquals(Dispatch::STATUS_REJECTED, $dispatch->status);
+        $this->assertEquals('INITIAL REJECT', $dispatch->rejection_reason);
     }
 
     public function test_approve_dispatch_fails_if_stock_insufficient(): void

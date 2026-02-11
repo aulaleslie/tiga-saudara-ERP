@@ -89,10 +89,23 @@ class ProductDataTable extends DataTable
         }
 
         $projected = $this->projectedQuantities->get($data->id);
-        $qty = $projected[$key] ?? 0;
+        $qty = $this->resolveDisplayQuantity($projected, $key);
         $formatted = $this->formatQuantityValue($data, $qty);
 
         return $class ? "<span class=\"font-weight-bold {$class}\">{$formatted}</span>" : "<span class=\"font-weight-bold\">{$formatted}</span>";
+    }
+
+    protected function resolveDisplayQuantity(array $projected, string $key)
+    {
+        if ($key === 'total_stock') {
+            return (int) (
+                ($projected['total_stock'] ?? 0)
+                + ($projected['on_order_stock'] ?? 0)
+                + ($projected['in_return_process_stock'] ?? 0)
+            );
+        }
+
+        return $projected[$key] ?? 0;
     }
 
     /**

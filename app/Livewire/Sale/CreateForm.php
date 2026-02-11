@@ -18,6 +18,7 @@ use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Services\SaleCartAggregator;
 use Modules\Sale\Services\SaleService;
+use Modules\Setting\Entities\Setting;
 
 class CreateForm extends Component
 {
@@ -32,6 +33,7 @@ class CreateForm extends Component
     public $tax_ref_no;
     public array $tags = [];
     public string $idempotencyToken;
+    public bool $isPkp = false;
 
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
@@ -44,11 +46,13 @@ class CreateForm extends Component
     public function mount(string $idempotencyToken)
     {
         $this->idempotencyToken = $idempotencyToken;
+        $this->isPkp = $this->isPkpEnabled();
         $this->reference = 'SL';
         $this->date = now()->format('Y-m-d');
         $this->dueDate = now()->format('Y-m-d');
         $this->paymentTerms = PaymentTerm::all();
         $this->tax_ref_no = null;
+        $this->syncPaymentTermAndDueDate($this->resolveDefaultPaymentTermId());
     }
 
     public function handleTagsUpdated(array $tags): void
@@ -65,6 +69,37 @@ class CreateForm extends Component
             // Sync the payment term dropdown UI
             $this->dispatch('setPaymentTerm', $this->paymentTermId)
                 ->to(PaymentTermSearchDropdown::class);
+        }
+    }
+
+    private function resolveDefaultPaymentTermId(): ?int
+    {
+        return PaymentTerm::defaultCodTermId();
+    }
+
+    private function isPkpEnabled(): bool
+    {
+        $settingId = (int) session('setting_id');
+        if ($settingId <= 0) {
+            return false;
+        }
+
+        return (bool) (Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
+    }
+
+    private function ensureCartTaxesForPkp($cartItems): void
+    {
+        if (! $this->isPkpEnabled()) {
+            return;
+        }
+
+        foreach ($cartItems as $item) {
+            $taxId = $item->options['product_tax'] ?? null;
+            if (empty($taxId)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'paymentTermId' => 'Semua produk wajib memilih pajak karena bisnis PKP.',
+                ]);
+            }
         }
     }
 
@@ -86,7 +121,9 @@ class CreateForm extends Component
         $this->customerName = $customer['customer_name'] ?? $customer['contact_name'] ?? null;
         
         // Sync payment term from the selected customer
-        $paymentTermId = isset($customer['payment_term_id']) ? (int) $customer['payment_term_id'] : null;
+        $paymentTermId = isset($customer['payment_term_id']) && $customer['payment_term_id']
+            ? (int) $customer['payment_term_id']
+            : $this->resolveDefaultPaymentTermId();
         $this->syncPaymentTermAndDueDate($paymentTermId, true);
     }
 
@@ -95,11 +132,13 @@ class CreateForm extends Component
         $customerId = $value ?: null;
         $this->customerId = $customerId;
 
-        $paymentTermId = null;
+        $paymentTermId = $this->resolveDefaultPaymentTermId();
         if ($customerId) {
             $customer = Customer::find($customerId);
             $this->customerName = $customer?->customer_name ?? $customer?->contact_name;
-            $paymentTermId = $customer?->payment_term_id ? (int) $customer->payment_term_id : null;
+            if ($customer?->payment_term_id) {
+                $paymentTermId = (int) $customer->payment_term_id;
+            }
         }
 
         $this->syncPaymentTermAndDueDate($paymentTermId, true);
@@ -140,7 +179,9 @@ class CreateForm extends Component
         // We need to set the payment term from the newly created customer
         $this->customerId = $customer['id'] ?? null;
         $this->customerName = $customer['customer_name'] ?? $customer['contact_name'] ?? null;
-        $paymentTermId = isset($customer['payment_term_id']) ? (int) $customer['payment_term_id'] : null;
+        $paymentTermId = isset($customer['payment_term_id']) && $customer['payment_term_id']
+            ? (int) $customer['payment_term_id']
+            : $this->resolveDefaultPaymentTermId();
 
         $this->syncPaymentTermAndDueDate($paymentTermId, true);
     }
@@ -173,10 +214,8 @@ class CreateForm extends Component
         // Fallback: Re-sync payment_term from customer if still not set
         if ($this->customerId && !$this->paymentTermId) {
             $customer = Customer::find($this->customerId);
-            if ($customer && $customer->payment_term_id) {
-                $this->paymentTermId = $customer->payment_term_id;
-                $this->updateDueDateFromPaymentTerm();
-            }
+            $this->paymentTermId = $customer?->payment_term_id ?: $this->resolveDefaultPaymentTermId();
+            $this->updateDueDateFromPaymentTerm();
         }
 
         try {
@@ -213,6 +252,8 @@ class CreateForm extends Component
                 $this->idempotencyToken = (string) Str::uuid();
                 return;
             }
+
+            $this->ensureCartTaxesForPkp(Cart::instance('sale')->content());
 
             if (! IdempotencyService::claim($this->idempotencyToken, 'sales.store', auth()->id())) {
                 Log::warning('Sale create idempotency claim failed', [

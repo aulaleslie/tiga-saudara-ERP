@@ -7,7 +7,7 @@
                    placeholder="Cari nomor seri..." 
                    wire:model.live.debounce.300ms="searchQuery">
             @if($searchQuery)
-                <button class="btn btn-outline-secondary btn-sm" wire:click="$set('searchQuery', '')">
+                <button class="btn btn-outline-secondary btn-sm" wire:click="clearSearch">
                     <i class="bi bi-x"></i>
                 </button>
             @endif

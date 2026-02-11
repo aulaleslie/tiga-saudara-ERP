@@ -47,9 +47,9 @@ class SaleReturnEligibilityService
         // pending/rejected dispatches should not be returnable.
         $dispatchDetails = DispatchDetail::query()
             ->with(['product:id,product_name,product_code,serial_number_required', 'location:id,name'])
-            ->where('sale_id', $sale->id)
-            ->whereHas('dispatch', function ($q) {
-                $q->where('status', Dispatch::STATUS_APPROVED);
+            ->whereHas('dispatch', function ($q) use ($sale) {
+                $q->where('sale_id', $sale->id);
+                $q->whereRaw('UPPER(status) = ?', [Dispatch::STATUS_APPROVED]);
             })
             ->get();
 
@@ -191,4 +191,3 @@ class SaleReturnEligibilityService
         ];
     }
 }
-

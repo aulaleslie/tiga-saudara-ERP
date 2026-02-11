@@ -103,6 +103,18 @@
                             <div class="form-row">
                                 <div class="col-lg-4">
                                     <div class="form-group">
+                                        <label for="is_pkp">Status PKP</label>
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" id="is_pkp" name="is_pkp" value="1"
+                                                   {{ old('is_pkp', (bool) ($settings->is_pkp ?? false)) ? 'checked' : '' }}>
+                                            <label class="form-check-label" for="is_pkp">
+                                                Bisnis ini PKP (pajak wajib dipilih saat membuat pembelian/penjualan)
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
                                         <label for="pos_idle_threshold_minutes">Peringatan Waktu Idle (menit)</label>
                                         <input type="number" min="0" class="form-control" name="pos_idle_threshold_minutes"
                                                value="{{ old('pos_idle_threshold_minutes', $settings->pos_idle_threshold_minutes ?? 0) }}">

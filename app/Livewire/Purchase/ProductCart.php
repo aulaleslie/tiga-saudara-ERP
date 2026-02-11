@@ -11,6 +11,7 @@ use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 
@@ -39,6 +40,7 @@ class ProductCart extends Component
     public $is_tax_included = true;
 
     public $global_discount_type = 'percentage';
+    public bool $isPkp = false;
 
     protected $rules = [
         'unit_price.*' => 'required|numeric|min:0', // Unit price per row.
@@ -60,6 +62,7 @@ class ProductCart extends Component
         ]);
         $this->cart_instance = $cartInstance;
         $this->setting_id = session('setting_id');
+        $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->setting_id)->value('is_pkp') ?? false);
         $this->taxes = Tax::all();
         Log::info('validated', [
             'data' => $data,
@@ -114,8 +117,21 @@ class ProductCart extends Component
         $this->check_quantity[$cart_item->id] = $cart_item->options->stock ?? 0;
         $this->quantity[$cart_item->id] = $cart_item->qty ?? 0;
         $this->unit_price[$cart_item->id] = $cart_item->price ?? 0;
-        $this->discount_type[$cart_item->id] = $cart_item->options->product_discount_type ?? 'fixed';
-        $this->item_discount[$cart_item->id] = $cart_item->options->product_discount ?? 0;
+        $discountType = $cart_item->options->product_discount_type ?? 'fixed';
+        $this->discount_type[$cart_item->id] = $discountType;
+
+        $storedDiscountInput = $cart_item->options->product_discount_input ?? null;
+        if (is_numeric($storedDiscountInput)) {
+            $displayDiscount = (float) $storedDiscountInput;
+        } elseif ($discountType === 'percentage') {
+            $price = (float) ($cart_item->price ?? 0);
+            $storedAmount = (float) ($cart_item->options->product_discount ?? 0);
+            $displayDiscount = $price > 0 ? ($storedAmount / $price) * 100 : 0;
+        } else {
+            $displayDiscount = (float) ($cart_item->options->product_discount ?? 0);
+        }
+
+        $this->item_discount[$cart_item->id] = round(max(0, $displayDiscount), 2);
         $this->product_tax[$cart_item->id] = $cart_item->options->product_tax ?? null;
     }
 
@@ -263,6 +279,7 @@ class ProductCart extends Component
         $this->product = $product;
 
         $calc = $this->calculate($product);
+        $defaultTaxId = $calc['product_tax'] ?: ($this->isPkp ? optional($this->taxes->first())->id : null);
 
         $cart->add([
             'id'     => $product['id'],
@@ -272,6 +289,7 @@ class ProductCart extends Component
             'weight' => 1,
             'options' => [
                 'product_discount'        => 0.00,
+                'product_discount_input'  => 0.00,
                 'product_discount_type'   => 'fixed',
                 'sub_total'               => $calc['sub_total'],
                 'sub_total_before_tax'    => $calc['sub_total_before_tax'] ?? $calc['sub_total'], // safe
@@ -281,7 +299,7 @@ class ProductCart extends Component
                 'unit'                    => $product['product_unit'],
                 'last_purchase_price'     => $calc['last_purchase_price'],
                 'average_purchase_price'  => $calc['average_purchase_price'],
-                'product_tax'             => $calc['product_tax'], // default per-product tax if any
+                'product_tax'             => $defaultTaxId, // default per-product tax if any
                 'unit_price'              => $calc['unit_price'],
             ],
         ]);
@@ -290,7 +308,7 @@ class ProductCart extends Component
         $this->quantity[$product['id']]        = 1;
         $this->discount_type[$product['id']]   = 'fixed';
         $this->item_discount[$product['id']]   = 0;
-        $this->product_tax[$product['id']]     = $calc['product_tax']; // mirror options
+        $this->product_tax[$product['id']]     = $defaultTaxId; // mirror options
         $this->quantityBreakdowns[$product['id']] = $this->calculateConversionBreakdown($product['id'], 1);
     }
 
@@ -476,6 +494,8 @@ class ProductCart extends Component
             }
         }
 
+        $this->item_discount[$product_id] = round($sanitized_discount_input, 2);
+
         $discount_amount = 0;
         if ($this->discount_type[$product_id] == 'fixed') {
             $discount_amount = $sanitized_discount_input;
@@ -501,6 +521,7 @@ class ProductCart extends Component
                 'sub_total' => $updated_cart_data['sub_total'],
                 'sub_total_before_tax' => $updated_cart_data['subtotal_before_tax'],
                 'product_discount' => $discount_amount,
+                'product_discount_input' => $this->item_discount[$product_id],
                 'product_discount_type' => $this->discount_type[$product_id],
             ]),
         ]);
@@ -541,6 +562,7 @@ class ProductCart extends Component
                 'sub_total_before_tax' => $calculated['subtotal_before_tax'],
                 'tax_amount' => $calculated['tax_amount'],
                 'product_discount' => $discount_amount,
+                'product_discount_input' => $sanitized_discount_input,
             ]),
         ]);
 
@@ -591,6 +613,7 @@ class ProductCart extends Component
             'product_tax'           => $cart_item->options->product_tax,
             'unit_price'            => $cart_item->options->unit_price,
             'product_discount'      => $discount_amount,
+            'product_discount_input'=> $this->item_discount[$product_id] ?? $discount_amount,
             'product_discount_type' => $this->discount_type[$product_id],
             'last_purchase_price'   => $cart_item->options->last_purchase_price, // Preserve
             'average_purchase_price'=> $cart_item->options->average_purchase_price, // Preserve
