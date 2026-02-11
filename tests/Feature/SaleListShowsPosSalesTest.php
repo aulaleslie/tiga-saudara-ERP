@@ -73,7 +73,7 @@ class SaleListShowsPosSalesTest extends TestCase
 
         SettingSaleLocation::updateOrCreate(
             ['location_id' => $location->id],
-            ['setting_id' => $setting->id, 'is_pos' => true, 'position' => 1]
+            ['setting_id' => $setting->id, 'position' => 1]
         );
 
         PosSession::create([

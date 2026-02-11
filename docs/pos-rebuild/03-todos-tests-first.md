@@ -1,5 +1,101 @@
 # POS Rebuild Phase 3 - TODO Breakdown (Tests-First)
 
+---
+
+## Cross-Cutting Guidelines: Preventing Cascading Test Failures
+
+> **CRITICAL**: Read this section BEFORE implementing ANY TODO item below.
+> These guidelines exist because a single removed constant from `ProductSerialNumber.php`
+> caused 234 test failures across the entire test suite by breaking a migration that runs
+> during test bootstrap. This ensures TODO 4 and future TODOs do not inadvertently break
+> other modules' tests.
+
+### Pre-Flight Checklist (Before Each TODO)
+
+Before starting work on any TODO item, complete these checks:
+
+- [ ] **Identify shared models**: List every Eloquent model your change touches. Search for
+  all files that reference that model's constants, relations, scopes, and accessors.
+  ```bash
+  # Example: before modifying ProductSerialNumber
+  grep -r "ProductSerialNumber::" --include="*.php" -l
+  grep -r "->histories()" --include="*.php" -l
+  grep -r "STATUS_ACTIVE\|STATUS_RETURNED\|STATUS_RETURN_IN_PROCESS\|STATUS_BROKEN" --include="*.php" -l
+  ```
+- [ ] **Check migration references**: Search ALL migration files for references to the model
+  or its constants. Migrations run during `RefreshDatabase` test bootstrap; a broken
+  migration will fail EVERY database test.
+  ```bash
+  grep -r "ProductSerialNumber\|SettingSaleLocation" --include="*.php" */Database/Migrations/
+  ```
+- [ ] **Check accessor/mutator consumers**: If you modify or remove an accessor (e.g.,
+  `getStatusAttribute`), find all code that reads `->status` and verify the comparison
+  values still match. Accessors that normalize casing (e.g., `strtoupper()`) mean consumers
+  MUST use the normalized form (e.g., `'ACTIVE'` not `'active'`).
+- [ ] **Check service layer dependencies**: If you remove an import or service call, search
+  for other modules that use the same service to ensure audit trail consistency and
+  cross-module workflows remain intact.
+  ```bash
+  grep -r "SerialNumberHistoryService::record" --include="*.php" -l
+  ```
+- [ ] **Run the full test suite** (`php artisan test`) after every change, not just the
+  tests for the module you modified. This catches cascading failures early.
+
+### Shared Model / Constant Impact Analysis
+
+These models and their constants are used across multiple modules. Removing or renaming
+any of these WILL cause cascading failures across unrelated tests:
+
+| Model | Shared Elements | Used By (count) |
+|-------|-----------------|-----------------|
+| `ProductSerialNumber` | `STATUS_ACTIVE`, `STATUS_RETURNED`, `STATUS_RETURN_IN_PROCESS`, `STATUS_BROKEN`, `histories()` relation, `getStatusAttribute()` accessor | 1 migration, 5 controllers, 2 Livewire components, 1 Blade view, 12+ test files |
+| `SerialNumberHistory` | `EVENT_RECEIVED`, `EVENT_SOLD`, `EVENT_SALE_RETURNED`, `EVENT_PURCHASE_RETURNED`, `EVENT_REPAIR_RECEIVED`, `EVENT_LOCATION_TRANSFER`, `EVENT_MARKED_BROKEN` | `SerialNumberHistoryService`, 4+ modules (SalesReturn, Purchase, PurchasesReturn, Adjustment), Livewire history table |
+| `SettingSaleLocation` | `position` field (ordering), `setting_id`/`location_id` FK relationships | POS location resolution, standard sale scoping, POS location configuration, 2+ test files |
+
+### Test Verification Gates
+
+| Gate | Command | When |
+|------|---------|------|
+| **Smoke test migrations** | `php artisan migrate:fresh --seed --env=testing` | After modifying any model constant, accessor, or migration file |
+| **Full test suite** | `php artisan test` | After every implementation step; before committing |
+| **Targeted module** | `php artisan test --filter=SerialNumber` | During development of serial-number-related changes |
+| **Check for broken migrations** | `php artisan migrate:status` | After adding or renaming migration files |
+
+### Rules for Modifying Shared Models
+
+1. **NEVER remove a constant** without first searching the entire codebase for references.
+   Use `grep -r "ClassName::CONSTANT_NAME" --include="*.php"` across ALL modules, not just
+   the current one.
+
+2. **NEVER remove an accessor/mutator** without verifying all consumers use raw DB values
+   or adding an equivalent transformation at each call site. Document any breaking changes.
+
+3. **NEVER remove a relationship method** without checking Livewire components, Blade views,
+   and test files that call it. Update them in the same commit.
+
+4. **NEVER remove a service call** (e.g., history recording) without checking that the
+   audit trail remains complete and consistent across all modules that use it.
+
+5. **Always use model constants** for status comparisons (e.g., `ProductSerialNumber::STATUS_ACTIVE`)
+   instead of raw strings (e.g., `'active'` or `'ACTIVE'`). Constants ensure consistency
+   if the canonical value ever changes.
+
+6. **Always run the full test suite**, not just the tests in your module. Some tests may
+   fail silently in CI but break in local environments if not caught early.
+
+### Example: Why the Constant Removal Caused 234 Failures
+
+The removed constant `ProductSerialNumber::STATUS_RETURN_IN_PROCESS` was referenced in:
+- **Migration file** `2026_02_08_000001_backfill_purchase_return_status_normalization.php` at line 62
+- When tests run via `php artisan test`, Laravel runs `RefreshDatabase` which executes all migrations
+- The migration hit the undefined constant error and crashed
+- Since migrations must complete before ANY database test can run, ALL 234 database tests failed
+- Root cause: a single constant removal in one model broke tests across the entire test suite
+
+This is why checking migrations first is CRITICAL.
+
+---
+
 ## Milestones
 - M1: Safe removal / deprecation of old POS dependencies
 - M2: Draft sale + code generation
