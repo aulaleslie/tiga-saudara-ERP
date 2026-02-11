@@ -1,0 +1,19 @@
+<?php
+
+namespace Database\Factories;
+
+use Illuminate\Database\Eloquent\Factories\Factory;
+use Modules\Setting\Entities\Location;
+
+class LocationFactory extends Factory
+{
+    protected $model = Location::class;
+
+    public function definition(): array
+    {
+        return [
+            'name' => $this->faker->city,
+            'setting_id' => \Modules\Setting\Entities\Setting::factory(),
+        ];
+    }
+}

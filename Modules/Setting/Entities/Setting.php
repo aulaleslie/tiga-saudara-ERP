@@ -10,8 +10,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Currency\Entities\Currency;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+
 class Setting extends BaseModel
 {
+    use HasFactory;
+
+    protected static function newFactory()
+    {
+        return \Database\Factories\SettingFactory::new();
+    }
+    
     protected $guarded = [];
 
     protected $casts = [

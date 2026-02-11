@@ -41,6 +41,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::view('/app/pos/cash-settlement', 'sale::pos.cash-settlement')->name('app.pos.cash-settlement');
         Route::view('/app/pos/cash-pickup', 'sale::pos.cash-pickup')->name('app.pos.cash-pickup');
         Route::view('/app/pos/cash-reconciliation', 'sale::pos.cash-reconciliation')->name('app.pos.cash-reconciliation');
+
+        Route::post('/app/pos/drafts', 'PosDraftController@store')->name('app.pos.drafts.store');
     });
 
 

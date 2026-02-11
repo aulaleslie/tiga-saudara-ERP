@@ -14,6 +14,29 @@ class PosDraft extends Model
 {
     use HasFactory;
 
+    protected static function booted()
+    {
+        static::creating(function ($model) {
+            if (empty($model->document_number)) {
+                $setting = $model->setting;
+                
+                if (!$setting && $model->setting_id) {
+                    $setting = \Modules\Setting\Entities\Setting::find($model->setting_id);
+                }
+
+                if ($setting) {
+                    $allocator = app(\Modules\Sale\Services\PosCodeAllocator::class);
+                    $model->document_number = $allocator->allocate($setting);
+                }
+            }
+        });
+    }
+
+    protected static function newFactory()
+    {
+        return \Database\Factories\PosDraftFactory::new();
+    }
+
     protected $fillable = [
         'pos_session_id',
         'setting_id',
@@ -24,6 +47,7 @@ class PosDraft extends Model
         'locked_by_user_id',
         'locked_at',
         'payload',
+        'document_number',
     ];
 
     protected $casts = [
