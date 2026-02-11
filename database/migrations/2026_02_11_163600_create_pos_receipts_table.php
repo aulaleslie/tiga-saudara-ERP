@@ -11,30 +11,36 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('pos_receipts', function (Blueprint $table) {
-            $table->id();
-            $table->string('receipt_number')->unique();
-            $table->foreignId('customer_id')->nullable()->constrained('customers')->nullOnDelete();
-            $table->string('customer_name')->nullable();
-            $table->decimal('total_amount', 15, 2)->default(0);
-            $table->decimal('paid_amount', 15, 2)->default(0);
-            $table->decimal('due_amount', 15, 2)->default(0);
-            $table->decimal('change_due', 15, 2)->default(0);
-            $table->string('payment_status')->default('Unpaid');
-            $table->string('payment_method')->nullable();
-            $table->json('payment_breakdown')->nullable();
-            $table->text('note')->nullable();
-            $table->foreignId('pos_session_id')->nullable()->constrained('pos_sessions')->nullOnDelete();
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('pos_receipts')) {
+            Schema::create('pos_receipts', function (Blueprint $table) {
+                $table->id();
+                $table->string('receipt_number')->unique();
+                $table->foreignId('customer_id')->nullable()->constrained('customers')->nullOnDelete();
+                $table->string('customer_name')->nullable();
+                $table->decimal('total_amount', 15, 2)->default(0);
+                $table->decimal('paid_amount', 15, 2)->default(0);
+                $table->decimal('due_amount', 15, 2)->default(0);
+                $table->decimal('change_due', 15, 2)->default(0);
+                $table->string('payment_status')->default('Unpaid');
+                $table->string('payment_method')->nullable();
+                $table->json('payment_breakdown')->nullable();
+                $table->text('note')->nullable();
+                $table->foreignId('pos_session_id')->nullable()->constrained('pos_sessions')->nullOnDelete();
+                $table->timestamps();
+            });
+        }
 
-        Schema::table('sales', function (Blueprint $table) {
-            $table->foreignId('pos_receipt_id')->nullable()->after('pos_session_id')->constrained('pos_receipts')->nullOnDelete();
-        });
+        if (!Schema::hasColumn('sales', 'pos_receipt_id')) {
+            Schema::table('sales', function (Blueprint $table) {
+                $table->foreignId('pos_receipt_id')->nullable()->after('pos_session_id')->constrained('pos_receipts')->nullOnDelete();
+            });
+        }
 
-        Schema::table('sale_payments', function (Blueprint $table) {
-            $table->foreignId('pos_receipt_id')->nullable()->after('pos_session_id')->constrained('pos_receipts')->nullOnDelete();
-        });
+        if (!Schema::hasColumn('sale_payments', 'pos_receipt_id')) {
+            Schema::table('sale_payments', function (Blueprint $table) {
+                $table->foreignId('pos_receipt_id')->nullable()->after('pos_session_id')->constrained('pos_receipts')->nullOnDelete();
+            });
+        }
     }
 
     /**
