@@ -14,6 +14,7 @@
 use Illuminate\Support\Facades\Route;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Http\Controllers\PosController;
+use Modules\Sale\Http\Controllers\PosDraftController;
 use Modules\Sale\Http\Controllers\SaleController;
 use Modules\Sale\Http\Controllers\SalesUploadController;
 
@@ -42,7 +43,14 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::view('/app/pos/cash-pickup', 'sale::pos.cash-pickup')->name('app.pos.cash-pickup');
         Route::view('/app/pos/cash-reconciliation', 'sale::pos.cash-reconciliation')->name('app.pos.cash-reconciliation');
 
-        Route::post('/app/pos/drafts', 'PosDraftController@store')->name('app.pos.drafts.store');
+        Route::post('/app/pos/drafts', [PosDraftController::class, 'store'])->name('app.pos.drafts.store');
+        Route::get('/app/pos/drafts/{code}', [PosDraftController::class, 'show'])->name('app.pos.drafts.show');
+        Route::patch('/app/pos/drafts/{code}', [PosDraftController::class, 'update'])->name('app.pos.drafts.update');
+        Route::post('/app/pos/drafts/{code}/lock', [PosDraftController::class, 'lock'])->name('app.pos.drafts.lock');
+        Route::post('/app/pos/drafts/{code}/lock/heartbeat', [PosDraftController::class, 'heartbeat'])->name('app.pos.drafts.lock.heartbeat');
+        Route::delete('/app/pos/drafts/{code}/lock', [PosDraftController::class, 'unlock'])->name('app.pos.drafts.unlock');
+        Route::post('/app/pos/drafts/{code}/submit-payment', [PosDraftController::class, 'submitPayment'])->name('app.pos.drafts.submit-payment');
+        Route::post('/app/pos/drafts/{code}/void', [PosDraftController::class, 'void'])->name('app.pos.drafts.void');
     });
 
 
@@ -90,11 +98,16 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
             'sales.saleDetails.product.baseUnit',
             'sales.saleDetails.product.prices',
             'sales.tenantSetting',
-            'sales.customer'
+            'sales.customer',
+            'posSession',
         ]);
 
         // Verify tenant access
-        if ($receipt->sales->first()?->setting_id !== session('setting_id')) {
+        $sessionSettingId = (int) session('setting_id');
+        $belongsToSetting = (int) optional($receipt->posSession)->setting_id === $sessionSettingId
+            || $receipt->sales->contains(fn ($sale) => (int) $sale->setting_id === $sessionSettingId);
+
+        if (! $belongsToSetting) {
             abort(403, 'Unauthorized access to receipt');
         }
 

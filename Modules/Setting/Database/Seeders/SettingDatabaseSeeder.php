@@ -40,6 +40,8 @@ class SettingDatabaseSeeder extends Seeder
                 'sale_prefix_document' => 'JL',
                 'sale_return_prefix_document' => 'SLRN',
                 'pos_document_prefix' => 'POS',
+                'pos_draft_flow_enabled' => false,
+                'pos_draft_expiry_minutes' => 1440,
                 'pos_idle_threshold_minutes' => 30,
                 'pos_default_cash_threshold' => 0,
             ]);

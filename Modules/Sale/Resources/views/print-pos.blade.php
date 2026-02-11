@@ -159,6 +159,10 @@
             <span class="bold">Tanggal:</span> {{ \Carbon\Carbon::parse($displayDate)->format('d M, Y H:i') }}<br>
             <span class="bold">No. Struk:</span> {{ $reference }}<br>
             <span class="bold">Pelanggan:</span> {{ $customerName }}
+            @if($receipt && $receipt->sales->isNotEmpty())
+                <br><span class="bold">Ref Penjualan:</span>
+                {{ $receipt->sales->pluck('reference')->filter()->implode(', ') }}
+            @endif
         </p>
 
         @if($receipt)

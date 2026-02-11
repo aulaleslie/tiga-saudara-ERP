@@ -28,6 +28,9 @@ class StorePosSaleRequest extends FormRequest
             'payments.*.amount' => 'required|numeric|min:0',
             'note' => 'nullable|string|max:1000',
             'pos_location_assignment_id' => 'nullable|integer',
+            'receipt_number' => 'nullable|string|max:50',
+            'pos_draft_id' => 'nullable|integer|exists:pos_drafts,id',
+            'idempotency_key' => 'nullable|string|max:100',
         ];
     }
 

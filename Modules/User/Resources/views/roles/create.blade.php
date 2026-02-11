@@ -261,6 +261,11 @@
                                             'pos.access' => 'Akses POS',
                                             'pos.create' => 'Buat POS',
                                             'pos.transactions.access' => 'Akses Riwayat Transaksi POS',
+                                            'pos.drafts.view' => 'Lihat Draft POS',
+                                            'pos.drafts.update' => 'Ubah Draft POS',
+                                            'pos.drafts.submit' => 'Bayar Draft POS',
+                                            'pos.drafts.void' => 'Batalkan Draft POS',
+                                            'pos.drafts.lock.override' => 'Override Lock Draft POS',
                                             'pricePoints.access' => 'Akses Terminal Harga',
                                         ],
 

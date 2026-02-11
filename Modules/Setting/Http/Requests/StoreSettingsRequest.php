@@ -47,6 +47,8 @@ class StoreSettingsRequest extends FormRequest
             'footer_text' => 'nullable|string|max:255',
             'pos_idle_threshold_minutes' => 'nullable|integer|min:0|max:1440',
             'pos_default_cash_threshold' => 'nullable|numeric|min:0',
+            'pos_draft_flow_enabled' => 'nullable|boolean',
+            'pos_draft_expiry_minutes' => 'nullable|integer|min:1|max:10080',
         ];
     }
 

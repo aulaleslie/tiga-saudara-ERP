@@ -75,7 +75,10 @@ class PosTransactions extends Component
             ->findOrFail($receiptId);
 
         // Check if receipt belongs to current tenant
-        if ($receipt->sales->first()?->setting_id !== session('setting_id')) {
+        $sessionSettingId = (int) session('setting_id');
+        $belongsToSetting = $receipt->sales->contains(fn ($sale) => (int) $sale->setting_id === $sessionSettingId);
+
+        if (! $belongsToSetting) {
             $this->addError('receipt', 'Unauthorized access to receipt');
             return;
         }

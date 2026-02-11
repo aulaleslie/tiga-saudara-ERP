@@ -22,6 +22,8 @@ class SettingFactory extends Factory
             'footer_text' => $this->faker->sentence,
             'company_address' => $this->faker->address,
             'pos_document_prefix' => 'POS',
+            'pos_draft_flow_enabled' => false,
+            'pos_draft_expiry_minutes' => 1440,
         ];
     }
 }

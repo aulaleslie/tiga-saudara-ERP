@@ -84,6 +84,25 @@
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
+                                        <label for="pos_draft_flow_enabled">Mode Draft POS</label>
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" id="pos_draft_flow_enabled" name="pos_draft_flow_enabled" value="1"
+                                                   {{ old('pos_draft_flow_enabled', (bool) ($settings->pos_draft_flow_enabled ?? false)) ? 'checked' : '' }}>
+                                            <label class="form-check-label" for="pos_draft_flow_enabled">
+                                                Aktifkan alur draft POS
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="pos_draft_expiry_minutes">Masa Berlaku Draft POS (menit)</label>
+                                        <input type="number" min="1" max="10080" class="form-control" name="pos_draft_expiry_minutes"
+                                               value="{{ old('pos_draft_expiry_minutes', $settings->pos_draft_expiry_minutes ?? 1440) }}">
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
                                         <label for="purchase_return_prefix_document">Prefix Dokumen Retur Pembelian</label>
                                         <input type="text" class="form-control" name="purchase_return_prefix_document"
                                                value="{{ $settings->purchase_return_prefix_document }}">

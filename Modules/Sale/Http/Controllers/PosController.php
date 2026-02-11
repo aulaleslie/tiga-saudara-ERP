@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use App\Support\PosMetrics;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
@@ -28,6 +29,7 @@ use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
 use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Sale\Http\Requests\StorePosSaleRequest;
+use Modules\Sale\Services\PosAllocationEngine;
 use Modules\Setting\Entities\PaymentMethod;
 
 class PosController extends Controller
@@ -39,6 +41,8 @@ class PosController extends Controller
     private static ?bool $saleBundleItemsHasTaxIdColumn = null;
 
     private array $posLocationSettingMap = [];
+
+    private array $reservedSerialIds = [];
 
     public function session()
     {
@@ -77,6 +81,12 @@ class PosController extends Controller
         $customer = Customer::findOrFail($request->customer_id);
 
         $validated = $request->validated();
+        Log::info('pos.payment.submit.started', [
+            'setting_id' => session('setting_id'),
+            'user_id' => auth()->id(),
+            'pos_code' => data_get($validated, 'receipt_number'),
+            'trace_id' => (string) request()->header('X-Request-Id', ''),
+        ]);
         PosLocationResolver::setActiveAssignment((int) data_get($validated, 'pos_location_assignment_id'));
         $paymentsInput = collect(data_get($validated, 'payments', []));
         $shippingAmount = round((float) data_get($validated, 'shipping_amount', 0), 2);
@@ -188,11 +198,13 @@ class PosController extends Controller
 
         $posLocationId = PosLocationResolver::resolveId();
         $posSession = $request->attributes->get('pos_session') ?? app(PosSessionManager::class)->ensureActive();
+        $this->reservedSerialIds = [];
 
         DB::beginTransaction();
 
         try {
             $posReceipt = PosReceipt::create([
+                'receipt_number' => data_get($validated, 'receipt_number'),
                 'customer_id' => $customer->id,
                 'customer_name' => $customer->customer_name,
                 'total_amount' => $total_amount,
@@ -220,7 +232,6 @@ class PosController extends Controller
             foreach ($tenantGroups as $tenantGroup) {
                 $saleData = [
                     'date' => now()->format('Y-m-d'),
-                    'reference' => 'PSL',
                     'customer_id' => $customer->id,
                     'customer_name' => $customer->customer_name,
                     'tax_percentage' => $request->tax_percentage,
@@ -343,13 +354,23 @@ class PosController extends Controller
             ]);
 
             DB::commit();
+            PosMetrics::increment('payment_success', [
+                'setting_id' => (int) session('setting_id'),
+            ]);
 
         } catch (Exception $e) {
             DB::rollBack();
+            PosMetrics::increment('payment_failed', [
+                'setting_id' => (int) session('setting_id'),
+            ]);
 
             Log::error('Failed to create POS sale', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
+                'setting_id' => session('setting_id'),
+                'user_id' => auth()->id(),
+                'pos_code' => data_get($validated, 'receipt_number'),
+                'trace_id' => (string) request()->header('X-Request-Id', ''),
             ]);
 
             return back()->withErrors(['error' => 'Failed to create POS sale.'])->withInput();
@@ -684,7 +705,7 @@ class PosController extends Controller
             ->join('locations', 'locations.id', '=', 'setting_sale_locations.location_id')
             ->where('setting_sale_locations.setting_id', session('setting_id'))
             ->orderBy('setting_sale_locations.position')
-            ->orderBy('setting_sale_locations.id')
+            ->orderBy('setting_sale_locations.location_id')
             ->get()
             ->mapWithKeys(fn ($row) => [(int) $row->location_id => (int) $row->setting_id])
             ->toArray();
@@ -911,16 +932,46 @@ class PosController extends Controller
             $totalAllocated += (int) $entry['allocated_non_tax'] + (int) $entry['allocated_tax'];
         }
 
-        if ($requestedQuantity > 0 && $totalAllocated < $requestedQuantity && ! empty($normalizedAllocations)) {
+        if ($requestedQuantity > 0 && $totalAllocated < $requestedQuantity) {
             $remaining = $requestedQuantity - $totalAllocated;
-            $normalizedAllocations[0]['allocated_non_tax'] += $remaining;
+            $fillResult = $this->fillMissingAllocationFromStock($productId, $remaining, $normalizedAllocations, $posLocationId);
+            $normalizedAllocations = $fillResult['allocations'];
+            $remaining = (int) $fillResult['remaining'];
 
-            Log::warning('POS sale allocations underspecified; padding first location', [
-                'product_id' => $productId,
-                'sale_id' => $sale->id,
-                'sale_detail_id' => $saleDetail->id,
-                'remaining' => $remaining,
-            ]);
+            if ($remaining > 0 && ! ProductStock::query()->where('product_id', $productId)->exists()) {
+                $fallbackLocationId = (int) ($normalizedAllocations[0]['location_id'] ?? $posLocationId ?? 0);
+
+                if ($fallbackLocationId > 0) {
+                    if (empty($normalizedAllocations)) {
+                        $normalizedAllocations[] = [
+                            'location_id' => $fallbackLocationId,
+                            'allocated_non_tax' => $remaining,
+                            'allocated_tax' => 0,
+                        ];
+                    } else {
+                        $normalizedAllocations[0]['allocated_non_tax'] += $remaining;
+                    }
+
+                    $remaining = 0;
+                }
+            }
+
+            if ($remaining > 0) {
+                PosMetrics::increment('stock_failures', [
+                    'setting_id' => (int) session('setting_id'),
+                ]);
+
+                Log::warning('POS sale allocations insufficient for requested quantity', [
+                    'product_id' => $productId,
+                    'sale_id' => $sale->id,
+                    'sale_detail_id' => $saleDetail->id,
+                    'remaining' => $remaining,
+                    'requested_quantity' => $requestedQuantity,
+                    'total_allocated' => $requestedQuantity - $remaining,
+                ]);
+
+                throw new Exception("Stok tidak mencukupi untuk produk {$saleDetail->product_name}. Kekurangan: {$remaining}.");
+            }
         }
 
         if ($productId) {
@@ -958,6 +1009,60 @@ class PosController extends Controller
         $this->markSerialNumbersAsSold($saleDetail, $options);
 
         return $normalizedAllocations;
+    }
+
+    private function fillMissingAllocationFromStock(int $productId, int $remaining, array $allocations, ?int $fallbackLocationId = null): array
+    {
+        if ($productId <= 0 || $remaining <= 0) {
+            return [
+                'allocations' => array_values($allocations),
+                'remaining' => max(0, $remaining),
+            ];
+        }
+
+        $locationIds = PosLocationResolver::resolveLocationIds()
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->values()
+            ->all();
+
+        if (empty($locationIds) && $fallbackLocationId) {
+            $locationIds = [(int) $fallbackLocationId];
+        }
+
+        if (empty($locationIds)) {
+            return [
+                'allocations' => array_values($allocations),
+                'remaining' => $remaining,
+            ];
+        }
+
+        $stocksByLocation = ProductStock::query()
+            ->where('product_id', $productId)
+            ->whereIn('location_id', $locationIds)
+            ->lockForUpdate()
+            ->get()
+            ->mapWithKeys(function ($stock) {
+                return [
+                    (int) $stock->location_id => [
+                        'available_non_tax' => max(0, (int) $stock->quantity_non_tax),
+                        'available_tax' => max(0, (int) $stock->quantity_tax),
+                    ],
+                ];
+            })
+            ->toArray();
+
+        $allocationResult = app(PosAllocationEngine::class)->allocate(
+            $remaining,
+            $locationIds,
+            $stocksByLocation,
+            $allocations
+        );
+
+        return [
+            'allocations' => array_values($allocationResult['allocations'] ?? []),
+            'remaining' => max(0, (int) ($allocationResult['remaining'] ?? $remaining)),
+        ];
     }
 
     private function createDispatchesForSale(Sale $sale, array $dispatchPlans): void
@@ -1003,12 +1108,26 @@ class PosController extends Controller
             ->first();
 
         if (! $stock) {
-            Log::warning('POS sale could not locate stock row for deduction', [
+            $hasAnyStockRow = ProductStock::query()
+                ->where('product_id', $productId)
+                ->exists();
+
+            Log::warning('POS sale stock row missing for deduction', [
                 'product_id' => $productId,
                 'location_id' => $locationId,
                 'sale_id' => $sale->id,
+                'has_any_stock_row' => $hasAnyStockRow,
             ]);
-            return;
+
+            if (! $hasAnyStockRow) {
+                return;
+            }
+
+            PosMetrics::increment('stock_failures', [
+                'setting_id' => (int) session('setting_id'),
+            ]);
+
+            throw new Exception("Stok produk {$productId} di lokasi {$locationId} tidak ditemukan.");
         }
 
         $availableNonTax = max(0, (int) $stock->quantity_non_tax);
@@ -1018,7 +1137,11 @@ class PosController extends Controller
         $taxToDeduct = min($deductTax, $availableTax);
 
         if ($deductNonTax > $availableNonTax || $deductTax > $availableTax) {
-            Log::warning('POS sale deduction exceeded available stock for location', [
+            PosMetrics::increment('stock_failures', [
+                'setting_id' => (int) session('setting_id'),
+            ]);
+
+            Log::warning('POS sale deduction exceeds available stock', [
                 'product_id' => $productId,
                 'location_id' => $locationId,
                 'sale_id' => $sale->id,
@@ -1027,6 +1150,8 @@ class PosController extends Controller
                 'available_non_tax' => $availableNonTax,
                 'available_tax' => $availableTax,
             ]);
+
+            throw new Exception("Stok tidak mencukupi di lokasi {$locationId} untuk produk {$productId}.");
         }
 
         $previousQuantityNonTax = $stock->quantity_non_tax;
@@ -1090,41 +1215,125 @@ class PosController extends Controller
     }
     private function markSerialNumbersAsSold(SaleDetails $saleDetail, array $options): void
     {
+        $productRequiresSerial = (bool) Product::query()
+            ->whereKey((int) $saleDetail->product_id)
+            ->value('serial_number_required');
+
         $serials = $this->resolveSerialNumbers($options);
-        if (! $serials) {
+        if (! $serials && ! $productRequiresSerial) {
             return;
         }
 
-        $serialIds = collect($serials)
+        $serialIds = collect($serials ?? [])
             ->map(fn ($serial) => (int) ($serial['id'] ?? 0))
             ->filter()
             ->values();
+
+        if ($serialIds->isNotEmpty() && $serialIds->count() !== (int) $saleDetail->quantity) {
+            PosMetrics::increment('stock_failures', [
+                'setting_id' => (int) session('setting_id'),
+            ]);
+
+            throw new Exception("Jumlah serial untuk {$saleDetail->product_name} harus sama dengan kuantitas yang dijual.");
+        }
+
+        if ($productRequiresSerial && $serialIds->isEmpty()) {
+            PosMetrics::increment('stock_failures', [
+                'setting_id' => (int) session('setting_id'),
+            ]);
+
+            throw new Exception("Serial wajib dipilih untuk {$saleDetail->product_name}.");
+        }
 
         if ($serialIds->isEmpty()) {
             return;
         }
 
+        $uniqueSerialIds = $serialIds->unique()->values();
+        if ($uniqueSerialIds->count() !== $serialIds->count()) {
+            PosMetrics::increment('stock_failures', [
+                'setting_id' => (int) session('setting_id'),
+            ]);
+
+            throw new Exception("Serial duplikat terdeteksi untuk {$saleDetail->product_name}.");
+        }
+
+        $alreadyReserved = array_values(array_intersect($uniqueSerialIds->all(), $this->reservedSerialIds));
+        if (! empty($alreadyReserved)) {
+            PosMetrics::increment('stock_failures', [
+                'setting_id' => (int) session('setting_id'),
+            ]);
+
+            throw new Exception("Serial sudah dipakai pada item lain dalam transaksi ini.");
+        }
+
+        $allowedLocationIds = PosLocationResolver::resolveLocationIds()
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
         $records = ProductSerialNumber::query()
-            ->whereIn('id', $serialIds)
+            ->whereIn('id', $uniqueSerialIds)
             ->lockForUpdate()
             ->get();
 
+        if ($records->count() !== $uniqueSerialIds->count()) {
+            PosMetrics::increment('stock_failures', [
+                'setting_id' => (int) session('setting_id'),
+            ]);
+
+            throw new Exception("Sebagian serial tidak ditemukan untuk {$saleDetail->product_name}.");
+        }
+
+        $resolvedTaxIds = [];
+
         foreach ($records as $record) {
-            if (strtolower($record->status) !== 'active' || $record->is_in_return_process) {
+            if (strtoupper((string) $record->status) !== 'ACTIVE' || $record->is_in_return_process || $record->dispatch_detail_id) {
+                PosMetrics::increment('stock_failures', [
+                    'setting_id' => (int) session('setting_id'),
+                ]);
+
                 throw new Exception("Serial number {$record->serial_number} tidak tersedia untuk penjualan.");
             }
 
-            // Status validation only - dispatch_detail_id is set later by createDispatchesForSale()
-            $record->save();
+            if ($allowedLocationIds->isNotEmpty() && ! $allowedLocationIds->contains((int) $record->location_id)) {
+                PosMetrics::increment('stock_failures', [
+                    'setting_id' => (int) session('setting_id'),
+                ]);
+
+                throw new Exception("Serial {$record->serial_number} berada di lokasi yang tidak diizinkan POS.");
+            }
+
+            if ($saleDetail->tax_id !== null && (int) $saleDetail->tax_id !== (int) $record->tax_id) {
+                PosMetrics::increment('stock_failures', [
+                    'setting_id' => (int) session('setting_id'),
+                ]);
+
+                throw new Exception("Tax serial {$record->serial_number} tidak sesuai dengan detail penjualan.");
+            }
+
+            if ($record->tax_id !== null) {
+                $resolvedTaxIds[] = (int) $record->tax_id;
+            }
         }
 
         if (! $saleDetail->tax_id) {
-            $taxIds = $records->pluck('tax_id')->filter()->unique()->values();
+            $taxIds = collect($resolvedTaxIds)->unique()->values();
             if ($taxIds->count() === 1) {
                 $saleDetail->tax_id = $taxIds->first();
                 $saleDetail->save();
+            } elseif ($taxIds->count() > 1) {
+                PosMetrics::increment('stock_failures', [
+                    'setting_id' => (int) session('setting_id'),
+                ]);
+
+                throw new Exception("Serial {$saleDetail->product_name} memiliki tax campuran dan tidak dapat diproses.");
             }
         }
+
+        $this->reservedSerialIds = array_values(array_unique(array_merge(
+            $this->reservedSerialIds,
+            $uniqueSerialIds->all()
+        )));
     }
 
     private function mapCartItemToSaleDetailData(Sale $sale, $cartItem): array
@@ -1355,7 +1564,7 @@ class PosController extends Controller
             $query->where('user_id', $userId);
         })
         ->with(['sales.saleDetails.product.conversions.unit', 'sales.saleDetails.product.conversions.prices', 'sales.saleDetails.product.baseUnit', 'sales.saleDetails.product.prices', 'sales.tenantSetting', 'sales.customer'])
-        ->latest('created_at')
+        ->latest('id')
         ->first();
 
         if (!$lastReceipt) {

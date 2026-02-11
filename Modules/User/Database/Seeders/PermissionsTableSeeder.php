@@ -111,6 +111,11 @@ class PermissionsTableSeeder extends Seeder
             'pos.access',
             'pos.create',
             'pos.transactions.access',
+            'pos.drafts.view',
+            'pos.drafts.update',
+            'pos.drafts.submit',
+            'pos.drafts.void',
+            'pos.drafts.lock.override',
 
             // Price Points (Terminal Harga)
             'pricePoints.access',

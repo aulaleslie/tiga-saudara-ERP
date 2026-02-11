@@ -106,12 +106,12 @@ class PosMultiLocationInventoryTest extends TestCase
 
         SettingSaleLocation::updateOrCreate(
             ['location_id' => $this->primaryLocation->id],
-            ['setting_id' => $this->setting->id, 'is_pos' => true, 'position' => 1]
+            ['setting_id' => $this->setting->id, 'position' => 1]
         );
 
         SettingSaleLocation::updateOrCreate(
             ['location_id' => $this->secondaryLocation->id],
-            ['setting_id' => $this->setting->id, 'is_pos' => true, 'position' => 2]
+            ['setting_id' => $this->setting->id, 'position' => 2]
         );
 
         PosLocationResolver::forget($this->setting->id);

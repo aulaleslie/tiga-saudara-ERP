@@ -74,6 +74,7 @@
                                     <th>No. Struk</th>
                                     <th>Tanggal</th>
                                     <th>Pelanggan</th>
+                                    <th>Ref Sales</th>
                                     <th>Total</th>
                                     <th>Status Pembayaran</th>
                                     <th>Sesi POS</th>
@@ -91,6 +92,9 @@
                                         </td>
                                         <td>
                                             {{ $receipt->customer_name ?: ($receipt->sales->first()?->customer?->customer_name ?: 'Walk-in') }}
+                                        </td>
+                                        <td>
+                                            {{ $receipt->sales->pluck('reference')->filter()->implode(', ') ?: '-' }}
                                         </td>
                                         <td>
                                             {{ format_currency($receipt->total_amount) }}
@@ -117,7 +121,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="7" class="text-center py-4">
+                                        <td colspan="8" class="text-center py-4">
                                             <div class="text-muted">
                                                 <i class="fas fa-inbox fa-2x mb-2"></i>
                                                 <p>Tidak ada transaksi POS ditemukan</p>

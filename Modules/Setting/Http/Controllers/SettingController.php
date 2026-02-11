@@ -44,6 +44,8 @@ class SettingController extends Controller
             'purchase_return_prefix_document' => $request->purchase_return_prefix_document,
             'sale_return_prefix_document' => $request->sale_return_prefix_document,
             'pos_document_prefix'      => $request->pos_document_prefix,
+            'pos_draft_flow_enabled'   => $request->boolean('pos_draft_flow_enabled'),
+            'pos_draft_expiry_minutes' => $request->pos_draft_expiry_minutes,
             'pos_idle_threshold_minutes' => $request->pos_idle_threshold_minutes,
             'pos_default_cash_threshold' => $request->pos_default_cash_threshold,
         ];
@@ -73,6 +75,7 @@ class SettingController extends Controller
         }
 
         $data['pos_idle_threshold_minutes'] = max(0, (int) ($data['pos_idle_threshold_minutes'] ?? 0));
+        $data['pos_draft_expiry_minutes'] = max(1, (int) ($data['pos_draft_expiry_minutes'] ?? 1440));
         $data['pos_default_cash_threshold'] = $data['pos_default_cash_threshold'] !== null
             ? round((float) $data['pos_default_cash_threshold'], 2)
             : 0.0;
@@ -96,6 +99,8 @@ class SettingController extends Controller
                 'purchase_return_prefix_document',
                 'sale_return_prefix_document',
                 'pos_document_prefix',
+                'pos_draft_flow_enabled',
+                'pos_draft_expiry_minutes',
                 'pos_idle_threshold_minutes',
                 'pos_default_cash_threshold',
             ];

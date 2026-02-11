@@ -54,7 +54,7 @@ class ProductImportChunkStockTest extends TestCase
             ['location_id' => $location->id],
             ['setting_id' => $setting->id]
         );
-        $assignment->update(['is_pos' => true]);
+        $assignment->update(['position' => 1]);
         PosLocationResolver::forget($setting->id);
 
         $user = User::factory()->create();
