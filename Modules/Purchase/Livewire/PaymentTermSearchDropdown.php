@@ -52,8 +52,10 @@ class PaymentTermSearchDropdown extends Component
 
     public function rendering(): void
     {
-        if ($this->selected !== null && $this->selectedLabel === null) {
+        if ($this->selected !== null) {
             $this->selectedLabel = $this->resolveLabel($this->selected);
+        } else {
+            $this->selectedLabel = null;
         }
     }
 

@@ -72,10 +72,16 @@ class CreateForm extends Component
         $this->tags = $tags;
     }
 
-    private function syncPaymentTermAndDueDate(?int $paymentTermId): void
+    private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
     {
         $this->payment_term = $paymentTermId ?: null;
         $this->updateDueDateFromPaymentTerm();
+
+        if ($syncDropdown) {
+            // Sync the payment term dropdown UI
+            $this->dispatch('setPaymentTerm', $this->payment_term)
+                ->to(PaymentTermSearchDropdown::class);
+        }
     }
 
     private function resolveDefaultPaymentTermId(): ?int
@@ -156,7 +162,7 @@ class CreateForm extends Component
             }
         }
 
-        $this->syncPaymentTermAndDueDate($paymentTermId);
+        $this->syncPaymentTermAndDueDate($paymentTermId, true);
         $this->dispatch('supplierSelected', $supplierId);
     }
 
@@ -186,7 +192,7 @@ class CreateForm extends Component
             ? (int) $supplier['payment_term_id']
             : $this->resolveDefaultPaymentTermId();
 
-        $this->syncPaymentTermAndDueDate($paymentTermId);
+        $this->syncPaymentTermAndDueDate($paymentTermId, true);
     }
 
     private function prefillFromPurchase(int $purchaseId): void
@@ -216,6 +222,17 @@ class CreateForm extends Component
 
         $this->shipping = $purchase->shipping_amount ?? 0;
         $this->is_tax_included = (bool) $purchase->is_tax_included;
+
+        // Ensure dropdown UI is in sync with the prefilled payment term
+        // Do not call syncPaymentTermAndDueDate() here because it may overwrite
+        // the duplicated purchase's due_date which we've explicitly set above.
+        if ($this->payment_term) {
+            $this->dispatch('setPaymentTerm', $this->payment_term)
+                ->to(PaymentTermSearchDropdown::class);
+        } else {
+            $this->dispatch('setPaymentTerm', null)
+                ->to(PaymentTermSearchDropdown::class);
+        }
 
         $cart = Cart::instance('purchase');
         $cart->destroy();

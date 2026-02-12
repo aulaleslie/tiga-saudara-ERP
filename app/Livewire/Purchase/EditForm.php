@@ -71,6 +71,15 @@ class EditForm extends Component
 
         $this->tags = $this->purchase->tags->pluck('name')->toArray();
         $this->restoreCart();
+
+        // Ensure the payment term dropdown UI matches the loaded payment term
+        if ($this->payment_term) {
+            $this->dispatch('setPaymentTerm', $this->payment_term)
+                ->to(PaymentTermSearchDropdown::class);
+        } else {
+            $this->dispatch('setPaymentTerm', null)
+                ->to(PaymentTermSearchDropdown::class);
+        }
     }
 
     public function handleTagsUpdated(array $tags): void
