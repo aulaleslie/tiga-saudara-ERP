@@ -19,8 +19,6 @@ class SaleLocationConfigurationTest extends TestCase
     {
         parent::setUp();
 
-        config()->set('setting.max_pos_locations', 0);
-
         Currency::create([
             'currency_name'      => 'Rupiah',
             'code'               => 'IDR',

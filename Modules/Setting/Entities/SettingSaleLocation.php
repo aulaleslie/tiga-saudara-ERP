@@ -3,7 +3,7 @@
 namespace Modules\Setting\Entities;
 
 use App\Models\BaseModel;
-use App\Support\PosLocationResolver;
+use App\Support\SalesLocationResolver;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -46,7 +46,7 @@ class SettingSaleLocation extends BaseModel
         });
 
         static::created(function (SettingSaleLocation $assignment) {
-            PosLocationResolver::forget($assignment->setting_id);
+            SalesLocationResolver::forget($assignment->setting_id);
         });
 
         static::updated(function (SettingSaleLocation $assignment) {
@@ -62,7 +62,7 @@ class SettingSaleLocation extends BaseModel
                 ])->filter()->unique()->all();
 
                 if (!empty($settingIds)) {
-                    PosLocationResolver::forget(...$settingIds);
+                    SalesLocationResolver::forget(...$settingIds);
                 }
             }
         });
@@ -74,7 +74,7 @@ class SettingSaleLocation extends BaseModel
             ])->filter()->unique()->all();
 
             if (!empty($settingIds)) {
-                PosLocationResolver::forget(...$settingIds);
+                SalesLocationResolver::forget(...$settingIds);
             }
         });
 
@@ -86,7 +86,7 @@ class SettingSaleLocation extends BaseModel
                 ])->filter()->unique()->all();
 
                 if (!empty($settingIds)) {
-                    PosLocationResolver::forget(...$settingIds);
+                    SalesLocationResolver::forget(...$settingIds);
                 }
             });
         }

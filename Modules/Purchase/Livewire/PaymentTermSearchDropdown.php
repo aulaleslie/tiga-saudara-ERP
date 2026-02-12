@@ -50,6 +50,13 @@ class PaymentTermSearchDropdown extends Component
         $this->selectedLabel = $this->resolveLabel($this->selected);
     }
 
+    public function rendering(): void
+    {
+        if ($this->selected !== null && $this->selectedLabel === null) {
+            $this->selectedLabel = $this->resolveLabel($this->selected);
+        }
+    }
+
     public function render()
     {
         return view('livewire.modules.purchase.payment-term-search-dropdown');

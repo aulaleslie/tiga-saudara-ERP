@@ -3,13 +3,11 @@
 namespace Modules\Sale\Entities;
 
 use App\Models\BaseModel;
-use App\Models\PosSession;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\SalesReturn\Entities\SalePaymentCreditApplication;
-use App\Models\PosReceipt;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 
@@ -49,16 +47,6 @@ class SalePayment extends BaseModel implements HasMedia
     public function paymentMethod(): BelongsTo
     {
         return $this->belongsTo(PaymentMethod::class, 'payment_method_id', 'id');
-    }
-
-    public function posSession(): BelongsTo
-    {
-        return $this->belongsTo(PosSession::class, 'pos_session_id');
-    }
-
-    public function posReceipt(): BelongsTo
-    {
-        return $this->belongsTo(PosReceipt::class, 'pos_receipt_id');
     }
 
     public function creditApplications(): HasMany

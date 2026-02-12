@@ -7,43 +7,12 @@
 <ul class="c-header-nav ml-auto">
 </ul>
 <ul class="c-header-nav ml-auto mr-4">
-    @if(request()->routeIs('app.pos.*'))
-        <li class="c-header-nav-item mr-2">
-            <a class="btn btn-primary btn-pill" href="{{ route('home') }}">
-                <i class="bi bi-house mr-1"></i> Home
-            </a>
-        </li>
-    @endif
     @can('pricePoints.access')
         <li class="c-header-nav-item mr-2">
             <a class="btn btn-primary btn-pill" href="{{ route('price-points.index') }}" target="_blank">
                 <i class="bi bi-tags mr-1"></i> Terminal Harga
             </a>
         </li>
-    @endcan
-    @can('pos.create')
-        <li class="c-header-nav-item mr-3">
-                    <a class="btn btn-primary btn-pill {{ request()->routeIs('app.pos.index') ? 'disabled' : '' }}" href="{{ route('app.pos.index') }}">
-                        <i class="bi bi-cart mr-1"></i> POS System
-                    </a>
-        </li>
-        @if(request()->routeIs('app.pos.*'))
-            <li class="c-header-nav-item mr-2">
-                <a class="btn btn-outline-light btn-pill {{ request()->routeIs('app.pos.cash-settlement') ? 'active' : '' }}" href="{{ route('app.pos.cash-settlement') }}">
-                    <i class="bi bi-wallet2 mr-1"></i> Penyetoran
-                </a>
-            </li>
-            <li class="c-header-nav-item mr-2">
-                <a class="btn btn-outline-light btn-pill {{ request()->routeIs('app.pos.cash-pickup') ? 'active' : '' }}" href="{{ route('app.pos.cash-pickup') }}">
-                    <i class="bi bi-truck mr-1"></i> Penjemputan
-                </a>
-            </li>
-            <li class="c-header-nav-item mr-3">
-                <a class="btn btn-outline-light btn-pill {{ request()->routeIs('app.pos.cash-reconciliation') ? 'active' : '' }}" href="{{ route('app.pos.cash-reconciliation') }}">
-                    <i class="bi bi-calculator mr-1"></i> Rekonsiliasi
-                </a>
-            </li>
-        @endif
     @endcan
 
     @if(session('user_settings') && session('user_settings')->isNotEmpty())

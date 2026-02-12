@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
-use App\Support\PosLocationResolver;
+use App\Support\SalesLocationResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
@@ -22,7 +22,7 @@ class ProductImportChunkStockTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_chunk_import_assigns_stock_and_pos_query_detects_product(): void
+    public function test_chunk_import_assigns_stock_and_location_scoped_query_detects_product(): void
     {
         $currency = Currency::create([
             'currency_name' => 'Rupiah',
@@ -55,7 +55,7 @@ class ProductImportChunkStockTest extends TestCase
             ['setting_id' => $setting->id]
         );
         $assignment->update(['position' => 1]);
-        PosLocationResolver::forget($setting->id);
+        SalesLocationResolver::forget($setting->id);
 
         $user = User::factory()->create();
 
@@ -128,13 +128,13 @@ class ProductImportChunkStockTest extends TestCase
         $this->assertSame(0, $stock->broken_quantity_tax);
 
         session()->put('setting_id', $setting->id);
-        $posLocationIds = PosLocationResolver::resolveLocationIds($setting->id)->all();
-        $this->assertEquals([$location->id], $posLocationIds);
+        $saleLocationIds = SalesLocationResolver::resolveLocationIds($setting->id)->all();
+        $this->assertEquals([$location->id], $saleLocationIds);
 
         $aggregatedStock = DB::table('product_stocks')
             ->selectRaw('SUM(quantity_non_tax + quantity_tax) AS stock_qty')
             ->where('product_id', $product->id)
-            ->whereIn('location_id', $posLocationIds)
+            ->whereIn('location_id', $saleLocationIds)
             ->value('stock_qty');
 
         $this->assertSame(6, (int) $aggregatedStock);
@@ -143,7 +143,7 @@ class ProductImportChunkStockTest extends TestCase
             ->leftJoinSub(
                 DB::table('product_stocks')
                     ->selectRaw('product_id, SUM(quantity_non_tax + quantity_tax) AS stock_qty')
-                    ->whereIn('location_id', $posLocationIds)
+                    ->whereIn('location_id', $saleLocationIds)
                     ->groupBy('product_id'),
                 'st',
                 'st.product_id',

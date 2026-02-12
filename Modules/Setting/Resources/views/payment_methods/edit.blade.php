@@ -38,14 +38,6 @@
             @error('is_cash')
             <div class="text-danger small">{{ $message }}</div>
             @enderror
-            <div class="form-check mb-3">
-                <input type="hidden" name="is_available_in_pos" value="0">
-                <input class="form-check-input" type="checkbox" id="is_available_in_pos" name="is_available_in_pos" value="1" {{ old('is_available_in_pos', $paymentMethod->is_available_in_pos) ? 'checked' : '' }}>
-                <label class="form-check-label" for="is_available_in_pos">Tersedia di POS</label>
-            </div>
-            @error('is_available_in_pos')
-            <div class="text-danger small">{{ $message }}</div>
-            @enderror
             <x-button label="Update" processing-text="Memproses…" />
             <a href="{{ route('payment-methods.index') }}" class="btn btn-secondary">Batal</a>
         </form>

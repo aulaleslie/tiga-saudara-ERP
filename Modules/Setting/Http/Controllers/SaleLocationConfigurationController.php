@@ -7,7 +7,7 @@ use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use App\Support\PosLocationResolver;
+use App\Support\SalesLocationResolver;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -86,7 +86,7 @@ class SaleLocationConfigurationController extends Controller
             ]
         );
 
-        PosLocationResolver::forget($currentSettingId, $previousSettingId, $location->setting_id);
+        SalesLocationResolver::forget($currentSettingId, $previousSettingId, $location->setting_id);
 
         toast('Lokasi berhasil ditambahkan ke konfigurasi penjualan.', 'success');
 
@@ -135,7 +135,7 @@ class SaleLocationConfigurationController extends Controller
             }
         });
 
-        PosLocationResolver::forget($currentSettingId);
+        SalesLocationResolver::forget($currentSettingId);
 
         toast('Urutan lokasi berhasil diperbarui.', 'success');
 
@@ -177,7 +177,7 @@ class SaleLocationConfigurationController extends Controller
             'position'   => ($nextPosition ?: 0) + 1,
         ]);
 
-        PosLocationResolver::forget($currentSettingId, $ownerId);
+        SalesLocationResolver::forget($currentSettingId, $ownerId);
         toast('Lokasi dikembalikan ke bisnis asal.', 'success');
 
         return redirect()->route('sales-location-configurations.index');

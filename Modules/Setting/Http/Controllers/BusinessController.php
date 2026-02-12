@@ -61,7 +61,6 @@ class BusinessController extends Controller
             'sale_prefix_document' => 'nullable|string|max:10',
             'purchase_return_prefix_document' => 'nullable|string|max:10',
             'sale_return_prefix_document' => 'nullable|string|max:10',
-            'pos_document_prefix' => 'nullable|string|max:10',
             'default_currency_id' => 'nullable|exists:currencies,id',
         ], [
             'company_name.required' => 'Nama perusahaan wajib diisi.',
@@ -76,7 +75,6 @@ class BusinessController extends Controller
             'sale_prefix_document.max' => 'Prefix dokumen penjualan maksimal 10 karakter.',
             'purchase_return_prefix_document.max' => 'Prefix dokumen retur pembelian maksimal 10 karakter.',
             'sale_return_prefix_document.max' => 'Prefix dokumen retur penjualan maksimal 10 karakter.',
-            'pos_document_prefix.max' => 'Prefix dokumen POS maksimal 10 karakter.',
             'default_currency_id.exists' => 'Mata uang yang dipilih tidak valid.',
         ]);
 
@@ -142,7 +140,6 @@ class BusinessController extends Controller
             'sale_prefix_document' => 'nullable|string|max:10',
             'purchase_return_prefix_document' => 'nullable|string|max:10',
             'sale_return_prefix_document' => 'nullable|string|max:10',
-            'pos_document_prefix' => 'nullable|string|max:10',
             'default_currency_id' => 'nullable|exists:currencies,id',
         ], [
             'company_name.required' => 'Nama perusahaan wajib diisi.',
@@ -157,7 +154,6 @@ class BusinessController extends Controller
             'sale_prefix_document.max' => 'Prefix dokumen penjualan maksimal 10 karakter.',
             'purchase_return_prefix_document.max' => 'Prefix dokumen retur pembelian maksimal 10 karakter.',
             'sale_return_prefix_document.max' => 'Prefix dokumen retur penjualan maksimal 10 karakter.',
-            'pos_document_prefix.max' => 'Prefix dokumen POS maksimal 10 karakter.',
             'default_currency_id.exists' => 'Mata uang yang dipilih tidak valid.',
         ]);
 
@@ -288,7 +284,6 @@ class BusinessController extends Controller
             'sale_prefix_document' => $request->sale_prefix_document,
             'purchase_return_prefix_document' => $request->purchase_return_prefix_document,
             'sale_return_prefix_document' => $request->sale_return_prefix_document,
-            'pos_document_prefix' => $request->pos_document_prefix,
             // footer_text will be set after uppercasing company_name
         ];
 
@@ -301,7 +296,6 @@ class BusinessController extends Controller
                      'sale_prefix_document',
                      'purchase_return_prefix_document',
                      'sale_return_prefix_document',
-                     'pos_document_prefix',
                  ] as $key) {
             if (isset($data[$key]) && $data[$key] !== null) {
                 $data[$key] = mb_strtoupper(trim((string)$data[$key]), 'UTF-8');

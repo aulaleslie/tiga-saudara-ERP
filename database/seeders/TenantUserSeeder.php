@@ -15,7 +15,7 @@ class TenantUserSeeder extends Seeder
     /**
      * Permissions for the Karyawan role.
      * Mapped from requirements:
-     * - retur beli, retur jual, pos, transfer stock, breakage,
+     * - retur beli, retur jual, transfer stock, breakage,
      * - terima/keluar barang, stock opname, terminal Harga, expense create
      */
     private array $karyawanPermissions = [
@@ -36,11 +36,6 @@ class TenantUserSeeder extends Seeder
         'saleReturns.show',
         'saleReturns.approve',
         'saleReturns.receive',
-
-        // POS
-        'pos.access',
-        'pos.create',
-        'pos.transactions.access',
 
         // Transfer Stock
         'stockTransfers.access',

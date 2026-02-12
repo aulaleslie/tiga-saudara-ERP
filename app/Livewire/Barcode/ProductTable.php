@@ -26,11 +26,15 @@ class ProductTable extends Component
         return view('livewire.barcode.product-table');
     }
 
-    public function productSelected(Product $product)
+    public function productSelected($product)
     {
+        if (is_array($product)) {
+            $product = Product::findOrFail((int) ($product['id'] ?? 0));
+        }
+
         $this->product = $product;
         $this->quantity = 1;
-        $this->barcodes = [q];
+        $this->barcodes = [];
     }
 
     public function generateBarcodes(Product $product, $quantity)

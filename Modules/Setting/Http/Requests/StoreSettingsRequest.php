@@ -3,7 +3,6 @@
 namespace Modules\Setting\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 class StoreSettingsRequest extends FormRequest
@@ -26,29 +25,9 @@ class StoreSettingsRequest extends FormRequest
             'sale_prefix_document' => 'required|string|max:255',
             'purchase_return_prefix_document' => 'nullable|string|max:10',
             'sale_return_prefix_document' => 'nullable|string|max:10',
-            'pos_document_prefix' => [
-                'nullable',
-                'string',
-                'max:255',
-                function ($attribute, $value, $fail) use ($currentSettingId) {
-                    if (!empty($value)) {
-                        $exists = DB::table('settings')
-                            ->where('pos_document_prefix', $value)
-                            ->where('id', '!=', $currentSettingId)
-                            ->exists();
-                        if ($exists) {
-                            $fail('Prefix dokumen POS sudah digunakan.');
-                        }
-                    }
-                }
-            ],
             'company_address' => 'required|string|max:500',
             'is_pkp' => 'nullable|boolean',
             'footer_text' => 'nullable|string|max:255',
-            'pos_idle_threshold_minutes' => 'nullable|integer|min:0|max:1440',
-            'pos_default_cash_threshold' => 'nullable|numeric|min:0',
-            'pos_draft_flow_enabled' => 'nullable|boolean',
-            'pos_draft_expiry_minutes' => 'nullable|integer|min:1|max:10080',
         ];
     }
 

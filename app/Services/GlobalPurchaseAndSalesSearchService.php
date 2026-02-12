@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Sale\Entities\Sale;
 use Modules\Product\Entities\ProductSerialNumber;
-use App\Models\PosReceipt;
 
 /**
  * Global Purchase and Sales Search Service
@@ -391,7 +390,6 @@ class GlobalPurchaseAndSalesSearchService
         $salesRefResults = $this->searchBySalesReference($query, $settingId, 1000, 1)['results'];
         $supplierResults = $this->searchBySupplier($query, $settingId, 1000, 1)['results'];
         $customerResults = $this->searchByCustomer($query, $settingId, 1000, 1)['results'];
-        $posTransactionResults = $this->searchByPosTransactionNo($query, $settingId, 1000, 1)['results'];
         $productResults = $this->searchByProduct($query, $settingId, 1000, 1)['results'];
 
         // Combine all results
@@ -401,7 +399,6 @@ class GlobalPurchaseAndSalesSearchService
             $salesRefResults,
             $supplierResults,
             $customerResults,
-            $posTransactionResults,
             $productResults
         );
 
@@ -432,7 +429,6 @@ class GlobalPurchaseAndSalesSearchService
             'sales_ref_results' => count($salesRefResults),
             'supplier_results' => count($supplierResults),
             'customer_results' => count($customerResults),
-            'pos_transaction_results' => count($posTransactionResults),
             'product_results' => count($productResults),
             'unique_results' => $total,
             'response_time_ms' => $responseTime
@@ -443,57 +439,6 @@ class GlobalPurchaseAndSalesSearchService
             'total' => $total,
             'page' => $page,
             'limit' => $limit,
-            'response_time_ms' => $responseTime
-        ];
-    }
-
-    /**
-     * Search for POS transactions by receipt number.
-     *
-     * @param string $receiptNumber
-     * @param int|null $settingId
-     * @param int $limit
-     * @param int $page
-     * @return array
-     */
-    public function searchByPosTransactionNo(string $receiptNumber, ?int $settingId = null, int $limit = 20, int $page = 1): array
-    {
-        $startTime = microtime(true);
-
-        $query = PosReceipt::query()
-            ->with(['sales.customer', 'posSession.location'])
-            ->where('receipt_number', 'like', "%{$receiptNumber}%")
-            ->whereHas('sales', function (Builder $query) use ($settingId) {
-                if ($settingId !== null) {
-                    $query->where('setting_id', $settingId);
-                }
-            });
-
-        $paginator = $query->orderByDesc('created_at')->paginate($limit, ['*'], 'page', $page);
-
-        $results = $paginator->getCollection()->map(function ($receipt) {
-            $sale = $receipt->sales->first();
-            return [
-                'type' => 'pos_transaction',
-                'id' => $receipt->id,
-                'reference' => $receipt->receipt_number,
-                'party_name' => $receipt->customer_name ?: ($sale?->customer?->customer_name ?: 'Walk-in'),
-                'amount' => $receipt->total_amount,
-                'status' => $receipt->payment_status,
-                'location' => $receipt->posSession?->location?->name ?? null,
-                'date' => $receipt->created_at->format('Y-m-d'),
-                'serial_count' => 0, // POS transactions may not have serial tracking
-                'tenant' => $sale?->setting_id ?? null
-            ];
-        })->toArray();
-
-        $responseTime = (int) ((microtime(true) - $startTime) * 1000);
-
-        return [
-            'results' => $results,
-            'total' => $paginator->total(),
-            'page' => $paginator->currentPage(),
-            'limit' => $paginator->perPage(),
             'response_time_ms' => $responseTime
         ];
     }

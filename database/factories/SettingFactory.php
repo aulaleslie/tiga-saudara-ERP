@@ -21,9 +21,6 @@ class SettingFactory extends Factory
             'notification_email' => $this->faker->email,
             'footer_text' => $this->faker->sentence,
             'company_address' => $this->faker->address,
-            'pos_document_prefix' => 'POS',
-            'pos_draft_flow_enabled' => false,
-            'pos_draft_expiry_minutes' => 1440,
         ];
     }
 }

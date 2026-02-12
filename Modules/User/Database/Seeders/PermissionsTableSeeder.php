@@ -107,16 +107,6 @@ class PermissionsTableSeeder extends Seeder
             'paymentTerms.edit',
             'paymentTerms.delete',
 
-            // POS
-            'pos.access',
-            'pos.create',
-            'pos.transactions.access',
-            'pos.drafts.view',
-            'pos.drafts.update',
-            'pos.drafts.submit',
-            'pos.drafts.void',
-            'pos.drafts.lock.override',
-
             // Price Points (Terminal Harga)
             'pricePoints.access',
 

@@ -5,7 +5,6 @@ use App\Http\Controllers\WsMonitorController;
 use App\Http\Controllers\PricePointController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
-use Modules\Setting\Entities\Setting;
 
 /*
 |--------------------------------------------------------------------------
@@ -38,7 +37,6 @@ Route::middleware(['auth']) // tighten as you like (e.g. 'can:view-ws-monitor')
     Route::get('/ws-monitor', [WsMonitorController::class, 'index'])->name('ws.monitor');
     Route::get('/ws-monitor/data', [WsMonitorController::class, 'data'])->name('ws.monitor.data');
     Route::get('/ws-monitor/presence/{name}', [WsMonitorController::class, 'presence'])->name('ws.monitor.presence');
-    Route::get('/ws-test', fn () => view('ws-test'));
 
     // Global Purchase and Sales Search Routes
     Route::get('/global-search', [GlobalPurchaseAndSalesSearchController::class, 'index'])
@@ -57,4 +55,3 @@ Route::middleware(['auth', 'role.setting'])
             ->middleware('can:pricePoints.access')
             ->name('price-points.index');
     });
-

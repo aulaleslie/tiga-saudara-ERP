@@ -37,7 +37,6 @@ class PaymentMethodController extends Controller
             'name' => 'required|string|max:255|unique:payment_methods,name',
             'coa_id' => 'required|exists:chart_of_accounts,id',
             'is_cash' => 'nullable|boolean',
-            'is_available_in_pos' => 'nullable|boolean',
         ]);
 
         // Create a new payment method
@@ -45,7 +44,6 @@ class PaymentMethodController extends Controller
             'name' => $request->name,
             'coa_id' => $request->coa_id,
             'is_cash' => $request->boolean('is_cash'),
-            'is_available_in_pos' => $request->boolean('is_available_in_pos'),
         ]);
 
         toast('Payment method created successfully!', 'success');
@@ -69,7 +67,6 @@ class PaymentMethodController extends Controller
             'name' => 'required|string|max:255|unique:payment_methods,name,' . $paymentMethod->id,
             'coa_id' => 'required|exists:chart_of_accounts,id',
             'is_cash' => 'nullable|boolean',
-            'is_available_in_pos' => 'nullable|boolean',
         ]);
 
         // Update the payment method
@@ -77,7 +74,6 @@ class PaymentMethodController extends Controller
             'name' => $request->name,
             'coa_id' => $request->coa_id,
             'is_cash' => $request->boolean('is_cash'),
-            'is_available_in_pos' => $request->boolean('is_available_in_pos'),
         ]);
 
         toast('Payment method updated successfully!', 'info');

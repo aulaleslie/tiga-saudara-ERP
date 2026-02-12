@@ -85,9 +85,12 @@ class SupplierSearchDropdown extends Component
 
         $this->dispatchSelection($paymentTermId);
 
-        // Keep the payment term dropdown in sync when supplier changes
-        $this->dispatch('setPaymentTerm', $paymentTermId)
-            ->to(PaymentTermSearchDropdown::class);
+        // Only dispatch when supplier has a specific payment term;
+        // when null, the parent's updatedSupplierId() handles the COD default via wire:model
+        if ($paymentTermId) {
+            $this->dispatch('setPaymentTerm', $paymentTermId)
+                ->to(PaymentTermSearchDropdown::class);
+        }
     }
 
     public function updatedSelected($value): void

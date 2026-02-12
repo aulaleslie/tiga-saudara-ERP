@@ -60,7 +60,7 @@ class SaleTable extends Component
     public function render()
     {
         $query = ($this->showArchived ? Sale::archived() : Sale::query())
-            ->with(['customer', 'saleDetails', 'posReceipt', 'posSession', 'tags'])
+            ->with(['customer', 'saleDetails', 'tags'])
             ->where('setting_id', $this->settingId)
             ->when(! empty($this->statusFilter), function ($q) {
                 $q->whereIn('status', (array) $this->statusFilter);

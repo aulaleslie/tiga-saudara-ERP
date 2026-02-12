@@ -69,7 +69,6 @@ class GlobalPurchaseAndSalesSearch extends Component
                 'serial' => $searchService->searchBySerialNumber($this->query, $effectiveSettingId, $this->perPage),
                 'reference' => $this->searchReferences($this->query, $effectiveSettingId, $this->perPage),
                 'party' => $this->searchParties($this->query, $effectiveSettingId, $this->perPage),
-                'pos' => $searchService->searchByPosTransactionNo($this->query, $effectiveSettingId, $this->perPage),
                 'product' => $searchService->searchByProduct($this->query, $effectiveSettingId, $this->perPage),
                 'all' => $searchService->searchCombined($this->query, $effectiveSettingId, $this->perPage),
             };
@@ -218,7 +217,6 @@ class GlobalPurchaseAndSalesSearch extends Component
                 'serial' => 'Nomor Seri',
                 'reference' => 'Nomor Referensi',
                 'party' => 'Supplier/Pelanggan',
-                'pos' => 'Nomor Transaksi POS',
                 'product' => 'Nama/Kode Produk'
             ]
         ]);

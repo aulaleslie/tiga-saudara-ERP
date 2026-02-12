@@ -986,37 +986,6 @@ class SaleController extends Controller
         return $pdf->stream('Sales-Invoice-'.$invoiceNumber.'.pdf');
     }
 
-    public function posPdf(Sale $sale)
-    {
-        $this->ensureSaleBelongsToCurrentSetting($sale);
-
-        $sale->load([
-            'saleDetails.product.conversions.unit',
-            'saleDetails.product.conversions.prices',
-            'saleDetails.product.baseUnit',
-            'saleDetails.product.prices',
-            'customer',
-            'posReceipt.sales.saleDetails.product.conversions.unit',
-            'posReceipt.sales.saleDetails.product.conversions.prices',
-            'posReceipt.sales.saleDetails.product.baseUnit',
-            'posReceipt.sales.saleDetails.product.prices',
-            'posReceipt.sales.tenantSetting',
-            'posReceipt.sales.customer'
-        ]);
-
-        $receipt = $sale->posReceipt;
-        $viewData = $receipt ? ['receipt' => $receipt] : ['sale' => $sale];
-        $fileReference = $receipt?->receipt_number ?? $sale->reference;
-
-        $pdf = Pdf::loadView('sale::print-pos', $viewData)->setPaper('a7')
-            ->setOption('margin-top', 8)
-            ->setOption('margin-bottom', 8)
-            ->setOption('margin-left', 5)
-            ->setOption('margin-right', 5);
-
-        return $pdf->stream('sale-' . $fileReference . '.pdf');
-    }
-
     private function resolveSaleDetailPricing(SaleDetails $saleDetail, ?Product $product = null): array
     {
         $product = $product ?? $saleDetail->product ?? Product::find($saleDetail->product_id);

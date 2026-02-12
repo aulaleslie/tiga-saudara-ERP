@@ -25,7 +25,6 @@
                                     <th class="align-middle">Nama</th>
                                     <th class="align-middle">Nomor Akun</th>
                                     <th class="align-middle">Metode Tunai</th>
-                                    <th class="align-middle">Tersedia di POS</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
                                 </thead>
@@ -36,9 +35,6 @@
                                         <td>{{ $method->chartOfAccount->name ?? 'N/A' }}</td>
                                         <td>
                                             <span class="badge {{ $method->is_cash ? 'bg-success' : 'bg-secondary' }}">{{ $method->is_cash ? 'Ya' : 'Tidak' }}</span>
-                                        </td>
-                                        <td>
-                                            <span class="badge {{ $method->is_available_in_pos ? 'bg-success' : 'bg-secondary' }}">{{ $method->is_available_in_pos ? 'Ya' : 'Tidak' }}</span>
                                         </td>
                                         <td>
                                             <a href="{{ route('payment-methods.edit', $method->id) }}" class="btn btn-primary btn-sm"><i class="bi bi-pencil"></i></a>
@@ -75,7 +71,7 @@
                     text: '<i class="bi bi-printer-fill"></i> Print',
                     title: "Locations",
                     exportOptions: {
-                        columns: [0, 1, 2, 3]
+                        columns: [0, 1, 2]
                     },
                     customize: function (win) {
                         $(win.document.body).find('h1').css('font-size', '15pt');

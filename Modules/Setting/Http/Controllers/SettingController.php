@@ -2,7 +2,6 @@
 
 namespace Modules\Setting\Http\Controllers;
 
-use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Artisan;
@@ -43,11 +42,6 @@ class SettingController extends Controller
             'sale_prefix_document'     => $request->sale_prefix_document,
             'purchase_return_prefix_document' => $request->purchase_return_prefix_document,
             'sale_return_prefix_document' => $request->sale_return_prefix_document,
-            'pos_document_prefix'      => $request->pos_document_prefix,
-            'pos_draft_flow_enabled'   => $request->boolean('pos_draft_flow_enabled'),
-            'pos_draft_expiry_minutes' => $request->pos_draft_expiry_minutes,
-            'pos_idle_threshold_minutes' => $request->pos_idle_threshold_minutes,
-            'pos_default_cash_threshold' => $request->pos_default_cash_threshold,
         ];
 
         // Uppercase text-type columns
@@ -59,7 +53,6 @@ class SettingController extends Controller
                      'sale_prefix_document',
                      'purchase_return_prefix_document',
                      'sale_return_prefix_document',
-                     'pos_document_prefix',
                  ] as $key) {
             if (isset($data[$key])) {
                 $data[$key] = mb_strtoupper(trim((string) $data[$key]), 'UTF-8');
@@ -73,12 +66,6 @@ class SettingController extends Controller
         if (isset($data['company_phone'])) {
             $data['company_phone'] = trim((string) $data['company_phone']);
         }
-
-        $data['pos_idle_threshold_minutes'] = max(0, (int) ($data['pos_idle_threshold_minutes'] ?? 0));
-        $data['pos_draft_expiry_minutes'] = max(1, (int) ($data['pos_draft_expiry_minutes'] ?? 1440));
-        $data['pos_default_cash_threshold'] = $data['pos_default_cash_threshold'] !== null
-            ? round((float) $data['pos_default_cash_threshold'], 2)
-            : 0.0;
 
         // Persist
         $setting->update($data);
@@ -98,11 +85,6 @@ class SettingController extends Controller
                 'sale_prefix_document',
                 'purchase_return_prefix_document',
                 'sale_return_prefix_document',
-                'pos_document_prefix',
-                'pos_draft_flow_enabled',
-                'pos_draft_expiry_minutes',
-                'pos_idle_threshold_minutes',
-                'pos_default_cash_threshold',
             ];
 
             $current = session('user_settings');

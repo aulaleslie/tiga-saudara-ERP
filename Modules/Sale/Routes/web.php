@@ -12,9 +12,6 @@
 */
 
 use Illuminate\Support\Facades\Route;
-use Modules\Sale\Entities\Sale;
-use Modules\Sale\Http\Controllers\PosController;
-use Modules\Sale\Http\Controllers\PosDraftController;
 use Modules\Sale\Http\Controllers\SaleController;
 use Modules\Sale\Http\Controllers\SalesUploadController;
 
@@ -27,41 +24,12 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/sales/upload/template', [SalesUploadController::class, 'downloadTemplate'])->name('sales.upload.template');
     Route::get('/sales/imports/{batch}', [SalesUploadController::class, 'show'])->name('sales.imports.show');
 
-    Route::get('/app/pos/session', [PosController::class, 'session'])->name('app.pos.session');
-    Route::get('/app/pos/sessions/monitor', [PosController::class, 'monitor'])
-        ->name('app.pos.monitor')
-        ->middleware('can:reports.access');
-
-    Route::middleware('pos.session')->group(function () {
-        //POS
-        Route::get('/app/pos', 'PosController@index')->name('app.pos.index');
-        Route::post('/app/pos', 'PosController@store')->name('app.pos.store');
-        Route::post('/pos/store-as-quotation', [PosController::class, 'storeAsQuotation'])->name('app.pos.store-as-quotation');
-        Route::post('/app/pos/reprint-last', [PosController::class, 'reprintLast'])->name('app.pos.reprint-last');
-
-        Route::view('/app/pos/cash-settlement', 'sale::pos.cash-settlement')->name('app.pos.cash-settlement');
-        Route::view('/app/pos/cash-pickup', 'sale::pos.cash-pickup')->name('app.pos.cash-pickup');
-        Route::view('/app/pos/cash-reconciliation', 'sale::pos.cash-reconciliation')->name('app.pos.cash-reconciliation');
-
-        Route::post('/app/pos/drafts', [PosDraftController::class, 'store'])->name('app.pos.drafts.store');
-        Route::get('/app/pos/drafts/{code}', [PosDraftController::class, 'show'])->name('app.pos.drafts.show');
-        Route::patch('/app/pos/drafts/{code}', [PosDraftController::class, 'update'])->name('app.pos.drafts.update');
-        Route::post('/app/pos/drafts/{code}/lock', [PosDraftController::class, 'lock'])->name('app.pos.drafts.lock');
-        Route::post('/app/pos/drafts/{code}/lock/heartbeat', [PosDraftController::class, 'heartbeat'])->name('app.pos.drafts.lock.heartbeat');
-        Route::delete('/app/pos/drafts/{code}/lock', [PosDraftController::class, 'unlock'])->name('app.pos.drafts.unlock');
-        Route::post('/app/pos/drafts/{code}/submit-payment', [PosDraftController::class, 'submitPayment'])->name('app.pos.drafts.submit-payment');
-        Route::post('/app/pos/drafts/{code}/void', [PosDraftController::class, 'void'])->name('app.pos.drafts.void');
-    });
-
-
     //Generate PDF
     Route::get('/sales/{sale}/delivery-slip', [SaleController::class, 'deliverySlip'])
         ->name('sales.deliverySlip');
 
     Route::get('/sales/{sale}/invoice', [SaleController::class, 'invoicePdf'])
         ->name('sales.invoicePdf');
-
-    Route::get('/sales/pos/pdf/{sale}', [SaleController::class, 'posPdf'])->name('sales.pos.pdf');
 
     //Sales
     Route::post('/sales/{sale}/dispatch', [SaleController::class, 'storeDispatch'])->name('sales.storeDispatch');
@@ -83,38 +51,5 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     // Global Menu - Track Sales by Serial Number
     Route::get('/global-sales-search', 'GlobalSalesSearchController@index')->name('global-sales-search.index')->middleware('auth');
     Route::get('/global-sales-search/search', 'GlobalSalesSearchController@ajaxSearch')->name('global-sales-search.search')->middleware('auth');
-
-    // POS Transactions History
-    Route::get('/pos-transactions', function () {
-        return view('sale::pos.transactions');
-    })->name('pos.transactions.index')->middleware('can:pos.transactions.access');
-
-    // POS Receipt Print (opens receipt page and auto-triggers browser print dialog)
-    Route::get('/pos-receipt/{receipt}/print', function (\App\Models\PosReceipt $receipt) {
-        // Load relationships needed for the receipt view
-        $receipt->load([
-            'sales.saleDetails.product.conversions.unit',
-            'sales.saleDetails.product.conversions.prices',
-            'sales.saleDetails.product.baseUnit',
-            'sales.saleDetails.product.prices',
-            'sales.tenantSetting',
-            'sales.customer',
-            'posSession',
-        ]);
-
-        // Verify tenant access
-        $sessionSettingId = (int) session('setting_id');
-        $belongsToSetting = (int) optional($receipt->posSession)->setting_id === $sessionSettingId
-            || $receipt->sales->contains(fn ($sale) => (int) $sale->setting_id === $sessionSettingId);
-
-        if (! $belongsToSetting) {
-            abort(403, 'Unauthorized access to receipt');
-        }
-
-        return view('sale::print-pos', [
-            'receipt' => $receipt,
-            'autoPrint' => true, // Flag to auto-trigger print dialog
-        ]);
-    })->name('pos.receipt.print')->middleware('can:pos.transactions.access');
 
 });

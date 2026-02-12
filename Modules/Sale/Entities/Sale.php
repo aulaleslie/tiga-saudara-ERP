@@ -3,7 +3,6 @@
 namespace Modules\Sale\Entities;
 
 use App\Models\BaseModel;
-use App\Models\PosSession;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,7 +13,6 @@ use Modules\People\Entities\Customer;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
-use App\Models\PosReceipt;
 use Spatie\Tags\HasTags;
 use Spatie\Tags\Tag;
 use App\Traits\Archivable;
@@ -153,16 +151,6 @@ class Sale extends BaseModel
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class, 'location_id', 'id');
-    }
-
-    public function posSession(): BelongsTo
-    {
-        return $this->belongsTo(PosSession::class, 'pos_session_id');
-    }
-
-    public function posReceipt(): BelongsTo
-    {
-        return $this->belongsTo(PosReceipt::class, 'pos_receipt_id');
     }
 
     public function tags(): MorphToMany

@@ -24,11 +24,7 @@ class Setting extends BaseModel
     protected $guarded = [];
 
     protected $casts = [
-        'pos_idle_threshold_minutes' => 'integer',
-        'pos_default_cash_threshold' => 'decimal:2',
         'is_pkp' => 'boolean',
-        'pos_draft_flow_enabled' => 'boolean',
-        'pos_draft_expiry_minutes' => 'integer',
     ];
 
     protected $with = ['currency'];

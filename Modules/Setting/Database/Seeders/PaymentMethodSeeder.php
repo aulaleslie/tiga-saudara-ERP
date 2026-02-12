@@ -23,7 +23,6 @@ class PaymentMethodSeeder extends Seeder
                 'name' => 'CASH',
                 'coa_id' => $cashAccount->id,
                 'is_cash' => true,
-                'is_available_in_pos' => true,
             ]);
         }
     }

@@ -3,7 +3,7 @@
 namespace Modules\Setting\Entities;
 
 use App\Models\BaseModel;
-use App\Support\PosLocationResolver;
+use App\Support\SalesLocationResolver;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -23,10 +23,6 @@ class Location extends BaseModel
     
     protected $guarded = [];
 
-    protected $casts = [
-        'pos_cash_threshold' => 'decimal:2',
-    ];
-
     protected static function booted(): void
     {
         static::created(function (Location $location) {
@@ -35,7 +31,7 @@ class Location extends BaseModel
                 ['setting_id' => $location->setting_id]
             );
 
-            PosLocationResolver::forget($location->setting_id);
+            SalesLocationResolver::forget($location->setting_id);
         });
 
         static::updated(function (Location $location) {
@@ -53,7 +49,7 @@ class Location extends BaseModel
                     ]
                 );
 
-                PosLocationResolver::forget($location->setting_id, $originalSettingId);
+                SalesLocationResolver::forget($location->setting_id, $originalSettingId);
             }
 
         });

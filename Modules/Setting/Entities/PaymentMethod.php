@@ -7,11 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PaymentMethod extends BaseModel
 {
-    protected $fillable = ['name', 'coa_id', 'is_cash', 'is_available_in_pos'];
+    protected $fillable = ['name', 'coa_id', 'is_cash'];
 
     protected $casts = [
         'is_cash' => 'boolean',
-        'is_available_in_pos' => 'boolean',
     ];
 
     public function chartOfAccount(): BelongsTo

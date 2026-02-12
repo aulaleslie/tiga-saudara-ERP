@@ -32,7 +32,6 @@
                                     <th class="align-middle">No.</th>
                                     <th class="align-middle">Nama</th>
                                     <th class="align-middle">Bisnis</th>
-                                    <th class="align-middle">POS</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
                                 </thead>
@@ -42,13 +41,6 @@
                                         <td class="align-middle">{{ $key + 1 }}</td>
                                         <td class="align-middle">{{ $location->name }}</td>
                                         <td class="align-middle">{{ $location->setting->company_name }}</td>
-                                        <td class="align-middle">
-                                            @if($location->saleAssignment)
-                                                <span class="badge badge-success">Ya</span>
-                                            @else
-                                                <span class="badge badge-secondary">Tidak</span>
-                                            @endif
-                                        </td>
                                         <td class="align-middle">
                                             <a href="{{ route('locations.edit', $location) }}" class="btn btn-info btn-sm">
                                                 <i class="bi bi-pencil"></i>

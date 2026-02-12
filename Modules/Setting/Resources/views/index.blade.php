@@ -76,33 +76,6 @@
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="pos_document_prefix">Prefix Dokumen POS</label>
-                                        <input type="text" class="form-control" name="pos_document_prefix"
-                                               value="{{ $settings->pos_document_prefix }}">
-                                        <small class="form-text text-muted">Kosongkan untuk menggunakan prefix penjualan</small>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="pos_draft_flow_enabled">Mode Draft POS</label>
-                                        <div class="form-check mt-2">
-                                            <input class="form-check-input" type="checkbox" id="pos_draft_flow_enabled" name="pos_draft_flow_enabled" value="1"
-                                                   {{ old('pos_draft_flow_enabled', (bool) ($settings->pos_draft_flow_enabled ?? false)) ? 'checked' : '' }}>
-                                            <label class="form-check-label" for="pos_draft_flow_enabled">
-                                                Aktifkan alur draft POS
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="pos_draft_expiry_minutes">Masa Berlaku Draft POS (menit)</label>
-                                        <input type="number" min="1" max="10080" class="form-control" name="pos_draft_expiry_minutes"
-                                               value="{{ old('pos_draft_expiry_minutes', $settings->pos_draft_expiry_minutes ?? 1440) }}">
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
                                         <label for="purchase_return_prefix_document">Prefix Dokumen Retur Pembelian</label>
                                         <input type="text" class="form-control" name="purchase_return_prefix_document"
                                                value="{{ $settings->purchase_return_prefix_document }}">
@@ -130,26 +103,6 @@
                                                 Bisnis ini PKP (pajak wajib dipilih saat membuat pembelian/penjualan)
                                             </label>
                                         </div>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="pos_idle_threshold_minutes">Peringatan Waktu Idle (menit)</label>
-                                        <input type="number" min="0" class="form-control" name="pos_idle_threshold_minutes"
-                                               value="{{ old('pos_idle_threshold_minutes', $settings->pos_idle_threshold_minutes ?? 0) }}">
-                                        <small class="text-muted">Atur ke 0 untuk menonaktifkan peringatan idle kasir.</small>
-                                    </div>
-                                </div>
-
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="pos_default_cash_threshold">
-                                            Ambang Kas Default POS
-                                            <span class="badge badge-warning align-middle ml-1">Deprecated</span>
-                                        </label>
-                                        <input type="number" step="0.01" min="0" class="form-control" name="pos_default_cash_threshold"
-                                               value="{{ old('pos_default_cash_threshold', $settings->pos_default_cash_threshold ?? 0) }}">
-                                        <small class="text-muted">Fitur ini akan dihentikan; gunakan hanya bila masih perlu kompatibilitas ambang kas.</small>
                                     </div>
                                 </div>
                             </div>

@@ -188,7 +188,6 @@ class SaleMonetaryValuesTest extends TestCase
             'name' => 'Cash',
             'coa_id' => $chartOfAccountId,
             'is_cash' => true,
-            'is_available_in_pos' => true,
         ]);
 
         $this->tax = Tax::create([

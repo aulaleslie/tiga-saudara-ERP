@@ -99,7 +99,6 @@ class SaleSharedMasterDataTest extends TestCase
             'name' => 'Shared Cash',
             'coa_id' => $chartOfAccountId,
             'is_cash' => true,
-            'is_available_in_pos' => true,
         ]);
 
         $this->sharedTerm = PaymentTerm::create([
