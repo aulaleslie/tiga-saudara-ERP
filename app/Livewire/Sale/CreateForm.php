@@ -64,16 +64,12 @@ class CreateForm extends Component
     {
         $this->paymentTermId = $paymentTermId ?: null;
         $this->updateDueDateFromPaymentTerm();
-
-        if ($syncDropdown) {
-            // Sync the payment term dropdown UI
-            $this->dispatch('setPaymentTerm', $this->paymentTermId)
-                ->to(PaymentTermSearchDropdown::class);
-        }
     }
 
     private function resolveDefaultPaymentTermId(): ?int
     {
+        // Fallback to COD (Cash On Delivery)
+        // This uses string literal 'cod' or 'cash on delivery' in the query
         return PaymentTerm::defaultCodTermId();
     }
 

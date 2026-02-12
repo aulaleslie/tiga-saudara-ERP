@@ -42,8 +42,8 @@ class PaymentTerm extends BaseModel
     {
         $directMatch = static::query()
             ->where(function ($query) {
-                $query->whereRaw('LOWER(name) = ?', ['cod'])
-                    ->orWhereRaw('LOWER(name) = ?', ['cash on delivery']);
+                $query->whereRaw('LOWER(name) LIKE ?', ['%cod%'])
+                    ->orWhereRaw('LOWER(name) LIKE ?', ['%cash%on%delivery%']);
             })
             ->orderBy('id')
             ->first();

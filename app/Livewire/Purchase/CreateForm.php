@@ -72,20 +72,16 @@ class CreateForm extends Component
         $this->tags = $tags;
     }
 
-    private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
+    private function syncPaymentTermAndDueDate(?int $paymentTermId): void
     {
         $this->payment_term = $paymentTermId ?: null;
         $this->updateDueDateFromPaymentTerm();
-
-        if ($syncDropdown) {
-            // Sync the payment term dropdown UI
-            $this->dispatch('setPaymentTerm', $this->payment_term)
-                ->to(PaymentTermSearchDropdown::class);
-        }
     }
 
     private function resolveDefaultPaymentTermId(): ?int
     {
+        // Fallback to COD (Cash On Delivery)
+        // This uses string literal 'cod' or 'cash on delivery' in the query
         return PaymentTerm::defaultCodTermId();
     }
 
@@ -149,15 +145,18 @@ class CreateForm extends Component
         $supplierId = $value ?: null;
         $this->supplier_id = $supplierId;
 
+        // Default to COD
         $paymentTermId = $this->resolveDefaultPaymentTermId();
+
         if ($supplierId) {
             $supplier = Supplier::find($supplierId);
-            if ($supplier?->payment_term_id) {
+            // If supplier has a specific valid payment term, use it
+            if ($supplier && !empty($supplier->payment_term_id)) {
                 $paymentTermId = (int) $supplier->payment_term_id;
             }
         }
 
-        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+        $this->syncPaymentTermAndDueDate($paymentTermId);
         $this->dispatch('supplierSelected', $supplierId);
     }
 
@@ -187,7 +186,7 @@ class CreateForm extends Component
             ? (int) $supplier['payment_term_id']
             : $this->resolveDefaultPaymentTermId();
 
-        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+        $this->syncPaymentTermAndDueDate($paymentTermId);
     }
 
     private function prefillFromPurchase(int $purchaseId): void

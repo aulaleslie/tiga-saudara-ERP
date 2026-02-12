@@ -23,21 +23,9 @@ class PaymentTermSearchDropdown extends Component
     public array $options = [];
     public ?string $selectedLabel = null;
 
-    protected $listeners = [
-        'paymentTermCreated' => 'handlePaymentTermCreated',
-        'setPaymentTerm' => 'handleSetPaymentTerm',
-    ];
 
-    public function handleSetPaymentTerm(int|string|null $id): void
-    {
-        $this->selected = $id;
-        $this->selectedLabel = $this->resolveLabel($id);
-        
-        // Dispatch browser event for JavaScript to update due_date
-        if ($id) {
-            $this->dispatch('payment-term-changed', paymentTermId: $id);
-        }
-    }
+
+
 
     public function mount(
         array $options = [],
@@ -95,6 +83,18 @@ class PaymentTermSearchDropdown extends Component
     {
         $this->selected = $value ?: null;
         $this->selectedLabel = $this->resolveLabel($this->selected);
+    }
+
+    public function setPaymentTerm(?int $paymentTermId = null): void
+    {
+        if ($paymentTermId === null) {
+            $this->selected = null;
+            $this->selectedLabel = null;
+            return;
+        }
+
+        $this->selected = $paymentTermId;
+        $this->selectedLabel = $this->resolveLabel($paymentTermId);
     }
 
     /**

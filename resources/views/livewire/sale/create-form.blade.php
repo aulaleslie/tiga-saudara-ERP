@@ -51,7 +51,7 @@
                 <livewire:modules.purchase.payment-term-search-dropdown
                     name="payment_term"
                     placeholder="Pilih term pembayaran..."
-                    :selected="$paymentTermId"
+                    wire:model="paymentTermId"
                     :allow-create="true"
                     :error="$errors->first('paymentTermId')"
                     wire:key="sale-payment-term-dropdown"
