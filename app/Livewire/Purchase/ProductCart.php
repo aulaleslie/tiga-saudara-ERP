@@ -72,7 +72,7 @@ class ProductCart extends Component
         $this->cart_instance = $cartInstance;
         $this->setting_id = session('setting_id');
         $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->setting_id)->value('is_pkp') ?? false);
-        $this->taxes = Tax::all();
+        $this->taxes = $this->loadTaxes();
         $this->perfLog('validated', [
             'data' => $data,
         ]);
@@ -199,7 +199,7 @@ class ProductCart extends Component
 
     public function handleTaxCreated($id, $name, $value, $product_id = null): void
     {
-        $this->taxes = Tax::all(); // Refresh the taxes list
+        $this->taxes = $this->loadTaxes(); // Refresh the taxes list
         
         // Auto-select the new tax for the product that requested it
         if ($product_id) {
@@ -215,6 +215,21 @@ class ProductCart extends Component
                 }
             }
         }
+    }
+
+    private function loadTaxes()
+    {
+        return Tax::query()
+            ->orderByDesc('is_default')
+            ->orderBy('name')
+            ->get();
+    }
+
+    private function resolveDefaultTaxId(): ?int
+    {
+        $defaultTax = $this->taxes->firstWhere('is_default', true);
+
+        return $defaultTax ? (int) $defaultTax->id : null;
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
@@ -290,7 +305,13 @@ class ProductCart extends Component
         $this->product = $product;
 
         $calc = $this->calculate($product);
-        $defaultTaxId = $calc['product_tax'] ?: ($this->isPkp ? optional($this->taxes->first())->id : null);
+        $defaultTaxId = $calc['product_tax'] ?: ($this->isPkp ? $this->resolveDefaultTaxId() : null);
+        $taxCalculation = $this->calculateSubtotalAndTax(
+            $calc['price'],
+            1,
+            0,
+            $defaultTaxId
+        );
 
         $cart->add([
             'id'     => $product['id'],
@@ -302,9 +323,9 @@ class ProductCart extends Component
                 'product_discount'        => 0.00,
                 'product_discount_input'  => 0.00,
                 'product_discount_type'   => 'fixed',
-                'sub_total'               => $calc['sub_total'],
-                'sub_total_before_tax'    => $calc['sub_total_before_tax'] ?? $calc['sub_total'], // safe
-                'tax_amount'              => $calc['tax_amount'] ?? 0,
+                'sub_total'               => $taxCalculation['sub_total'],
+                'sub_total_before_tax'    => $taxCalculation['subtotal_before_tax'],
+                'tax_amount'              => $taxCalculation['tax_amount'],
                 'code'                    => $product['product_code'],
                 'stock'                   => $product['product_quantity'],
                 'unit'                    => $product['product_unit'],
@@ -592,7 +613,8 @@ class ProductCart extends Component
 
         $unitPrice   = $new_price ?? ($pp?->last_purchase_price ?? ($product['last_purchase_price'] ?? 0));
         $avgPurchase = $pp?->average_purchase_price ?? ($product['average_purchase_price'] ?? null);
-        $purchaseTaxId = $pp?->purchase_tax_id ?? null;
+        $purchaseTaxId = $pp?->purchase_tax_id ?? ($product['purchase_tax_id'] ?? null);
+        $purchaseTaxId = $purchaseTaxId ? (int) $purchaseTaxId : null;
 
         // Qty=1 when adding the first time; use your existing calculator
         $calc = $this->calculateSubtotalAndTax(

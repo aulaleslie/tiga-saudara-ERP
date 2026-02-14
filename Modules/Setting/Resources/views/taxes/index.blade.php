@@ -39,7 +39,12 @@
                                 @foreach($taxes as $key => $tax)
                                     <tr>
                                         <td class="align-middle">{{ $key + 1 }}</td>
-                                        <td class="align-middle">{{ $tax->name }}</td>
+                                        <td class="align-middle">
+                                            {{ $tax->name }}
+                                            @if($tax->is_default)
+                                                <span class="badge badge-success ml-1">Default</span>
+                                            @endif
+                                        </td>
                                         <td class="align-middle">{{ $tax->value }}</td>
                                         <td class="align-middle">
                                             <a href="{{ route('taxes.edit', $tax) }}" class="btn btn-info btn-sm">

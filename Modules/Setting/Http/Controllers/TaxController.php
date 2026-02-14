@@ -55,11 +55,13 @@ class TaxController extends Controller
         $request->validate([
             'name'  => 'required|string|max:255|unique:taxes,name',
             'value' => 'required|numeric|gt:0|lte:100',
+            'is_default' => 'nullable|boolean',
         ]);
 
         Tax::create([
             'name'       => $request->name,         // already uppercased
             'value'      => $request->value,
+            'is_default' => $request->boolean('is_default'),
         ]);
 
         toast('Pajak Berhasil ditambahkan!', 'success');
@@ -96,11 +98,13 @@ class TaxController extends Controller
         $request->validate([
             'name'  => 'required|string|max:255|unique:taxes,name,' . $tax->id,
             'value' => 'required|numeric|gt:0|lte:100',
+            'is_default' => 'nullable|boolean',
         ]);
 
         $tax->update([
             'name'  => $request->name,   // already uppercased
             'value' => $request->value,
+            'is_default' => $request->boolean('is_default'),
         ]);
 
         toast('Pajak diperbaharui!', 'info');

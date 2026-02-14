@@ -11,6 +11,7 @@ class TaxQuickAddModal extends Component
     public $showModal = false;
     public $name = '';
     public $value = 0;
+    public $is_default = false;
     public $product_id = null; // Track which product row is requesting the tax
 
     protected $listeners = [
@@ -26,7 +27,8 @@ class TaxQuickAddModal extends Component
                 'max:255',
                 Rule::unique('taxes', 'name')
             ],
-            'value' => 'required|numeric|min:0|max:100'
+            'value' => 'required|numeric|min:0|max:100',
+            'is_default' => 'nullable|boolean',
         ];
     }
 
@@ -34,7 +36,8 @@ class TaxQuickAddModal extends Component
     {
         return [
             'name' => 'nama',
-            'value' => 'nilai (%)'
+            'value' => 'nilai (%)',
+            'is_default' => 'default',
         ];
     }
 
@@ -57,7 +60,8 @@ class TaxQuickAddModal extends Component
 
         $tax = Tax::create([
             'name' => $this->name,
-            'value' => $this->value
+            'value' => $this->value,
+            'is_default' => (bool) $this->is_default,
         ]);
 
         // Dispatch event with structured data for ProductCart to handle
@@ -75,6 +79,7 @@ class TaxQuickAddModal extends Component
     {
         $this->name = '';
         $this->value = 0;
+        $this->is_default = false;
         $this->product_id = null;
         $this->resetValidation();
     }

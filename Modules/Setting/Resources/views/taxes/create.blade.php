@@ -32,6 +32,21 @@
                                         <input type="number" class="form-control" name="value" step="0.01" required>
                                     </div>
                                 </div>
+                                <div class="col-lg-12">
+                                    <div class="form-group">
+                                        <div class="form-check">
+                                            <input
+                                                type="checkbox"
+                                                class="form-check-input"
+                                                id="is_default"
+                                                name="is_default"
+                                                value="1"
+                                                @checked(old('is_default'))
+                                            >
+                                            <label class="form-check-label" for="is_default">Jadikan pajak default</label>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="col-lg-12 d-flex justify-content-end">
                                     <div class="form-group">
                                         <a href="{{ route('taxes.index') }}" class="btn btn-secondary mr-2">

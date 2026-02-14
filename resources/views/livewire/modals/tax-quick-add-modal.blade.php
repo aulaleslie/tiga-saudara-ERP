@@ -43,6 +43,21 @@
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
                         </div>
+
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input
+                                    type="checkbox"
+                                    class="form-check-input @error('is_default') is-invalid @enderror"
+                                    id="tax_is_default"
+                                    wire:model="is_default"
+                                >
+                                <label class="form-check-label" for="tax_is_default">Jadikan pajak default</label>
+                            </div>
+                            @error('is_default')
+                                <div class="text-danger small">{{ $message }}</div>
+                            @enderror
+                        </div>
                     </form>
                 </div>
 

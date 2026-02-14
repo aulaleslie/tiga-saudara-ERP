@@ -153,7 +153,7 @@ Route::middleware('web')->get('/payment-terms/{id}', function (Request $request,
 
 // Taxes API
 Route::middleware('web')->get('/taxes', function (Request $request) {
-    $taxes = \Modules\Setting\Entities\Tax::all(['id', 'name', 'value']);
+    $taxes = \Modules\Setting\Entities\Tax::all(['id', 'name', 'value', 'is_default']);
     return response()->json($taxes);
 });
 
@@ -255,17 +255,21 @@ Route::middleware('web')->post('/payment-terms', function (Request $request) {
 Route::middleware('web')->post('/taxes', function (Request $request) {
     $request->validate([
         'name' => 'required|string|max:255|unique:taxes,name',
-        'value' => 'required|numeric|min:0|max:100'
+        'value' => 'required|numeric|min:0|max:100',
+        'is_default' => 'nullable|boolean',
     ]);
 
     $tax = \Modules\Setting\Entities\Tax::create([
         'name' => $request->name,
-        'value' => $request->value
+        'value' => $request->value,
+        'is_default' => $request->boolean('is_default'),
     ]);
 
     return response()->json([
         'id' => $tax->id,
         'name' => $tax->name,
+        'value' => $tax->value,
+        'is_default' => (bool) $tax->is_default,
         'display_name' => $tax->name . ' (' . $tax->value . '%)',
     ]);
 });
