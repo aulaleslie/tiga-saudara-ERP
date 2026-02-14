@@ -14,6 +14,7 @@ class CategorySearchDropdown extends Component
     public bool $open = false;
     public bool $rootOnly = false;
     public bool $allowCreate = false;
+    public bool $clearable = false;
     public ?string $error = null;
     public ?string $dispatchTo = null;
 
@@ -33,12 +34,14 @@ class CategorySearchDropdown extends Component
         bool $rootOnly = false,
         bool $allowCreate = false,
         ?string $error = null,
-        ?string $dispatchTo = null
+        ?string $dispatchTo = null,
+        bool $clearable = false
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
         $this->rootOnly = $rootOnly;
         $this->allowCreate = $allowCreate;
+        $this->clearable = $clearable;
         $this->error = $error;
         $this->dispatchTo = $dispatchTo;
 
@@ -73,6 +76,16 @@ class CategorySearchDropdown extends Component
     {
         $this->selected = $id;
         $this->selectedLabel = $this->resolveLabel($id);
+        $this->open = false;
+        $this->search = '';
+
+        $this->dispatchSelection();
+    }
+
+    public function clearSelection(): void
+    {
+        $this->selected = null;
+        $this->selectedLabel = null;
         $this->open = false;
         $this->search = '';
 

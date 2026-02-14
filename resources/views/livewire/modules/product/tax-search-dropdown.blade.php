@@ -56,6 +56,18 @@
         @endif
     </div>
 
+    @if($clearable && !$disabled && $selected !== null && $selected !== '')
+        <button
+            type="button"
+            class="btn btn-outline-secondary btn-sm ms-1"
+            wire:click="clearSelection"
+            data-toggle="tooltip"
+            title="Hapus pilihan"
+        >
+            <i class="bi bi-x-lg"></i>
+        </button>
+    @endif
+
     @if($allowCreate)
         <button
             type="button"

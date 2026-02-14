@@ -13,6 +13,7 @@ class TaxSearchDropdown extends Component
     public string $search = '';
     public bool $open = false;
     public bool $allowCreate = false;
+    public bool $clearable = false;
     public ?string $error = null;
     public bool $disabled = false;
     public ?string $inputId = null;
@@ -39,11 +40,13 @@ class TaxSearchDropdown extends Component
         ?string $error = null,
         bool $disabled = false,
         ?string $inputId = null,
-        ?string $dispatchTo = null
+        ?string $dispatchTo = null,
+        bool $clearable = false
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
         $this->allowCreate = $allowCreate;
+        $this->clearable = $clearable;
         $this->error = $error;
         $this->disabled = $disabled;
         $this->inputId = $inputId;
@@ -88,6 +91,20 @@ class TaxSearchDropdown extends Component
 
         $this->selected = $id;
         $this->selectedLabel = $this->resolveLabel($id);
+        $this->open = false;
+        $this->search = '';
+
+        $this->dispatchSelection();
+    }
+
+    public function clearSelection(): void
+    {
+        if ($this->disabled) {
+            return;
+        }
+
+        $this->selected = null;
+        $this->selectedLabel = null;
         $this->open = false;
         $this->search = '';
 

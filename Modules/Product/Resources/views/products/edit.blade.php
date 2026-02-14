@@ -58,6 +58,7 @@
                                         placeholder="Pilih kategori..."
                                         :options="$categoryOptions"
                                         :selected="old('category_id', $product->category_id)"
+                                        :clearable="true"
                                         :allow-create="true"
                                         :error="$errors->first('category_id')"
                                     />
@@ -69,6 +70,7 @@
                                         placeholder="Pilih merek..."
                                         :options="$brandOptions"
                                         :selected="old('brand_id', $product->brand_id)"
+                                        :clearable="true"
                                         :allow-create="true"
                                         :error="$errors->first('brand_id')"
                                     />

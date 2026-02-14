@@ -13,6 +13,7 @@ class BrandSearchDropdown extends Component
     public string $search = '';
     public bool $open = false;
     public bool $allowCreate = false;
+    public bool $clearable = false;
     public ?string $error = null;
 
     /** @var array<int, array{id:int|string,name:string}> */
@@ -32,11 +33,13 @@ class BrandSearchDropdown extends Component
         string $placeholder = 'Pilih merek...',
         bool $allowCreate = false,
         ?string $error = null,
-        ?string $dispatchTo = null
+        ?string $dispatchTo = null,
+        bool $clearable = false
     ): void {
         $this->name = $name;
         $this->placeholder = $placeholder;
         $this->allowCreate = $allowCreate;
+        $this->clearable = $clearable;
         $this->error = $error;
         $this->dispatchTo = $dispatchTo;
 
@@ -71,6 +74,16 @@ class BrandSearchDropdown extends Component
     {
         $this->selected = $id;
         $this->selectedLabel = $this->resolveLabel($id);
+        $this->open = false;
+        $this->search = '';
+
+        $this->dispatchSelection();
+    }
+
+    public function clearSelection(): void
+    {
+        $this->selected = null;
+        $this->selectedLabel = null;
         $this->open = false;
         $this->search = '';
 

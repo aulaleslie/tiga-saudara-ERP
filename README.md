@@ -20,6 +20,12 @@
 - run `` php artisan serve ``
 - then visit `` http://localhost:8000 or http://127.0.0.1:8000 ``.
 
+### Browser Extension Console Noise (Local Dev)
+
+If your browser console shows intermittent `sw.js`, `runtime.lastError`, `mobx-state-tree`, or `lockdown-install.js` warnings during local development, follow this runbook first:
+
+- [`docs/troubleshooting/browser-extension-console-noise.md`](docs/troubleshooting/browser-extension-console-noise.md)
+
 # Admin Credentials
 > Email: super.admin@test.com || Password: 12345678
 

@@ -32,6 +32,7 @@
                     placeholder="Pilih pajak..."
                     :options="$options"
                     :selected="$taxId"
+                    :clearable="true"
                     :disabled="!$isActive"
                     :allow-create="true"
                     :error="$taxError"
