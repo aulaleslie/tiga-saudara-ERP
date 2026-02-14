@@ -52,11 +52,20 @@ class ProductCart extends Component
         'is_tax_included' => 'nullable|boolean', // Boolean flag for tax inclusion.
     ];
 
+    private function perfLog(string $message, array $context = []): void
+    {
+        if (! config('performance.livewire_hotpath_debug')) {
+            return;
+        }
+
+        Log::info($message, $context);
+    }
+
     public function mount($cartInstance, $data = null): void
     {
         $this->cart_instance = $cartInstance;
         $cart_items = Cart::instance($this->cart_instance)->content();
-        Log::info('mount() called at: ' . round(microtime(true) * 1000), [
+        $this->perfLog('mount() called at: ' . round(microtime(true) * 1000), [
             'cart_instance' => $cartInstance,
             'cart_items' => $cart_items,
         ]);
@@ -64,7 +73,7 @@ class ProductCart extends Component
         $this->setting_id = session('setting_id');
         $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->setting_id)->value('is_pkp') ?? false);
         $this->taxes = Tax::all();
-        Log::info('validated', [
+        $this->perfLog('validated', [
             'data' => $data,
         ]);
 
@@ -210,7 +219,7 @@ class ProductCart extends Component
     {
         $cart_items = Cart::instance($this->cart_instance)->content();
 
-        Log::info('render() called at: ' . round(microtime(true) * 1000), [
+        $this->perfLog('render() called at: ' . round(microtime(true) * 1000), [
             'cart_instance' => $this->cart_instance,
             'cart_items' => $cart_items,
         ]);
@@ -243,7 +252,7 @@ class ProductCart extends Component
         $grand_total = ($total_sub_total - $global_discount_amount) + (float) $this->shipping;
 
         // Log the final totals for debugging
-        Log::info('Final totals calculated', [
+        $this->perfLog('Final totals calculated', [
             'grand_total' => $grand_total,
             'total_sub_total' => $total_sub_total,
             'global_discount' => $this->global_discount,

@@ -193,6 +193,75 @@ class PurchaseCreateFormPaymentTermTest extends TestCase
         $this->assertHiddenInputValue($component->html(), 'purchase_payment_term', (string) $this->net30Term->id);
     }
 
+    public function test_reapplying_same_supplier_selection_is_noop()
+    {
+        $supplier = Supplier::factory()->create([
+            'payment_term_id' => $this->net30Term->id,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $today = now()->format('Y-m-d');
+        $expectedDueDate = now()->addDays(30)->format('Y-m-d');
+
+        $component = Livewire::test(CreateForm::class, ['idempotencyToken' => 'test-token'])
+            ->set('date', $today)
+            ->set('supplier_id', $supplier->id)
+            ->assertSet('payment_term', $this->net30Term->id)
+            ->assertSet('due_date', $expectedDueDate);
+
+        $renderVersionBeforeNoop = (int) $component->get('dueDateRenderVersion');
+
+        $component->dispatch('supplierSelected', $supplier->id)
+            ->assertSet('supplier_id', $supplier->id)
+            ->assertSet('payment_term', $this->net30Term->id)
+            ->assertSet('dueDateIsManual', false)
+            ->assertSet('due_date', $expectedDueDate);
+
+        $this->assertSame($renderVersionBeforeNoop, (int) $component->get('dueDateRenderVersion'));
+    }
+
+    public function test_reapplying_same_payment_term_event_is_noop()
+    {
+        $today = now()->format('Y-m-d');
+        $expectedDueDate = now()->addDays(30)->format('Y-m-d');
+
+        $component = Livewire::test(CreateForm::class, ['idempotencyToken' => 'test-token'])
+            ->set('date', $today)
+            ->dispatch('payment-term-changed', $this->net30Term->id)
+            ->assertSet('payment_term', $this->net30Term->id)
+            ->assertSet('dueDateIsManual', false)
+            ->assertSet('due_date', $expectedDueDate);
+
+        $renderVersionBeforeNoop = (int) $component->get('dueDateRenderVersion');
+
+        $component->dispatch('payment-term-changed', $this->net30Term->id)
+            ->assertSet('payment_term', $this->net30Term->id)
+            ->assertSet('dueDateIsManual', false)
+            ->assertSet('due_date', $expectedDueDate);
+
+        $this->assertSame($renderVersionBeforeNoop, (int) $component->get('dueDateRenderVersion'));
+    }
+
+    public function test_manual_due_date_with_custom_term_reapply_keeps_manual_state()
+    {
+        $manualDueDate = now()->addDays(5)->format('Y-m-d');
+
+        $component = Livewire::test(CreateForm::class, ['idempotencyToken' => 'test-token'])
+            ->set('due_date', $manualDueDate)
+            ->assertSet('payment_term', $this->customTerm->id)
+            ->assertSet('dueDateIsManual', true)
+            ->assertSet('due_date', $manualDueDate);
+
+        $renderVersionBeforeNoop = (int) $component->get('dueDateRenderVersion');
+
+        $component->dispatch('payment-term-changed', $this->customTerm->id)
+            ->assertSet('payment_term', $this->customTerm->id)
+            ->assertSet('dueDateIsManual', true)
+            ->assertSet('due_date', $manualDueDate);
+
+        $this->assertSame($renderVersionBeforeNoop, (int) $component->get('dueDateRenderVersion'));
+    }
+
     public function test_sidu_supplier_sets_60_days_due_date()
     {
         // PT SIDU TJAHAJA ASIA (ID: 2), Payment Term ID: 858234, Longevity: 60

@@ -42,6 +42,8 @@ class CreateForm extends Component
     public bool $dueDateIsManual = false;
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
+    private array $paymentTermLongevityCache = [];
+    private ?int $lastAppliedPaymentTermId = null;
 
     public function mount(string $idempotencyToken, ?int $duplicateId = null): void
     {
@@ -71,6 +73,15 @@ class CreateForm extends Component
     private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
     {
         $this->applyPaymentTermSelection($paymentTermId, $syncDropdown);
+    }
+
+    private function perfLog(string $message, array $context = []): void
+    {
+        if (! config('performance.livewire_hotpath_debug')) {
+            return;
+        }
+
+        Log::info($message, $context);
     }
 
     private function isCustomPaymentTerm(?int $termId): bool
@@ -106,10 +117,134 @@ class CreateForm extends Component
         return (int) $value;
     }
 
+    private function currentPaymentTermId(): ?int
+    {
+        return $this->normalizePaymentTermId($this->payment_term);
+    }
+
+    private function currentSupplierId(): ?int
+    {
+        return $this->normalizeSupplierId($this->supplier_id);
+    }
+
+    private function resolveSupplierPaymentTermId(?int $supplierId): ?int
+    {
+        $defaultPaymentTermId = $this->resolveDefaultPaymentTermId();
+        if (! $supplierId) {
+            return $defaultPaymentTermId;
+        }
+
+        $supplierPaymentTermId = Supplier::query()->whereKey($supplierId)->value('payment_term_id');
+
+        return $supplierPaymentTermId ? (int) $supplierPaymentTermId : $defaultPaymentTermId;
+    }
+
+    private function resolvePaymentTermLongevity(?int $termId): ?int
+    {
+        if (! $termId) {
+            return null;
+        }
+
+        if (array_key_exists($termId, $this->paymentTermLongevityCache)) {
+            return $this->paymentTermLongevityCache[$termId];
+        }
+
+        $longevity = PaymentTerm::query()->whereKey($termId)->value('longevity');
+        $resolvedLongevity = $longevity === null ? null : (int) $longevity;
+        $this->paymentTermLongevityCache[$termId] = $resolvedLongevity;
+
+        return $resolvedLongevity;
+    }
+
+    private function expectedDueDateForTerm(?int $termId): ?string
+    {
+        if (! $this->date) {
+            return null;
+        }
+
+        if (! $termId) {
+            return $this->date;
+        }
+
+        $longevity = $this->resolvePaymentTermLongevity($termId);
+        if ($longevity === null) {
+            return $this->date;
+        }
+
+        return Carbon::parse($this->date)
+            ->addDays($longevity)
+            ->format('Y-m-d');
+    }
+
+    private function shouldSkipSupplierReapply(?int $supplierId, ?int $resolvedTermId): bool
+    {
+        if ($this->suppressAutoDueDate) {
+            return false;
+        }
+
+        if ($this->currentSupplierId() !== $supplierId) {
+            return false;
+        }
+
+        if ($this->currentPaymentTermId() !== $resolvedTermId) {
+            return false;
+        }
+
+        if ($this->dueDateIsManual || $this->isCustomPaymentTerm($resolvedTermId)) {
+            return true;
+        }
+
+        $expectedDueDate = $this->expectedDueDateForTerm($resolvedTermId);
+
+        return $expectedDueDate !== null && $expectedDueDate === $this->due_date;
+    }
+
+    private function shouldSkipPaymentTermReapply(?int $incomingTermId): bool
+    {
+        if ($this->suppressAutoDueDate) {
+            return false;
+        }
+
+        if ($this->lastAppliedPaymentTermId !== $incomingTermId) {
+            return false;
+        }
+
+        if ($this->dueDateIsManual || $this->isCustomPaymentTerm($incomingTermId)) {
+            return true;
+        }
+
+        $expectedDueDate = $this->expectedDueDateForTerm($incomingTermId);
+
+        return $expectedDueDate !== null && $expectedDueDate === $this->due_date;
+    }
+
+    private function applySupplierSelection(?int $supplierId): void
+    {
+        $resolvedTermId = $this->resolveSupplierPaymentTermId($supplierId);
+        if ($this->shouldSkipSupplierReapply($supplierId, $resolvedTermId)) {
+            $this->perfLog('DEBUG: applySupplierSelection skipped (no-op)', [
+                'supplier_id' => $supplierId,
+                'payment_term' => $resolvedTermId,
+            ]);
+            return;
+        }
+
+        $this->supplier_id = $supplierId;
+        $this->applyPaymentTermSelection($resolvedTermId, true);
+    }
+
     private function applyPaymentTermSelection(?int $paymentTermId, bool $syncDropdown = false): void
     {
-        Log::info('DEBUG: applyPaymentTermSelection start', ['paymentTermId' => $paymentTermId, 'syncDropdown' => $syncDropdown]);
-        $this->payment_term = $paymentTermId ?: null;
+        $currentPaymentTermSnapshot = $this->currentPaymentTermId();
+        $targetPaymentTermId = $paymentTermId ?: null;
+
+        $this->perfLog('DEBUG: applyPaymentTermSelection start', [
+            'paymentTermId' => $targetPaymentTermId,
+            'syncDropdown' => $syncDropdown,
+        ]);
+
+        $this->payment_term = $targetPaymentTermId;
+        $this->lastAppliedPaymentTermId = $targetPaymentTermId;
 
         if (! $this->suppressAutoDueDate) {
             if ($this->isCustomPaymentTerm($this->payment_term)) {
@@ -120,7 +255,7 @@ class CreateForm extends Component
             }
         }
 
-        if ($syncDropdown) {
+        if ($syncDropdown && $currentPaymentTermSnapshot !== $targetPaymentTermId) {
             $this->dispatch('setPaymentTerm', $this->payment_term)
                 ->to(PaymentTermSearchDropdown::class);
         }
@@ -166,10 +301,16 @@ class CreateForm extends Component
 
     public function updatedPaymentTerm($value): void
     {
-        Log::info('DEBUG: updatedPaymentTerm called', ['value' => $value]);
+        $this->perfLog('DEBUG: updatedPaymentTerm called', ['value' => $value]);
         $paymentTermId = $this->normalizePaymentTermId($value);
         if ($this->suppressAutoDueDate) {
             $this->payment_term = $paymentTermId;
+            $this->lastAppliedPaymentTermId = $paymentTermId;
+            return;
+        }
+
+        if ($this->shouldSkipPaymentTermReapply($paymentTermId)) {
+            $this->perfLog('DEBUG: updatedPaymentTerm skipped (no-op)', ['value' => $paymentTermId]);
             return;
         }
 
@@ -183,6 +324,14 @@ class CreateForm extends Component
 
         if ($this->suppressAutoDueDate) {
             $this->payment_term = $normalizedTermId;
+            $this->lastAppliedPaymentTermId = $normalizedTermId;
+            return;
+        }
+
+        if ($this->shouldSkipPaymentTermReapply($normalizedTermId)) {
+            $this->perfLog('DEBUG: handlePaymentTermChanged skipped (no-op)', [
+                'value' => $normalizedTermId,
+            ]);
             return;
         }
 
@@ -191,7 +340,7 @@ class CreateForm extends Component
 
     private function updateDueDateFromPaymentTerm(): void
     {
-        Log::info('DEBUG: updateDueDateFromPaymentTerm start', [
+        $this->perfLog('DEBUG: updateDueDateFromPaymentTerm start', [
             'date' => $this->date,
             'payment_term' => $this->payment_term,
             'suppressAutoDueDate' => $this->suppressAutoDueDate,
@@ -207,22 +356,22 @@ class CreateForm extends Component
             if ($previousDueDate !== $this->due_date) {
                 $this->bumpDueDateRenderVersion();
             }
-            Log::info('DEBUG: updateDueDateFromPaymentTerm abort: missing termId or date');
+            $this->perfLog('DEBUG: updateDueDateFromPaymentTerm abort: missing termId or date');
             return;
         }
 
-        $term = PaymentTerm::find($termId);
-        if (! $term) {
+        $longevity = $this->resolvePaymentTermLongevity($termId);
+        if ($longevity === null) {
             $this->due_date = $nextDueDate;
             if ($previousDueDate !== $this->due_date) {
                 $this->bumpDueDateRenderVersion();
             }
-            Log::info('DEBUG: updateDueDateFromPaymentTerm abort: PaymentTerm not found', ['termId' => $termId]);
+            $this->perfLog('DEBUG: updateDueDateFromPaymentTerm abort: PaymentTerm not found', ['termId' => $termId]);
             return;
         }
 
         $nextDueDate = Carbon::parse($this->date)
-            ->addDays($term->longevity)
+            ->addDays($longevity)
             ->format('Y-m-d');
 
         $this->due_date = $nextDueDate;
@@ -230,7 +379,10 @@ class CreateForm extends Component
             $this->bumpDueDateRenderVersion();
         }
             
-        Log::info('DEBUG: updateDueDateFromPaymentTerm success', ['new_due_date' => $this->due_date, 'longevity' => $term->longevity]);
+        $this->perfLog('DEBUG: updateDueDateFromPaymentTerm success', [
+            'new_due_date' => $this->due_date,
+            'longevity' => $longevity,
+        ]);
     }
 
     public function updatedDate($value): void
@@ -250,6 +402,7 @@ class CreateForm extends Component
             $this->suppressAutoDueDate = true;
             try {
                 $this->payment_term = $customTermId;
+                $this->lastAppliedPaymentTermId = $customTermId;
                 $this->dispatch('setPaymentTerm', $customTermId)
                     ->to(PaymentTermSearchDropdown::class);
             } finally {
@@ -261,29 +414,17 @@ class CreateForm extends Component
 
     public function updatedSupplierId($value): void
     {
-        Log::info('DEBUG: updatedSupplierId called', ['value' => $value]);
-        $this->handleSupplierSelected($value);
+        $supplierId = $this->normalizeSupplierId($value);
+        $this->perfLog('DEBUG: updatedSupplierId called', ['value' => $supplierId]);
+        $this->applySupplierSelection($supplierId);
     }
 
     #[On('supplierSelected')]
     public function handleSupplierSelected($supplier_id): void
     {
-        Log::info('DEBUG: handleSupplierSelected called', ['supplier_id' => $supplier_id]);
+        $this->perfLog('DEBUG: handleSupplierSelected called', ['supplier_id' => $supplier_id]);
         $supplierId = $this->normalizeSupplierId($supplier_id);
-        $this->supplier_id = $supplierId;
-
-        // Default to COD
-        $paymentTermId = $this->resolveDefaultPaymentTermId();
-
-        if ($supplierId) {
-            $supplier = Supplier::find($supplierId);
-            // If supplier has a specific valid payment term, use it
-            if ($supplier && !empty($supplier->payment_term_id)) {
-                $paymentTermId = (int) $supplier->payment_term_id;
-            }
-        }
-
-        $this->applyPaymentTermSelection($paymentTermId, true);
+        $this->applySupplierSelection($supplierId);
     }
 
     #[On('shippingUpdated')]
@@ -311,11 +452,20 @@ class CreateForm extends Component
     {
         // Supplier was just created, the dropdown will auto-select it
         // We need to set the payment term from the newly created supplier
-        $this->supplier_id = $supplier['id'] ?? null;
+        $supplierId = $this->normalizeSupplierId($supplier['id'] ?? null);
         $paymentTermId = isset($supplier['payment_term_id']) && $supplier['payment_term_id']
             ? (int) $supplier['payment_term_id']
             : $this->resolveDefaultPaymentTermId();
 
+        if ($this->shouldSkipSupplierReapply($supplierId, $paymentTermId)) {
+            $this->perfLog('DEBUG: handleSupplierCreated skipped (no-op)', [
+                'supplier_id' => $supplierId,
+                'payment_term' => $paymentTermId,
+            ]);
+            return;
+        }
+
+        $this->supplier_id = $supplierId;
         $this->applyPaymentTermSelection($paymentTermId, true);
     }
 
@@ -329,6 +479,7 @@ class CreateForm extends Component
         $this->duplicatePurchase = $purchase;
         $this->supplier_id = $purchase->supplier_id;
         $this->payment_term = $purchase->payment_term_id;
+        $this->lastAppliedPaymentTermId = $this->currentPaymentTermId();
         $this->note = $purchase->note;
         $this->date = Carbon::parse($purchase->date)->format('Y-m-d');
         $this->due_date = Carbon::parse($purchase->due_date)->format('Y-m-d');
@@ -396,16 +547,17 @@ class CreateForm extends Component
     {
         // Use passed values from hidden inputs if available (bypasses broken wire:model binding)
         if ($supplierId !== null && $supplierId !== '') {
-            $this->supplier_id = $supplierId;
+            $this->supplier_id = (int) $supplierId;
         }
         if ($paymentTermId !== null && $paymentTermId !== '') {
-            $this->payment_term = $paymentTermId;
+            $this->payment_term = (int) $paymentTermId;
+            $this->lastAppliedPaymentTermId = (int) $paymentTermId;
         }
         
         // Fallback: Re-sync payment_term from supplier if still not set
         if ($this->supplier_id && !$this->payment_term) {
-            $supplier = Supplier::find($this->supplier_id);
-            $paymentTermId = $supplier?->payment_term_id ? (int) $supplier->payment_term_id : $this->resolveDefaultPaymentTermId();
+            $supplierPaymentTerm = Supplier::query()->whereKey($this->supplier_id)->value('payment_term_id');
+            $paymentTermId = $supplierPaymentTerm ? (int) $supplierPaymentTerm : $this->resolveDefaultPaymentTermId();
             $this->applyPaymentTermSelection($paymentTermId);
         }
 

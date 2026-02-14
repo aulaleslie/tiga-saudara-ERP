@@ -66,6 +66,15 @@ class PaymentTermSearchDropdown extends Component
         return view('livewire.modules.purchase.payment-term-search-dropdown');
     }
 
+    private function perfLog(string $message, array $context = []): void
+    {
+        if (! config('performance.livewire_hotpath_debug')) {
+            return;
+        }
+
+        Log::info($message, $context);
+    }
+
     public function toggleDropdown(): void
     {
         $this->isOpen = ! $this->isOpen;
@@ -99,7 +108,12 @@ class PaymentTermSearchDropdown extends Component
     #[On('setPaymentTerm')]
     public function setPaymentTerm(?int $paymentTermId = null): void
     {
-        Log::info('DEBUG: PaymentTermSearchDropdown received setPaymentTerm', ['payment_term_id' => $paymentTermId]);
+        $currentSelectedId = $this->selected === null || $this->selected === '' ? null : (int) $this->selected;
+        if ($currentSelectedId === $paymentTermId) {
+            return;
+        }
+
+        $this->perfLog('DEBUG: PaymentTermSearchDropdown received setPaymentTerm', ['payment_term_id' => $paymentTermId]);
         if ($paymentTermId === null) {
             $this->selected = null;
             $this->selectedLabel = null;

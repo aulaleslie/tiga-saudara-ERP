@@ -59,6 +59,15 @@ class SupplierSearchDropdown extends Component
         return view('livewire.modules.people.supplier-search-dropdown');
     }
 
+    private function perfLog(string $message, array $context = []): void
+    {
+        if (! config('performance.livewire_hotpath_debug')) {
+            return;
+        }
+
+        Log::info($message, $context);
+    }
+
     public function toggleDropdown(): void
     {
         $this->isOpen = ! $this->isOpen;
@@ -279,7 +288,10 @@ class SupplierSearchDropdown extends Component
 
     private function dispatchSelection(?int $paymentTermId = null): void
     {
-        Log::info('DEBUG: SupplierSearchDropdown dispatching supplierSelected', ['supplier_id' => $this->selected, 'payment_term_id' => $paymentTermId]);
+        $this->perfLog('DEBUG: SupplierSearchDropdown dispatching supplierSelected', [
+            'supplier_id' => $this->selected,
+            'payment_term_id' => $paymentTermId,
+        ]);
         // Notify other components (e.g., product search) about the supplier change
         $this->dispatch('supplierSelected', supplier_id: $this->selected);
     }
