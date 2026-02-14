@@ -46,12 +46,12 @@ class PurchaseReturnCreateForm extends Component
         $this->submitLabel = 'Proses Retur';
     }
 
-    public function handleSupplierSelected($supplierId): void
+    public function handleSupplierSelected($supplier_id): void
     {
-        if ($supplierId) {
-            Log::info('Updated supplier id', ['supplier_id' => $supplierId]);
-            $supplier = Supplier::find($supplierId);
-            $this->supplier_id = $supplierId;
+        if ($supplier_id) {
+            Log::info('Updated supplier id', ['supplier_id' => $supplier_id]);
+            $supplier = Supplier::find($supplier_id);
+            $this->supplier_id = $supplier_id;
             $this->supplierName = $supplier?->supplier_name;
         } else {
             $this->supplier_id = null;

@@ -331,6 +331,12 @@
                                                         'MODIFY_PURCHASE' => $unpaidPurchases[$line['product_id']]['MODIFY_PURCHASE'] ?? [],
                                                         default => []
                                                     };
+                                                    // Filter out purchases that don't have enough quantity for this return line
+                                                    if ($currentMethod === 'MODIFY_PURCHASE' && !empty($purchaseList)) {
+                                                        $purchaseList = collect($purchaseList)->filter(function($p) use ($line) {
+                                                            return ($p['product_received_quantity'] ?? 0) >= ($line['quantity'] ?? 0);
+                                                        })->values()->all();
+                                                    }
                                                     $placeholder = match($currentMethod) {
                                                         'MODIFY_PURCHASE' => 'Cari Nota...',
                                                         default => 'Cari...'

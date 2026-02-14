@@ -39,4 +39,18 @@
 
 @push('page_scripts')
     {!! $dataTable->scripts() !!}
+    <script>
+        function openApproveModal(url) {
+            $('#approvePurchaseReturnFormIndex').attr('action', url);
+            $('#approvePurchaseReturnModalIndex').modal('show');
+        }
+
+        function openRejectModal(url) {
+            $('#rejectPurchaseReturnFormIndex').attr('action', url);
+            $('#rejectPurchaseReturnModalIndex').modal('show');
+        }
+    </script>
 @endpush
+
+@include('purchasesreturn::partials.approve-modal-index')
+@include('purchasesreturn::partials.reject-modal-index')

@@ -25,15 +25,30 @@
                         $allSerials = $regularSerials->filter(function($s) use ($returnedSerialNumbers) {
                             return !in_array($s->serial_number, $returnedSerialNumbers);
                         })->map(function($s) {
+                            $status = strtoupper((string) ($s->status ?? ''));
+                            $badgeClass = 'bg-danger';
+                            $title = $status !== '' ? $status : 'Returned';
+
+                            if ($status === \Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE) {
+                                $badgeClass = 'bg-info';
+                                $title = 'Active';
+                            } elseif ($status === \Modules\Product\Entities\ProductSerialNumber::STATUS_RETURN_IN_PROCESS) {
+                                $badgeClass = 'bg-warning text-dark';
+                                $title = 'Sedang diretur';
+                            } elseif ($status === \Modules\Product\Entities\ProductSerialNumber::STATUS_RETURNED) {
+                                $badgeClass = 'bg-danger';
+                                $title = 'Returned';
+                            }
+
                             return (object)[
                                 'serial_number' => $s->serial_number,
-                                'is_returned' => !in_array($s->status, [\Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE, 'active']),
-                                'title' => ''
+                                'badge_class' => $badgeClass,
+                                'title' => $title,
                             ];
                         })->concat($returnedSerials->map(function($s) {
                             return (object)[
                                 'serial_number' => $s->serial_number,
-                                'is_returned' => true,
+                                'badge_class' => 'bg-danger',
                                 'title' => 'Returned'
                             ];
                         }))->sortBy('serial_number');
@@ -42,7 +57,7 @@
                     @if($allSerials->isNotEmpty())
                         <ul class="list-unstyled mb-0">
                             @foreach($allSerials as $serial)
-                                <li class="badge {{ $serial->is_returned ? 'bg-danger' : 'bg-info' }} me-1" title="{{ $serial->title }}">
+                                <li class="badge {{ $serial->badge_class }} me-1" title="{{ $serial->title }}">
                                     {{ $serial->serial_number }}
                                 </li>
                             @endforeach

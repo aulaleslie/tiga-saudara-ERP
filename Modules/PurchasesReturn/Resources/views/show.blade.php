@@ -59,6 +59,18 @@
                                     </button>
                                 @endcan
                             @endif
+
+                            @if($approvalStatus === 'rejected')
+                                @can('purchaseReturns.edit')
+                                    <form action="{{ route('purchase-returns.repropose', $purchase_return->id) }}" method="POST" class="d-inline">
+                                        @csrf
+                                        <button type="submit" class="btn btn-info btn-sm d-print-none mr-2 mb-1" onclick="return confirm('Ajukan ulang retur ini untuk persetujuan?')">
+                                            <i class="bi bi-arrow-counterclockwise"></i> Ajukan Ulang
+                                        </button>
+                                    </form>
+                                @endcan
+                            @endif
+
                             @if($approvalStatus === 'approved')
                                 @if(!$purchase_return->return_dispatched_at)
                                     @if($dispatchStatus === '' || $dispatchStatus === 'rejected')

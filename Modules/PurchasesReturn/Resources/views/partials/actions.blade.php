@@ -50,29 +50,12 @@
 
             @can('purchaseReturns.approval')
                 @if($approvalStatus === 'pending')
-                    <form method="POST" action="{{ route('purchase-returns.approve', $data->id) }}" class="m-0">
-                        @csrf
-                        <button type="submit" class="dropdown-item d-flex align-items-center" onclick="return confirm('Setujui retur pembelian ini?')">
-                            <i class="bi bi-check2-circle text-success me-2"></i> <span>Setujui</span>
-                        </button>
-                    </form>
-                    <a href="#" class="dropdown-item d-flex align-items-center" onclick="event.preventDefault(); purchaseReturnReject{{ $data->id }}();">
+                    <a href="#" class="dropdown-item d-flex align-items-center" onclick="event.preventDefault(); openApproveModal('{{ route('purchase-returns.approve', $data->id) }}');">
+                        <i class="bi bi-check2-circle text-success me-2"></i> <span>Setujui</span>
+                    </a>
+                    <a href="#" class="dropdown-item d-flex align-items-center" onclick="event.preventDefault(); openRejectModal('{{ route('purchase-returns.reject', $data->id) }}');">
                         <i class="bi bi-x-circle text-danger me-2"></i> <span>Tolak</span>
                     </a>
-                    <form id="reject-form-{{ $data->id }}" method="POST" action="{{ route('purchase-returns.reject', $data->id) }}" class="d-none">
-                        @csrf
-                        <input type="hidden" name="reason" value="">
-                    </form>
-                    <script>
-                        function purchaseReturnReject{{ $data->id }}() {
-                            const reason = prompt('Masukkan alasan penolakan (opsional):');
-                            if (reason !== null) {
-                                const form = document.getElementById('reject-form-{{ $data->id }}');
-                                form.querySelector('input[name="reason"]').value = reason;
-                                form.submit();
-                            }
-                        }
-                    </script>
                 @endif
             @endcan
 
@@ -96,6 +79,17 @@
                         </a>
                     @endcan
                 @endif
+            @endif
+
+            @if($approvalStatus === 'rejected')
+                @can('purchaseReturns.edit')
+                    <a href="#" class="dropdown-item d-flex align-items-center" onclick="event.preventDefault(); if(confirm('Ajukan ulang retur ini?')) document.getElementById('repropose{{ $data->id }}').submit();">
+                        <i class="bi bi-arrow-counterclockwise text-info me-2"></i> <span>Ajukan Ulang</span>
+                    </a>
+                    <form id="repropose{{ $data->id }}" class="d-none" action="{{ route('purchase-returns.repropose', $data->id) }}" method="POST">
+                        @csrf
+                    </form>
+                @endcan
             @endif
 
             @if($approvalStatus === 'pending' || $approvalStatus === 'rejected' || $approvalStatus === 'draft')

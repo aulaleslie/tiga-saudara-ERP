@@ -313,4 +313,67 @@ class PurchaseShowReturnedSerialVisibilityTest extends TestCase
         $response->assertSee('bg-info'); 
         // We don't assertDontSee('bg-danger') because it's in the over-receive modal
     }
+
+    public function test_return_in_process_serial_appears_in_purchase_show_with_warning_pill()
+    {
+        $purchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(30),
+            'reference' => 'PO-003',
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $product = $this->createProduct('Product In Process', 'PIP001');
+
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id'  => $product->id,
+            'product_name'=> $product->product_name,
+            'product_code'=> $product->product_code,
+            'quantity'    => 1,
+            'price'       => 1000,
+            'unit_price'  => 1000,
+            'sub_total'   => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id'       => $purchase->id,
+            'status'      => ReceivedNote::STATUS_APPROVED,
+            'location_id' => 1,
+            'setting_id'  => $this->setting->id,
+            'date' => now(),
+            'external_delivery_number' => 'DN-003',
+        ]);
+
+        $receivedNoteDetail = ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id'     => $purchaseDetail->id,
+            'quantity_received'=> 1,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => 'SN-IN-PROCESS-TEST',
+            'status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS,
+            'is_in_return_process' => true,
+            'received_note_detail_id' => $receivedNoteDetail->id,
+            'location_id' => 1,
+        ]);
+
+        $response = $this->get(route('purchases.show', $purchase->id));
+
+        $response->assertStatus(200);
+        $response->assertSee('SN-IN-PROCESS-TEST');
+        $response->assertSee('badge bg-warning text-dark');
+    }
 }

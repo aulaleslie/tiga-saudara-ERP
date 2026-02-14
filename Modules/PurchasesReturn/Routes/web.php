@@ -36,6 +36,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function() {
         ->name('purchase-returns.approve');
     Route::post('purchase-returns/{purchase_return}/reject', 'PurchaseReturnApprovalController@reject')
         ->name('purchase-returns.reject');
+    Route::post('purchase-returns/{purchase_return}/repropose', 'PurchasesReturnController@repropose')
+        ->name('purchase-returns.repropose');
     Route::post('purchase-returns/{purchase_return}/dispatch-request', 'PurchaseReturnDispatchController@requestDispatch')
         ->name('purchase-returns.dispatch-request');
     Route::post('purchase-returns/{purchase_return}/dispatch-approve', 'PurchaseReturnDispatchController@approveDispatch')

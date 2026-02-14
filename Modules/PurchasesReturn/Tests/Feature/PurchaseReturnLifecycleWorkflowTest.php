@@ -9,6 +9,7 @@ use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Product\Entities\ProductStock;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Location;
@@ -438,6 +439,14 @@ class PurchaseReturnLifecycleWorkflowTest extends TestCase
         $sn->refresh();
         $this->assertEquals('RETURN_IN_PROCESS', $sn->status);
         $this->assertTrue((bool)$sn->is_in_return_process);
+        $this->assertDatabaseHas('serial_number_histories', [
+            'product_serial_number_id' => $sn->id,
+            'event_type' => SerialNumberHistory::EVENT_PURCHASE_RETURN_DISPATCHED,
+            'location_id' => $this->location->id,
+            'reference_type' => PurchaseReturn::class,
+            'reference_id' => $pr->id,
+            'user_id' => $this->user->id,
+        ]);
 
         // Settlement creation
         $item = PurchaseReturnItemSettlement::create([

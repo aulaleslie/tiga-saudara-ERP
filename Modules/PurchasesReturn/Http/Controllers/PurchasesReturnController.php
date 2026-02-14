@@ -338,4 +338,24 @@ class PurchasesReturnController extends Controller
 
         return redirect()->route('purchase-returns.index');
     }
+
+    public function repropose(PurchaseReturn $purchase_return) {
+        abort_if(Gate::denies('purchaseReturns.edit'), 403);
+
+        if (Str::lower($purchase_return->approval_status) !== 'rejected') {
+            abort(403, 'Hanya retur pembelian yang ditolak yang dapat diajukan ulang.');
+        }
+
+        $purchase_return->update([
+            'approval_status' => 'pending',
+            'status' => PurchaseReturn::STATUS_PENDING_APPROVAL,
+            'rejected_at' => null,
+            'rejected_by' => null,
+            'rejection_reason' => null,
+        ]);
+
+        toast('Retur Pembelian Diajukan Ulang!', 'success');
+
+        return redirect()->route('purchase-returns.show', $purchase_return);
+    }
 }

@@ -178,7 +178,8 @@ class PurchaseReturnSettlementForm extends Component
                     $query->where('product_id', $productId);
                 })
                 ->with(['purchaseDetails' => function ($query) use ($productId) {
-                    $query->where('product_id', $productId)->select('id', 'purchase_id', 'product_id', 'quantity', 'unit_price');
+                    $query->where('product_id', $productId)
+                        ->withSum('receivedNoteDetails as received_quantity', 'quantity_received');
                 }])
                 ->select(['id', 'reference', 'supplier_purchase_number', 'due_amount', 'total_amount', 'paid_amount', 'date'])
                 ->orderBy('date', 'desc')
@@ -193,9 +194,10 @@ class PurchaseReturnSettlementForm extends Component
                         $statusLabel = ' (Belum Bayar)';
                     }
                     
-                    $purchaseDetail = $purchase->purchaseDetails->where('product_id', $productId)->first();
-                    $productQty = $purchaseDetail?->quantity ?? 0;
-                    $productUnitPrice = (float) ($purchaseDetail?->unit_price ?? 0);
+                    $matchingDetails = $purchase->purchaseDetails->where('product_id', $productId);
+                    $productQty = $matchingDetails->sum('quantity');
+                    $productReceivedQty = $matchingDetails->sum('received_quantity');
+                    $productUnitPrice = (float) ($matchingDetails->first()?->unit_price ?? 0);
                     
                     return [
                         'id' => $purchase->id,
@@ -203,6 +205,7 @@ class PurchaseReturnSettlementForm extends Component
                         'text' => $ref,
                         'due_amount' => $purchase->due_amount,
                         'product_quantity' => $productQty,
+                        'product_received_quantity' => $productReceivedQty,
                         'product_unit_price' => $productUnitPrice,
                     ];
                 })

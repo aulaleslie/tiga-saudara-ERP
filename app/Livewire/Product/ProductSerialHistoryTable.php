@@ -26,6 +26,7 @@ class ProductSerialHistoryTable extends Component
         'SOLD'              => 'Terjual',
         'SALE_RETURNED'     => 'Retur dari Pelanggan',
         'PURCHASE_RETURNED' => 'Retur ke Supplier',
+        'PURCHASE_RETURN_DISPATCHED' => 'Dikirim Retur ke Supplier',
         'REPAIR_RECEIVED'   => 'Diterima dari Perbaikan',
         'LOCATION_TRANSFER' => 'Pindah Lokasi',
         'MARKED_BROKEN'     => 'Ditandai Rusak',

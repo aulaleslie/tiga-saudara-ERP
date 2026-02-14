@@ -39,6 +39,7 @@ class SerialNumberHistory extends BaseModel
     public const EVENT_SOLD = 'SOLD';
     public const EVENT_SALE_RETURNED = 'SALE_RETURNED';
     public const EVENT_PURCHASE_RETURNED = 'PURCHASE_RETURNED';
+    public const EVENT_PURCHASE_RETURN_DISPATCHED = 'PURCHASE_RETURN_DISPATCHED';
     public const EVENT_REPAIR_RECEIVED = 'REPAIR_RECEIVED';
     public const EVENT_LOCATION_TRANSFER = 'LOCATION_TRANSFER';
     public const EVENT_MARKED_BROKEN = 'MARKED_BROKEN';

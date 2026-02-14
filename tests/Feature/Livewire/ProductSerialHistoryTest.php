@@ -128,4 +128,27 @@ class ProductSerialHistoryTest extends TestCase
             ->call('toggleExpand', $serial->id)
             ->assertSee('Diterima dari Pembelian');
     }
+
+    public function test_purchase_return_dispatch_event_label_is_rendered()
+    {
+        $serial = ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-DISPATCH-RET-001',
+            'status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS,
+            'is_in_return_process' => true,
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serial->id,
+            'event_type' => SerialNumberHistory::EVENT_PURCHASE_RETURN_DISPATCHED,
+            'user_id' => $this->user->id,
+            'created_at' => now(),
+            'location_id' => $this->location->id,
+        ]);
+
+        Livewire::test(ProductSerialHistoryTable::class, ['productId' => $this->product->id])
+            ->call('toggleExpand', $serial->id)
+            ->assertSee('Dikirim Retur ke Supplier');
+    }
 }

@@ -2,6 +2,7 @@
 
 namespace Modules\PurchasesReturn\Http\Controllers;
 
+use App\Services\SerialNumberHistoryService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
@@ -111,17 +113,6 @@ class PurchaseReturnDispatchController extends Controller
             // Lock stock when dispatch is approved
             $this->lockReturnStock($purchase_return);
 
-            // Mark serial numbers as returned
-            foreach ($purchase_return->purchaseReturnDetails as $detail) {
-                if (! empty($detail->serial_number_ids)) {
-                    ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
-                        ->update([
-                            'status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS,
-                            'is_in_return_process' => true,
-                        ]);
-                }
-            }
-
             $purchase_return->update([
                 'return_dispatch_status' => 'dispatched',
                 'status' => PurchaseReturn::STATUS_IN_RETURN,
@@ -214,6 +205,7 @@ class PurchaseReturnDispatchController extends Controller
     private function lockReturnStock(PurchaseReturn $purchase_return): void
     {
         $purchase_return->loadMissing('purchaseReturnDetails');
+        $dispatchHistoryRecordedSerialIds = [];
 
         foreach ($purchase_return->purchaseReturnDetails as $detail) {
             $quantity = (int) $detail->quantity;
@@ -308,12 +300,48 @@ class PurchaseReturnDispatchController extends Controller
             }
 
             if (! empty($detail->serial_number_ids)) {
-                ProductSerialNumber::whereIn('id', $detail->serial_number_ids)
-                    ->update([
-                        'status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS,
-                        'is_in_return_process' => true,
-                        'purchase_return_id' => $purchase_return->id,
-                    ]);
+                $serialIds = collect($detail->serial_number_ids)
+                    ->filter(fn ($id) => is_numeric($id))
+                    ->map(fn ($id) => (int) $id)
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                if (! empty($serialIds)) {
+                    $existingSerialIds = ProductSerialNumber::whereIn('id', $serialIds)
+                        ->pluck('id')
+                        ->map(fn ($id) => (int) $id)
+                        ->all();
+
+                    if (empty($existingSerialIds)) {
+                        continue;
+                    }
+
+                    ProductSerialNumber::whereIn('id', $existingSerialIds)
+                        ->update([
+                            'status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS,
+                            'is_in_return_process' => true,
+                            'purchase_return_id' => $purchase_return->id,
+                        ]);
+
+                    $serialLocationId = $detail->location_id ?? $purchase_return->location_id;
+                    $historySerialIds = array_values(array_diff($existingSerialIds, $dispatchHistoryRecordedSerialIds));
+
+                    foreach ($historySerialIds as $serialId) {
+                        SerialNumberHistoryService::record(
+                            $serialId,
+                            SerialNumberHistory::EVENT_PURCHASE_RETURN_DISPATCHED,
+                            $serialLocationId,
+                            $purchase_return,
+                            "Dispatch retur disetujui untuk {$purchase_return->reference}"
+                        );
+                    }
+
+                    $dispatchHistoryRecordedSerialIds = array_values(array_unique(array_merge(
+                        $dispatchHistoryRecordedSerialIds,
+                        $historySerialIds
+                    )));
+                }
             }
 
             // Create Transactions for each deducted bucket
