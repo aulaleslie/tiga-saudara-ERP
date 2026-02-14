@@ -7,6 +7,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
@@ -224,6 +227,155 @@ class PurchaseReturnItemApprovalTest extends TestCase
         $this->assertEquals(1000, (float) $purchase->paid_amount);
 
 
+    }
+
+    /** @test */
+    public function it_preserves_subtotal_total_pattern_for_modify_purchase_with_tax_present()
+    {
+        $pr = $this->createPurchaseReturn(5000000);
+        $detail = $this->createDetail($pr, 5000000);
+
+        $purchase = Purchase::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(30)->toDateString(),
+            'reference' => 'PS-TAX-SUBTOTAL-' . uniqid(),
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => $this->supplier->supplier_name,
+            'setting_id' => $this->setting->id,
+            'total_amount' => 50000000,
+            'tax_amount' => 4954954.95,
+            'paid_amount' => 0,
+            'due_amount' => 50000000,
+            'status' => 'Received',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'is_tax_included' => false,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+        ]);
+
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $detail->product_id,
+            'product_name' => $detail->product_name,
+            'product_code' => $detail->product_code,
+            'quantity' => 10,
+            'unit_price' => 5000000,
+            'price' => 5000000,
+            'sub_total' => 50000000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 4954954.95,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now(),
+            'location_id' => $this->location->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 10,
+        ]);
+
+        $item = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $pr->id,
+            'purchase_return_detail_id' => $detail->id,
+            'method' => 'MODIFY_PURCHASE',
+            'nominal' => 5000000,
+            'status' => 'SUBMITTED',
+            'target_purchase_id' => $purchase->id,
+        ]);
+
+        $response = $this->post(route('purchase-return-settlements.item.approve', $item->id));
+        $response->assertStatus(302);
+
+        $purchase->refresh();
+        $this->assertEquals(45000000, (float) $purchase->total_amount);
+        $this->assertEquals(4459459.46, (float) $purchase->tax_amount);
+        $this->assertEquals(45000000, (float) $purchase->due_amount);
+        $this->assertEquals(0, (float) $purchase->paid_amount);
+        $this->assertEquals('UNPAID', strtoupper((string) $purchase->payment_status));
+    }
+
+    /** @test */
+    public function it_preserves_subtotal_plus_tax_total_pattern_for_modify_purchase()
+    {
+        $pr = $this->createPurchaseReturn(2000);
+        $detail = $this->createDetail($pr, 2000);
+        $detail->update([
+            'quantity' => 2,
+            'unit_price' => 1000,
+            'sub_total' => 2000,
+        ]);
+
+        $purchase = Purchase::create([
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(30)->toDateString(),
+            'reference' => 'PS-TAX-PLUS-' . uniqid(),
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => $this->supplier->supplier_name,
+            'setting_id' => $this->setting->id,
+            'total_amount' => 11000,
+            'tax_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 11000,
+            'status' => 'Received',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'is_tax_included' => true,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+        ]);
+
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $detail->product_id,
+            'product_name' => $detail->product_name,
+            'product_code' => $detail->product_code,
+            'quantity' => 10,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'sub_total' => 10000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 1000,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now(),
+            'location_id' => $this->location->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 10,
+        ]);
+
+        $item = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $pr->id,
+            'purchase_return_detail_id' => $detail->id,
+            'method' => 'MODIFY_PURCHASE',
+            'nominal' => 2000,
+            'status' => 'SUBMITTED',
+            'target_purchase_id' => $purchase->id,
+        ]);
+
+        $response = $this->post(route('purchase-return-settlements.item.approve', $item->id));
+        $response->assertStatus(302);
+
+        $purchase->refresh();
+        $this->assertEquals(8800, (float) $purchase->total_amount);
+        $this->assertEquals(800, (float) $purchase->tax_amount);
+        $this->assertEquals(8800, (float) $purchase->due_amount);
+        $this->assertEquals(0, (float) $purchase->paid_amount);
+        $this->assertEquals('UNPAID', strtoupper((string) $purchase->payment_status));
     }
 
     /** @test */

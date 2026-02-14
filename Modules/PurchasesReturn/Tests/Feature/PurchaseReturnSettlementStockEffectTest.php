@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\Transaction;
@@ -329,6 +330,8 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
 
         // 3. Approve dispatch (serials returned here)
         $this->post(route('purchase-returns.dispatch-approve', $pr->id));
+        $transactionCountAfterDispatch = Transaction::count();
+        $serialHistoryCountAfterDispatch = SerialNumberHistory::where('product_serial_number_id', $sn->id)->count();
 
         // 4. Approve settlement (purchase modification only)
         $response = $this->post(route('purchase-return-settlements.item.approve', $item->id));
@@ -355,5 +358,10 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
 
         $purchase->refresh();
         $this->assertEquals(4500, (float) $purchase->total_amount);
+        $this->assertSame($transactionCountAfterDispatch, Transaction::count());
+        $this->assertSame(
+            $serialHistoryCountAfterDispatch,
+            SerialNumberHistory::where('product_serial_number_id', $sn->id)->count()
+        );
     }
 }

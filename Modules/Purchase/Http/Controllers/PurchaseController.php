@@ -294,40 +294,76 @@ class PurchaseController extends Controller
         // Fetch all received detail IDs for this purchase to find related returned serials
         $receivedDetailIds = $receivedNotes->flatMap->receivedNoteDetails->pluck('id');
 
-        // Fetch serials that were received in this purchase AND have a return event explicitly linked to this purchase in history
-        $returnedSerials = ProductSerialNumber::whereIn('id', function ($query) use ($receivedDetailIds) {
+        // Serials originally received in this purchase (source-of-truth for mapping pills per receiving row)
+        $receivedSerialIds = ProductSerialNumber::whereIn('id', function ($query) use ($receivedDetailIds) {
             $query->select('product_serial_number_id')
                 ->from('serial_number_histories')
                 ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
                 ->where('reference_type', ReceivedNoteDetail::class)
                 ->whereIn('reference_id', $receivedDetailIds);
-        })->whereIn('id', function ($query) use ($purchase) {
-            $query->select('product_serial_number_id')
-                ->from('serial_number_histories')
-                ->where('event_type', SerialNumberHistory::EVENT_PURCHASE_RETURNED)
-                ->where(function ($q) use ($purchase) {
-                    $q->where(function ($q1) use ($purchase) {
-                        $q1->where('reference_type', PurchaseReturn::class)
-                            ->whereIn('reference_id', function ($sub) use ($purchase) {
-                                $sub->select('purchase_return_id')
-                                    ->from('purchase_return_details')
-                                    ->where('po_id', $purchase->id);
-                            });
-                    })
-                    ->orWhere(function ($q2) use ($purchase) {
-                        $q2->where('reference_type', \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::class)
-                            ->whereIn('reference_id', function ($sub) use ($purchase) {
-                                $sub->select('id')
-                                    ->from('purchase_return_item_settlements')
-                                    ->whereIn('purchase_return_detail_id', function ($sub2) use ($purchase) {
-                                        $sub2->select('id')
+        })->pluck('id');
+
+        // 1) History-based returned serial detection (backward compatible)
+        $returnedSerialsByHistory = collect();
+        if ($receivedSerialIds->isNotEmpty()) {
+            $returnedSerialsByHistory = ProductSerialNumber::whereIn('id', $receivedSerialIds)
+                ->whereIn('id', function ($query) use ($purchase) {
+                    $query->select('product_serial_number_id')
+                        ->from('serial_number_histories')
+                        ->where('event_type', SerialNumberHistory::EVENT_PURCHASE_RETURNED)
+                        ->where(function ($q) use ($purchase) {
+                            $q->where(function ($q1) use ($purchase) {
+                                $q1->where('reference_type', PurchaseReturn::class)
+                                    ->whereIn('reference_id', function ($sub) use ($purchase) {
+                                        $sub->select('purchase_return_id')
                                             ->from('purchase_return_details')
                                             ->where('po_id', $purchase->id);
                                     });
+                            })
+                            ->orWhere(function ($q2) use ($purchase) {
+                                $q2->where('reference_type', \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::class)
+                                    ->whereIn('reference_id', function ($sub) use ($purchase) {
+                                        $sub->select('id')
+                                            ->from('purchase_return_item_settlements')
+                                            ->whereIn('purchase_return_detail_id', function ($sub2) use ($purchase) {
+                                                $sub2->select('id')
+                                                    ->from('purchase_return_details')
+                                                    ->where('po_id', $purchase->id);
+                                            });
+                                    });
                             });
-                    });
-                });
-        })->get();
+                        });
+                })
+                ->get();
+        }
+
+        // 2) Fallback detection for records without PURCHASE_RETURNED history:
+        // returned serial + linked purchase return + approved MODIFY_PURCHASE item targeting current purchase.
+        $returnedSerialsByState = collect();
+        if ($receivedSerialIds->isNotEmpty()) {
+            $fallbackSerialIds = PurchaseReturnItemSettlement::query()
+                ->where('target_purchase_id', $purchase->id)
+                ->whereRaw('UPPER(method) = ?', ['MODIFY_PURCHASE'])
+                ->whereRaw('UPPER(status) = ?', [PurchaseReturnItemSettlement::STATUS_APPROVED])
+                ->whereNotNull('product_serial_number_id')
+                ->pluck('product_serial_number_id')
+                ->unique()
+                ->values();
+
+            if ($fallbackSerialIds->isNotEmpty()) {
+                $returnedSerialsByState = ProductSerialNumber::query()
+                    ->whereIn('id', $fallbackSerialIds)
+                    ->whereIn('id', $receivedSerialIds)
+                    ->whereRaw('UPPER(status) = ?', [ProductSerialNumber::STATUS_RETURNED])
+                    ->whereNotNull('purchase_return_id')
+                    ->get();
+            }
+        }
+
+        $returnedSerials = $returnedSerialsByHistory
+            ->concat($returnedSerialsByState)
+            ->unique('id')
+            ->values();
 
 
         if ($returnedSerials->isNotEmpty()) {

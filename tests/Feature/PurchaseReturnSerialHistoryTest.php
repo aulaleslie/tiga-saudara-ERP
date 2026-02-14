@@ -86,9 +86,10 @@ class PurchaseReturnSerialHistoryTest extends TestCase
     }
 
     /**
-     * Test that approving a MODIFY_PURCHASE settlement records PURCHASE_RETURNED history.
+     * Test that approving a MODIFY_PURCHASE settlement updates serial status
+     * without creating a new serial history entry.
      */
-    public function test_approving_modify_purchase_settlement_records_purchase_returned_history()
+    public function test_approving_modify_purchase_settlement_does_not_create_additional_serial_history()
     {
         // 1. Setup Purchase
         $purchase = Purchase::create([
@@ -189,6 +190,8 @@ class PurchaseReturnSerialHistoryTest extends TestCase
             'status' => 'SUBMITTED',
         ]);
 
+        $historyCountBefore = SerialNumberHistory::where('product_serial_number_id', $sn->id)->count();
+
         // 5. Approve Settlement
         $response = $this->post(route('purchase-return-settlements.item.approve', $settlementItem->id));
         $response->assertSessionHas('success');
@@ -198,14 +201,8 @@ class PurchaseReturnSerialHistoryTest extends TestCase
         $this->assertEquals('RETURNED', $sn->status);
         $this->assertEquals($purchaseReturn->id, $sn->purchase_return_id);
 
-        // 7. Verify History Recorded
-        $this->assertDatabaseHas('serial_number_histories', [
-            'product_serial_number_id' => $sn->id,
-            'event_type' => SerialNumberHistory::EVENT_PURCHASE_RETURNED,
-            'location_id' => $this->location->id,
-            'reference_type' => PurchaseReturnItemSettlement::class,
-            'reference_id' => $settlementItem->id,
-            'user_id' => $this->user->id,
-        ]);
+        // 7. Verify no additional history is created at approval time
+        $historyCountAfter = SerialNumberHistory::where('product_serial_number_id', $sn->id)->count();
+        $this->assertSame($historyCountBefore, $historyCountAfter);
     }
 }

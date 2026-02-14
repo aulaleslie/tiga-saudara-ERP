@@ -19,6 +19,9 @@ use Modules\Product\Entities\SerialNumberHistory;
 
 class PurchasesReturnSettlementController extends Controller
 {
+    protected const PURCHASE_TOTAL_MODE_SUBTOTAL = 'subtotal';
+    protected const PURCHASE_TOTAL_MODE_SUBTOTAL_PLUS_TAX = 'subtotal_plus_tax';
+
     public function index()
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('purchaseReturnSettlements.access'), 403);
@@ -820,6 +823,7 @@ class PurchasesReturnSettlementController extends Controller
                 $purchase = \Modules\Purchase\Entities\Purchase::with('purchaseDetails')
                     ->lockForUpdate()
                     ->findOrFail($sourcePurchaseId);
+                $purchaseTotalMode = $this->resolvePurchaseTotalMode($purchase);
 
                 $returnQty = $this->resolveReturnQuantity($item, $detail);
                 if ($returnQty <= 0) {
@@ -858,7 +862,7 @@ class PurchasesReturnSettlementController extends Controller
                     $this->reducePurchaseDetailCollection($purchaseDetails, $returnQty);
                 }
 
-                $this->recalculatePurchaseTotals($purchase);
+                $this->recalculatePurchaseTotals($purchase, $purchaseTotalMode);
 
                 if ($serial) {
                     $serial->update([
@@ -867,13 +871,6 @@ class PurchasesReturnSettlementController extends Controller
                         'is_in_return_process' => false,
                         'purchase_return_id' => $purchaseReturn->id,
                     ]);
-
-                    SerialNumberHistoryService::record(
-                        $serial->id,
-                        SerialNumberHistory::EVENT_PURCHASE_RETURNED,
-                        $detail->location_id ?? $purchaseReturn->location_id,
-                        $item
-                    );
                 }
 
                 // Archival logic: if all items are returned (total qty == 0), archive
@@ -1114,6 +1111,7 @@ class PurchasesReturnSettlementController extends Controller
                     $purchase = \Modules\Purchase\Entities\Purchase::with('purchaseDetails')
                         ->lockForUpdate()
                         ->findOrFail($item->target_purchase_id);
+                    $purchaseTotalMode = $this->resolvePurchaseTotalMode($purchase);
 
                     $detail = $item->detail;
                     if (!$detail || !$detail->product_id) {
@@ -1145,7 +1143,7 @@ class PurchasesReturnSettlementController extends Controller
                             $this->reducePurchaseDetailCollection($purchaseDetails, $returnQty);
                         }
 
-                        $this->recalculatePurchaseTotals($purchase);
+                        $this->recalculatePurchaseTotals($purchase, $purchaseTotalMode);
 
                         // Reset payments and set Unpaid (Cash refund means original payment is returned)
                         if (in_array(strtoupper($purchase->payment_status), ['PAID', 'PARTIAL'])) {
@@ -1354,7 +1352,7 @@ class PurchasesReturnSettlementController extends Controller
         }
     }
 
-    protected function recalculatePurchaseTotals(\Modules\Purchase\Entities\Purchase $purchase): void
+    protected function recalculatePurchaseTotals(\Modules\Purchase\Entities\Purchase $purchase, ?string $totalMode = null): void
     {
         $purchase->load('purchaseDetails');
 
@@ -1362,8 +1360,10 @@ class PurchasesReturnSettlementController extends Controller
         $taxTotal = (float) $purchase->purchaseDetails->sum('product_tax_amount');
         $shipping = (float) $purchase->shipping_amount;
 
-        $isTaxIncluded = (bool) $purchase->is_tax_included;
-        $baseTotal = $isTaxIncluded ? $subtotal : ($subtotal + $taxTotal);
+        $effectiveMode = $totalMode ?? $this->resolvePurchaseTotalMode($purchase);
+        $baseTotal = $effectiveMode === self::PURCHASE_TOTAL_MODE_SUBTOTAL_PLUS_TAX
+            ? ($subtotal + $taxTotal)
+            : $subtotal;
 
         $discountAmount = (float) $purchase->discount_amount;
         if ((float) $purchase->discount_percentage > 0) {
@@ -1388,6 +1388,32 @@ class PurchasesReturnSettlementController extends Controller
             'payment_status' => $paymentStatus,
         ]);
         $purchase->save();
+    }
+
+    protected function resolvePurchaseTotalMode(\Modules\Purchase\Entities\Purchase $purchase): string
+    {
+        $purchase->loadMissing('purchaseDetails');
+
+        $subtotal = (float) $purchase->purchaseDetails->sum('sub_total');
+        $taxTotal = (float) $purchase->purchaseDetails->sum('product_tax_amount');
+        $totalAmount = (float) $purchase->total_amount;
+
+        if ($this->isApproximatelyEqual($totalAmount, $subtotal)) {
+            return self::PURCHASE_TOTAL_MODE_SUBTOTAL;
+        }
+
+        if ($this->isApproximatelyEqual($totalAmount, $subtotal + $taxTotal)) {
+            return self::PURCHASE_TOTAL_MODE_SUBTOTAL_PLUS_TAX;
+        }
+
+        return (bool) $purchase->is_tax_included
+            ? self::PURCHASE_TOTAL_MODE_SUBTOTAL
+            : self::PURCHASE_TOTAL_MODE_SUBTOTAL_PLUS_TAX;
+    }
+
+    protected function isApproximatelyEqual(float $a, float $b, float $epsilon = 0.01): bool
+    {
+        return abs($a - $b) <= $epsilon;
     }
 
     public function dispatchStock(PurchaseReturnSettlement $settlement)

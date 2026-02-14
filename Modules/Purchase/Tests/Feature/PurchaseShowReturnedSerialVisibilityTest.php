@@ -5,12 +5,14 @@ namespace Modules\Purchase\Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Product\Entities\Category;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Entities\ReceivedNote;
 use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
+use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
 use Modules\People\Entities\Supplier;
 use Modules\Setting\Entities\Setting;
 use Modules\Currency\Entities\Currency;
@@ -375,5 +377,122 @@ class PurchaseShowReturnedSerialVisibilityTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee('SN-IN-PROCESS-TEST');
         $response->assertSee('badge bg-warning text-dark');
+    }
+
+    public function test_returned_serial_without_purchase_returned_history_uses_settlement_fallback_for_red_pill()
+    {
+        $purchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(30),
+            'reference' => 'PO-FALLBACK-001',
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $product = $this->createProduct('Product Fallback Returned', 'PFR001');
+
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'location_id' => 1,
+            'setting_id' => $this->setting->id,
+            'date' => now(),
+            'external_delivery_number' => 'DN-FALLBACK-001',
+        ]);
+
+        $receivedNoteDetail = ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 1,
+        ]);
+
+        $serial = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => 'SN-RETURNED-FALLBACK',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'received_note_detail_id' => $receivedNoteDetail->id,
+            'location_id' => 1,
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serial->id,
+            'event_type' => SerialNumberHistory::EVENT_RECEIVED,
+            'location_id' => 1,
+            'reference_type' => ReceivedNoteDetail::class,
+            'reference_id' => $receivedNoteDetail->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        $purchaseReturn = PurchaseReturn::create([
+            'date' => now(),
+            'reference' => 'PR-FALLBACK-001',
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'status' => 'Completed',
+            'approval_status' => 'Approved',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $returnDetail = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'po_id' => null,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'serial_number_ids' => [$serial->id],
+        ]);
+
+        PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'purchase_return_detail_id' => $returnDetail->id,
+            'product_serial_number_id' => $serial->id,
+            'method' => 'MODIFY_PURCHASE',
+            'status' => PurchaseReturnItemSettlement::STATUS_APPROVED,
+            'target_purchase_id' => $purchase->id,
+            'nominal' => 1000,
+        ]);
+
+        $serial->update([
+            'status' => ProductSerialNumber::STATUS_RETURNED,
+            'received_note_detail_id' => null,
+            'purchase_return_id' => $purchaseReturn->id,
+        ]);
+
+        $response = $this->get(route('purchases.show', $purchase->id));
+
+        $response->assertStatus(200);
+        $response->assertSee('SN-RETURNED-FALLBACK');
+        $response->assertSee('bg-danger');
     }
 }
