@@ -20,6 +20,7 @@ class PurchaseEditFormPaymentTermTest extends TestCase
     protected $supplier;
     protected $codTerm;
     protected $net30Term;
+    protected $net60Term;
     protected $customTerm;
 
     protected function setUp(): void
@@ -28,6 +29,7 @@ class PurchaseEditFormPaymentTermTest extends TestCase
 
         $this->codTerm = PaymentTerm::where('name', 'Cash on Delivery')->first();
         $this->net30Term = PaymentTerm::where('name', 'Net 30')->first();
+        $this->net60Term = PaymentTerm::where('name', 'Net 60')->first();
         $this->customTerm = PaymentTerm::where('name', 'Custom')->first();
 
         $user = User::factory()->create();
@@ -73,6 +75,36 @@ class PurchaseEditFormPaymentTermTest extends TestCase
             ->assertSet('payment_term', $this->net30Term->id)
             ->assertSet('dueDateIsManual', false)
             ->assertSet('due_date', $expectedDueDate);
+    }
+
+    public function test_supplier_selection_with_non_custom_term_recalculates_due_date_and_refreshes_input(): void
+    {
+        $supplierA = Supplier::factory()->create([
+            'payment_term_id' => $this->net30Term->id,
+            'setting_id' => $this->setting->id,
+        ]);
+        $supplierB = Supplier::factory()->create([
+            'payment_term_id' => $this->net60Term->id,
+            'setting_id' => $this->setting->id,
+        ]);
+        $purchase = $this->createPurchase($this->net30Term->id, $supplierA->id);
+        $today = now()->format('Y-m-d');
+        $expectedDueDate = now()->addDays(60)->format('Y-m-d');
+
+        $component = Livewire::test(EditForm::class, ['purchaseId' => $purchase->id])
+            ->set('date', $today)
+            ->assertSet('payment_term', $this->net30Term->id);
+
+        $renderVersionBefore = (int) $component->get('dueDateRenderVersion');
+
+        $component->dispatch('supplierSelected', $supplierB->id)
+            ->assertSet('supplier_id', $supplierB->id)
+            ->assertSet('payment_term', $this->net60Term->id)
+            ->assertSet('dueDateIsManual', false)
+            ->assertSet('due_date', $expectedDueDate);
+
+        $this->assertGreaterThan($renderVersionBefore, (int) $component->get('dueDateRenderVersion'));
+        $this->assertDueDateInputValue($component->html(), $expectedDueDate);
     }
 
     public function test_manual_due_date_edit_switches_to_custom_and_preserves_due_date(): void
@@ -137,5 +169,11 @@ class PurchaseEditFormPaymentTermTest extends TestCase
             'setting_id' => $this->setting->id,
             'payment_term_id' => $paymentTermId,
         ]);
+    }
+
+    private function assertDueDateInputValue(string $html, string $expectedValue): void
+    {
+        $pattern = '/id="due_date"[^>]*value="' . preg_quote($expectedValue, '/') . '"/';
+        $this->assertMatchesRegularExpression($pattern, $html);
     }
 }

@@ -14,6 +14,7 @@ use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
+use Modules\Setting\Entities\Setting;
 use Throwable;
 
 class EditForm extends Component
@@ -35,6 +36,7 @@ class EditForm extends Component
         'tagsUpdated' => 'handleTagsUpdated',
         'shippingUpdated' => 'handleShippingUpdated',
         'globalDiscountUpdated' => 'handleGlobalDiscountUpdated',
+        'globalDiscountTypeUpdated' => 'handleGlobalDiscountTypeUpdated',
         'taxIncludedUpdated' => 'handleTaxIncludedUpdated',
         'supplierCreated' => 'handleSupplierCreated',
         'supplierSelected' => 'handleSupplierSelected',
@@ -43,9 +45,11 @@ class EditForm extends Component
 
     public $shipping = 0;
     public $global_discount = 0;
+    public string $global_discount_type = 'percentage';
     public $is_tax_included = false;
     public bool $dueDateIsManual = false;
     public bool $suppressAutoDueDate = false;
+    public int $dueDateRenderVersion = 0;
 
     public function mount($purchaseId): void
     {
@@ -73,6 +77,18 @@ class EditForm extends Component
         $this->payment_term = $this->purchase->payment_term_id;
         $this->dueDateIsManual = $this->isCustomPaymentTerm($this->payment_term ? (int) $this->payment_term : null);
         $this->note = $this->purchase->note;
+        $this->shipping = $this->purchase->shipping_amount ?? 0;
+        $this->is_tax_included = (bool) $this->purchase->is_tax_included;
+        if ($this->purchase->discount_percentage > 0) {
+            $this->global_discount_type = 'percentage';
+            $this->global_discount = $this->purchase->discount_percentage;
+        } elseif ($this->purchase->discount_amount > 0) {
+            $this->global_discount_type = 'fixed';
+            $this->global_discount = $this->purchase->discount_amount;
+        } else {
+            $this->global_discount_type = 'percentage';
+            $this->global_discount = 0;
+        }
 
         $this->tags = $this->purchase->tags->pluck('name')->toArray();
         $this->restoreCart();
@@ -100,6 +116,37 @@ class EditForm extends Component
     private function resolveDefaultPaymentTermId(): ?int
     {
         return PaymentTerm::defaultCodTermId();
+    }
+
+    private function bumpDueDateRenderVersion(): void
+    {
+        $this->dueDateRenderVersion++;
+    }
+
+    private function isPkpEnabled(): bool
+    {
+        $settingId = (int) session('setting_id');
+        if ($settingId <= 0) {
+            return false;
+        }
+
+        return (bool) (Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
+    }
+
+    private function ensureCartTaxesForPkp($cartItems): void
+    {
+        if (! $this->isPkpEnabled()) {
+            return;
+        }
+
+        foreach ($cartItems as $item) {
+            $taxId = $item->options['product_tax'] ?? null;
+            if (empty($taxId)) {
+                throw ValidationException::withMessages([
+                    'cart' => "Produk '{$item->name}' wajib memilih pajak karena bisnis PKP.",
+                ]);
+            }
+        }
     }
 
     private function isCustomPaymentTerm(?int $termId): bool
@@ -167,21 +214,35 @@ class EditForm extends Component
 
     private function updateDueDateFromPaymentTerm(): void
     {
-        $this->due_date = $this->date;
+        $previousDueDate = $this->due_date;
+        $nextDueDate = $this->date;
 
         $termId = $this->payment_term ? (int) $this->payment_term : null;
         if (! $termId || ! $this->date) {
+            $this->due_date = $nextDueDate;
+            if ($previousDueDate !== $this->due_date) {
+                $this->bumpDueDateRenderVersion();
+            }
             return;
         }
 
         $term = PaymentTerm::find($termId);
         if (! $term) {
+            $this->due_date = $nextDueDate;
+            if ($previousDueDate !== $this->due_date) {
+                $this->bumpDueDateRenderVersion();
+            }
             return;
         }
 
-        $this->due_date = Carbon::parse($this->date)
+        $nextDueDate = Carbon::parse($this->date)
             ->addDays($term->longevity)
             ->format('Y-m-d');
+
+        $this->due_date = $nextDueDate;
+        if ($previousDueDate !== $this->due_date) {
+            $this->bumpDueDateRenderVersion();
+        }
     }
 
     public function updatedDate($value): void
@@ -237,6 +298,10 @@ class EditForm extends Component
         $cart = Cart::instance('purchase');
 
         foreach ($this->purchase->purchaseDetails as $detail) {
+            $subTotal = (float) $detail->sub_total;
+            $taxAmount = (float) ($detail->product_tax_amount ?? 0);
+            $subTotalBeforeTax = max(0, $subTotal - $taxAmount);
+
             $cart->add([
                 'id' => $detail->product_id,
                 'name' => $detail->product_name,
@@ -251,7 +316,7 @@ class EditForm extends Component
                     'stock' => $detail->product->product_quantity ?? 0,
                     'product_tax' => $detail->tax_id,
                     'unit_price' => $detail->unit_price,
-                    'sub_total_before_tax' => $detail->unit_price * $detail->quantity,
+                    'sub_total_before_tax' => $subTotalBeforeTax,
                 ]
             ]);
         }
@@ -265,6 +330,11 @@ class EditForm extends Component
     public function handleGlobalDiscountUpdated($discount)
     {
         $this->global_discount = $discount;
+    }
+
+    public function handleGlobalDiscountTypeUpdated($type): void
+    {
+        $this->global_discount_type = $type;
     }
 
     public function handleTaxIncludedUpdated(bool $included)
@@ -291,10 +361,10 @@ class EditForm extends Component
     {
         // Use passed values from hidden inputs if available (bypasses broken wire:model binding)
         if ($supplierId !== null && $supplierId !== '') {
-            $this->supplier_id = $supplierId;
+            $this->supplier_id = (int) $supplierId;
         }
         if ($paymentTermId !== null && $paymentTermId !== '') {
-            $this->payment_term = $paymentTermId;
+            $this->payment_term = (int) $paymentTermId;
         }
 
         // Fallback: Re-sync payment_term from supplier if still not set
@@ -329,21 +399,25 @@ class EditForm extends Component
                 'payment_term.exists' => 'Jatuh tempo yang dipilih tidak valid.',
             ]);
 
-            if (Cart::instance('purchase')->count() === 0) {
+            $cart = Cart::instance('purchase');
+
+            if ($cart->count() === 0) {
                 $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk harus dipilih']);
                 return;
             }
+
+            $cartItems = $cart->content();
+            $this->ensureCartTaxesForPkp($cartItems);
 
             DB::beginTransaction();
 
             $purchase = $this->purchase; // already loaded in mount()
 
-            $cartItems = Cart::instance('purchase')->content();
-
             $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
-            $shipping = $this->shipping;
-            $discount_amount = $this->global_discount > 100 ? $this->global_discount : 0;
-            $discount_percentage = $this->global_discount > 100 ? 0 : $this->global_discount;
+            $shipping = (float) $this->shipping;
+            $globalDiscount = is_numeric($this->global_discount) ? (float) $this->global_discount : 0;
+            $discount_amount = $this->global_discount_type === 'fixed' ? $globalDiscount : 0;
+            $discount_percentage = $this->global_discount_type === 'percentage' ? $globalDiscount : 0;
             $tax_amount = 0;
 
             foreach ($cartItems as $item) {
@@ -431,6 +505,10 @@ class EditForm extends Component
 
     public function render(): Factory|Application|View|\Illuminate\View\View|\Illuminate\Contracts\Foundation\Application
     {
-        return view('livewire.purchase.edit-form');
+        return view('livewire.purchase.edit-form', [
+            'supplierIdForView' => $this->supplier_id === null ? '' : (string) $this->supplier_id,
+            'paymentTermForView' => $this->payment_term === null ? '' : (string) $this->payment_term,
+            'dueDateForView' => $this->due_date ?? '',
+        ]);
     }
 }

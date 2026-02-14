@@ -113,7 +113,7 @@
                                     <th class="align-middle">Diskon</th>
                                     @if($purchase->purchaseDetails->sum('product_tax_amount') > 0)
                                         <th class="align-middle">DPP</th>
-                                        <th class="align-middle">Tax %</th>
+                                        <th class="align-middle">Pajak %</th>
                                     @endif
                                     <th class="align-middle">Jumlah Total</th>
                                 </tr>

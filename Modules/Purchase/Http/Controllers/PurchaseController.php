@@ -1039,7 +1039,7 @@ class PurchaseController extends Controller
                                 'broken_quantity' => 0,
                                 'location_id' => $receivedNote->location_id,
                                 'user_id' => auth()->id(),
-                                'reason' => 'Received from Purchase Order #' . $purchase->reference . ' (Approved)',
+                                'reason' => 'Diterima dari Pembelian #' . $purchase->reference . ' (Disetujui)',
                                 'type' => 'BUY',
                                 'previous_quantity' => $previous_quantity,
                                 'after_quantity' => $after_quantity,
