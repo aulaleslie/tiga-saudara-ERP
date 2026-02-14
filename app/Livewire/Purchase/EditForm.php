@@ -37,11 +37,15 @@ class EditForm extends Component
         'globalDiscountUpdated' => 'handleGlobalDiscountUpdated',
         'taxIncludedUpdated' => 'handleTaxIncludedUpdated',
         'supplierCreated' => 'handleSupplierCreated',
+        'supplierSelected' => 'handleSupplierSelected',
+        'payment-term-changed' => 'handlePaymentTermChanged',
     ];
 
     public $shipping = 0;
     public $global_discount = 0;
     public $is_tax_included = false;
+    public bool $dueDateIsManual = false;
+    public bool $suppressAutoDueDate = false;
 
     public function mount($purchaseId): void
     {
@@ -67,6 +71,7 @@ class EditForm extends Component
         $this->date = $this->purchase->date;
         $this->due_date = $this->purchase->due_date;
         $this->payment_term = $this->purchase->payment_term_id;
+        $this->dueDateIsManual = $this->isCustomPaymentTerm($this->payment_term ? (int) $this->payment_term : null);
         $this->note = $this->purchase->note;
 
         $this->tags = $this->purchase->tags->pluck('name')->toArray();
@@ -89,11 +94,48 @@ class EditForm extends Component
 
     private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
     {
+        $this->applyPaymentTermSelection($paymentTermId, $syncDropdown);
+    }
+
+    private function resolveDefaultPaymentTermId(): ?int
+    {
+        return PaymentTerm::defaultCodTermId();
+    }
+
+    private function isCustomPaymentTerm(?int $termId): bool
+    {
+        $customTermId = PaymentTerm::customTermId();
+
+        return $customTermId !== null && $termId !== null && $termId === $customTermId;
+    }
+
+    private function normalizePaymentTermId(mixed $value): ?int
+    {
+        if (is_array($value)) {
+            $value = $value['paymentTermId'] ?? $value['payment_term_id'] ?? $value[0] ?? null;
+        }
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return (int) $value;
+    }
+
+    private function applyPaymentTermSelection(?int $paymentTermId, bool $syncDropdown = false): void
+    {
         $this->payment_term = $paymentTermId ?: null;
-        $this->updateDueDateFromPaymentTerm();
+
+        if (! $this->suppressAutoDueDate) {
+            if ($this->isCustomPaymentTerm($this->payment_term)) {
+                $this->dueDateIsManual = true;
+            } else {
+                $this->dueDateIsManual = false;
+                $this->updateDueDateFromPaymentTerm();
+            }
+        }
 
         if ($syncDropdown) {
-            // Sync the payment term dropdown UI
             $this->dispatch('setPaymentTerm', $this->payment_term)
                 ->to(PaymentTermSearchDropdown::class);
         }
@@ -101,7 +143,26 @@ class EditForm extends Component
 
     public function updatedPaymentTerm($value): void
     {
-        $this->syncPaymentTermAndDueDate($value ? (int) $value : null);
+        $paymentTermId = $this->normalizePaymentTermId($value);
+
+        if ($this->suppressAutoDueDate) {
+            $this->payment_term = $paymentTermId;
+            return;
+        }
+
+        $this->applyPaymentTermSelection($paymentTermId);
+    }
+
+    public function handlePaymentTermChanged($paymentTermId = null): void
+    {
+        $normalizedTermId = $this->normalizePaymentTermId($paymentTermId);
+
+        if ($this->suppressAutoDueDate) {
+            $this->payment_term = $normalizedTermId;
+            return;
+        }
+
+        $this->applyPaymentTermSelection($normalizedTermId);
     }
 
     private function updateDueDateFromPaymentTerm(): void
@@ -125,22 +186,49 @@ class EditForm extends Component
 
     public function updatedDate($value): void
     {
+        if ($this->dueDateIsManual) {
+            return;
+        }
+
         $this->updateDueDateFromPaymentTerm();
     }
 
     public function updatedSupplierId($value): void
     {
-        $supplierId = $value ?: null;
+        $this->handleSupplierSelected($value);
+    }
+
+    public function handleSupplierSelected($supplier_id): void
+    {
+        $supplierId = $supplier_id ?: null;
         $this->supplier_id = $supplierId;
 
-        $paymentTermId = null;
+        $paymentTermId = $this->resolveDefaultPaymentTermId();
         if ($supplierId) {
             $supplier = Supplier::find($supplierId);
-            $paymentTermId = $supplier?->payment_term_id ? (int) $supplier->payment_term_id : null;
+            if ($supplier?->payment_term_id) {
+                $paymentTermId = (int) $supplier->payment_term_id;
+            }
         }
 
-        $this->syncPaymentTermAndDueDate($paymentTermId, true);
-        $this->dispatch('supplierSelected', $supplierId);
+        $this->applyPaymentTermSelection($paymentTermId, true);
+    }
+
+    public function updatedDueDate($value): void
+    {
+        $this->dueDateIsManual = true;
+
+        $customTermId = PaymentTerm::customTermId();
+        if ($customTermId && (int) $this->payment_term !== $customTermId) {
+            $this->suppressAutoDueDate = true;
+            try {
+                $this->payment_term = $customTermId;
+                $this->dispatch('setPaymentTerm', $customTermId)
+                    ->to(PaymentTermSearchDropdown::class);
+            } finally {
+                $this->suppressAutoDueDate = false;
+            }
+        }
     }
 
     public function restoreCart(): void
@@ -189,9 +277,11 @@ class EditForm extends Component
         // Supplier was just created, the dropdown will auto-select it
         // We need to set the payment term from the newly created supplier
         $this->supplier_id = $supplier['id'] ?? null;
-        $paymentTermId = isset($supplier['payment_term_id']) ? (int) $supplier['payment_term_id'] : null;
+        $paymentTermId = isset($supplier['payment_term_id']) && $supplier['payment_term_id']
+            ? (int) $supplier['payment_term_id']
+            : $this->resolveDefaultPaymentTermId();
 
-        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+        $this->applyPaymentTermSelection($paymentTermId, true);
     }
 
     /**
@@ -210,10 +300,10 @@ class EditForm extends Component
         // Fallback: Re-sync payment_term from supplier if still not set
         if ($this->supplier_id && !$this->payment_term) {
             $supplier = Supplier::find($this->supplier_id);
-            if ($supplier && $supplier->payment_term_id) {
-                $this->payment_term = $supplier->payment_term_id;
-                $this->updateDueDateFromPaymentTerm();
-            }
+            $paymentTermId = $supplier?->payment_term_id
+                ? (int) $supplier->payment_term_id
+                : $this->resolveDefaultPaymentTermId();
+            $this->applyPaymentTermSelection($paymentTermId);
         }
 
         try {

@@ -1,6 +1,6 @@
 <div>
     @if($showModal)
-        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);" wire:ignore.self>
+        <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);" wire:ignore.self wire:key="customer-modal" data-coreui-backdrop="false" data-coreui-keyboard="false">
             <div class="modal-dialog modal-lg">
                 <div class="modal-content">
                     <div class="modal-header">

@@ -10,6 +10,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Illuminate\Validation\ValidationException;
 use Modules\People\Entities\Supplier;
@@ -32,21 +33,15 @@ class CreateForm extends Component
     public $note;
     public array $tags = [];
     public $duplicatePurchase = null;
-    public $listeners = [
-        'tagsUpdated' => 'handleTagsUpdated',
-        'shippingUpdated'        => 'handleShippingUpdated',
-        'globalDiscountUpdated'  => 'handleGlobalDiscountUpdated',
-        'taxIncludedUpdated'    => 'handleTaxIncludedUpdated',
-
-        'supplierCreated' => 'handleSupplierCreated',
-    ];
-
-
     public $shipping = 0;
     public $global_discount = 0;
     public $is_tax_included = false;
     public string $idempotencyToken;
     public bool $isPkp = false;
+
+    public bool $dueDateIsManual = false;
+    public bool $suppressAutoDueDate = false;
+    public int $dueDateRenderVersion = 0;
 
     public function mount(string $idempotencyToken, ?int $duplicateId = null): void
     {
@@ -67,6 +62,7 @@ class CreateForm extends Component
         }
     }
 
+    #[On('tagsUpdated')]
     public function handleTagsUpdated(array $tags): void
     {
         $this->tags = $tags;
@@ -74,14 +70,65 @@ class CreateForm extends Component
 
     private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
     {
+        $this->applyPaymentTermSelection($paymentTermId, $syncDropdown);
+    }
+
+    private function isCustomPaymentTerm(?int $termId): bool
+    {
+        $customTermId = PaymentTerm::customTermId();
+
+        return $customTermId !== null && $termId !== null && $termId === $customTermId;
+    }
+
+    private function normalizePaymentTermId(mixed $value): ?int
+    {
+        if (is_array($value)) {
+            $value = $value['paymentTermId'] ?? $value['payment_term_id'] ?? $value[0] ?? null;
+        }
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return (int) $value;
+    }
+
+    private function normalizeSupplierId(mixed $value): ?int
+    {
+        if (is_array($value)) {
+            $value = $value['supplier_id'] ?? $value['supplierId'] ?? $value['id'] ?? $value[0] ?? null;
+        }
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return (int) $value;
+    }
+
+    private function applyPaymentTermSelection(?int $paymentTermId, bool $syncDropdown = false): void
+    {
+        Log::info('DEBUG: applyPaymentTermSelection start', ['paymentTermId' => $paymentTermId, 'syncDropdown' => $syncDropdown]);
         $this->payment_term = $paymentTermId ?: null;
-        $this->updateDueDateFromPaymentTerm();
+
+        if (! $this->suppressAutoDueDate) {
+            if ($this->isCustomPaymentTerm($this->payment_term)) {
+                $this->dueDateIsManual = true;
+            } else {
+                $this->dueDateIsManual = false;
+                $this->updateDueDateFromPaymentTerm();
+            }
+        }
 
         if ($syncDropdown) {
-            // Sync the payment term dropdown UI
             $this->dispatch('setPaymentTerm', $this->payment_term)
                 ->to(PaymentTermSearchDropdown::class);
         }
+    }
+
+    private function bumpDueDateRenderVersion(): void
+    {
+        $this->dueDateRenderVersion++;
     }
 
     private function resolveDefaultPaymentTermId(): ?int
@@ -119,36 +166,110 @@ class CreateForm extends Component
 
     public function updatedPaymentTerm($value): void
     {
-        $this->syncPaymentTermAndDueDate($value ? (int) $value : null);
+        Log::info('DEBUG: updatedPaymentTerm called', ['value' => $value]);
+        $paymentTermId = $this->normalizePaymentTermId($value);
+        if ($this->suppressAutoDueDate) {
+            $this->payment_term = $paymentTermId;
+            return;
+        }
+
+        $this->applyPaymentTermSelection($paymentTermId);
+    }
+
+    #[On('payment-term-changed')]
+    public function handlePaymentTermChanged($paymentTermId = null): void
+    {
+        $normalizedTermId = $this->normalizePaymentTermId($paymentTermId);
+
+        if ($this->suppressAutoDueDate) {
+            $this->payment_term = $normalizedTermId;
+            return;
+        }
+
+        $this->applyPaymentTermSelection($normalizedTermId);
     }
 
     private function updateDueDateFromPaymentTerm(): void
     {
-        $this->due_date = $this->date;
+        Log::info('DEBUG: updateDueDateFromPaymentTerm start', [
+            'date' => $this->date,
+            'payment_term' => $this->payment_term,
+            'suppressAutoDueDate' => $this->suppressAutoDueDate,
+            'dueDateIsManual' => $this->dueDateIsManual,
+        ]);
+
+        $previousDueDate = $this->due_date;
+        $nextDueDate = $this->date;
 
         $termId = $this->payment_term ? (int) $this->payment_term : null;
         if (! $termId || ! $this->date) {
+            $this->due_date = $nextDueDate;
+            if ($previousDueDate !== $this->due_date) {
+                $this->bumpDueDateRenderVersion();
+            }
+            Log::info('DEBUG: updateDueDateFromPaymentTerm abort: missing termId or date');
             return;
         }
 
         $term = PaymentTerm::find($termId);
         if (! $term) {
+            $this->due_date = $nextDueDate;
+            if ($previousDueDate !== $this->due_date) {
+                $this->bumpDueDateRenderVersion();
+            }
+            Log::info('DEBUG: updateDueDateFromPaymentTerm abort: PaymentTerm not found', ['termId' => $termId]);
             return;
         }
 
-        $this->due_date = Carbon::parse($this->date)
+        $nextDueDate = Carbon::parse($this->date)
             ->addDays($term->longevity)
             ->format('Y-m-d');
+
+        $this->due_date = $nextDueDate;
+        if ($previousDueDate !== $this->due_date) {
+            $this->bumpDueDateRenderVersion();
+        }
+            
+        Log::info('DEBUG: updateDueDateFromPaymentTerm success', ['new_due_date' => $this->due_date, 'longevity' => $term->longevity]);
     }
 
     public function updatedDate($value): void
     {
+        if ($this->dueDateIsManual) {
+            return;
+        }
         $this->updateDueDateFromPaymentTerm();
     }
 
+    public function updatedDueDate($value): void
+    {
+        $this->dueDateIsManual = true;
+
+        $customTermId = PaymentTerm::customTermId();
+        if ($customTermId && (int) $this->payment_term !== $customTermId) {
+            $this->suppressAutoDueDate = true;
+            try {
+                $this->payment_term = $customTermId;
+                $this->dispatch('setPaymentTerm', $customTermId)
+                    ->to(PaymentTermSearchDropdown::class);
+            } finally {
+                $this->suppressAutoDueDate = false;
+            }
+        }
+    }
+
+
     public function updatedSupplierId($value): void
     {
-        $supplierId = $value ?: null;
+        Log::info('DEBUG: updatedSupplierId called', ['value' => $value]);
+        $this->handleSupplierSelected($value);
+    }
+
+    #[On('supplierSelected')]
+    public function handleSupplierSelected($supplier_id): void
+    {
+        Log::info('DEBUG: handleSupplierSelected called', ['supplier_id' => $supplier_id]);
+        $supplierId = $this->normalizeSupplierId($supplier_id);
         $this->supplier_id = $supplierId;
 
         // Default to COD
@@ -162,20 +283,22 @@ class CreateForm extends Component
             }
         }
 
-        $this->syncPaymentTermAndDueDate($paymentTermId, true);
-        $this->dispatch('supplierSelected', $supplierId);
+        $this->applyPaymentTermSelection($paymentTermId, true);
     }
 
+    #[On('shippingUpdated')]
     public function handleShippingUpdated($shipping)
     {
         $this->shipping = $shipping;
     }
 
+    #[On('globalDiscountUpdated')]
     public function handleGlobalDiscountUpdated($discount)
     {
         $this->global_discount = $discount;
     }
 
+    #[On('taxIncludedUpdated')]
     public function handleTaxIncludedUpdated(bool $included)
     {
         $this->is_tax_included = $included;
@@ -183,6 +306,7 @@ class CreateForm extends Component
 
 
 
+    #[On('supplierCreated')]
     public function handleSupplierCreated(array $supplier): void
     {
         // Supplier was just created, the dropdown will auto-select it
@@ -192,7 +316,7 @@ class CreateForm extends Component
             ? (int) $supplier['payment_term_id']
             : $this->resolveDefaultPaymentTermId();
 
-        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+        $this->applyPaymentTermSelection($paymentTermId, true);
     }
 
     private function prefillFromPurchase(int $purchaseId): void
@@ -208,6 +332,7 @@ class CreateForm extends Component
         $this->note = $purchase->note;
         $this->date = Carbon::parse($purchase->date)->format('Y-m-d');
         $this->due_date = Carbon::parse($purchase->due_date)->format('Y-m-d');
+        $this->dueDateIsManual = $this->isCustomPaymentTerm($this->payment_term ? (int) $this->payment_term : null);
         $this->tags = $purchase->tags->pluck('name')->toArray();
         $this->supplier_purchase_number = null;
         $this->tax_ref_no = null;
@@ -280,8 +405,8 @@ class CreateForm extends Component
         // Fallback: Re-sync payment_term from supplier if still not set
         if ($this->supplier_id && !$this->payment_term) {
             $supplier = Supplier::find($this->supplier_id);
-            $this->payment_term = $supplier?->payment_term_id ?: $this->resolveDefaultPaymentTermId();
-            $this->updateDueDateFromPaymentTerm();
+            $paymentTermId = $supplier?->payment_term_id ? (int) $supplier->payment_term_id : $this->resolveDefaultPaymentTermId();
+            $this->applyPaymentTermSelection($paymentTermId);
         }
 
         $purchase = null;
@@ -421,6 +546,10 @@ class CreateForm extends Component
 
     public function render(): Factory|Application|View|\Illuminate\View\View|\Illuminate\Contracts\Foundation\Application
     {
-        return view('livewire.purchase.create-form');
+        return view('livewire.purchase.create-form', [
+            'supplierIdForView' => $this->supplier_id === null ? '' : (string) $this->supplier_id,
+            'paymentTermForView' => $this->payment_term === null ? '' : (string) $this->payment_term,
+            'dueDateForView' => $this->due_date ?? '',
+        ]);
     }
 }

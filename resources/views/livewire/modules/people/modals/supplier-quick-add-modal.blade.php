@@ -1,5 +1,5 @@
 <div>
-    <div class="modal fade {{ $showModal ? 'show d-block' : '' }}" tabindex="-1" style="background-color: {{ $showModal ? 'rgba(0,0,0,0.5)' : 'transparent' }};" wire:key="supplier-modal">
+    <div class="modal {{ $showModal ? 'show d-block' : '' }}" tabindex="-1" style="background-color: {{ $showModal ? 'rgba(0,0,0,0.5)' : 'transparent' }};" wire:key="supplier-modal" data-coreui-backdrop="false" data-coreui-keyboard="false">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
                 <div class="modal-content">
                     <div class="modal-header">

@@ -1,6 +1,15 @@
 <div class="card-body">
+    @php
+        $supplierMirrorValue = $supplierIdForView ?? '';
+        $paymentTermMirrorValue = $paymentTermForView ?? '';
+        $dueDateInputValue = $dueDateForView ?? '';
+        $dueDateFieldKey = 'purchase-due-date-field-' . $dueDateRenderVersion . '-' . ($dueDateInputValue !== '' ? $dueDateInputValue : 'empty');
+    @endphp
+
     <div>
         <input type="hidden" wire:model="idempotencyToken">
+        <input type="hidden" id="purchase_supplier_id" wire:model.live="supplier_id" value="{{ $supplierMirrorValue }}">
+        <input type="hidden" id="purchase_payment_term" wire:model.live="payment_term" value="{{ $paymentTermMirrorValue }}">
         <div class="form-row">
             <!-- Referensi -->
             <div class="col-lg-6 mb-3">
@@ -16,7 +25,7 @@
                     placeholder="Pilih pemasok..."
                     :allow-create="true"
                     :selected="$supplier_id"
-                    wire:model="supplier_id"
+                    wire:model.live="supplier_id"
                     :error="$errors->first('supplier_id')"
                     wire:key="purchase-supplier-dropdown"
                 />
@@ -47,7 +56,7 @@
             <!-- Jatuh Tempo -->
             <div class="col-lg-6 mb-3">
                 <label for="due_date">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
-                <input type="date" class="form-control" id="due_date" wire:model.live="due_date">
+                <input type="date" class="form-control" id="due_date" wire:model.live="due_date" wire:key="{{ $dueDateFieldKey }}" value="{{ $dueDateInputValue }}">
                 @error('due_date')
                 <div class="text-danger">{{ $message }}</div> @enderror
             </div>
@@ -60,7 +69,7 @@
                     placeholder="Pilih term pembayaran..."
                     :allow-create="true"
                     :selected="$payment_term"
-                    wire:model="payment_term"
+                    wire:model.live="payment_term"
                     :error="$errors->first('payment_term')"
                     wire:key="purchase-payment-term-dropdown"
                 />
@@ -91,8 +100,8 @@
                 wire:loading.attr="disabled"
                 x-data
                 @click="
-                    const supplierId = document.querySelector('input[name=supplier_id]')?.value || null;
-                    const paymentTerm = document.querySelector('input[name=payment_term]')?.value || null;
+                    const supplierId = document.getElementById('purchase_supplier_id')?.value || null;
+                    const paymentTerm = document.getElementById('purchase_payment_term')?.value || null;
                     $wire.submit(supplierId, paymentTerm);
                 ">
                 <span wire:loading wire:target="submit" class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>

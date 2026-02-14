@@ -1,8 +1,7 @@
 @php($options = $this->filteredOptions)
 
-<div class="d-flex">
+<div class="d-flex" x-data="{ open: @entangle('open').live }">
     <div class="flex-grow-1 position-relative"
-         x-data="{ open: @entangle('open').live }"
          @click.away="if (open) open = false">
         <button type="button"
                 class="form-control d-flex justify-content-between align-items-center text-start"

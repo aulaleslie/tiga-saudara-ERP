@@ -21,8 +21,8 @@
     <button
         type="button"
         class="btn btn-outline-primary btn-{{ $size }} ms-1 {{ $class }}"
-        data-toggle="tooltip"
-        data-placement="top"
+        data-coreui-toggle="tooltip"
+        data-coreui-placement="top"
         title="{{ $tooltip }}"
         onclick="{{ $onClickHandler }}"
     >
@@ -33,8 +33,8 @@
         type="button"
         class="btn btn-outline-secondary btn-{{ $size }} ms-1 {{ $class }}"
         disabled
-        data-toggle="tooltip"
-        data-placement="top"
+        data-coreui-toggle="tooltip"
+        data-coreui-placement="top"
         title="Tidak memiliki izin untuk menambah {{ $entity }}"
     >
         <i class="bi bi-plus-circle"></i>

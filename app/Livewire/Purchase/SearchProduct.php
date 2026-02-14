@@ -7,6 +7,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 
@@ -19,7 +20,6 @@ class SearchProduct extends Component
 
     protected $listeners = [
         'productCreated' => 'handleProductCreated',
-        'supplierSelected' => 'handleSupplierSelected',
     ];
 
     public function mount(): void
@@ -43,7 +43,8 @@ class SearchProduct extends Component
         $this->query = '';
     }
 
-    public function handleSupplierSelected($supplier_id): void
+    #[On('supplierSelected')]
+    public function handleSupplierSelected($supplier_id = null): void
     {
         $this->supplier_id = $supplier_id;
         $this->search_results = Collection::empty();

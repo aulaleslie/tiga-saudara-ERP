@@ -15,6 +15,7 @@
                     placeholder="Pilih pemasok..."
                     :allow-create="true"
                     :selected="$supplier_id"
+                    wire:model.live="supplier_id"
                     :error="$errors->first('supplier_id')"
                     wire:key="edit-purchase-supplier-dropdown"
                 />
@@ -58,6 +59,7 @@
                     placeholder="Pilih term pembayaran..."
                     :allow-create="true"
                     :selected="$payment_term"
+                    wire:model.live="payment_term"
                     :error="$errors->first('payment_term')"
                     wire:key="edit-purchase-payment-term-dropdown"
                 />

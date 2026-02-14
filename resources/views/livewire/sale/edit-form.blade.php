@@ -53,6 +53,7 @@
                     name="payment_term"
                     placeholder="Pilih term pembayaran..."
                     :selected="$paymentTermId"
+                    wire:model.live="paymentTermId"
                     :allow-create="true"
                     :error="$errors->first('paymentTermId')"
                     wire:key="sale-edit-payment-term-dropdown"

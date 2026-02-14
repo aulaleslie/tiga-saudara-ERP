@@ -37,35 +37,4 @@
 @endsection
 
 @push('page_scripts')
-<script>
-    document.addEventListener('livewire:init', () => {
-        // Listen for payment-term-changed event from PaymentTermSearchDropdown
-        // This updates the due_date field when payment term changes
-        Livewire.on('payment-term-changed', (event) => {
-            const paymentTermId = event.paymentTermId;
-            if (!paymentTermId) return;
-
-            // Fetch payment term longevity and calculate due date
-            fetch(`/api/payment-terms/${paymentTermId}`)
-                .then(response => response.json())
-                .then(data => {
-                    const dateInput = document.getElementById('date');
-                    const dueDateInput = document.getElementById('due_date');
-                    
-                    if (dateInput && dueDateInput && data.longevity !== undefined) {
-                        const date = new Date(dateInput.value);
-                        date.setDate(date.getDate() + parseInt(data.longevity));
-                        const newDueDate = date.toISOString().split('T')[0];
-                        dueDateInput.value = newDueDate;
-                        
-                        // Also update Livewire property
-                        dueDateInput.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching payment term:', error);
-                });
-        });
-    });
-</script>
 @endpush

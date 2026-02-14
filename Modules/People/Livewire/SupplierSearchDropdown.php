@@ -5,8 +5,8 @@ namespace Modules\People\Livewire;
 use Livewire\Component;
 use Livewire\Attributes\Modelable;
 use Livewire\Attributes\Reactive;
+use Illuminate\Support\Facades\Log;
 use Modules\People\Entities\Supplier;
-use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
 
 class SupplierSearchDropdown extends Component
 {
@@ -15,7 +15,7 @@ class SupplierSearchDropdown extends Component
     public string $name = 'supplier_id';
     public string $placeholder = 'Pilih pemasok...';
     public string $search = '';
-    public bool $open = false;
+    public bool $isOpen = false;
     public bool $allowCreate = false;
     #[Reactive]
     public ?string $error = null;
@@ -61,36 +61,25 @@ class SupplierSearchDropdown extends Component
 
     public function toggleDropdown(): void
     {
-        $this->open = !$this->open;
-        if ($this->open) {
+        $this->isOpen = ! $this->isOpen;
+        if ($this->isOpen) {
             $this->search = '';
         }
     }
 
     public function closeDropdown(): void
     {
-        $this->open = false;
+        $this->isOpen = false;
     }
 
     public function select(int|string $id): void
     {
         $this->selected = $id;
         $this->selectedLabel = $this->resolveLabel($id);
-        $this->open = false;
+        $this->isOpen = false;
         $this->search = '';
 
-        // Fetch supplier to get payment_term_id
-        $supplier = Supplier::find($id);
-        $paymentTermId = $supplier?->payment_term_id;
-
-        $this->dispatchSelection($paymentTermId);
-
-        // Only dispatch when supplier has a specific payment term;
-        // when null, the parent's updatedSupplierId() handles the COD default via wire:model
-        if ($paymentTermId) {
-            $this->dispatch('setPaymentTerm', $paymentTermId)
-                ->to(PaymentTermSearchDropdown::class);
-        }
+        $this->dispatchSelection($this->selected);
     }
 
     public function updatedSelected($value): void
@@ -139,7 +128,7 @@ class SupplierSearchDropdown extends Component
             // We can directly select without re-fetching since we have the data
             $this->selected = $option['id'];
             $this->selectedLabel = $option['name'];
-            $this->open = false;
+            $this->isOpen = false;
             $this->search = '';
             
             // Dispatch with the payment term ID from the created supplier array
@@ -290,7 +279,8 @@ class SupplierSearchDropdown extends Component
 
     private function dispatchSelection(?int $paymentTermId = null): void
     {
+        Log::info('DEBUG: SupplierSearchDropdown dispatching supplierSelected', ['supplier_id' => $this->selected, 'payment_term_id' => $paymentTermId]);
         // Notify other components (e.g., product search) about the supplier change
-        $this->dispatch('supplierSelected', $this->selected);
+        $this->dispatch('supplierSelected', supplier_id: $this->selected);
     }
 }

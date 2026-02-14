@@ -31,6 +31,8 @@ class EditForm extends Component
     public $note;
     public $tax_ref_no;
     public array $tags = [];
+    public bool $dueDateIsManual = false;
+    public bool $suppressAutoDueDate = false;
 
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
@@ -38,6 +40,7 @@ class EditForm extends Component
         'confirmUpdate'   => 'update',
         'taxCreated'      => 'handleTaxCreated',
         'tagsUpdated'     => 'handleTagsUpdated',
+        'payment-term-changed' => 'handlePaymentTermChanged',
     ];
 
     public function mount(Sale $sale)
@@ -61,6 +64,7 @@ class EditForm extends Component
         $this->date          = Carbon::parse($sale->date)->format('Y-m-d');
         $this->dueDate       = Carbon::parse($sale->due_date)->format('Y-m-d');
         $this->paymentTermId = $sale->payment_term_id;
+        $this->dueDateIsManual = $this->isCustomPaymentTerm($this->paymentTermId ? (int) $this->paymentTermId : null);
         $this->note          = $sale->note;
         $this->tax_ref_no    = $sale->tax_ref_no;
         $this->tags          = $sale->tags->pluck('name')->map(fn($n) => is_array($n) ? ($n['en'] ?? reset($n)) : $n)->toArray();
@@ -129,8 +133,46 @@ class EditForm extends Component
 
     private function syncPaymentTermAndDueDate(?int $paymentTermId, bool $syncDropdown = false): void
     {
+        $this->applyPaymentTermSelection($paymentTermId, $syncDropdown);
+    }
+
+    private function resolveDefaultPaymentTermId(): ?int
+    {
+        return PaymentTerm::defaultCodTermId();
+    }
+
+    private function isCustomPaymentTerm(?int $termId): bool
+    {
+        $customTermId = PaymentTerm::customTermId();
+
+        return $customTermId !== null && $termId !== null && $termId === $customTermId;
+    }
+
+    private function normalizePaymentTermId(mixed $value): ?int
+    {
+        if (is_array($value)) {
+            $value = $value['paymentTermId'] ?? $value['payment_term_id'] ?? $value[0] ?? null;
+        }
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return (int) $value;
+    }
+
+    private function applyPaymentTermSelection(?int $paymentTermId, bool $syncDropdown = false): void
+    {
         $this->paymentTermId = $paymentTermId ?: null;
-        $this->updateDueDateFromPaymentTerm();
+
+        if (! $this->suppressAutoDueDate) {
+            if ($this->isCustomPaymentTerm($this->paymentTermId)) {
+                $this->dueDateIsManual = true;
+            } else {
+                $this->dueDateIsManual = false;
+                $this->updateDueDateFromPaymentTerm();
+            }
+        }
 
         if ($syncDropdown) {
             $this->dispatch('setPaymentTerm', $this->paymentTermId)
@@ -156,8 +198,10 @@ class EditForm extends Component
         $this->customerName = $customer['customer_name'] ?? $customer['contact_name'] ?? null;
         
         // Sync payment term from the selected customer
-        $paymentTermId = isset($customer['payment_term_id']) ? (int) $customer['payment_term_id'] : null;
-        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+        $paymentTermId = isset($customer['payment_term_id']) && $customer['payment_term_id']
+            ? (int) $customer['payment_term_id']
+            : $this->resolveDefaultPaymentTermId();
+        $this->applyPaymentTermSelection($paymentTermId, true);
     }
 
     public function updatedCustomerId($value): void
@@ -165,14 +209,16 @@ class EditForm extends Component
         $customerId = $value ?: null;
         $this->customerId = $customerId;
 
-        $paymentTermId = null;
+        $paymentTermId = $this->resolveDefaultPaymentTermId();
         if ($customerId) {
             $customer = Customer::find($customerId);
             $this->customerName = $customer?->customer_name ?? $customer?->contact_name;
-            $paymentTermId = $customer?->payment_term_id ? (int) $customer->payment_term_id : null;
+            if ($customer?->payment_term_id) {
+                $paymentTermId = (int) $customer->payment_term_id;
+            }
         }
 
-        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+        $this->applyPaymentTermSelection($paymentTermId, true);
     }
 
     private function updateDueDateFromPaymentTerm(): void
@@ -196,11 +242,50 @@ class EditForm extends Component
 
     public function updatedPaymentTermId($value): void
     {
-        $this->syncPaymentTermAndDueDate($value ? (int) $value : null);
+        $paymentTermId = $this->normalizePaymentTermId($value);
+
+        if ($this->suppressAutoDueDate) {
+            $this->paymentTermId = $paymentTermId;
+            return;
+        }
+
+        $this->applyPaymentTermSelection($paymentTermId);
+    }
+
+    public function handlePaymentTermChanged($paymentTermId = null): void
+    {
+        $normalizedTermId = $this->normalizePaymentTermId($paymentTermId);
+
+        if ($this->suppressAutoDueDate) {
+            $this->paymentTermId = $normalizedTermId;
+            return;
+        }
+
+        $this->applyPaymentTermSelection($normalizedTermId);
+    }
+
+    public function updatedDueDate($value): void
+    {
+        $this->dueDateIsManual = true;
+
+        $customTermId = PaymentTerm::customTermId();
+        if ($customTermId && (int) $this->paymentTermId !== $customTermId) {
+            $this->suppressAutoDueDate = true;
+            try {
+                $this->paymentTermId = $customTermId;
+                $this->dispatch('setPaymentTerm', $customTermId)
+                    ->to(PaymentTermSearchDropdown::class);
+            } finally {
+                $this->suppressAutoDueDate = false;
+            }
+        }
     }
 
     public function updatedDate($value): void
     {
+        if ($this->dueDateIsManual) {
+            return;
+        }
         $this->updateDueDateFromPaymentTerm();
     }
 
@@ -208,9 +293,11 @@ class EditForm extends Component
     {
         $this->customerId = $customer['id'] ?? null;
         $this->customerName = $customer['customer_name'] ?? $customer['contact_name'] ?? null;
-        $paymentTermId = isset($customer['payment_term_id']) ? (int) $customer['payment_term_id'] : null;
+        $paymentTermId = isset($customer['payment_term_id']) && $customer['payment_term_id']
+            ? (int) $customer['payment_term_id']
+            : $this->resolveDefaultPaymentTermId();
 
-        $this->syncPaymentTermAndDueDate($paymentTermId, true);
+        $this->applyPaymentTermSelection($paymentTermId, true);
     }
 
     public function handleTaxCreated($data): void
@@ -246,10 +333,10 @@ class EditForm extends Component
         // Fallback: Re-sync payment_term from customer if still not set
         if ($this->customerId && !$this->paymentTermId) {
             $customer = Customer::find($this->customerId);
-            if ($customer && $customer->payment_term_id) {
-                $this->paymentTermId = $customer->payment_term_id;
-                $this->updateDueDateFromPaymentTerm();
-            }
+            $paymentTermId = $customer?->payment_term_id
+                ? (int) $customer->payment_term_id
+                : $this->resolveDefaultPaymentTermId();
+            $this->applyPaymentTermSelection($paymentTermId);
         }
 
         try {

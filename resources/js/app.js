@@ -8,7 +8,7 @@ import './alpine-components/form-loader.js';
 import './alpine-components/purchase-calculator.js';
 
 $(function () {
-    $('[data-toggle="tooltip"]').tooltip()
+    $('[data-coreui-toggle="tooltip"]').tooltip()
 })
 
 document.addEventListener('hide.coreui.modal', (event) => {

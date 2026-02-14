@@ -3,8 +3,10 @@
 namespace Modules\Purchase\Livewire;
 
 use Livewire\Attributes\Modelable;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Reactive;
 use Livewire\Component;
+use Illuminate\Support\Facades\Log;
 use Modules\Purchase\Entities\PaymentTerm;
 
 class PaymentTermSearchDropdown extends Component
@@ -14,7 +16,7 @@ class PaymentTermSearchDropdown extends Component
     public string $name = 'payment_term';
     public string $placeholder = 'Pilih term pembayaran...';
     public string $search = '';
-    public bool $open = false;
+    public bool $isOpen = false;
     public bool $allowCreate = false;
     #[Reactive]
     public ?string $error = null;
@@ -66,22 +68,22 @@ class PaymentTermSearchDropdown extends Component
 
     public function toggleDropdown(): void
     {
-        $this->open = !$this->open;
-        if ($this->open) {
+        $this->isOpen = ! $this->isOpen;
+        if ($this->isOpen) {
             $this->search = '';
         }
     }
 
     public function closeDropdown(): void
     {
-        $this->open = false;
+        $this->isOpen = false;
     }
 
     public function select(int|string $id): void
     {
         $this->selected = $id;
         $this->selectedLabel = $this->resolveLabel($id);
-        $this->open = false;
+        $this->isOpen = false;
         $this->search = '';
 
         // Dispatch browser event for JavaScript to update due_date
@@ -94,8 +96,10 @@ class PaymentTermSearchDropdown extends Component
         $this->selectedLabel = $this->resolveLabel($this->selected);
     }
 
+    #[On('setPaymentTerm')]
     public function setPaymentTerm(?int $paymentTermId = null): void
     {
+        Log::info('DEBUG: PaymentTermSearchDropdown received setPaymentTerm', ['payment_term_id' => $paymentTermId]);
         if ($paymentTermId === null) {
             $this->selected = null;
             $this->selectedLabel = null;

@@ -62,4 +62,17 @@ class PaymentTerm extends BaseModel
     {
         return static::defaultCodTerm()?->id;
     }
+
+    public static function customTerm(): ?self
+    {
+        return static::query()
+            ->whereRaw('LOWER(name) LIKE ?', ['%custom%'])
+            ->orderBy('id')
+            ->first();
+    }
+
+    public static function customTermId(): ?int
+    {
+        return static::customTerm()?->id;
+    }
 }

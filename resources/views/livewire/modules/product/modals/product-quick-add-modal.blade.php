@@ -1,4 +1,4 @@
-<div class="modal fade" id="productQuickAddModal" tabindex="-1" aria-labelledby="productQuickAddModalLabel" aria-hidden="true" wire:ignore.self>
+<div class="modal" id="productQuickAddModal" tabindex="-1" aria-labelledby="productQuickAddModalLabel" aria-hidden="true" wire:ignore.self data-coreui-backdrop="false" data-coreui-keyboard="false">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
              <form wire:submit.prevent="save">

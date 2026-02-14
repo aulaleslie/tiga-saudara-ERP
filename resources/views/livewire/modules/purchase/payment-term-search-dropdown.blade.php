@@ -1,21 +1,20 @@
 @php($options = $this->filteredOptions)
 
-<div class="d-flex">
+<div class="d-flex" x-data="{ isOpen: @entangle('isOpen').live }">
     <div class="flex-grow-1 position-relative"
-         x-data="{ open: @entangle('open').live }"
-         @click.away="if (open) open = false">
+         @click.away="if (isOpen) isOpen = false">
         <button type="button"
                 class="form-control d-flex justify-content-between align-items-center text-start"
-                @click="open = !open">
+                @click="isOpen = !isOpen">
             <span class="{{ $selectedLabel ? '' : 'text-muted' }}">
                 {{ $selectedLabel ?? $placeholder }}
             </span>
-            <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+            <i class="bi" :class="isOpen ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
         </button>
 
         <div class="dropdown-menu w-100 shadow p-2 show"
              x-cloak
-             x-show="open"
+             x-show="isOpen"
              style="position: absolute; z-index: 1050; max-height: 300px; overflow-y: auto; top: 100%; left: 0; right: 0;">
             <input
                 type="text"
@@ -31,7 +30,7 @@
                         type="button"
                         class="dropdown-item"
                         wire:click="select('{{ $option['id'] }}')"
-                        @click="open = false"
+                        @click="isOpen = false"
                         wire:key="payment-term-option-{{ $option['id'] }}"
                     >
                         {{ $option['name'] }}
