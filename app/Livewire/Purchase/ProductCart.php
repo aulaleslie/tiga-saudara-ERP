@@ -142,6 +142,8 @@ class ProductCart extends Component
 
         $this->item_discount[$cart_item->id] = round(max(0, $displayDiscount), 2);
         $this->product_tax[$cart_item->id] = $cart_item->options->product_tax ?? null;
+
+        $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
     }
 
     private function calculateConversionBreakdown(int $productId, int $quantity): string
@@ -752,6 +754,7 @@ class ProductCart extends Component
     public function setGlobalDiscountType($type): void
     {
         $this->global_discount_type = $type;
+        $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
         $this->updateGlobalDiscount(); // Ensure recalculation happens
     }
 

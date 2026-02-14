@@ -40,6 +40,7 @@ class CreateForm extends Component
     public bool $isPkp = false;
 
     public bool $dueDateIsManual = false;
+    public string $global_discount_type = 'percentage';
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
     private array $paymentTermLongevityCache = [];
@@ -293,7 +294,7 @@ class CreateForm extends Component
             $taxId = $item->options['product_tax'] ?? null;
             if (empty($taxId)) {
                 throw ValidationException::withMessages([
-                    'payment_term' => 'Semua produk wajib memilih pajak karena bisnis PKP.',
+                    'cart' => "Produk '{$item->name}' wajib memilih pajak karena bisnis PKP.",
                 ]);
             }
         }
@@ -437,6 +438,12 @@ class CreateForm extends Component
     public function handleGlobalDiscountUpdated($discount)
     {
         $this->global_discount = $discount;
+    }
+
+    #[On('globalDiscountTypeUpdated')]
+    public function handleGlobalDiscountTypeUpdated($type)
+    {
+        $this->global_discount_type = $type;
     }
 
     #[On('taxIncludedUpdated')]
@@ -608,8 +615,8 @@ class CreateForm extends Component
             $cartItems = $cart->content();
             $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
             $shipping = $this->shipping;
-            $discount_amount = $this->global_discount > 100 ? $this->global_discount : 0;
-            $discount_percentage = $this->global_discount > 100 ? 0 : $this->global_discount;
+            $discount_amount = $this->global_discount_type === 'fixed' ? $this->global_discount : 0;
+            $discount_percentage = $this->global_discount_type === 'percentage' ? $this->global_discount : 0;
             $tax_amount = 0;
 
             foreach ($cartItems as $item) {
