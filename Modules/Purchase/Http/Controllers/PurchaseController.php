@@ -294,14 +294,22 @@ class PurchaseController extends Controller
         // Fetch all received detail IDs for this purchase to find related returned serials
         $receivedDetailIds = $receivedNotes->flatMap->receivedNoteDetails->pluck('id');
 
-        // Serials originally received in this purchase (source-of-truth for mapping pills per receiving row)
-        $receivedSerialIds = ProductSerialNumber::whereIn('id', function ($query) use ($receivedDetailIds) {
-            $query->select('product_serial_number_id')
-                ->from('serial_number_histories')
-                ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
-                ->where('reference_type', ReceivedNoteDetail::class)
-                ->whereIn('reference_id', $receivedDetailIds);
-        })->pluck('id');
+        // Serials that belong to this purchase either by historical received anchor or current direct linkage.
+        $receivedSerialIds = collect();
+        if ($receivedDetailIds->isNotEmpty()) {
+            $receivedSerialIds = ProductSerialNumber::query()
+                ->where(function ($query) use ($receivedDetailIds) {
+                    $query->whereIn('received_note_detail_id', $receivedDetailIds)
+                        ->orWhereIn('id', function ($subQuery) use ($receivedDetailIds) {
+                            $subQuery->select('product_serial_number_id')
+                                ->from('serial_number_histories')
+                                ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+                                ->where('reference_type', ReceivedNoteDetail::class)
+                                ->whereIn('reference_id', $receivedDetailIds);
+                        });
+                })
+                ->pluck('id');
+        }
 
         // 1) History-based returned serial detection (backward compatible)
         $returnedSerialsByHistory = collect();
@@ -354,8 +362,6 @@ class PurchaseController extends Controller
                 $returnedSerialsByState = ProductSerialNumber::query()
                     ->whereIn('id', $fallbackSerialIds)
                     ->whereIn('id', $receivedSerialIds)
-                    ->whereRaw('UPPER(status) = ?', [ProductSerialNumber::STATUS_RETURNED])
-                    ->whereNotNull('purchase_return_id')
                     ->get();
             }
         }
@@ -373,11 +379,21 @@ class PurchaseController extends Controller
                 ->get()
                 ->groupBy('reference_id');
 
+            $returnedByCurrentLink = $returnedSerials
+                ->filter(fn ($serial) => ! empty($serial->received_note_detail_id) && $receivedDetailIds->contains((int) $serial->received_note_detail_id))
+                ->groupBy(fn ($serial) => (int) $serial->received_note_detail_id);
+
             foreach ($receivedNotes as $note) {
                 foreach ($note->receivedNoteDetails as $detail) {
-                    $detail->returnedSerialNumbers = $histories->get($detail->id)
+                    $returnedFromHistory = $histories->get($detail->id)
                         ? $returnedSerials->whereIn('id', $histories->get($detail->id)->pluck('product_serial_number_id'))
                         : collect([]);
+                    $returnedFromCurrentLink = $returnedByCurrentLink->get($detail->id, collect([]));
+
+                    $detail->returnedSerialNumbers = $returnedFromHistory
+                        ->concat($returnedFromCurrentLink)
+                        ->unique('id')
+                        ->values();
                 }
             }
         } else {

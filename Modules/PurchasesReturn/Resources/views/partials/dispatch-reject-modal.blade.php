@@ -16,11 +16,11 @@
                                 <label class="form-label">Alasan Penolakan (opsional)</label>
                                 <textarea name="reason" class="form-control" rows="3">{{ old('reason') }}</textarea>
                             </div>
-                            <p class="mb-0">Apakah Anda yakin ingin menolak dispatch retur ini?</p>
+                            <p class="mb-0">Apakah Anda yakin ingin menolak pengiriman retur ini?</p>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Batal</button>
-                            <button type="submit" class="btn btn-outline-danger">Tolak Dispatch</button>
+                            <button type="submit" class="btn btn-outline-danger">Tolak Pengiriman</button>
                         </div>
                     </form>
                 </div>

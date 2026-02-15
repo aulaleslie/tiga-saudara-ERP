@@ -200,7 +200,7 @@ class PurchaseReturnSettlementStockEffectTest extends TestCase
             'quantity' => -2,
             'current_quantity' => 8,
             'location_id' => $this->location->id,
-            'reason' => strtoupper("Dispatch retur: {$pr->reference}"),
+            'reason' => strtoupper("Pengiriman retur: {$pr->reference}"),
             'quantity_non_tax' => -2,
         ]);
 

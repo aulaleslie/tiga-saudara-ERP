@@ -167,18 +167,18 @@
                                         ],
 
                                         'Settlement Retur Pembelian' => [
-                                            'purchaseReturnSettlements.access'   => 'Akses Settlement',
-                                            'purchaseReturnSettlements.submit'   => 'Submit Settlement',
-                                            'purchaseReturnSettlements.approve'  => 'Approve/Reject Settlement',
-                                            'purchaseReturnSettlements.execute'  => 'Execute Settlement',
-                                            'purchaseReturnSettlements.dispatch' => 'Dispatch Return',
-                                            'purchaseReturnSettlements.receive'  => 'Receive Replacement',
+                                            'purchaseReturnSettlements.access'   => 'Akses Penyelesaian',
+                                            'purchaseReturnSettlements.submit'   => 'Ajukan Penyelesaian',
+                                            'purchaseReturnSettlements.approve'  => 'Setujui/Tolak Penyelesaian',
+                                            'purchaseReturnSettlements.execute'  => 'Eksekusi Penyelesaian',
+                                            'purchaseReturnSettlements.dispatch' => 'Pengiriman Retur',
+                                            'purchaseReturnSettlements.receive'  => 'Terima Pengganti',
                                         ],
 
                                         'Settlement Retur Penjualan' => [
-                                            'saleReturnSettlements.access' => 'Akses Settlement',
-                                            'saleReturnSettlements.submit' => 'Submit Settlement',
-                                            'saleReturnSettlements.approve' => 'Approve/Reject Settlement',
+                                            'saleReturnSettlements.access' => 'Akses Penyelesaian',
+                                            'saleReturnSettlements.submit' => 'Ajukan Penyelesaian',
+                                            'saleReturnSettlements.approve' => 'Setujui/Tolak Penyelesaian',
                                             'saleReturnSettlements.dispatch' => 'Proses Pengiriman',
                                             'saleReturnSettlements.dispatchRequest' => 'Ajukan Pengiriman',
                                             'saleReturnSettlements.dispatchApproval' => 'Persetujuan Pengiriman',

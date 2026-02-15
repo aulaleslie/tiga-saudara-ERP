@@ -169,12 +169,12 @@
                                         ],
 
                                         'Settlement Retur Pembelian' => [
-                                            'purchaseReturnSettlements.access'   => 'Akses Settlement',
-                                            'purchaseReturnSettlements.submit'   => 'Submit Settlement',
-                                            'purchaseReturnSettlements.approve'  => 'Approve/Reject Settlement',
-                                            'purchaseReturnSettlements.execute'  => 'Execute Settlement',
-                                            'purchaseReturnSettlements.dispatch' => 'Dispatch Return',
-                                            'purchaseReturnSettlements.receive'  => 'Receive Replacement',
+                                            'purchaseReturnSettlements.access'   => 'Akses Penyelesaian',
+                                            'purchaseReturnSettlements.submit'   => 'Ajukan Penyelesaian',
+                                            'purchaseReturnSettlements.approve'  => 'Setujui/Tolak Penyelesaian',
+                                            'purchaseReturnSettlements.execute'  => 'Eksekusi Penyelesaian',
+                                            'purchaseReturnSettlements.dispatch' => 'Pengiriman Return',
+                                            'purchaseReturnSettlements.receive'  => 'Terima Pengganti',
                                         ],
 
                                         'Penyesuaian Stok' => [

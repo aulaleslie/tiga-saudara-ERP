@@ -12,12 +12,12 @@
                             </button>
                         </div>
                         <div class="modal-body">
-                            <p class="mb-3">Setujui dispatch retur ini?</p>
+                            <p class="mb-3">Setujui pengiriman retur ini?</p>
                             @include('purchasesreturn::partials.dispatch-info')
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-dismiss="modal" data-bs-dismiss="modal">Batal</button>
-                            <button type="submit" class="btn btn-success">Setujui Dispatch</button>
+                            <button type="submit" class="btn btn-success">Setujui Pengiriman</button>
                         </div>
                     </form>
                 </div>

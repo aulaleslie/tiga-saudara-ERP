@@ -495,4 +495,324 @@ class PurchaseShowReturnedSerialVisibilityTest extends TestCase
         $response->assertSee('SN-RETURNED-FALLBACK');
         $response->assertSee('bg-danger');
     }
+
+    public function test_purchase_show_keeps_source_purchase_red_and_destination_purchase_blue_for_cross_purchase_reuse()
+    {
+        $product = $this->createProduct('Cross Purchase Reuse Product', 'CPR001');
+
+        $purchaseX = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(30),
+            'reference' => 'PO-CROSS-X-001',
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $purchaseY = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(30),
+            'reference' => 'PO-CROSS-Y-001',
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 2000,
+            'paid_amount' => 0,
+            'due_amount' => 2000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $purchaseDetailX = PurchaseDetail::create([
+            'purchase_id' => $purchaseX->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $purchaseDetailY = PurchaseDetail::create([
+            'purchase_id' => $purchaseY->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 2,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 2000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNoteX = ReceivedNote::create([
+            'po_id' => $purchaseX->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'location_id' => 1,
+            'setting_id' => $this->setting->id,
+            'date' => now(),
+            'external_delivery_number' => 'DN-CROSS-X-001',
+        ]);
+
+        $receivedNoteY = ReceivedNote::create([
+            'po_id' => $purchaseY->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'location_id' => 1,
+            'setting_id' => $this->setting->id,
+            'date' => now(),
+            'external_delivery_number' => 'DN-CROSS-Y-001',
+        ]);
+
+        $receivedDetailX = ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNoteX->id,
+            'po_detail_id' => $purchaseDetailX->id,
+            'quantity_received' => 1,
+        ]);
+
+        $receivedDetailY = ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNoteY->id,
+            'po_detail_id' => $purchaseDetailY->id,
+            'quantity_received' => 2,
+        ]);
+
+        $serialA = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => 'SN-A-CROSS-REUSE',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'received_note_detail_id' => $receivedDetailX->id,
+            'location_id' => 1,
+        ]);
+
+        $serialB = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => 'SN-B-CROSS-RETURNED',
+            'status' => ProductSerialNumber::STATUS_RETURNED,
+            'received_note_detail_id' => $receivedDetailY->id,
+            'location_id' => 1,
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serialA->id,
+            'event_type' => SerialNumberHistory::EVENT_RECEIVED,
+            'location_id' => 1,
+            'reference_type' => ReceivedNoteDetail::class,
+            'reference_id' => $receivedDetailX->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serialB->id,
+            'event_type' => SerialNumberHistory::EVENT_RECEIVED,
+            'location_id' => 1,
+            'reference_type' => ReceivedNoteDetail::class,
+            'reference_id' => $receivedDetailY->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        // Historical returned marker on purchase X (fallback path), then serial A is reused and moved to purchase Y.
+        $purchaseReturnX = PurchaseReturn::create([
+            'date' => now(),
+            'reference' => 'PR-CROSS-X-001',
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'status' => 'Completed',
+            'approval_status' => 'Approved',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $returnDetailX = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturnX->id,
+            'po_id' => $purchaseX->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'serial_number_ids' => [$serialA->id],
+        ]);
+
+        PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $purchaseReturnX->id,
+            'purchase_return_detail_id' => $returnDetailX->id,
+            'product_serial_number_id' => $serialA->id,
+            'method' => 'MODIFY_PURCHASE',
+            'status' => PurchaseReturnItemSettlement::STATUS_APPROVED,
+            'target_purchase_id' => $purchaseX->id,
+            'nominal' => 1000,
+        ]);
+
+        $purchaseReturnY = PurchaseReturn::create([
+            'date' => now(),
+            'reference' => 'PR-CROSS-Y-001',
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'status' => 'Completed',
+            'approval_status' => 'Approved',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturnY->id,
+            'po_id' => $purchaseY->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'serial_number_ids' => [$serialB->id],
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serialB->id,
+            'event_type' => SerialNumberHistory::EVENT_PURCHASE_RETURNED,
+            'location_id' => 1,
+            'reference_type' => PurchaseReturn::class,
+            'reference_id' => $purchaseReturnY->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        $serialA->update([
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'received_note_detail_id' => $receivedDetailY->id,
+            'purchase_return_id' => null,
+            'location_id' => 1,
+        ]);
+
+        $serialB->update([
+            'status' => ProductSerialNumber::STATUS_RETURNED,
+            'received_note_detail_id' => $receivedDetailY->id,
+            'purchase_return_id' => $purchaseReturnY->id,
+            'location_id' => 1,
+        ]);
+
+        $responseX = $this->get(route('purchases.show', $purchaseX->id));
+        $responseX->assertStatus(200);
+        $responseX->assertSee('SN-A-CROSS-REUSE');
+        $responseX->assertSee('bg-danger');
+
+        $responseY = $this->get(route('purchases.show', $purchaseY->id));
+        $responseY->assertStatus(200);
+        $responseY->assertSee('SN-A-CROSS-REUSE');
+        $responseY->assertSee('SN-B-CROSS-RETURNED');
+        $responseY->assertSee('bg-info');
+        $responseY->assertSee('bg-danger');
+    }
+
+    public function test_purchase_show_displays_old_serial_red_and_reused_replacement_blue_for_same_purchase()
+    {
+        $purchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(30),
+            'reference' => 'PO-REPAIR-REUSE-001',
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 2000,
+            'paid_amount' => 0,
+            'due_amount' => 2000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $product = $this->createProduct('Repair Reuse Product', 'RRP001');
+
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 2,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 2000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'location_id' => 1,
+            'setting_id' => $this->setting->id,
+            'date' => now(),
+            'external_delivery_number' => 'DN-REPAIR-REUSE-001',
+        ]);
+
+        $receivedNoteDetail = ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 2,
+        ]);
+
+        $replacementSerial = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => 'SN-A-REUSED-BLUE',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'received_note_detail_id' => $receivedNoteDetail->id,
+            'location_id' => 1,
+        ]);
+
+        $oldReturnedSerial = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => 'SN-B-OLD-RED',
+            'status' => ProductSerialNumber::STATUS_RETURNED,
+            'received_note_detail_id' => $receivedNoteDetail->id,
+            'location_id' => 1,
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $replacementSerial->id,
+            'event_type' => SerialNumberHistory::EVENT_RECEIVED,
+            'location_id' => 1,
+            'reference_type' => ReceivedNoteDetail::class,
+            'reference_id' => $receivedNoteDetail->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $oldReturnedSerial->id,
+            'event_type' => SerialNumberHistory::EVENT_RECEIVED,
+            'location_id' => 1,
+            'reference_type' => ReceivedNoteDetail::class,
+            'reference_id' => $receivedNoteDetail->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        $response = $this->get(route('purchases.show', $purchase->id));
+
+        $response->assertStatus(200);
+        $response->assertSeeInOrder(['SN-A-REUSED-BLUE', 'SN-B-OLD-RED']);
+        $response->assertSee('bg-info');
+        $response->assertSee('bg-danger');
+    }
 }

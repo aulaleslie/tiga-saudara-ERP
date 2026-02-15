@@ -126,7 +126,7 @@ class PurchaseReturnDispatchController extends Controller
             ]);
         });
 
-        toast('Dispatch retur disetujui dan dieksekusi.', 'success');
+        toast('Pengiriman retur disetujui dan dieksekusi.', 'success');
 
         return back();
     }
@@ -166,7 +166,7 @@ class PurchaseReturnDispatchController extends Controller
             ]);
         });
 
-        toast('Dispatch retur ditolak.', 'warning');
+        toast('Pengiriman retur ditolak.', 'warning');
 
         return back();
     }
@@ -333,7 +333,7 @@ class PurchaseReturnDispatchController extends Controller
                             SerialNumberHistory::EVENT_PURCHASE_RETURN_DISPATCHED,
                             $serialLocationId,
                             $purchase_return,
-                            "Dispatch retur disetujui untuk {$purchase_return->reference}"
+                            "Pengiriman retur disetujui untuk {$purchase_return->reference}"
                         );
                     }
 
@@ -367,7 +367,7 @@ class PurchaseReturnDispatchController extends Controller
                     'broken_quantity' => $stock->broken_quantity,
                     'location_id' => $detail->location_id,
                     'user_id' => auth()->id(),
-                    'reason' => "Dispatch retur: {$purchase_return->reference}",
+                    'reason' => "Pengiriman retur: {$purchase_return->reference}",
                     'previous_quantity' => $prevProductQty,
                     'after_quantity' => $product->product_quantity,
                     'previous_quantity_at_location' => $prevStockQty,

@@ -301,49 +301,64 @@ class PurchasesReturnSettlementController extends Controller
                     if ($isSerial) {
                         $serial = $itemSettlement->serialNumber;
                         $replacementSerialNumber = trim($request->replacement_serial_number);
-                        
-                        // Check uniqueness if serial changed
+                        $sourceReceivedNoteDetailId = $this->resolveReceivedNoteDetailIdForSerial($serial);
+                        $sourcePurchaseId = $this->resolveOriginPurchaseIdByReceivedDetailId($sourceReceivedNoteDetailId);
+
+                        // Handle serial number replacement logic
                         if ($replacementSerialNumber !== $serial->serial_number) {
-                            $existingSerial = ProductSerialNumber::where('product_id', $productId)
+                            $replacementRecord = ProductSerialNumber::where('product_id', $productId)
                                 ->where('serial_number', $replacementSerialNumber)
                                 ->where('id', '!=', $serial->id)
                                 ->first();
 
-                            if ($existingSerial) {
-                                // Check specific conditions for rejection
-                                $status = strtoupper($existingSerial->status ?? '');
-                                
-                                if ($status === 'ACTIVE') {
+                            if ($replacementRecord) {
+                                $status = strtoupper((string) $replacementRecord->status);
+                                if ($status === ProductSerialNumber::STATUS_ACTIVE) {
                                     throw new \Exception("Serial number {$replacementSerialNumber} sudah aktif.");
                                 }
-                                
-                                if ($existingSerial->is_in_return_process) {
+
+                                if ((bool) $replacementRecord->is_in_return_process) {
                                     throw new \Exception("Serial number {$replacementSerialNumber} sedang dalam proses retur.");
                                 }
-                            }
-                        }
 
-                        // Handle serial number replacement logic
-                        if ($replacementSerialNumber !== $serial->serial_number) {
+                                if (! in_array($status, [ProductSerialNumber::STATUS_RETURNED, ProductSerialNumber::STATUS_BROKEN], true)) {
+                                    throw new \Exception("Serial number {$replacementSerialNumber} hanya bisa digunakan jika status RETURNED atau BROKEN.");
+                                }
+                            }
+
                             // Mark old serial as returned
                             $serial->update([
                                 'status' => ProductSerialNumber::STATUS_RETURNED,
                                 'is_in_return_process' => false,
                                 'purchase_return_id' => $itemSettlement->purchase_return_id,
                             ]);
-                            
-                            // Create new record for the replacement (or reactivate if it exists as returned)
-                            $replacementRecord = ProductSerialNumber::where('product_id', $productId)
-                                ->where('serial_number', $replacementSerialNumber)
-                                ->first();
-                                
+
+                            // Create new record for the replacement (or reactivate if it exists as returned/broken)
                             if ($replacementRecord) {
+                                $replacementReceivedNoteDetailId = $this->resolveReceivedNoteDetailIdForSerial($replacementRecord);
+                                $replacementPurchaseId = $this->resolveOriginPurchaseIdByReceivedDetailId($replacementReceivedNoteDetailId);
+                                $isCrossPurchaseMove = $sourcePurchaseId
+                                    && $replacementPurchaseId
+                                    && (int) $sourcePurchaseId !== (int) $replacementPurchaseId;
+
+                                if ($isCrossPurchaseMove && ! $sourceReceivedNoteDetailId) {
+                                    throw new \Exception('Tidak dapat mengaitkan serial pengganti ke nota pembelian saat ini karena sumber serial tidak ditemukan.');
+                                }
+
+                                $finalReceivedNoteDetailId = $replacementRecord->received_note_detail_id
+                                    ? (int) $replacementRecord->received_note_detail_id
+                                    : $sourceReceivedNoteDetailId;
+                                if ($isCrossPurchaseMove) {
+                                    $finalReceivedNoteDetailId = $sourceReceivedNoteDetailId;
+                                }
+
                                 $replacementRecord->update([
                                     'location_id' => $targetLocationId,
                                     'status' => ProductSerialNumber::STATUS_ACTIVE,
                                     'is_broken' => false,
                                     'is_in_return_process' => false,
                                     'purchase_return_id' => null,
+                                    'received_note_detail_id' => $finalReceivedNoteDetailId,
                                 ]);
                                 $itemSettlement->replacement_serial_number_id = $replacementRecord->id;
 
@@ -362,7 +377,7 @@ class PurchasesReturnSettlementController extends Controller
                                     'is_broken' => false,
                                     'is_in_return_process' => false,
                                     'tax_id' => $serial->tax_id, // Preserve tax settings
-                                    'received_note_detail_id' => null,
+                                    'received_note_detail_id' => $sourceReceivedNoteDetailId,
                                 ]);
                                 $itemSettlement->replacement_serial_number_id = $newSerial->id;
 
@@ -451,6 +466,46 @@ class PurchasesReturnSettlementController extends Controller
         } catch (\Exception $e) {
             return back()->with('error', 'Gagal menerima item: ' . $e->getMessage());
         }
+    }
+
+    protected function resolveReceivedNoteDetailIdForSerial(ProductSerialNumber $serial): ?int
+    {
+        if (! empty($serial->received_note_detail_id)) {
+            return (int) $serial->received_note_detail_id;
+        }
+
+        $receivedHistory = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serial->id)
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->where('reference_type', ReceivedNoteDetail::class)
+            ->whereNotNull('reference_id')
+            ->latest('id')
+            ->first(['reference_id']);
+
+        if (! $receivedHistory || ! $receivedHistory->reference_id) {
+            return null;
+        }
+
+        $exists = ReceivedNoteDetail::query()
+            ->whereKey($receivedHistory->reference_id)
+            ->exists();
+
+        return $exists ? (int) $receivedHistory->reference_id : null;
+    }
+
+    protected function resolveOriginPurchaseIdByReceivedDetailId(?int $receivedNoteDetailId): ?int
+    {
+        if (! $receivedNoteDetailId) {
+            return null;
+        }
+
+        $receivedDetail = ReceivedNoteDetail::query()
+            ->with('purchaseDetail:id,purchase_id')
+            ->find($receivedNoteDetailId);
+
+        $purchaseId = $receivedDetail?->purchaseDetail?->purchase_id;
+
+        return $purchaseId ? (int) $purchaseId : null;
     }
 
     /**

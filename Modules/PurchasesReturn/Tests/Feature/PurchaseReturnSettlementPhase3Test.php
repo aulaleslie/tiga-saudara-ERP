@@ -10,7 +10,12 @@ use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Product\Entities\Transaction;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use App\Models\User;
@@ -157,6 +162,80 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
             'nominal' => $detail->sub_total,
             'status' => PurchaseReturnItemSettlement::STATUS_APPROVED_AWAITING_RECEIVE,
             'product_serial_number_id' => $serial?->id,
+        ]);
+    }
+
+    private function createSerialPurchase(Product $product, string $reference): Purchase
+    {
+        return Purchase::create([
+            'supplier_id' => 1,
+            'supplier_name' => 'Test Supplier',
+            'reference' => $reference,
+            'date' => now(),
+            'due_date' => now()->addDays(14),
+            'total_amount' => $product->product_price,
+            'paid_amount' => 0,
+            'due_amount' => $product->product_price,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'status' => 'Received',
+            'setting_id' => $this->setting->id,
+        ]);
+    }
+
+    private function createReceivedDetailForPurchase(Purchase $purchase, Product $product): ReceivedNoteDetail
+    {
+        $detail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => $product->product_price,
+            'unit_price' => $product->product_price,
+            'sub_total' => $product->product_price,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $note = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'location_id' => $this->location->id,
+            'setting_id' => $this->setting->id,
+            'date' => now(),
+        ]);
+
+        $receivedDetail = ReceivedNoteDetail::create([
+            'received_note_id' => $note->id,
+            'po_detail_id' => $detail->id,
+            'quantity_received' => 1,
+        ]);
+
+        return $receivedDetail;
+    }
+
+    private function createPurchaseOrigin(Product $product, string $reference): array
+    {
+        $purchase = $this->createSerialPurchase($product, $reference);
+        $receivedDetail = $this->createReceivedDetailForPurchase($purchase, $product);
+
+        return [$purchase, $receivedDetail];
+    }
+
+    private function attachSerialToReceivedOrigin(ProductSerialNumber $serial, ReceivedNoteDetail $receivedDetail): void
+    {
+        $serial->update([
+            'received_note_detail_id' => $receivedDetail->id,
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serial->id,
+            'event_type' => SerialNumberHistory::EVENT_RECEIVED,
+            'location_id' => $this->location->id,
+            'reference_type' => ReceivedNoteDetail::class,
+            'reference_id' => $receivedDetail->id,
+            'user_id' => $this->user->id,
         ]);
     }
 
@@ -322,37 +401,258 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
     }
 
     /** @test */
-    public function test_product_repair_serial_strict_uniqueness_prevents_returned_serial_reuse()
+    public function test_product_repair_serial_allows_reusing_returned_serial_from_same_purchase()
     {
-        // 1. Create a RETURNED serial number for the same product
-        ProductSerialNumber::create([
+        $purchase = $this->createSerialPurchase($this->serialProduct, 'PO-SAME-PURCHASE');
+        $receivedDetailA = $this->createReceivedDetailForPurchase($purchase, $this->serialProduct);
+        $receivedDetailB = $this->createReceivedDetailForPurchase($purchase, $this->serialProduct);
+
+        $serialA = ProductSerialNumber::create([
             'product_id' => $this->serialProduct->id,
-            'serial_number' => 'SN-PREVIOUSLY-RETURNED',
+            'serial_number' => 'SN-A-SAME-PURCHASE',
             'status' => 'RETURNED',
             'location_id' => $this->location->id,
         ]);
+        $this->attachSerialToReceivedOrigin($serialA, $receivedDetailA);
 
-        // 2. Original serial for the current repair
-        $sn = ProductSerialNumber::create([
+        $serialB = ProductSerialNumber::create([
             'product_id' => $this->serialProduct->id,
-            'serial_number' => 'SN-CURRENT-REPAIR',
+            'serial_number' => 'SN-B-CURRENT-REPAIR',
+            'status' => 'DISPATCHED',
+            'is_in_return_process' => true,
+            'location_id' => $this->location->id,
+        ]);
+        $this->attachSerialToReceivedOrigin($serialB, $receivedDetailB);
+
+        $pr = $this->createPurchaseReturn($this->serialProduct);
+        $item = $this->createSettlementItem($pr, $this->serialProduct, 'PRODUCT_REPAIR', 1, $serialB);
+        $receivedHistoryCountBefore = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serialA->id)
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->count();
+        $repairHistoryCountBefore = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serialA->id)
+            ->where('event_type', SerialNumberHistory::EVENT_REPAIR_RECEIVED)
+            ->count();
+
+        $response = $this->post(route('purchase-return-settlements.item.receive', $item->id), [
+            'location_id' => $this->targetLocation->id,
+            'received_quantity' => 1,
+            'replacement_serial_number' => $serialA->serial_number,
+        ]);
+
+        $response->assertSessionHas('success');
+
+        $serialA->refresh();
+        $serialB->refresh();
+        $item->refresh();
+
+        $this->assertEquals('ACTIVE', $serialA->status);
+        $this->assertEquals($receivedDetailA->id, $serialA->received_note_detail_id);
+        $this->assertEquals('RETURNED', $serialB->status);
+        $this->assertEquals($serialA->id, $item->replacement_serial_number_id);
+        $this->assertEquals(
+            $receivedHistoryCountBefore,
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $serialA->id)
+                ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+                ->count()
+        );
+        $this->assertEquals(
+            $repairHistoryCountBefore + 1,
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $serialA->id)
+                ->where('event_type', SerialNumberHistory::EVENT_REPAIR_RECEIVED)
+                ->count()
+        );
+    }
+
+    /** @test */
+    public function test_product_repair_serial_allows_reusing_returned_serial_from_different_purchase_and_relinks_to_current_purchase()
+    {
+        [, $receivedDetailA] = $this->createPurchaseOrigin($this->serialProduct, 'PO-DIFFERENT-A');
+        [, $receivedDetailB] = $this->createPurchaseOrigin($this->serialProduct, 'PO-DIFFERENT-B');
+
+        $serialA = ProductSerialNumber::create([
+            'product_id' => $this->serialProduct->id,
+            'serial_number' => 'SN-A-DIFFERENT-PURCHASE',
+            'status' => 'RETURNED',
+            'location_id' => $this->location->id,
+        ]);
+        $this->attachSerialToReceivedOrigin($serialA, $receivedDetailA);
+
+        $serialB = ProductSerialNumber::create([
+            'product_id' => $this->serialProduct->id,
+            'serial_number' => 'SN-B-CURRENT-REPAIR-DIFF',
+            'status' => 'DISPATCHED',
+            'is_in_return_process' => true,
+            'location_id' => $this->location->id,
+        ]);
+        $this->attachSerialToReceivedOrigin($serialB, $receivedDetailB);
+
+        $pr = $this->createPurchaseReturn($this->serialProduct);
+        $item = $this->createSettlementItem($pr, $this->serialProduct, 'PRODUCT_REPAIR', 1, $serialB);
+        $receivedHistoryCountBefore = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serialA->id)
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->count();
+        $repairHistoryCountBefore = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serialA->id)
+            ->where('event_type', SerialNumberHistory::EVENT_REPAIR_RECEIVED)
+            ->count();
+
+        $response = $this->post(route('purchase-return-settlements.item.receive', $item->id), [
+            'location_id' => $this->targetLocation->id,
+            'received_quantity' => 1,
+            'replacement_serial_number' => $serialA->serial_number,
+        ]);
+
+        $response->assertSessionHas('success');
+        $item->refresh();
+
+        $serialA->refresh();
+        $serialB->refresh();
+
+        $this->assertEquals('ACTIVE', $serialA->status);
+        $this->assertEquals($receivedDetailB->id, $serialA->received_note_detail_id);
+        $this->assertEquals('RETURNED', $serialB->status);
+        $this->assertEquals($serialA->id, $item->replacement_serial_number_id);
+        $this->assertEquals(
+            $receivedHistoryCountBefore,
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $serialA->id)
+                ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+                ->count()
+        );
+        $this->assertEquals(
+            $repairHistoryCountBefore + 1,
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $serialA->id)
+                ->where('event_type', SerialNumberHistory::EVENT_REPAIR_RECEIVED)
+                ->count()
+        );
+    }
+
+    /** @test */
+    public function test_product_repair_serial_relinks_reused_serial_with_null_received_detail_to_current_source_row()
+    {
+        $purchase = $this->createSerialPurchase($this->serialProduct, 'PO-RELINK');
+        $receivedDetailAOrigin = $this->createReceivedDetailForPurchase($purchase, $this->serialProduct);
+        $receivedDetailB = $this->createReceivedDetailForPurchase($purchase, $this->serialProduct);
+
+        $serialA = ProductSerialNumber::create([
+            'product_id' => $this->serialProduct->id,
+            'serial_number' => 'SN-A-NULL-RND',
+            'status' => 'RETURNED',
+            'location_id' => $this->location->id,
+            'received_note_detail_id' => null,
+        ]);
+
+        // Keep origin trace via history while DB link is null (post-MODIFY_PURCHASE style).
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serialA->id,
+            'event_type' => SerialNumberHistory::EVENT_RECEIVED,
+            'location_id' => $this->location->id,
+            'reference_type' => ReceivedNoteDetail::class,
+            'reference_id' => $receivedDetailAOrigin->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        $serialB = ProductSerialNumber::create([
+            'product_id' => $this->serialProduct->id,
+            'serial_number' => 'SN-B-REPAIR-SOURCE',
+            'status' => 'DISPATCHED',
+            'is_in_return_process' => true,
+            'location_id' => $this->location->id,
+        ]);
+        $this->attachSerialToReceivedOrigin($serialB, $receivedDetailB);
+
+        $pr = $this->createPurchaseReturn($this->serialProduct);
+        $item = $this->createSettlementItem($pr, $this->serialProduct, 'PRODUCT_REPAIR', 1, $serialB);
+        $receivedHistoryCountBefore = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serialA->id)
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->count();
+        $repairHistoryCountBefore = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serialA->id)
+            ->where('event_type', SerialNumberHistory::EVENT_REPAIR_RECEIVED)
+            ->count();
+
+        $this->post(route('purchase-return-settlements.item.receive', $item->id), [
+            'location_id' => $this->targetLocation->id,
+            'received_quantity' => 1,
+            'replacement_serial_number' => $serialA->serial_number,
+        ])->assertSessionHas('success');
+
+        $serialA->refresh();
+        $serialB->refresh();
+
+        $this->assertEquals('ACTIVE', $serialA->status);
+        $this->assertEquals($receivedDetailB->id, $serialA->received_note_detail_id);
+        $this->assertEquals('RETURNED', $serialB->status);
+        $this->assertEquals(
+            $receivedHistoryCountBefore,
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $serialA->id)
+                ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+                ->count()
+        );
+        $this->assertEquals(
+            $repairHistoryCountBefore + 1,
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $serialA->id)
+                ->where('event_type', SerialNumberHistory::EVENT_REPAIR_RECEIVED)
+                ->count()
+        );
+        $this->assertDatabaseHas('serial_number_histories', [
+            'product_serial_number_id' => $serialA->id,
+            'event_type' => SerialNumberHistory::EVENT_REPAIR_RECEIVED,
+            'reference_type' => PurchaseReturnItemSettlement::class,
+            'reference_id' => $item->id,
+        ]);
+    }
+
+    /** @test */
+    public function test_product_repair_replacement_creates_only_repair_received_history_without_new_received_history()
+    {
+        $serialB = ProductSerialNumber::create([
+            'product_id' => $this->serialProduct->id,
+            'serial_number' => 'SN-B-ONLY-REPAIR-HISTORY',
             'status' => 'DISPATCHED',
             'is_in_return_process' => true,
             'location_id' => $this->location->id,
         ]);
 
         $pr = $this->createPurchaseReturn($this->serialProduct);
-        $item = $this->createSettlementItem($pr, $this->serialProduct, 'PRODUCT_REPAIR', 1, $sn);
+        $item = $this->createSettlementItem($pr, $this->serialProduct, 'PRODUCT_REPAIR', 1, $serialB);
 
-        // 3. Try to use the RETURNED serial as replacement
-        $response = $this->post(route('purchase-return-settlements.item.receive', $item->id), [
+        $replacementText = 'SN-NEW-ONLY-REPAIR-HISTORY';
+
+        $this->post(route('purchase-return-settlements.item.receive', $item->id), [
             'location_id' => $this->targetLocation->id,
             'received_quantity' => 1,
-            'replacement_serial_number' => 'SN-PREVIOUSLY-RETURNED',
-        ]);
+            'replacement_serial_number' => $replacementText,
+        ])->assertSessionHas('success');
 
-        $response->assertSessionHas('error');
-        $this->assertStringContainsString('sudah terdaftar', session('error'));
+        $replacement = ProductSerialNumber::query()
+            ->where('serial_number', $replacementText)
+            ->first();
+
+        $this->assertNotNull($replacement);
+        $this->assertEquals(
+            1,
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $replacement->id)
+                ->where('event_type', SerialNumberHistory::EVENT_REPAIR_RECEIVED)
+                ->count()
+        );
+        $this->assertEquals(
+            0,
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $replacement->id)
+                ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+                ->count()
+        );
     }
 
     /** @test */
