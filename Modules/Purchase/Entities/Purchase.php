@@ -54,6 +54,10 @@ class Purchase extends BaseModel implements HasMedia
         'rejection_note'
     ];
 
+    protected $casts = [
+        'is_tax_included' => 'boolean',
+    ];
+
     const STATUS_DRAFTED = 'DRAFTED';
     const STATUS_WAITING_APPROVAL = 'WAITING_APPROVAL';
     const STATUS_APPROVED = 'APPROVED';

@@ -524,6 +524,11 @@ class CreateForm extends Component
             $product = $detail->product;
             $subTotalBeforeTax = $detail->sub_total - $detail->product_tax_amount;
 
+            $discountInput = $detail->product_discount_amount;
+            if ($detail->product_discount_type === 'percentage') {
+                $discountInput = $detail->price > 0 ? ($detail->product_discount_amount / $detail->price) * 100 : 0;
+            }
+
             $cart->add([
                 'id' => $detail->product_id,
                 'name' => $detail->product_name,
@@ -532,6 +537,7 @@ class CreateForm extends Component
                 'weight' => 1,
                 'options' => [
                     'product_discount' => $detail->product_discount_amount,
+                    'product_discount_input' => round($discountInput, 2),
                     'product_discount_type' => $detail->product_discount_type,
                     'sub_total' => $detail->sub_total,
                     'sub_total_before_tax' => $subTotalBeforeTax,

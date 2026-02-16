@@ -369,6 +369,7 @@ class PurchaseController extends Controller
         $returnedSerials = $returnedSerialsByHistory
             ->concat($returnedSerialsByState)
             ->unique('id')
+            ->filter(fn ($serial) => strtoupper($serial->status) !== ProductSerialNumber::STATUS_ACTIVE)
             ->values();
 
 

@@ -302,6 +302,11 @@ class EditForm extends Component
             $taxAmount = (float) ($detail->product_tax_amount ?? 0);
             $subTotalBeforeTax = max(0, $subTotal - $taxAmount);
 
+            $discountInput = $detail->product_discount_amount;
+            if ($detail->product_discount_type === 'percentage') {
+                $discountInput = $detail->price > 0 ? ($detail->product_discount_amount / $detail->price) * 100 : 0;
+            }
+
             $cart->add([
                 'id' => $detail->product_id,
                 'name' => $detail->product_name,
@@ -310,6 +315,7 @@ class EditForm extends Component
                 'weight' => 1,
                 'options' => [
                     'product_discount' => $detail->product_discount_amount,
+                    'product_discount_input' => round($discountInput, 2),
                     'product_discount_type' => $detail->product_discount_type,
                     'sub_total' => $detail->sub_total,
                     'code' => $detail->product_code,

@@ -48,8 +48,6 @@ class ProductCart extends Component
         'item_discount.*' => 'nullable|numeric|min:0', // Discounts are optional and non-negative.
         'global_discount' => 'nullable|numeric|min:0|max:100',
         'shipping' => 'nullable|numeric|min:0', // Shipping is optional and non-negative.
-        'product_tax.*' => 'nullable|integer|exists:taxes,id', // Validate selected tax ID.
-        'is_tax_included' => 'nullable|boolean', // Boolean flag for tax inclusion.
     ];
 
     private function perfLog(string $message, array $context = []): void
@@ -91,7 +89,7 @@ class ProductCart extends Component
             }
 
             $this->shipping = $data->shipping_amount;
-            $this->is_tax_included = $data->is_tax_included;
+            $this->is_tax_included = (bool) $data->is_tax_included;
 
             $cart_items = Cart::instance($this->cart_instance)->content();
 
@@ -290,7 +288,6 @@ class ProductCart extends Component
 
     public function productSelected($product): void
     {
-        Log::info('Product Selected:', $product);
         $cart = Cart::instance($this->cart_instance);
 
         $exists = $cart->search(function ($cartItem, $rowId) use ($product) {
@@ -324,8 +321,8 @@ class ProductCart extends Component
                 'product_discount_input'  => 0.00,
                 'product_discount_type'   => 'fixed',
                 'sub_total'               => $taxCalculation['sub_total'],
-                'sub_total_before_tax'    => $taxCalculation['subtotal_before_tax'],
-                'tax_amount'              => $taxCalculation['tax_amount'],
+                'sub_total_before_tax'    => $taxCalculation['sub_total_before_tax'],
+                'product_tax_amount'              => $taxCalculation['product_tax_amount'],
                 'code'                    => $product['product_code'],
                 'stock'                   => $product['product_quantity'],
                 'unit'                    => $product['product_unit'],
@@ -363,7 +360,6 @@ class ProductCart extends Component
 
     public function updatedGlobalDiscount(): void
     {
-        Log::info('updated global discount');
 
         $this->recalculateCart();
     }
@@ -411,8 +407,8 @@ class ProductCart extends Component
             'qty' => $this->quantity[$product_id],
             'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total' => $calculated['sub_total'],
-                'sub_total_before_tax' => $calculated['subtotal_before_tax'],
-                'tax_amount' => $calculated['tax_amount'],
+                'sub_total_before_tax' => $calculated['sub_total_before_tax'],
+                'product_tax_amount' => $calculated['product_tax_amount'],
             ]),
         ]);
 
@@ -434,8 +430,9 @@ class ProductCart extends Component
         $price = max(0, (float) $price); // Ensure price is non-negative
         $qty = max(1, (int) $qty);
         $discount = max(0.0, (float) $discount);
-        $price = max(0.0, (float) $price - $discount);// Ensure quantity is at least 1
-       // Ensure discount is non-negative
+
+        // Option A: Discount is off the tax-inclusive price (or base price if tax excluded)
+        $effective_price = max(0.0, $price - $discount);
 
         // Initialize variables
         $subtotal_before_tax = 0;
@@ -444,37 +441,31 @@ class ProductCart extends Component
         if ($this->is_tax_included) {
             // Case: Tax is included in the price
             if ($tax_id) {
-                $tax = Tax::find($tax_id);
+                $tax = $this->taxes->find($tax_id);
                 if ($tax) {
                     // Calculate price excluding tax
-                    $price_ex_tax = $price / (1 + $tax->value / 100);
-                    $tax_amount_per_unit = $price - $price_ex_tax;
+                    $price_ex_tax = $effective_price / (1 + $tax->value / 100);
+                    $tax_amount_per_unit = $effective_price - $price_ex_tax;
                     $tax_amount = $tax_amount_per_unit * $qty;
                     $subtotal_before_tax = $price_ex_tax * $qty;
-                    Log::info('Tax included - Price ex tax and tax amount per unit calculated', [
-                        'price_ex_tax' => $price_ex_tax,
-                        'tax_amount_per_unit' => $tax_amount_per_unit,
-                    ]);
                 } else {
-                    Log::warning("Invalid tax ID provided", ['tax_id' => $tax_id]);
                     // No tax applied, discount only
-                    $subtotal_before_tax = $price * $qty;
+                    $subtotal_before_tax = $effective_price * $qty;
                 }
             } else {
                 // No tax applied
-                $subtotal_before_tax = $price * $qty;
+                $subtotal_before_tax = $effective_price * $qty;
             }
         } else {
             // Case: Tax is not included in the price
-            $subtotal_before_tax = $price * $qty;
+            $subtotal_before_tax = $effective_price * $qty;
 
             if ($tax_id) {
-                $tax = Tax::find($tax_id);
+                $tax = $this->taxes->find($tax_id);
                 if ($tax) {
                     // Calculate tax on subtotal before tax
                     $tax_amount = $subtotal_before_tax * ($tax->value / 100);
                 } else {
-                    Log::warning("Invalid tax ID provided", ['tax_id' => $tax_id]);
                 }
             }
         }
@@ -482,8 +473,8 @@ class ProductCart extends Component
         // Return recalculated values
         return [
             'sub_total' => $subtotal_before_tax + $tax_amount, // Total with tax
-            'tax_amount' => $tax_amount,                      // Tax amount
-            'subtotal_before_tax' => $subtotal_before_tax,    // Total without tax
+            'product_tax_amount' => $tax_amount,                      // Tax amount
+            'sub_total_before_tax' => $subtotal_before_tax,    // Total without tax
         ];
     }
 
@@ -551,7 +542,8 @@ class ProductCart extends Component
             'unit_price' => $this->is_tax_included ? $adjusted_price : $unit_price,
             'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total' => $updated_cart_data['sub_total'],
-                'sub_total_before_tax' => $updated_cart_data['subtotal_before_tax'],
+                'sub_total_before_tax' => $updated_cart_data['sub_total_before_tax'],
+                'product_tax_amount' => $updated_cart_data['product_tax_amount'],
                 'product_discount' => $discount_amount,
                 'product_discount_input' => $this->item_discount[$product_id],
                 'product_discount_type' => $this->discount_type[$product_id],
@@ -591,8 +583,8 @@ class ProductCart extends Component
             'unit_price' => $new_price,
             'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total' => $calculated['sub_total'],
-                'sub_total_before_tax' => $calculated['subtotal_before_tax'],
-                'tax_amount' => $calculated['tax_amount'],
+                'sub_total_before_tax' => $calculated['sub_total_before_tax'],
+                'product_tax_amount' => $calculated['product_tax_amount'],
                 'product_discount' => $discount_amount,
                 'product_discount_input' => $sanitized_discount_input,
             ]),
@@ -631,8 +623,8 @@ class ProductCart extends Component
             'average_purchase_price'  => $avgPurchase,
             'product_tax'             => $purchaseTaxId,                 // may be null
             'sub_total'               => $calc['sub_total'],
-            'sub_total_before_tax'    => $calc['subtotal_before_tax'],
-            'tax_amount'              => $calc['tax_amount'],
+            'sub_total_before_tax'    => $calc['sub_total_before_tax'],
+            'product_tax_amount'              => $calc['product_tax_amount'],
         ];
     }
 
@@ -677,11 +669,6 @@ class ProductCart extends Component
         if ($tax_id) {
             $tax = Tax::find($tax_id);
             if ($tax) {
-                Log::info('Tax applied', [
-                    'product_id' => $product_id,
-                    'tax_id' => $tax_id,
-                    'tax_value' => $tax->value,
-                ]);
 
                 // Use reusable helper to calculate values
                 $updated_cart_data = $this->calculateSubtotalAndTax(
@@ -696,19 +683,14 @@ class ProductCart extends Component
                     'options' => array_merge($cart_item->options->toArray(), [
                         'product_tax' => $tax_id,
                         'sub_total' => $updated_cart_data['sub_total'],
-                        'sub_total_before_tax' => $updated_cart_data['subtotal_before_tax'],
+                        'sub_total_before_tax' => $updated_cart_data['sub_total_before_tax'],
                     ]),
                 ]);
 
                 // Trigger cart recalculation
                 $this->recalculateCart();
 
-                Log::info('Tax updated successfully', [
-                    'row_id' => $row_id,
-                    'updated_cart_data' => $updated_cart_data,
-                ]);
             } else {
-                Log::warning('Invalid tax ID provided', ['tax_id' => $tax_id]);
                 session()->flash('message', 'Invalid tax selected.');
             }
         } else {
@@ -723,12 +705,11 @@ class ProductCart extends Component
                 'options' => array_merge($cart_item->options->toArray(), [
                     'product_tax' => $tax_id,
                     'sub_total' => $updated_cart_data['sub_total'],
-                    'sub_total_before_tax' => $updated_cart_data['subtotal_before_tax'],
+                    'sub_total_before_tax' => $updated_cart_data['sub_total_before_tax'],
                 ]),
             ]);
 
             $this->recalculateCart();
-            Log::warning('No tax ID provided for product', ['product_id' => $product_id]);
         }
     }
 
@@ -756,17 +737,10 @@ class ProductCart extends Component
                 'options' => array_merge($cart_item->options->toArray(), [
                     'product_tax' => $tax_id,
                     'sub_total' => $calculated['sub_total'],
-                    'sub_total_before_tax' => $calculated['subtotal_before_tax'],
+                    'sub_total_before_tax' => $calculated['sub_total_before_tax'],
                 ]),
             ]);
 
-            // Log the updated cart item for debugging purposes
-            Log::info('Updated cart item for tax inclusion', [
-                'row_id' => $row_id,
-                'sub_total' => $calculated['sub_total'],
-                'sub_total_before_tax' => $calculated['subtotal_before_tax'],
-                'tax_amount' => $calculated['tax_amount'],
-            ]);
         }
 
         // Recalculate cart totals
