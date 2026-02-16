@@ -96,13 +96,13 @@ class PurchasePaymentsDataTable extends DataTable
                 ->printable(false)
                 ->className('align-middle text-center'),
 
+            Column::make('status')
+                ->title('Status')
+                ->className('align-middle text-center'),
+
             Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
-                ->className('align-middle text-center'),
-
-            Column::make('status')
-                ->title('Status')
                 ->className('align-middle text-center'),
 
             Column::make('created_at')

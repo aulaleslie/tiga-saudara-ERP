@@ -109,8 +109,7 @@ class PurchaseReturnSettlementRefinementTest extends TestCase
             'setting_id' => $setting->id,
         ]);
 
-        // Add purchase detail so it matches loadUnpaidPurchases filter
-        $this->purchase->purchaseDetails()->create([
+        $purchaseDetail = $this->purchase->purchaseDetails()->create([
             'product_id' => $this->product->id,
             'product_name' => $this->product->product_name,
             'product_code' => $this->product->product_code,
@@ -120,6 +119,19 @@ class PurchaseReturnSettlementRefinementTest extends TestCase
             'sub_total' => 1000,
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = \Modules\Purchase\Entities\ReceivedNote::create([
+            'date' => now(),
+            'external_delivery_number' => 'GRN-001',
+            'po_id' => $this->purchase->id,
+            'status' => \Modules\Purchase\Entities\ReceivedNote::STATUS_APPROVED,
+        ]);
+
+        \Modules\Purchase\Entities\ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 1,
         ]);
 
         $this->purchaseReturn = PurchaseReturn::create([

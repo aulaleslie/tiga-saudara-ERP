@@ -98,6 +98,11 @@ class ProductCart extends Component
                 $qty = $this->quantity[$cart_item->id] ?? $cart_item->qty;
                 $this->quantityBreakdowns[$cart_item->id] = $this->calculateConversionBreakdown($cart_item->id, $qty);
             }
+
+            $this->dispatch('taxIncludedUpdated', $this->is_tax_included);
+            $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
+            $this->dispatch('globalDiscountUpdated', $this->global_discount);
+            $this->dispatch('shippingUpdated', $this->shipping);
         } else {
             $this->global_discount = 0;
             $this->shipping = 0.00;

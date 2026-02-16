@@ -87,6 +87,6 @@ class PurchaseProductCartDefaultTaxTest extends TestCase
         $this->assertNotNull($cartItem);
         $this->assertSame($defaultTax->id, (int) $cartItem->options->product_tax);
         $this->assertTrue((float) $cartItem->options->sub_total > (float) $cartItem->options->sub_total_before_tax);
-        $this->assertTrue((float) $cartItem->options->tax_amount > 0);
+        $this->assertTrue((float) $cartItem->options->product_tax_amount > 0);
     }
 }

@@ -56,21 +56,8 @@
                 <div class="card">
                     <div class="card-body">
                         <h4 class="mb-3">Pembelian</h4>
-                        <div class="table-responsive">
-                            <table id="purchases-table" class="table table-striped table-bordered">
-                                <thead>
-                                <tr>
-                                    <th>Reference</th>
-                                    <th>Nama Pemasok</th>
-                                    <th>Status</th>
-                                    <th>Jumlah Total</th>
-                                    <th>Jumlah yang Dibayar</th>
-                                    <th>Jumlah Jatuh Tempo</th>
-                                    <th>Status Pembayaran</th>
-                                    <th>Aksi</th>
-                                </tr>
-                                </thead>
-                            </table>
+                        <div class="table-responsive" style="min-height: 300px;">
+                            <livewire:purchase.purchase-table :supplier-id="$supplier->id" />
                         </div>
                     </div>
                 </div>
@@ -78,30 +65,3 @@
         </div>
     </div>
 @endsection
-
-@push('page_scripts')
-    <script>
-        $(document).ready(function () {
-            $('#purchases-table').DataTable({
-                processing: true,
-                serverSide: true,
-                ajax: {
-                    url: '{{ route("datatable.purchases") }}',
-                    data: function (d) {
-                        d.supplier_id = '{{ $supplier->id }}'; // Add supplier_id to the request
-                    }
-                },
-                columns: [
-                    { data: 'reference', name: 'reference' },
-                    { data: 'supplier_name', name: 'supplier_name' },
-                    { data: 'status', name: 'status', orderable: false },
-                    { data: 'total_amount', name: 'total_amount', orderable: false },
-                    { data: 'paid_amount', name: 'paid_amount', orderable: false },
-                    { data: 'due_amount', name: 'due_amount', orderable: false },
-                    { data: 'payment_status', name: 'payment_status', orderable: false },
-                    { data: 'action', name: 'action', orderable: false, searchable: false },
-                ]
-            });
-        });
-    </script>
-@endpush

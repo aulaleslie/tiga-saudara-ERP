@@ -43,9 +43,11 @@
             <th wire:click="sortBy('date')" style="cursor:pointer">
                 Tanggal {!! $this->sortIcon('date') !!}
             </th>
-            <th wire:click="sortBy('supplier_id')" style="cursor:pointer">
-                Supplier {!! $this->sortIcon('supplier_id') !!}
-            </th>
+            @if (!$supplierId)
+                <th wire:click="sortBy('supplier_id')" style="cursor:pointer">
+                    Supplier {!! $this->sortIcon('supplier_id') !!}
+                </th>
+            @endif
             <th>Total</th>
             <th wire:click="sortBy('due_amount')" style="cursor:pointer">
                 Sisa Pembayaran {!! $this->sortIcon('due_amount') !!}
@@ -80,7 +82,9 @@
                 <td>
                     {{ Carbon::parse($purchase->date)->format('d M Y') }}
                 </td>
-                <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
+                @if (!$supplierId)
+                    <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
+                @endif
                 <td>{{ format_currency($purchase->total_amount) }}</td>
                 <td>{{ format_currency($purchase->due_amount) }}</td>
                 <td>
@@ -96,7 +100,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="11">Tidak ada data yang ditemukan.</td>
+                <td colspan="{{ $supplierId ? 10 : 11 }}">Tidak ada data yang ditemukan.</td>
             </tr>
         @endforelse
         </tbody>

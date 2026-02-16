@@ -488,18 +488,21 @@ class CreateForm extends Component
         $this->payment_term = $purchase->payment_term_id;
         $this->lastAppliedPaymentTermId = $this->currentPaymentTermId();
         $this->note = $purchase->note;
-        $this->date = Carbon::parse($purchase->date)->format('Y-m-d');
-        $this->due_date = Carbon::parse($purchase->due_date)->format('Y-m-d');
+        $this->date = now()->format('Y-m-d');
+        $this->updateDueDateFromPaymentTerm();
         $this->dueDateIsManual = $this->isCustomPaymentTerm($this->payment_term ? (int) $this->payment_term : null);
         $this->tags = $purchase->tags->pluck('name')->toArray();
         $this->supplier_purchase_number = null;
         $this->tax_ref_no = null;
 
         if ($purchase->discount_percentage > 0) {
+            $this->global_discount_type = 'percentage';
             $this->global_discount = $purchase->discount_percentage;
         } elseif ($purchase->discount_amount > 0) {
+            $this->global_discount_type = 'fixed';
             $this->global_discount = $purchase->discount_amount;
         } else {
+            $this->global_discount_type = 'percentage';
             $this->global_discount = 0;
         }
 

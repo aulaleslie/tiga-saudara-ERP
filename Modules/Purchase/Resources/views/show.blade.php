@@ -413,7 +413,18 @@
                             <div class="col-lg-12">
                                 <div class="card">
                                     <div class="card-body">
-                                        <h4 class="mb-3">Pembayaran</h4>
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <h4 class="mb-0">Pembayaran</h4>
+                                            @can('purchasePayments.create')
+                                                @if($purchase->status === Purchase::STATUS_RECEIVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY)
+                                                    @if($purchase->due_amount > 0)
+                                                        <a href="{{ route('purchase-payments.create', $purchase->id) }}" class="btn btn-primary btn-sm">
+                                                            Tambah Pembayaran <i class="bi bi-plus"></i>
+                                                        </a>
+                                                    @endif
+                                                @endif
+                                            @endcan
+                                        </div>
                                         <div class="table-responsive">
                                             <table id="payments-table" class="table table-striped table-bordered">
                                                 <thead>
@@ -423,6 +434,7 @@
                                                     <th>Jumlah Pembayaran</th>
                                                     <th>Metode Pembayaran</th>
                                                     <th>Lampiran</th>
+                                                    <th>Status</th>
                                                     <th>Aksi</th>
                                                 </tr>
                                                 </thead>
@@ -576,6 +588,7 @@
                             return data ? data : 'Tidak ada';
                         }
                     },
+                    { data: 'status', name: 'status', title: 'Status', className: 'text-center' },
                     {
                         data: 'action',
                         name: 'action',

@@ -21,6 +21,15 @@
             <div class="col-12">
                 @include('utils.alerts')
                 <div class="card">
+                    <div class="card-header">
+                        @can('purchasePayments.create')
+                            @if(($purchase->status === \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED || $purchase->status === \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED_PARTIALLY) && $purchase->due_amount > 0)
+                                <a href="{{ route('purchase-payments.create', $purchase->id) }}" class="btn btn-primary">
+                                    Tambah Pembayaran <i class="bi bi-plus"></i>
+                                </a>
+                            @endif
+                        @endcan
+                    </div>
                     <div class="card-body">
                         <div class="table-responsive">
                             {!! $dataTable->table() !!}
