@@ -488,21 +488,18 @@ class CreateForm extends Component
         $this->payment_term = $purchase->payment_term_id;
         $this->lastAppliedPaymentTermId = $this->currentPaymentTermId();
         $this->note = $purchase->note;
-        $this->date = now()->format('Y-m-d');
-        $this->updateDueDateFromPaymentTerm();
+        $this->date = Carbon::parse($purchase->date)->format('Y-m-d');
+        $this->due_date = Carbon::parse($purchase->due_date)->format('Y-m-d');
         $this->dueDateIsManual = $this->isCustomPaymentTerm($this->payment_term ? (int) $this->payment_term : null);
         $this->tags = $purchase->tags->pluck('name')->toArray();
         $this->supplier_purchase_number = null;
         $this->tax_ref_no = null;
 
         if ($purchase->discount_percentage > 0) {
-            $this->global_discount_type = 'percentage';
             $this->global_discount = $purchase->discount_percentage;
         } elseif ($purchase->discount_amount > 0) {
-            $this->global_discount_type = 'fixed';
             $this->global_discount = $purchase->discount_amount;
         } else {
-            $this->global_discount_type = 'percentage';
             $this->global_discount = 0;
         }
 
@@ -527,11 +524,6 @@ class CreateForm extends Component
             $product = $detail->product;
             $subTotalBeforeTax = $detail->sub_total - $detail->product_tax_amount;
 
-            $discountInput = $detail->product_discount_amount;
-            if ($detail->product_discount_type === 'percentage') {
-                $discountInput = $detail->price > 0 ? ($detail->product_discount_amount / $detail->price) * 100 : 0;
-            }
-
             $cart->add([
                 'id' => $detail->product_id,
                 'name' => $detail->product_name,
@@ -540,7 +532,6 @@ class CreateForm extends Component
                 'weight' => 1,
                 'options' => [
                     'product_discount' => $detail->product_discount_amount,
-                    'product_discount_input' => round($discountInput, 2),
                     'product_discount_type' => $detail->product_discount_type,
                     'sub_total' => $detail->sub_total,
                     'sub_total_before_tax' => $subTotalBeforeTax,

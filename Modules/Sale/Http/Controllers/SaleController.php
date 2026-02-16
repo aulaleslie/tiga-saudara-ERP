@@ -573,7 +573,7 @@ class SaleController extends Controller
                             if ($snRecord->dispatch_detail_id) {
                                 $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} sudah terpakai.");
                             }
-                            if ($snRecord->status !== 'active') {
+                            if (strtoupper($snRecord->status) !== ProductSerialNumber::STATUS_ACTIVE) {
                                 $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} tidak aktif.");
                             }
                             
@@ -587,10 +587,15 @@ class SaleController extends Controller
                             }
 
                             // Tax validation
-                            $expectedTaxId = !empty($taxId) ? (int)$taxId : null;
-                            $actualTaxId = $snRecord->tax_id ? (int)$snRecord->tax_id : null;
-                            if ($expectedTaxId !== $actualTaxId) {
-                                $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Status pajak serial {$serialNumber} tidak sesuai.");
+                            $isTaxedSaleItem = !empty($taxId) && (int)$taxId > 0;
+                            if ($isTaxedSaleItem) {
+                                if (is_null($snRecord->tax_id)) {
+                                    $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} tidak memiliki status pajak (non-pajak), sehingga tidak dapat digunakan untuk penjualan berpajak.");
+                                }
+                            } else {
+                                if (!is_null($snRecord->tax_id)) {
+                                    $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} memiliki status pajak, sehingga tidak dapat digunakan untuk penjualan non-pajak.");
+                                }
                             }
                         }
                     }

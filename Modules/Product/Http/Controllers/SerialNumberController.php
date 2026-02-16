@@ -81,11 +81,11 @@ class SerialNumberController extends Controller
 
         // Check tax mismatch if expected_tax_id is provided
         if (isset($validated['expected_tax_id'])) {
-            $expectedTaxId = $validated['expected_tax_id'] ? (int) $validated['expected_tax_id'] : null;
-            $serialTaxId = $serial->tax_id ? (int) $serial->tax_id : null;
+            $isExpectedTaxed = $validated['expected_tax_id'] && (int)$validated['expected_tax_id'] > 0;
+            $isSerialTaxed = !is_null($serial->tax_id);
 
-            if ($expectedTaxId !== $serialTaxId) {
-                $taxMismatchMsg = $expectedTaxId
+            if ($isExpectedTaxed !== $isSerialTaxed) {
+                $taxMismatchMsg = $isExpectedTaxed
                     ? 'Serial number ini Non-PPN, tidak bisa digunakan untuk produk PPN.'
                     : 'Serial number ini PPN, tidak bisa digunakan untuk produk Non-PPN.';
                 return response()->json([
