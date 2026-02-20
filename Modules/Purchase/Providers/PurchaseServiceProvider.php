@@ -29,6 +29,12 @@ class PurchaseServiceProvider extends ServiceProvider
         $this->registerViews();
         $this->registerLivewireComponents();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                \Modules\Purchase\Console\BackfillReceivingSerials::class,
+            ]);
+        }
     }
 
     /**

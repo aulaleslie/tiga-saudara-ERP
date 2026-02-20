@@ -66,8 +66,13 @@ trait ValidatesPurchaseReturnForm
                 $validator->errors()->add("rows.$index.serial_numbers", 'Produk ini tidak memerlukan nomor seri.');
             }
 
-            if (! empty($row['serial_number_required']) && empty($row['serial_numbers'])) {
-                $validator->errors()->add("rows.$index.serial_numbers", 'Produk memerlukan nomor seri.');
+            if (! empty($row['serial_number_required'])) {
+                if (empty($row['serial_numbers'])) {
+                    $validator->errors()->add("rows.$index.serial_numbers", 'Produk memerlukan nomor seri.');
+                }
+                if (empty($row['purchase_order_id'])) {
+                    $validator->errors()->add("rows.$index.purchase_order_id", 'Nomor seri harus memiliki referensi pembelian. Pilih ulang nomor seri.');
+                }
             }
 
             if ($productId !== null && $locationId !== null) {
@@ -114,7 +119,6 @@ trait ValidatesPurchaseReturnForm
                 if ($locationId !== null) {
                     $serialsWithMismatches = ProductSerialNumber::whereIn('serial_number', $serialNumbers)
                         ->where('product_id', $productId)
-                        ->with(['receivedNoteDetail.receivedNote'])
                         ->get();
 
                     foreach ($serialsWithMismatches as $psn) {
@@ -122,6 +126,12 @@ trait ValidatesPurchaseReturnForm
                             $validator->errors()->add(
                                 "rows.$index.serial_numbers",
                                 "Nomor seri '{$psn->serial_number}' berada di lokasi yang berbeda."
+                            );
+                        }
+                        if ($purchaseOrderId !== null && $psn->resolveCurrentPurchaseId() != $purchaseOrderId) {
+                            $validator->errors()->add(
+                                "rows.$index.serial_numbers",
+                                "Nomor seri '{$psn->serial_number}' berasal dari pembelian yang berbeda."
                             );
                         }
                         if (strtoupper($psn->status) !== ProductSerialNumber::STATUS_ACTIVE) {

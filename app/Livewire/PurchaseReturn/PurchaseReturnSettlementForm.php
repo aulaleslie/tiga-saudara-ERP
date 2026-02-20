@@ -69,13 +69,14 @@ class PurchaseReturnSettlementForm extends Component
 
             if ($detail->product->serial_number_required) {
                 // Get ProductSerialNumber entities to get their IDs
-                $snEntities = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail.purchase'])
+                $snEntities = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetails.purchaseDetail.purchase'])
                     ->whereIn('id', $detail->serial_number_ids ?? [])
                     ->get();
-                
+
                 foreach ($snEntities as $snEntity) {
                     $existing = $existingSettlements->where('product_serial_number_id', $snEntity->id)->first();
-                    $originPurchase = $snEntity->receivedNoteDetail?->purchaseDetail?->purchase;
+                    // Resolve origin purchase via pivot-aware strategy (M:N-first fallback)
+                    $originPurchase = $this->resolveOriginPurchaseForSerial($snEntity, $detail->purchase);
                     $originPurchaseId = $originPurchase?->id;
                     $originPurchasePaymentStatus = $originPurchase?->payment_status;
                     
@@ -309,19 +310,23 @@ class PurchaseReturnSettlementForm extends Component
                 // Default to full line value before target purchase recalculation.
                  $this->settlementLines[$index]['nominal'] = $this->settlementLines[$index]['max_nominal'];
 
-                 // Auto-select purchase for serial number
+                 // Auto-select purchase for serial number via cached origin_purchase_id
                  $serialNumberId = $this->settlementLines[$index]['serial_number_id'] ?? null;
                  if ($serialNumberId) {
-                     $sn = ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail.purchase'])
-                         ->find($serialNumberId);
-                     
-                     $purchase = $sn?->receivedNoteDetail?->purchaseDetail?->purchase ?? null;
+                     $originPurchaseId = $this->settlementLines[$index]['origin_purchase_id'] ?? null;
+                     if ($originPurchaseId) {
+                         $productId = $this->settlementLines[$index]['product_id'];
+                         $purchase = Purchase::with([
+                             'purchaseDetails' => fn($q) => $q->where('product_id', $productId)
+                         ])->find($originPurchaseId);
+
                          if ($purchase) {
                              $this->settlementLines[$index]['target_purchase_id'] = $purchase->id;
-                             
+
                              // Ensure it exists in dropdown options.
-                             $this->ensurePurchaseInList($purchase, $method, $this->settlementLines[$index]['product_id']);
+                             $this->ensurePurchaseInList($purchase, $method, $productId);
                          }
+                     }
                  } else {
                      // Auto-select purchase for non-serial when origin is unpaid and return <= due
                      $originPurchaseId = $this->settlementLines[$index]['origin_purchase_id'] ?? null;
@@ -582,6 +587,33 @@ class PurchaseReturnSettlementForm extends Component
         }
 
         return null;
+    }
+
+    /**
+     * Resolve origin purchase for a serial number via M:N-aware strategy.
+     * Priority: 1) PurchaseReturnDetail.purchase (if set), 2) Pivot filter, 3) Legacy FK
+     */
+    protected function resolveOriginPurchaseForSerial(
+        ProductSerialNumber $sn,
+        ?Purchase $detailPurchase
+    ): ?Purchase {
+        // Step 1: Use PurchaseReturnDetail.purchase if available (most reliable)
+        if ($detailPurchase) {
+            return $detailPurchase;
+        }
+
+        // Step 2: Filter pivot by any available origin purchase context
+        if ($sn->receivedNoteDetails->isNotEmpty()) {
+            $firstPivot = $sn->receivedNoteDetails->first(
+                fn($rnd) => $rnd->purchaseDetail?->purchase_id !== null
+            );
+            if ($firstPivot?->purchaseDetail?->purchase) {
+                return $firstPivot->purchaseDetail->purchase;
+            }
+        }
+
+        // Step 3: Legacy FK fallback (backward compat for old data)
+        return $sn->receivedNoteDetail?->purchaseDetail?->purchase;
     }
 
     public function render(): View

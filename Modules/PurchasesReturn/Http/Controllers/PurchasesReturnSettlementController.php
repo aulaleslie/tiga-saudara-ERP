@@ -300,9 +300,21 @@ class PurchasesReturnSettlementController extends Controller
 
                     if ($isSerial) {
                         $serial = $itemSettlement->serialNumber;
+
+                        // Record that the serial was returned (for history tracking on the original purchase)
+                        SerialNumberHistoryService::record(
+                            $serial->id,
+                            SerialNumberHistory::EVENT_PURCHASE_RETURNED,
+                            $sourceLocationId,
+                            $itemSettlement
+                        );
+
                         $replacementSerialNumber = trim($request->replacement_serial_number);
-                        $sourceReceivedNoteDetailId = $this->resolveReceivedNoteDetailIdForSerial($serial);
-                        $sourcePurchaseId = $this->resolveOriginPurchaseIdByReceivedDetailId($sourceReceivedNoteDetailId);
+                        // Resolve origin purchase from return detail context
+                        $originPurchaseId = $itemSettlement->detail?->po_id ? (int) $itemSettlement->detail->po_id : null;
+                        $sourceReceivedNoteDetail = $this->resolveReceivedNoteDetailForSerialInPurchaseContext($serial, $originPurchaseId);
+                        $sourceReceivedNoteDetailId = $sourceReceivedNoteDetail?->id;
+                        $sourcePurchaseId = $sourceReceivedNoteDetail?->purchaseDetail?->purchase_id ?? $originPurchaseId;
 
                         // Handle serial number replacement logic
                         if ($replacementSerialNumber !== $serial->serial_number) {
@@ -335,8 +347,9 @@ class PurchasesReturnSettlementController extends Controller
 
                             // Create new record for the replacement (or reactivate if it exists as returned/broken)
                             if ($replacementRecord) {
-                                $replacementReceivedNoteDetailId = $this->resolveReceivedNoteDetailIdForSerial($replacementRecord);
-                                $replacementPurchaseId = $this->resolveOriginPurchaseIdByReceivedDetailId($replacementReceivedNoteDetailId);
+                                $replacementReceivedNoteDetail = $this->resolveReceivedNoteDetailForSerialInPurchaseContext($replacementRecord, $originPurchaseId);
+                                $replacementReceivedNoteDetailId = $replacementReceivedNoteDetail?->id;
+                                $replacementPurchaseId = $replacementReceivedNoteDetail?->purchaseDetail?->purchase_id;
                                 $isCrossPurchaseMove = $sourcePurchaseId
                                     && $replacementPurchaseId
                                     && (int) $sourcePurchaseId !== (int) $replacementPurchaseId;
@@ -360,6 +373,12 @@ class PurchasesReturnSettlementController extends Controller
                                     'purchase_return_id' => null,
                                     'received_note_detail_id' => $finalReceivedNoteDetailId,
                                 ]);
+
+                                // Link via pivot for M:N support (in addition to legacy FK for backward compat)
+                                if ($sourceReceivedNoteDetail) {
+                                    $sourceReceivedNoteDetail->productSerialNumbers()->syncWithoutDetaching([$replacementRecord->id]);
+                                }
+
                                 $itemSettlement->replacement_serial_number_id = $replacementRecord->id;
 
                                 SerialNumberHistoryService::record(
@@ -379,6 +398,12 @@ class PurchasesReturnSettlementController extends Controller
                                     'tax_id' => $serial->tax_id, // Preserve tax settings
                                     'received_note_detail_id' => $sourceReceivedNoteDetailId,
                                 ]);
+
+                                // Link via pivot for M:N support (in addition to legacy FK for backward compat)
+                                if ($sourceReceivedNoteDetail) {
+                                    $sourceReceivedNoteDetail->productSerialNumbers()->syncWithoutDetaching([$newSerial->id]);
+                                }
+
                                 $itemSettlement->replacement_serial_number_id = $newSerial->id;
 
                                 SerialNumberHistoryService::record(
@@ -466,6 +491,45 @@ class PurchasesReturnSettlementController extends Controller
         } catch (\Exception $e) {
             return back()->with('error', 'Gagal menerima item: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Resolve ReceivedNoteDetail for a serial in a specific purchase context (M:N aware).
+     * Priority: 1) Pivot filtered by originPurchaseId, 2) Legacy FK, 3) Latest RECEIVED history
+     */
+    protected function resolveReceivedNoteDetailForSerialInPurchaseContext(
+        ProductSerialNumber $serial,
+        ?int $originPurchaseId
+    ): ?ReceivedNoteDetail {
+        // Step 1: Pivot-based resolution filtered by origin purchase context
+        if ($originPurchaseId) {
+            $serial->loadMissing('receivedNoteDetails.purchaseDetail');
+            $match = $serial->receivedNoteDetails
+                ->first(fn($rnd) => (int) ($rnd->purchaseDetail?->purchase_id) === $originPurchaseId);
+            if ($match) {
+                return $match;
+            }
+        }
+
+        // Step 2: Legacy FK fallback (backward compat)
+        if (!empty($serial->received_note_detail_id)) {
+            return ReceivedNoteDetail::find($serial->received_note_detail_id);
+        }
+
+        // Step 3: Latest RECEIVED history fallback
+        $receivedHistory = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serial->id)
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->where('reference_type', ReceivedNoteDetail::class)
+            ->whereNotNull('reference_id')
+            ->latest('id')
+            ->first(['reference_id']);
+
+        if (!$receivedHistory || !$receivedHistory->reference_id) {
+            return null;
+        }
+
+        return ReceivedNoteDetail::find($receivedHistory->reference_id);
     }
 
     protected function resolveReceivedNoteDetailIdForSerial(ProductSerialNumber $serial): ?int
@@ -892,21 +956,29 @@ class PurchasesReturnSettlementController extends Controller
                     : max(0, $previousTotal - $previousPaidAmount);
 
                 $serial = null;
+                $matchedRnd = null;
                 if ($item->product_serial_number_id) {
-                    $serial = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail'])
+                    $serial = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetails.purchaseDetail'])
                         ->lockForUpdate()
                         ->find($item->product_serial_number_id);
+                    // Filter pivot by target purchase to get the correct received note detail in purchase context
+                    if ($serial) {
+                        $targetPurchaseId = (int) $purchase->id;
+                        $matchedRnd = $serial->receivedNoteDetails
+                            ->first(fn($rnd) => (int) ($rnd->purchaseDetail?->purchase_id) === $targetPurchaseId);
+                    }
                 }
 
-                if ($serial && $serial->receivedNoteDetail && $serial->receivedNoteDetail->purchaseDetail) {
-                    $purchaseDetail = $serial->receivedNoteDetail->purchaseDetail;
+                if ($serial && $matchedRnd?->purchaseDetail) {
+                    $purchaseDetail = $matchedRnd->purchaseDetail;
+                    // Verify purchase match (guaranteed by filter above, but defensive check)
                     if ((int) $purchaseDetail->purchase_id !== (int) $purchase->id) {
                         throw new \Exception('Nota pembelian target tidak sesuai dengan asal serial number.');
                     }
 
                     $this->ensurePurchaseDetailHasQuantity($purchaseDetail, $returnQty);
                     $this->reducePurchaseDetailAmounts($purchaseDetail, $returnQty);
-                    $this->reduceReceivedNoteDetailQuantity($serial->receivedNoteDetail, $returnQty);
+                    $this->reduceReceivedNoteDetailQuantity($matchedRnd, $returnQty);
                 } else {
                     $purchaseDetails = $purchase->purchaseDetails->where('product_id', $detail->product_id);
                     if ($purchaseDetails->isEmpty()) {
@@ -1178,17 +1250,24 @@ class PurchasesReturnSettlementController extends Controller
                         $previousTotal = (float) $purchase->total_amount;
 
                         $serial = null;
+                        $matchedRnd = null;
                         if ($item->product_serial_number_id) {
-                            $serial = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetail.purchaseDetail'])
+                            $serial = \Modules\Product\Entities\ProductSerialNumber::with(['receivedNoteDetails.purchaseDetail'])
                                 ->lockForUpdate()
                                 ->find($item->product_serial_number_id);
+                            // Filter pivot by target purchase to get the correct received note detail in purchase context
+                            if ($serial) {
+                                $targetPurchaseId = (int) $purchase->id;
+                                $matchedRnd = $serial->receivedNoteDetails
+                                    ->first(fn($rnd) => (int) ($rnd->purchaseDetail?->purchase_id) === $targetPurchaseId);
+                            }
                         }
 
-                        if ($serial && $serial->receivedNoteDetail && $serial->receivedNoteDetail->purchaseDetail) {
-                            $purchaseDetail = $serial->receivedNoteDetail->purchaseDetail;
+                        if ($serial && $matchedRnd?->purchaseDetail) {
+                            $purchaseDetail = $matchedRnd->purchaseDetail;
                             $this->ensurePurchaseDetailHasQuantity($purchaseDetail, $returnQty);
                             $this->reducePurchaseDetailAmounts($purchaseDetail, $returnQty);
-                            $this->reduceReceivedNoteDetailQuantity($serial->receivedNoteDetail, $returnQty);
+                            $this->reduceReceivedNoteDetailQuantity($matchedRnd, $returnQty);
                         } else {
                             $purchaseDetails = $purchase->purchaseDetails->where('product_id', $detail->product_id);
                             if ($purchaseDetails->isEmpty()) {

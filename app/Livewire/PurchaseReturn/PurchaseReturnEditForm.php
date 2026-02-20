@@ -197,6 +197,8 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
                         'location_id' => $serial->location_id,
                         'location_name' => $serial->location->name ?? null,
                         'location_label' => ($serial->location->setting->company_name ?? 'N/A') . ' - ' . ($serial->location->name ?? 'N/A'),
+                        'purchase_order_id' => $serial->resolveCurrentPurchaseId(),
+                        'purchase_reference' => \Modules\Purchase\Entities\Purchase::find($serial->resolveCurrentPurchaseId())?->reference,
                     ] : null;
                 })
                 ->filter()
@@ -205,7 +207,9 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
 
             $purchase = $detail->purchase ?? ($detail->po_id ? Purchase::find($detail->po_id) : null);
             $purchaseDate = null;
+            $purchaseReference = '';
             if ($purchase) {
+                $purchaseReference = $purchase->reference;
                 $date = $purchase->date;
                 if ($date instanceof Carbon) {
                     $purchaseDate = $date->format('Y-m-d');
@@ -246,6 +250,7 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
                 'location_name' => $rowLocationLabel ?? '-',
                 'location_locked' => $serialRequired,
                 'purchase_order_id' => $detail->po_id,
+                'purchase_order_reference' => $purchaseReference,
                 'purchase_order_date' => $purchaseDate,
                 'purchase_price' => (float) ($detail->unit_price ?? $detail->price ?? 0),
                 'serial_numbers' => $serialNumbers,

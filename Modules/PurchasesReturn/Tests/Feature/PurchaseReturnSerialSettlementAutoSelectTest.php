@@ -164,6 +164,7 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
             'reference' => 'PR-123',
+            'return_dispatch_status' => 'dispatched',
         ]);
 
         $prd = PurchaseReturnDetail::create([
@@ -178,6 +179,7 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
             'location_id' => $this->location->id,
+            'po_id' => $purchase->id,
             'serial_number_ids' => [$serial->id],
         ]);
 
@@ -250,6 +252,7 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
             'supplier_id' => $this->supplier->id,
             'supplier_name' => $this->supplier->supplier_name,
             'setting_id' => $this->setting->id,
+            'location_id' => $this->location->id,
             'total_amount' => 2000,
             'paid_amount' => 0,
             'due_amount' => 2000,
@@ -261,6 +264,7 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
             'reference' => 'PR-456',
+            'return_dispatch_status' => 'dispatched',
         ]);
         PurchaseReturnDetail::create([
             'purchase_return_id' => $purchaseReturn->id,
@@ -274,6 +278,7 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
             'location_id' => $this->location->id,
+            'po_id' => $purchase1->id,
         ]);
         PurchaseReturnDetail::create([
             'purchase_return_id' => $purchaseReturn->id,

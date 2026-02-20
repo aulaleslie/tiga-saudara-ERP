@@ -8,6 +8,7 @@ use Modules\Purchase\Entities\ReceivedNote;
 use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
+use Illuminate\Support\Facades\DB;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
 use Yajra\DataTables\Services\DataTable;
@@ -42,109 +43,9 @@ class PurchaseReceivingsDataTable extends DataTable
                 $detailIds = $data->receivedNoteDetails->pluck('id');
                 $purchaseId = (int) ($data->po_id ?? 0);
 
-                $receivedSerialIds = collect();
-                if ($detailIds->isNotEmpty()) {
-                    $receivedSerialIds = ProductSerialNumber::query()
-                        ->where(function ($query) use ($detailIds) {
-                            $query->whereIn('received_note_detail_id', $detailIds)
-                                ->orWhereIn('id', function ($subQuery) use ($detailIds) {
-                                    $subQuery->select('product_serial_number_id')
-                                        ->from('serial_number_histories')
-                                        ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
-                                        ->where('reference_type', ReceivedNoteDetail::class)
-                                        ->whereIn('reference_id', $detailIds);
-                                });
-                        })
-                        ->pluck('id');
-                }
-
-                $returnedSerialsByHistory = collect();
-                if ($receivedSerialIds->isNotEmpty() && $purchaseId > 0) {
-                    $returnedSerialsByHistory = ProductSerialNumber::query()
-                        ->whereIn('id', $receivedSerialIds)
-                        ->whereIn('id', function ($query) use ($purchaseId) {
-                            $query->select('product_serial_number_id')
-                                ->from('serial_number_histories')
-                                ->where('event_type', SerialNumberHistory::EVENT_PURCHASE_RETURNED)
-                                ->where(function ($q) use ($purchaseId) {
-                                    $q->where(function ($q1) use ($purchaseId) {
-                                        $q1->where('reference_type', PurchaseReturn::class)
-                                            ->whereIn('reference_id', function ($sub) use ($purchaseId) {
-                                                $sub->select('purchase_return_id')
-                                                    ->from('purchase_return_details')
-                                                    ->where('po_id', $purchaseId);
-                                            });
-                                    })
-                                    ->orWhere(function ($q2) use ($purchaseId) {
-                                        $q2->where('reference_type', PurchaseReturnItemSettlement::class)
-                                            ->whereIn('reference_id', function ($sub) use ($purchaseId) {
-                                                $sub->select('id')
-                                                    ->from('purchase_return_item_settlements')
-                                                    ->whereIn('purchase_return_detail_id', function ($sub2) use ($purchaseId) {
-                                                        $sub2->select('id')
-                                                            ->from('purchase_return_details')
-                                                            ->where('po_id', $purchaseId);
-                                                    });
-                                            });
-                                    });
-                                });
-                        })
-                        ->get();
-                }
-
-                $returnedSerialsByState = collect();
-                if ($receivedSerialIds->isNotEmpty() && $purchaseId > 0) {
-                    $fallbackSerialIds = PurchaseReturnItemSettlement::query()
-                        ->where('target_purchase_id', $purchaseId)
-                        ->whereRaw('UPPER(method) = ?', ['MODIFY_PURCHASE'])
-                        ->whereRaw('UPPER(status) = ?', [PurchaseReturnItemSettlement::STATUS_APPROVED])
-                        ->whereNotNull('product_serial_number_id')
-                        ->pluck('product_serial_number_id')
-                        ->unique()
-                        ->values();
-
-                    if ($fallbackSerialIds->isNotEmpty()) {
-                        $returnedSerialsByState = ProductSerialNumber::query()
-                            ->whereIn('id', $fallbackSerialIds)
-                            ->whereIn('id', $receivedSerialIds)
-                            ->get();
-                    }
-                }
-
-                $returnedSerials = $returnedSerialsByHistory
-                    ->concat($returnedSerialsByState)
-                    ->unique('id')
-                    ->filter(fn ($serial) => strtoupper($serial->status) !== ProductSerialNumber::STATUS_ACTIVE)
-                    ->values();
-
-                if ($returnedSerials->isNotEmpty()) {
-                    $histories = SerialNumberHistory::query()
-                        ->whereIn('product_serial_number_id', $returnedSerials->pluck('id'))
-                        ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
-                        ->where('reference_type', ReceivedNoteDetail::class)
-                        ->get()
-                        ->groupBy('reference_id');
-
-                    $returnedByCurrentLink = $returnedSerials
-                        ->filter(fn ($serial) => ! empty($serial->received_note_detail_id) && $detailIds->contains((int) $serial->received_note_detail_id))
-                        ->groupBy(fn ($serial) => (int) $serial->received_note_detail_id);
-
-                    foreach ($data->receivedNoteDetails as $detail) {
-                        $returnedFromHistory = $histories->get($detail->id)
-                            ? $returnedSerials->whereIn('id', $histories->get($detail->id)->pluck('product_serial_number_id'))
-                            : collect([]);
-                        $returnedFromCurrentLink = $returnedByCurrentLink->get($detail->id, collect([]));
-
-                        $detail->returnedSerialNumbers = $returnedFromHistory
-                            ->concat($returnedFromCurrentLink)
-                            ->unique('id')
-                            ->values();
-                    }
-                } else {
-                    foreach ($data->receivedNoteDetails as $detail) {
-                        $detail->returnedSerialNumbers = collect([]);
-                    }
-                }
+                $resolver = new \Modules\Purchase\Services\ReturnedSerialNumberResolver();
+                $returnedSerials = $resolver->resolveForPurchase($purchaseId, $detailIds);
+                $resolver->mapToDetails($data->receivedNoteDetails, $returnedSerials);
 
                 return view('purchase::receivings.receiving-details', compact('data'))->render();
             })

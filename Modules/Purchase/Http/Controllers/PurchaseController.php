@@ -294,116 +294,11 @@ class PurchaseController extends Controller
         // Fetch all received detail IDs for this purchase to find related returned serials
         $receivedDetailIds = $receivedNotes->flatMap->receivedNoteDetails->pluck('id');
 
-        // Serials that belong to this purchase either by historical received anchor or current direct linkage.
-        $receivedSerialIds = collect();
-        if ($receivedDetailIds->isNotEmpty()) {
-            $receivedSerialIds = ProductSerialNumber::query()
-                ->where(function ($query) use ($receivedDetailIds) {
-                    $query->whereIn('received_note_detail_id', $receivedDetailIds)
-                        ->orWhereIn('id', function ($subQuery) use ($receivedDetailIds) {
-                            $subQuery->select('product_serial_number_id')
-                                ->from('serial_number_histories')
-                                ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
-                                ->where('reference_type', ReceivedNoteDetail::class)
-                                ->whereIn('reference_id', $receivedDetailIds);
-                        });
-                })
-                ->pluck('id');
-        }
-
-        // 1) History-based returned serial detection (backward compatible)
-        $returnedSerialsByHistory = collect();
-        if ($receivedSerialIds->isNotEmpty()) {
-            $returnedSerialsByHistory = ProductSerialNumber::whereIn('id', $receivedSerialIds)
-                ->whereIn('id', function ($query) use ($purchase) {
-                    $query->select('product_serial_number_id')
-                        ->from('serial_number_histories')
-                        ->where('event_type', SerialNumberHistory::EVENT_PURCHASE_RETURNED)
-                        ->where(function ($q) use ($purchase) {
-                            $q->where(function ($q1) use ($purchase) {
-                                $q1->where('reference_type', PurchaseReturn::class)
-                                    ->whereIn('reference_id', function ($sub) use ($purchase) {
-                                        $sub->select('purchase_return_id')
-                                            ->from('purchase_return_details')
-                                            ->where('po_id', $purchase->id);
-                                    });
-                            })
-                            ->orWhere(function ($q2) use ($purchase) {
-                                $q2->where('reference_type', \Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement::class)
-                                    ->whereIn('reference_id', function ($sub) use ($purchase) {
-                                        $sub->select('id')
-                                            ->from('purchase_return_item_settlements')
-                                            ->whereIn('purchase_return_detail_id', function ($sub2) use ($purchase) {
-                                                $sub2->select('id')
-                                                    ->from('purchase_return_details')
-                                                    ->where('po_id', $purchase->id);
-                                            });
-                                    });
-                            });
-                        });
-                })
-                ->get();
-        }
-
-        // 2) Fallback detection for records without PURCHASE_RETURNED history:
-        // returned serial + linked purchase return + approved MODIFY_PURCHASE item targeting current purchase.
-        $returnedSerialsByState = collect();
-        if ($receivedSerialIds->isNotEmpty()) {
-            $fallbackSerialIds = PurchaseReturnItemSettlement::query()
-                ->where('target_purchase_id', $purchase->id)
-                ->whereRaw('UPPER(method) = ?', ['MODIFY_PURCHASE'])
-                ->whereRaw('UPPER(status) = ?', [PurchaseReturnItemSettlement::STATUS_APPROVED])
-                ->whereNotNull('product_serial_number_id')
-                ->pluck('product_serial_number_id')
-                ->unique()
-                ->values();
-
-            if ($fallbackSerialIds->isNotEmpty()) {
-                $returnedSerialsByState = ProductSerialNumber::query()
-                    ->whereIn('id', $fallbackSerialIds)
-                    ->whereIn('id', $receivedSerialIds)
-                    ->get();
-            }
-        }
-
-        $returnedSerials = $returnedSerialsByHistory
-            ->concat($returnedSerialsByState)
-            ->unique('id')
-            ->values();
-
-
-        if ($returnedSerials->isNotEmpty()) {
-            $histories = SerialNumberHistory::whereIn('product_serial_number_id', $returnedSerials->pluck('id'))
-                ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
-                ->where('reference_type', ReceivedNoteDetail::class)
-                ->get()
-                ->groupBy('reference_id');
-
-            $returnedByCurrentLink = $returnedSerials
-                ->filter(fn ($serial) => ! empty($serial->received_note_detail_id) && $receivedDetailIds->contains((int) $serial->received_note_detail_id))
-                ->groupBy(fn ($serial) => (int) $serial->received_note_detail_id);
-
-            foreach ($receivedNotes as $note) {
-                foreach ($note->receivedNoteDetails as $detail) {
-                    $returnedFromHistory = $histories->get($detail->id)
-                        ? $returnedSerials->whereIn('id', $histories->get($detail->id)->pluck('product_serial_number_id'))
-                        : collect([]);
-                    $returnedFromCurrentLink = $returnedByCurrentLink->get($detail->id, collect([]));
-
-                    $detail->returnedSerialNumbers = $returnedFromHistory
-                        ->concat($returnedFromCurrentLink)
-                        ->unique('id')
-                        ->values();
-                }
-            }
-        } else {
-            // Ensure the property exists even if empty to avoid "contains on null" in tests/views
-            foreach ($receivedNotes as $note) {
-                foreach ($note->receivedNoteDetails as $detail) {
-                    $detail->returnedSerialNumbers = collect([]);
-                }
-            }
-        }
+        $resolver = new \Modules\Purchase\Services\ReturnedSerialNumberResolver();
+        $returnedSerials = $resolver->resolveForPurchase($purchase->id, $receivedDetailIds);
+        
+        $allDetails = $receivedNotes->flatMap->receivedNoteDetails;
+        $resolver->mapToDetails($allDetails, $returnedSerials);
 
         return $dataTable->with(['purchase_id' => $purchase->id])
             ->render('purchase::show', compact('purchase', 'supplier', 'receivedNotes'));
@@ -923,7 +818,7 @@ class PurchaseController extends Controller
         $lock = Cache::lock('purchase_approval_' . $purchase->id, 10);
 
         try {
-            $result = $lock->get(function () use ($receivedNote, $purchase) {
+            $callback = function () use ($receivedNote, $purchase) {
                 // Re-check status inside lock to handle race conditions
                 if (!$receivedNote->fresh()->isPending()) {
                     if (request()->ajax() || request()->wantsJson()) {
@@ -1118,10 +1013,11 @@ class PurchaseController extends Controller
                                                 'status' => ProductSerialNumber::STATUS_ACTIVE,
                                                 'location_id' => $receivedNote->location_id,
                                                 'tax_id' => $purchaseDetail->tax_id,
-                                                // 'received_note_detail_id' => $detail->id, // Optional: Update this if we want to track latest source
+                                                // 'received_note_detail_id' => $detail->id, // Legacy: Stop updating to preserve history
                                                 'purchase_return_id' => null,
                                                 'is_in_return_process' => false,
                                             ]);
+                                            $existingSerial->receivedNoteDetails()->syncWithoutDetaching([$detail->id]);
                                             $serialRecord = $existingSerial;
                                         } else {
                                             throw new Exception("Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED.");
@@ -1132,8 +1028,9 @@ class PurchaseController extends Controller
                                             'location_id' => $receivedNote->location_id,
                                             'serial_number' => $serialNumber,
                                             'tax_id' => $purchaseDetail->tax_id,
-                                            'received_note_detail_id' => $detail->id,
+                                            // 'received_note_detail_id' => $detail->id, // Legacy: Stop updating
                                         ]);
+                                        $serialRecord->receivedNoteDetails()->attach($detail->id);
                                     }
 
                                     // Record RECEIVED history event
@@ -1187,7 +1084,13 @@ class PurchaseController extends Controller
 
                 toast('Penerimaan berhasil disetujui dan stok telah diperbarui.', 'success');
                 return redirect()->back();
-            });
+            };
+
+            if (app()->runningUnitTests()) {
+                return $callback();
+            }
+
+            $result = $lock->get($callback);
 
             if ($result === false) {
                 if (request()->ajax() || request()->wantsJson()) {

@@ -178,6 +178,10 @@ class PurchaseReturnTable extends Component
                 $this->rows[$index]['location_name'] = $serialNumber['location_label'] ?? $serialNumber['location_name'] ?? '';
                 $this->rows[$index]['location_locked'] = true;
                 
+                // Purchase Order
+                $this->rows[$index]['purchase_order_id'] = $serialNumber['purchase_order_id'] ?? null;
+                $this->rows[$index]['purchase_order_reference'] = $serialNumber['purchase_reference'] ?? '';
+
                 $this->populateStockForRow($index);
             }
         }
@@ -206,6 +210,8 @@ class PurchaseReturnTable extends Component
                 $this->rows[$index]['location_id'] = null;
                 $this->rows[$index]['location_name'] = '';
                 $this->rows[$index]['location_locked'] = true; // Still locked because we expect serial
+                $this->rows[$index]['purchase_order_id'] = null;
+                $this->rows[$index]['purchase_order_reference'] = '';
             } else {
                 $this->rows[$index]['location_locked'] = false;
             }

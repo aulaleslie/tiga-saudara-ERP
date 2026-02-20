@@ -130,6 +130,7 @@ class PurchaseReturnSettlementCreditTest extends TestCase
             'shipping_amount' => 0,
             'approval_status' => 'approved',
             'reference' => 'PR-123',
+            'return_dispatch_status' => 'dispatched',
         ]);
 
         $component = Livewire::test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id]);
@@ -230,6 +231,7 @@ class PurchaseReturnSettlementCreditTest extends TestCase
             'shipping_amount' => 0,
             'approval_status' => 'approved',
             'reference' => 'PR-123',
+            'return_dispatch_status' => 'dispatched',
         ]);
 
         $prd = PurchaseReturnDetail::create([
@@ -244,6 +246,7 @@ class PurchaseReturnSettlementCreditTest extends TestCase
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
             'location_id' => $this->location->id,
+            'po_id' => $purchase->id,
             'serial_number_ids' => [$serial->id],
         ]);
 

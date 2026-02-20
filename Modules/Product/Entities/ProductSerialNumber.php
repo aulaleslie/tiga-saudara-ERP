@@ -89,10 +89,68 @@ class ProductSerialNumber extends BaseModel
     }
 
     /**
+     * Get the received note details (Many-to-Many).
+     */
+    public function receivedNoteDetails(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(\Modules\Purchase\Entities\ReceivedNoteDetail::class, 'received_note_detail_serial_numbers', 'product_serial_number_id', 'received_note_detail_id')
+            ->withPivot(['id', 'source_history_id', 'linked_at'])
+            ->withTimestamps();
+    }
+
+    /**
      * Get the history of the serial number.
      */
     public function histories(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(SerialNumberHistory::class, 'product_serial_number_id');
+    }
+
+    /**
+     * Resolve the current source purchase ID for this serial number.
+     * Strategy:
+     * 1. Check EVENT_RECEIVED history mapped to ReceivedNoteDetail.
+     * 2. Fallback to latest linked ReceivedNoteDetail pivot.
+     * 3. Fallback to legacy received_note_detail_id.
+     */
+    public function resolveCurrentPurchaseId(): ?int
+    {
+        $latestReceive = $this->histories
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->where('reference_type', \Modules\Purchase\Entities\ReceivedNoteDetail::class)
+            ->sortByDesc('id')
+            ->first();
+
+        if ($latestReceive) {
+            // Check if already loaded to avoid N+1 if we preloaded them
+            if ($latestReceive->relationLoaded('reference') && $latestReceive->reference && $latestReceive->reference->relationLoaded('purchaseDetail')) {
+                return $latestReceive->reference->purchaseDetail->purchase_id;
+            }
+            
+            $rnH = \Modules\Purchase\Entities\ReceivedNoteDetail::with('purchaseDetail')->find($latestReceive->reference_id);
+            if ($rnH && $rnH->purchaseDetail) {
+                return $rnH->purchaseDetail->purchase_id;
+            }
+        }
+
+        $latestPivot = $this->receivedNoteDetails
+            ->sortByDesc('pivot.linked_at')
+            ->first();
+            
+        if ($latestPivot && $latestPivot->purchaseDetail) {
+            return $latestPivot->purchaseDetail->purchase_id;
+        }
+
+        if ($this->received_note_detail_id) {
+            if ($this->relationLoaded('receivedNoteDetail') && $this->receivedNoteDetail && $this->receivedNoteDetail->relationLoaded('purchaseDetail')) {
+                 return $this->receivedNoteDetail->purchaseDetail->purchase_id;
+            }
+            $legacy = \Modules\Purchase\Entities\ReceivedNoteDetail::with('purchaseDetail')->find($this->received_note_detail_id);
+            if ($legacy && $legacy->purchaseDetail) {
+                return $legacy->purchaseDetail->purchase_id;
+            }
+        }
+
+        return null;
     }
 }

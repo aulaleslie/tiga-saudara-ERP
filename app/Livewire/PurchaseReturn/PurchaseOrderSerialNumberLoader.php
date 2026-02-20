@@ -92,7 +92,9 @@ class PurchaseOrderSerialNumberLoader extends Component
             return;
         }
 
-        // Validation: All serials in the same row must belong to the same location
+        $purchaseId = $serial->resolveCurrentPurchaseId();
+
+        // Validation: All serials in the same row must belong to the same location and purchase
         if (!empty($this->existingSerials)) {
             $firstSerial = $this->existingSerials[0];
             
@@ -101,8 +103,19 @@ class PurchaseOrderSerialNumberLoader extends Component
                 $this->dispatch('error-occurred', ['index' => $this->index]);
                 return;
             }
+
+            if ($purchaseId != ($firstSerial['purchase_order_id'] ?? null)) {
+                $this->error_message = 'Nomor seri berasal dari pembelian yang berbeda, tambahkan baris baru dan scan ulang nomor seri.';
+                $this->dispatch('error-occurred', ['index' => $this->index]);
+                return;
+            }
         }
         
+        $purchaseReference = null;
+        if ($purchaseId) {
+            $purchaseReference = \Modules\Purchase\Entities\Purchase::find($purchaseId)?->reference;
+        }
+
         // Dispatch event to update table row
         $this->dispatch('serialNumberSelected', $this->index, [
             'id' => $serial->id,
@@ -110,6 +123,8 @@ class PurchaseOrderSerialNumberLoader extends Component
             'location_id' => $serial->location_id,
             'location_name' => $serial->location->name ?? null,
             'location_label' => ($serial->location->setting->company_name ?? 'N/A') . ' - ' . ($serial->location->name ?? 'N/A'),
+            'purchase_order_id' => $purchaseId,
+            'purchase_reference' => $purchaseReference,
         ]);
         
         // Clear input

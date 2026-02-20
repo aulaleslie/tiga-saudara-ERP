@@ -53,7 +53,18 @@ class ReceivedNoteDetail extends BaseModel
      * Relationship with ProductSerialNumber
      * A ReceivedNoteDetail can have multiple ProductSerialNumbers.
      */
-    public function productSerialNumbers(): HasMany
+    public function productSerialNumbers(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(ProductSerialNumber::class, 'received_note_detail_serial_numbers', 'received_note_detail_id', 'product_serial_number_id')
+            ->withPivot(['id', 'source_history_id', 'linked_at'])
+            ->withTimestamps();
+    }
+
+    /**
+     * Legacy Relationship (One-to-Many).
+     * @deprecated Use productSerialNumbers() instead.
+     */
+    public function legacyProductSerialNumbers(): HasMany
     {
         return $this->hasMany(ProductSerialNumber::class, 'received_note_detail_id');
     }
