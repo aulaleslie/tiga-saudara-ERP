@@ -28,7 +28,7 @@ class PurchaseReturnsDataTable extends DataTable
                     return $detail->product_name . ': ' . $detail->quantity;
                 })->implode("\n");
 
-                return '<a href="' . route('purchase-returns.show', $data->id) . '" target="_blank" title="' . $details . '">' . $data->reference . '</a>';
+                return '<a href="' . route('purchase-returns.show', $data->id) . '" title="' . $details . '">' . $data->reference . '</a>';
             })
             ->addColumn('supplier_name', function ($data) {
                 return optional($data->supplier)->supplier_name ?? '-';

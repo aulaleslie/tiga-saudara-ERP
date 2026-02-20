@@ -29,7 +29,7 @@ class ProductDataTable extends DataTable
             })
             ->editColumn('product_code', function ($data) {
                 $link = route('products.show', $data->id);
-                return '<a href="' . $link . '" target="_blank" class="text-primary font-weight-bold" style="text-decoration: underline;">' . $data->product_code . '</a>';
+                return '<a href="' . $link . '" class="text-primary font-weight-bold" style="text-decoration: underline;">' . $data->product_code . '</a>';
             })
             ->addColumn('total_stock', function ($data) {
                 return $this->renderStockColumn($data, 'total_stock');

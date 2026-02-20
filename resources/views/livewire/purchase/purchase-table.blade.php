@@ -68,8 +68,7 @@
                         })->implode("\n");
                     @endphp
                     <a href="{{ route('purchases.show', $purchase->id) }}"
-                       target="_blank" 
-                       rel="noopener noreferrer"
+                       class="text-primary font-weight-bold"
                        class="purchase-ref-tooltip"
                        data-toggle="tooltip"
                        data-placement="top"

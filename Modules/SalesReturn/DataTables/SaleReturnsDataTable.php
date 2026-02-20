@@ -16,7 +16,7 @@ class SaleReturnsDataTable extends DataTable
         return datatables()
             ->eloquent($query)
             ->editColumn('reference', function ($data) {
-                return '<a href="' . route('sale-returns.show', $data->id) . '" target="_blank">' . $data->reference . '</a>';
+                return '<a href="' . route('sale-returns.show', $data->id) . '">' . $data->reference . '</a>';
             })
             ->addColumn('total_amount', fn ($data) => format_currency($data->total_amount))
             ->addColumn('paid_amount', fn ($data) => format_currency($data->paid_amount))
