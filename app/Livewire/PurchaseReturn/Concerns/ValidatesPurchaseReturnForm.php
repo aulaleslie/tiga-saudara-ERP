@@ -5,6 +5,8 @@ namespace App\Livewire\PurchaseReturn\Concerns;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Validator as LaravelValidator;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
 
 trait ValidatesPurchaseReturnForm
 {
@@ -17,6 +19,7 @@ trait ValidatesPurchaseReturnForm
             'rows.*.product_id' => 'required|exists:products,id',
             'rows.*.quantity' => 'required|integer|min:1',
             'rows.*.location_id' => 'required|exists:locations,id',
+            'rows.*.purchase_order_id' => 'nullable|exists:purchases,id',
         ];
     }
 
@@ -37,6 +40,7 @@ trait ValidatesPurchaseReturnForm
             'rows.*.quantity.min' => 'Jumlah produk minimal 1.',
             'rows.*.location_id.required' => 'Lokasi wajib dipilih.',
             'rows.*.location_id.exists' => 'Lokasi yang dipilih tidak valid.',
+            'rows.*.purchase_order_id.exists' => 'Nota pembelian yang dipilih tidak valid.',
         ];
     }
 
@@ -55,18 +59,21 @@ trait ValidatesPurchaseReturnForm
     {
         $lineCombinations = [];
         $allSerials = []; // Track all serials across rows: normalized_serial => row_index
+        $purchaseCache = [];
+        $purchaseProductCache = [];
 
         foreach ($this->rows as $index => $row) {
             $productId = $row['product_id'] ?? null;
             $locationId = $row['location_id'] ?? null;
             $purchaseOrderId = $row['purchase_order_id'] ?? null;
+            $serialRequired = ! empty($row['serial_number_required']);
 
             // Validate: serial entry on non-serial-tracked product
             if (empty($row['serial_number_required']) && !empty($row['serial_numbers'])) {
                 $validator->errors()->add("rows.$index.serial_numbers", 'Produk ini tidak memerlukan nomor seri.');
             }
 
-            if (! empty($row['serial_number_required'])) {
+            if ($serialRequired) {
                 if (empty($row['serial_numbers'])) {
                     $validator->errors()->add("rows.$index.serial_numbers", 'Produk memerlukan nomor seri.');
                 }
@@ -75,10 +82,47 @@ trait ValidatesPurchaseReturnForm
                 }
             }
 
+            if ($purchaseOrderId !== null) {
+                if (! array_key_exists($purchaseOrderId, $purchaseCache)) {
+                    $purchaseCache[$purchaseOrderId] = Purchase::query()
+                        ->select(['id', 'supplier_id'])
+                        ->find($purchaseOrderId);
+                }
+
+                $purchase = $purchaseCache[$purchaseOrderId];
+
+                if (! $purchase) {
+                    $validator->errors()->add("rows.$index.purchase_order_id", 'Nota pembelian yang dipilih tidak ditemukan.');
+                } elseif ((int) $purchase->supplier_id !== (int) $this->supplier_id) {
+                    $validator->errors()->add("rows.$index.purchase_order_id", 'Nota pembelian harus berasal dari pemasok yang sama.');
+                }
+
+                if ($productId !== null) {
+                    $purchaseProductKey = $purchaseOrderId . '|' . $productId;
+                    if (! array_key_exists($purchaseProductKey, $purchaseProductCache)) {
+                        $purchaseProductCache[$purchaseProductKey] = PurchaseDetail::query()
+                            ->where('purchase_id', $purchaseOrderId)
+                            ->where('product_id', $productId)
+                            ->exists();
+                    }
+
+                    if (! $purchaseProductCache[$purchaseProductKey]) {
+                        $validator->errors()->add("rows.$index.product_id", 'Produk tidak ditemukan pada nota pembelian yang dipilih.');
+                    }
+                }
+            }
+
             if ($productId !== null && $locationId !== null) {
-                $combination = $productId . '-' . $locationId;
-                if (in_array($combination, $lineCombinations)) {
-                    $validator->errors()->add("rows.$index.product_id", 'Kombinasi produk dan lokasi ini sudah ada.');
+                $combination = $serialRequired
+                    ? ($productId . '-' . $locationId . '-' . ($purchaseOrderId ?? 'null'))
+                    : ($productId . '-' . $locationId);
+
+                $duplicateMessage = $serialRequired
+                    ? 'Kombinasi produk, lokasi, dan nota pembelian ini sudah ada.'
+                    : 'Kombinasi produk dan lokasi ini sudah ada.';
+
+                if (in_array($combination, $lineCombinations, true)) {
+                    $validator->errors()->add("rows.$index.product_id", $duplicateMessage);
                 } else {
                     $lineCombinations[] = $combination;
                 }
@@ -119,6 +163,11 @@ trait ValidatesPurchaseReturnForm
                 if ($locationId !== null) {
                     $serialsWithMismatches = ProductSerialNumber::whereIn('serial_number', $serialNumbers)
                         ->where('product_id', $productId)
+                        ->with([
+                            'histories',
+                            'receivedNoteDetails.purchaseDetail',
+                            'receivedNoteDetail.purchaseDetail',
+                        ])
                         ->get();
 
                     foreach ($serialsWithMismatches as $psn) {

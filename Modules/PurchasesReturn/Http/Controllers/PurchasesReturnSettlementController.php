@@ -381,6 +381,28 @@ class PurchasesReturnSettlementController extends Controller
 
                                 $itemSettlement->replacement_serial_number_id = $replacementRecord->id;
 
+                                // Keep lineage in sync with current purchase context for resolver logic.
+                                // Only write RECEIVED when we can resolve a concrete received-note detail.
+                                if ($finalReceivedNoteDetailId) {
+                                    $finalReceivedNoteDetail = null;
+                                    if ($sourceReceivedNoteDetail && (int) $sourceReceivedNoteDetail->id === (int) $finalReceivedNoteDetailId) {
+                                        $finalReceivedNoteDetail = $sourceReceivedNoteDetail;
+                                    } elseif ($replacementReceivedNoteDetail && (int) $replacementReceivedNoteDetail->id === (int) $finalReceivedNoteDetailId) {
+                                        $finalReceivedNoteDetail = $replacementReceivedNoteDetail;
+                                    } else {
+                                        $finalReceivedNoteDetail = ReceivedNoteDetail::find($finalReceivedNoteDetailId);
+                                    }
+
+                                    if ($finalReceivedNoteDetail) {
+                                        SerialNumberHistoryService::record(
+                                            $replacementRecord->id,
+                                            SerialNumberHistory::EVENT_RECEIVED,
+                                            $targetLocationId,
+                                            $finalReceivedNoteDetail
+                                        );
+                                    }
+                                }
+
                                 SerialNumberHistoryService::record(
                                     $replacementRecord->id,
                                     SerialNumberHistory::EVENT_REPAIR_RECEIVED,

@@ -15,6 +15,10 @@ use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Location;
 use Tests\TestCase;
@@ -323,5 +327,149 @@ class PurchaseReturnSerialUniquenessTest extends TestCase
 
         // Should have error for serial on non-serial product
         $component->assertHasErrors(['rows.0.serial_numbers']);
+    }
+
+    public function test_serial_rows_allow_same_product_and_location_when_purchase_order_differs(): void
+    {
+        $serial1 = ProductSerialNumber::where('serial_number', 'SN001')->firstOrFail();
+        $serial2 = ProductSerialNumber::where('serial_number', 'SN002')->firstOrFail();
+
+        [$purchaseA, $receivedDetailA] = $this->createPurchaseWithReceivedDetail($this->serialProduct, $this->supplier, 'PO-SERIAL-A');
+        [$purchaseB, $receivedDetailB] = $this->createPurchaseWithReceivedDetail($this->serialProduct, $this->supplier, 'PO-SERIAL-B');
+
+        $serial1->update(['received_note_detail_id' => $receivedDetailA->id]);
+        $serial2->update(['received_note_detail_id' => $receivedDetailB->id]);
+
+        $rows = [
+            [
+                'product_id' => $this->serialProduct->id,
+                'product_name' => $this->serialProduct->product_name,
+                'quantity' => 1,
+                'location_id' => $this->location1->id,
+                'location_name' => 'Location 1',
+                'location_locked' => true,
+                'purchase_order_id' => $purchaseA->id,
+                'purchase_order_reference' => $purchaseA->reference,
+                'purchase_price' => 5000,
+                'serial_numbers' => [
+                    ['id' => $serial1->id, 'serial_number' => 'SN001'],
+                ],
+                'serial_number_required' => true,
+                'total' => 5000,
+            ],
+            [
+                'product_id' => $this->serialProduct->id,
+                'product_name' => $this->serialProduct->product_name,
+                'quantity' => 1,
+                'location_id' => $this->location1->id,
+                'location_name' => 'Location 1',
+                'location_locked' => true,
+                'purchase_order_id' => $purchaseB->id,
+                'purchase_order_reference' => $purchaseB->reference,
+                'purchase_price' => 5000,
+                'serial_numbers' => [
+                    ['id' => $serial2->id, 'serial_number' => 'SN002'],
+                ],
+                'serial_number_required' => true,
+                'total' => 5000,
+            ],
+        ];
+
+        $component = Livewire::test(PurchaseReturnCreateForm::class)
+            ->set('supplier_id', $this->supplier->id)
+            ->set('date', now()->format('Y-m-d'))
+            ->set('rows', $rows);
+
+        $component->call('submit');
+
+        $component->assertHasNoErrors([
+            'rows.0.product_id',
+            'rows.1.product_id',
+            'rows.0.purchase_order_id',
+            'rows.1.purchase_order_id',
+            'rows.0.serial_numbers',
+            'rows.1.serial_numbers',
+        ]);
+    }
+
+    public function test_serial_row_rejects_purchase_order_from_other_supplier(): void
+    {
+        $serial1 = ProductSerialNumber::where('serial_number', 'SN001')->firstOrFail();
+
+        $otherSupplier = Supplier::factory()->create(['setting_id' => $this->setting->id]);
+        [$foreignPurchase, $foreignReceivedDetail] = $this->createPurchaseWithReceivedDetail($this->serialProduct, $otherSupplier, 'PO-FOREIGN');
+        $serial1->update(['received_note_detail_id' => $foreignReceivedDetail->id]);
+
+        $rows = [[
+            'product_id' => $this->serialProduct->id,
+            'product_name' => $this->serialProduct->product_name,
+            'quantity' => 1,
+            'location_id' => $this->location1->id,
+            'location_name' => 'Location 1',
+            'location_locked' => true,
+            'purchase_order_id' => $foreignPurchase->id,
+            'purchase_order_reference' => $foreignPurchase->reference,
+            'purchase_price' => 5000,
+            'serial_numbers' => [
+                ['id' => $serial1->id, 'serial_number' => 'SN001'],
+            ],
+            'serial_number_required' => true,
+            'total' => 5000,
+        ]];
+
+        $component = Livewire::test(PurchaseReturnCreateForm::class)
+            ->set('supplier_id', $this->supplier->id)
+            ->set('date', now()->format('Y-m-d'))
+            ->set('rows', $rows);
+
+        $component->call('submit');
+
+        $component->assertHasErrors(['rows.0.purchase_order_id']);
+    }
+
+    private function createPurchaseWithReceivedDetail(Product $product, Supplier $supplier, string $reference): array
+    {
+        $purchase = Purchase::create([
+            'date' => now(),
+            'supplier_id' => $supplier->id,
+            'setting_id' => $this->setting->id,
+            'status' => 'RECEIVED',
+            'payment_status' => 'UNPAID',
+            'payment_method' => 'Cash',
+            'supplier_name' => $supplier->supplier_name,
+            'due_date' => now(),
+            'total_amount' => 5000,
+            'paid_amount' => 0,
+            'due_amount' => 5000,
+            'reference' => $reference,
+        ]);
+
+        $purchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 5000,
+            'unit_price' => 5000,
+            'sub_total' => 5000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now(),
+            'location_id' => $this->location1->id,
+            'status' => 'APPROVED',
+        ]);
+
+        $receivedDetail = ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $purchaseDetail->id,
+            'quantity_received' => 1,
+        ]);
+
+        return [$purchase, $receivedDetail];
     }
 }

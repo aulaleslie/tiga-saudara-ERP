@@ -57,7 +57,12 @@ class PurchaseOrderSerialNumberLoader extends Component
         // Validate serial number
         $serial = ProductSerialNumber::where('product_id', $this->product_id)
             ->where('serial_number', $serial_number_input)
-            ->with(['location.setting'])
+            ->with([
+                'location.setting',
+                'histories',
+                'receivedNoteDetails.purchaseDetail',
+                'receivedNoteDetail.purchaseDetail',
+            ])
             ->first();
 
         if (!$serial) {

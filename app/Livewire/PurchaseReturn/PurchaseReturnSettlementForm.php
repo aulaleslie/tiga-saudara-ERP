@@ -590,30 +590,23 @@ class PurchaseReturnSettlementForm extends Component
     }
 
     /**
-     * Resolve origin purchase for a serial number via M:N-aware strategy.
-     * Priority: 1) PurchaseReturnDetail.purchase (if set), 2) Pivot filter, 3) Legacy FK
+     * Resolve origin purchase for a serial number strictly from return detail context.
+     * Purchase source is enforced at purchase-return item (detail) level.
      */
     protected function resolveOriginPurchaseForSerial(
         ProductSerialNumber $sn,
         ?Purchase $detailPurchase
     ): ?Purchase {
-        // Step 1: Use PurchaseReturnDetail.purchase if available (most reliable)
         if ($detailPurchase) {
             return $detailPurchase;
         }
 
-        // Step 2: Filter pivot by any available origin purchase context
-        if ($sn->receivedNoteDetails->isNotEmpty()) {
-            $firstPivot = $sn->receivedNoteDetails->first(
-                fn($rnd) => $rnd->purchaseDetail?->purchase_id !== null
-            );
-            if ($firstPivot?->purchaseDetail?->purchase) {
-                return $firstPivot->purchaseDetail->purchase;
-            }
-        }
+        Log::warning('Missing purchase context on serial return detail; auto-select purchase disabled.', [
+            'purchase_return_id' => $this->purchaseReturn->id,
+            'serial_number_id' => $sn->id,
+        ]);
 
-        // Step 3: Legacy FK fallback (backward compat for old data)
-        return $sn->receivedNoteDetail?->purchaseDetail?->purchase;
+        return null;
     }
 
     public function render(): View

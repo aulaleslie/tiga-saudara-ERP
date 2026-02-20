@@ -304,4 +304,113 @@ class PurchaseReturnSerialSettlementAutoSelectTest extends TestCase
         // Product 2 should have no purchases
         $this->assertEmpty($unpaid[$product2->id]['MODIFY_PURCHASE']);
     }
+
+    public function test_serial_modify_purchase_does_not_auto_select_when_detail_purchase_is_missing(): void
+    {
+        $category = Category::create([
+            'category_name' => 'Test Category 2',
+            'category_code' => 'TC02',
+            'setting_id' => $this->setting->id,
+            'created_by' => $this->user->id,
+        ]);
+
+        $product = Product::create([
+            'category_id' => $category->id,
+            'product_name' => 'Serial Product B',
+            'product_code' => 'SP02',
+            'product_quantity' => 10,
+            'product_cost' => 5000,
+            'product_price' => 10000,
+            'setting_id' => $this->setting->id,
+            'serial_number_required' => true,
+        ]);
+
+        $purchase = Purchase::create([
+            'date' => now(),
+            'supplier_id' => $this->supplier->id,
+            'setting_id' => $this->setting->id,
+            'status' => 'RECEIVED',
+            'payment_status' => 'PARTIAL',
+            'payment_method' => 'Cash',
+            'supplier_name' => 'Supplier Test',
+            'due_date' => now(),
+            'total_amount' => 10000,
+            'paid_amount' => 5000,
+            'due_amount' => 5000,
+            'reference' => 'PO-NO-DETAIL-CONTEXT',
+            'supplier_purchase_number' => 'SUPP-NO-DETAIL-CONTEXT',
+        ]);
+
+        $pod = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'quantity' => 1,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 10000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+        ]);
+
+        $rn = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now(),
+            'location_id' => $this->location->id,
+            'status' => 'APPROVED',
+        ]);
+
+        $rnd = ReceivedNoteDetail::create([
+            'received_note_id' => $rn->id,
+            'po_detail_id' => $pod->id,
+            'quantity_received' => 1,
+        ]);
+
+        $serial = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-NO-DETAIL-CONTEXT',
+            'status' => 'ACTIVE',
+            'received_note_detail_id' => $rnd->id,
+        ]);
+
+        $purchaseReturn = PurchaseReturn::create([
+            'date' => now(),
+            'supplier_id' => $this->supplier->id,
+            'supplier_name' => $this->supplier->supplier_name,
+            'setting_id' => $this->setting->id,
+            'location_id' => $this->location->id,
+            'total_amount' => 10000,
+            'paid_amount' => 0,
+            'due_amount' => 10000,
+            'status' => PurchaseReturn::STATUS_PENDING_APPROVAL,
+            'payment_status' => 'UNPAID',
+            'payment_method' => 'Cash',
+            'approval_status' => 'approved',
+            'reference' => 'PR-NO-DETAIL-CONTEXT',
+            'return_dispatch_status' => 'dispatched',
+        ]);
+
+        PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 10000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id,
+            'po_id' => null,
+            'serial_number_ids' => [$serial->id],
+        ]);
+
+        Livewire::test(PurchaseReturnSettlementForm::class, ['purchaseReturnId' => $purchaseReturn->id])
+            ->assertSet('settlementLines.0.serial_number', 'SN-NO-DETAIL-CONTEXT')
+            ->set('settlementLines.0.method', 'MODIFY_PURCHASE')
+            ->assertSet('settlementLines.0.target_purchase_id', null);
+    }
 }

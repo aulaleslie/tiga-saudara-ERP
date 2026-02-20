@@ -181,7 +181,12 @@ class PurchaseReturnEditForm extends PurchaseReturnCreateForm
         $serials = empty($serialIds)
             ? collect()
             : ProductSerialNumber::query()
-                ->with(['location.setting'])
+                ->with([
+                    'location.setting',
+                    'histories',
+                    'receivedNoteDetails.purchaseDetail',
+                    'receivedNoteDetail.purchaseDetail',
+                ])
                 ->whereIn('id', $serialIds)
                 ->get()
                 ->keyBy('id');

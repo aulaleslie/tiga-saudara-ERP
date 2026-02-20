@@ -57,6 +57,18 @@
                                 @if(!empty($validationErrors["rows.$index.serial_numbers"]))
                                     <span class="invalid-feedback d-block text-start">{{ $validationErrors["rows.$index.serial_numbers"][0] }}</span>
                                 @endif
+                                @if(!empty($validationErrors["rows.$index.purchase_order_id"]))
+                                    <span class="invalid-feedback d-block text-start">{{ $validationErrors["rows.$index.purchase_order_id"][0] }}</span>
+                                @endif
+                                @if(!empty($row['serial_number_required']))
+                                    <div class="small text-muted mt-1">
+                                        <i class="bi bi-receipt-cutoff me-1"></i>
+                                        Nota:
+                                        <span class="fw-semibold text-dark">
+                                            {{ $row['purchase_order_reference'] ?? '-' }}
+                                        </span>
+                                    </div>
+                                @endif
                                 
                             </td>
                             <td>

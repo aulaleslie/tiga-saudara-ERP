@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
-use Modules\Purchase\Entities\PurchaseDetail;
 
 use Livewire\Attributes\Reactive;
 
@@ -68,6 +67,8 @@ class PurchaseReturnTable extends Component
             'location_id' => null,
             'location_name' => '',
             'location_locked' => false,
+            'purchase_order_id' => null,
+            'purchase_order_reference' => '',
             'serial_numbers' => [],
             'serial_number_required' => false,
             'total' => 0,
@@ -101,6 +102,8 @@ class PurchaseReturnTable extends Component
             $this->rows[$index]['location_id'] = null;
             $this->rows[$index]['location_name'] = '';
             $this->rows[$index]['location_locked'] = $product['serial_number_required'] ? true : false;
+            $this->rows[$index]['purchase_order_id'] = null;
+            $this->rows[$index]['purchase_order_reference'] = '';
             $this->computeRowTotal($this->rows[$index]);
             $this->populateStockForRow($index);
         }

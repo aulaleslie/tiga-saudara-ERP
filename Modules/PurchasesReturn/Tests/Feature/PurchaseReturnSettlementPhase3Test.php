@@ -16,6 +16,7 @@ use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Entities\ReceivedNote;
 use Modules\Purchase\Entities\ReceivedNoteDetail;
+use Modules\Purchase\Services\ReturnedSerialNumberResolver;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use App\Models\User;
@@ -452,12 +453,20 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         $this->assertEquals('RETURNED', $serialB->status);
         $this->assertEquals($serialA->id, $item->replacement_serial_number_id);
         $this->assertEquals(
-            $receivedHistoryCountBefore,
+            $receivedHistoryCountBefore + 1,
             SerialNumberHistory::query()
                 ->where('product_serial_number_id', $serialA->id)
                 ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
                 ->count()
         );
+        $latestReceivedHistory = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serialA->id)
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($latestReceivedHistory);
+        $this->assertEquals(ReceivedNoteDetail::class, $latestReceivedHistory->reference_type);
+        $this->assertEquals($receivedDetailA->id, (int) $latestReceivedHistory->reference_id);
         $this->assertEquals(
             $repairHistoryCountBefore + 1,
             SerialNumberHistory::query()
@@ -518,12 +527,20 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         $this->assertEquals('RETURNED', $serialB->status);
         $this->assertEquals($serialA->id, $item->replacement_serial_number_id);
         $this->assertEquals(
-            $receivedHistoryCountBefore,
+            $receivedHistoryCountBefore + 1,
             SerialNumberHistory::query()
                 ->where('product_serial_number_id', $serialA->id)
                 ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
                 ->count()
         );
+        $latestReceivedHistory = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serialA->id)
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($latestReceivedHistory);
+        $this->assertEquals(ReceivedNoteDetail::class, $latestReceivedHistory->reference_type);
+        $this->assertEquals($receivedDetailB->id, (int) $latestReceivedHistory->reference_id);
         $this->assertEquals(
             $repairHistoryCountBefore + 1,
             SerialNumberHistory::query()
@@ -591,12 +608,20 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
         $this->assertEquals($receivedDetailB->id, $serialA->received_note_detail_id);
         $this->assertEquals('RETURNED', $serialB->status);
         $this->assertEquals(
-            $receivedHistoryCountBefore,
+            $receivedHistoryCountBefore + 1,
             SerialNumberHistory::query()
                 ->where('product_serial_number_id', $serialA->id)
                 ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
                 ->count()
         );
+        $latestReceivedHistory = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serialA->id)
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($latestReceivedHistory);
+        $this->assertEquals(ReceivedNoteDetail::class, $latestReceivedHistory->reference_type);
+        $this->assertEquals($receivedDetailB->id, (int) $latestReceivedHistory->reference_id);
         $this->assertEquals(
             $repairHistoryCountBefore + 1,
             SerialNumberHistory::query()
@@ -610,6 +635,138 @@ class PurchaseReturnSettlementPhase3Test extends TestCase
             'reference_type' => PurchaseReturnItemSettlement::class,
             'reference_id' => $item->id,
         ]);
+    }
+
+    /** @test */
+    public function test_mixed_modify_purchase_and_product_repair_reuse_keeps_returned_serial_visible_only_in_old_purchase_context()
+    {
+        $purchaseOld = $this->createSerialPurchase($this->serialProduct, 'PO-OLD-MIXED');
+        $receivedDetailOldA = $this->createReceivedDetailForPurchase($purchaseOld, $this->serialProduct);
+        $receivedDetailOldB = $this->createReceivedDetailForPurchase($purchaseOld, $this->serialProduct);
+
+        $purchaseNew = $this->createSerialPurchase($this->serialProduct, 'PO-NEW-MIXED');
+        $receivedDetailNewA = $this->createReceivedDetailForPurchase($purchaseNew, $this->serialProduct);
+
+        $serialA = ProductSerialNumber::create([
+            'product_id' => $this->serialProduct->id,
+            'serial_number' => 'SN-A-MIXED-REUSED',
+            'status' => 'ACTIVE',
+            'location_id' => $this->location->id,
+            'is_in_return_process' => false,
+        ]);
+        $this->attachSerialToReceivedOrigin($serialA, $receivedDetailOldA);
+        $receivedDetailOldA->productSerialNumbers()->syncWithoutDetaching([$serialA->id]);
+        $serialA->update([
+            'received_note_detail_id' => $receivedDetailNewA->id,
+            'status' => 'DISPATCHED',
+            'is_in_return_process' => true,
+            'purchase_return_id' => null,
+        ]);
+        $receivedDetailNewA->productSerialNumbers()->syncWithoutDetaching([$serialA->id]);
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serialA->id,
+            'event_type' => SerialNumberHistory::EVENT_RECEIVED,
+            'location_id' => $this->location->id,
+            'reference_type' => ReceivedNoteDetail::class,
+            'reference_id' => $receivedDetailNewA->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        $serialB = ProductSerialNumber::create([
+            'product_id' => $this->serialProduct->id,
+            'serial_number' => 'SN-B-MIXED-RETURNED',
+            'status' => 'RETURNED',
+            'location_id' => $this->location->id,
+            'is_in_return_process' => false,
+            'purchase_return_id' => null,
+        ]);
+        $this->attachSerialToReceivedOrigin($serialB, $receivedDetailOldB);
+        $receivedDetailOldB->productSerialNumbers()->syncWithoutDetaching([$serialB->id]);
+
+        $purchaseReturn = $this->createPurchaseReturn($this->serialProduct);
+
+        $newPurchaseDetail = PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'po_id' => $purchaseNew->id,
+            'product_id' => $this->serialProduct->id,
+            'product_name' => $this->serialProduct->product_name,
+            'product_code' => $this->serialProduct->product_code,
+            'quantity' => 1,
+            'price' => $this->serialProduct->product_price,
+            'unit_price' => $this->serialProduct->product_price,
+            'sub_total' => $this->serialProduct->product_price,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id,
+            'serial_number_ids' => [$serialA->id],
+        ]);
+
+        $oldPurchaseDetail = PurchaseReturnDetail::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'po_id' => $purchaseOld->id,
+            'product_id' => $this->serialProduct->id,
+            'product_name' => $this->serialProduct->product_name,
+            'product_code' => $this->serialProduct->product_code,
+            'quantity' => 1,
+            'price' => $this->serialProduct->product_price,
+            'unit_price' => $this->serialProduct->product_price,
+            'sub_total' => $this->serialProduct->product_price,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'location_id' => $this->location->id,
+            'serial_number_ids' => [$serialB->id],
+        ]);
+
+        PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'purchase_return_detail_id' => $oldPurchaseDetail->id,
+            'product_serial_number_id' => $serialB->id,
+            'method' => PurchaseReturnDetail::METHOD_MODIFY_PURCHASE,
+            'status' => PurchaseReturnItemSettlement::STATUS_APPROVED,
+            'target_purchase_id' => $purchaseOld->id,
+            'nominal' => $oldPurchaseDetail->sub_total,
+        ]);
+
+        $repairSettlement = PurchaseReturnItemSettlement::create([
+            'purchase_return_id' => $purchaseReturn->id,
+            'purchase_return_detail_id' => $newPurchaseDetail->id,
+            'product_serial_number_id' => $serialA->id,
+            'method' => PurchaseReturnDetail::METHOD_PRODUCT_REPAIR,
+            'status' => PurchaseReturnItemSettlement::STATUS_APPROVED_AWAITING_RECEIVE,
+            'nominal' => 0,
+        ]);
+
+        $this->post(route('purchase-return-settlements.item.receive', $repairSettlement->id), [
+            'location_id' => $this->targetLocation->id,
+            'received_quantity' => 1,
+            'replacement_serial_number' => $serialB->serial_number,
+        ])->assertSessionHas('success');
+
+        $serialB->refresh();
+        $this->assertEquals($purchaseNew->id, $serialB->resolveCurrentPurchaseId());
+
+        $latestReceivedHistoryForB = SerialNumberHistory::query()
+            ->where('product_serial_number_id', $serialB->id)
+            ->where('event_type', SerialNumberHistory::EVENT_RECEIVED)
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($latestReceivedHistoryForB);
+        $this->assertEquals(ReceivedNoteDetail::class, $latestReceivedHistoryForB->reference_type);
+        $this->assertEquals($receivedDetailNewA->id, (int) $latestReceivedHistoryForB->reference_id);
+
+        $resolver = app(ReturnedSerialNumberResolver::class);
+        $oldReceivedDetailIds = ReceivedNoteDetail::query()
+            ->whereHas('purchaseDetail', fn($q) => $q->where('purchase_id', $purchaseOld->id))
+            ->pluck('id');
+        $newReceivedDetailIds = ReceivedNoteDetail::query()
+            ->whereHas('purchaseDetail', fn($q) => $q->where('purchase_id', $purchaseNew->id))
+            ->pluck('id');
+
+        $oldReturnedSerials = $resolver->resolveForPurchase($purchaseOld->id, $oldReceivedDetailIds);
+        $newReturnedSerials = $resolver->resolveForPurchase($purchaseNew->id, $newReceivedDetailIds);
+
+        $this->assertTrue($oldReturnedSerials->contains('id', $serialB->id));
+        $this->assertFalse($newReturnedSerials->contains('id', $serialB->id));
     }
 
     /** @test */
