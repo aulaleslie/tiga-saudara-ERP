@@ -15,6 +15,10 @@ use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Location;
@@ -126,6 +130,7 @@ class PurchaseReturnNoMutationTest extends TestCase
             'product_cost' => 5000,
             'product_price' => 10000,
             'setting_id' => $this->setting->id,
+            'serial_number_required' => true,
         ]);
 
         ProductStock::create([
@@ -151,6 +156,50 @@ class PurchaseReturnNoMutationTest extends TestCase
 
         $sn = ProductSerialNumber::findOrFail($snId);
 
+        $sourcePurchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now(),
+            'supplier_id' => $this->supplier->id,
+            'setting_id' => $this->setting->id,
+            'status' => Purchase::STATUS_RECEIVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 10000,
+            'paid_amount' => 0,
+            'due_amount' => 10000,
+        ]);
+
+        $sourcePurchaseDetail = PurchaseDetail::create([
+            'purchase_id' => $sourcePurchase->id,
+            'product_id' => $serialProduct->id,
+            'product_name' => $serialProduct->product_name,
+            'product_code' => $serialProduct->product_code,
+            'quantity' => 1,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 10000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $sourceReceivedNote = ReceivedNote::create([
+            'po_id' => $sourcePurchase->id,
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'date' => now(),
+            'location_id' => $this->location->id,
+        ]);
+
+        $sourceReceivedNoteDetail = ReceivedNoteDetail::create([
+            'received_note_id' => $sourceReceivedNote->id,
+            'po_detail_id' => $sourcePurchaseDetail->id,
+            'quantity_received' => 1,
+        ]);
+
+        $sn->update([
+            'received_note_detail_id' => $sourceReceivedNoteDetail->id,
+        ]);
+        $sn->receivedNoteDetails()->syncWithoutDetaching([$sourceReceivedNoteDetail->id]);
+
         Livewire::actingAs($this->user)
             ->test(PurchaseReturnCreateForm::class)
             ->set('supplier_id', $this->supplier->id)
@@ -173,6 +222,7 @@ class PurchaseReturnNoMutationTest extends TestCase
                     'location_id' => $this->location->id,
                     'purchase_price' => 10000,
                     'total' => 10000,
+                    'purchase_order_id' => $sourcePurchase->id,
                     'serial_number_required' => true,
                     'serial_numbers' => [['id' => $sn->id, 'serial_number' => $sn->serial_number]],
                 ]

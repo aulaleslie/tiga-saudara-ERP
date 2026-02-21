@@ -108,6 +108,7 @@ class PurchaseShowHistoryFirstReturnedSerialTest extends TestCase
             'received_note_detail_id' => $receivedDetailA->id,
             'location_id' => 1,
         ]);
+        $serial->receivedNoteDetails()->attach($receivedDetailA->id);
 
         // Record history for Receive A
         SerialNumberHistory::create([
@@ -222,6 +223,7 @@ class PurchaseShowHistoryFirstReturnedSerialTest extends TestCase
             'received_note_detail_id' => $receivedDetailB->id,
             'purchase_return_id' => null, // Clear return linkage on reuse
         ]);
+        $serial->receivedNoteDetails()->syncWithoutDetaching([$receivedDetailB->id]);
 
         // Record history for Receive B
         SerialNumberHistory::create([
@@ -305,6 +307,7 @@ class PurchaseShowHistoryFirstReturnedSerialTest extends TestCase
         ]);
         $rnA = ReceivedNote::create(['po_id' => $purchaseA->id, 'status' => ReceivedNote::STATUS_APPROVED, 'date' => now()->subDays(10), 'location_id' => 1]);
         $rndA = ReceivedNoteDetail::create(['received_note_id' => $rnA->id, 'po_detail_id' => $detailA->id, 'quantity_received' => 1]);
+        $serial->receivedNoteDetails()->attach($rndA->id);
         
         // History A
         SerialNumberHistory::create([
@@ -394,6 +397,7 @@ class PurchaseShowHistoryFirstReturnedSerialTest extends TestCase
 
         // Reuse in B
         $serial->update(['status' => ProductSerialNumber::STATUS_ACTIVE, 'received_note_detail_id' => $rndB->id, 'purchase_return_id' => null]);
+        $serial->receivedNoteDetails()->syncWithoutDetaching([$rndB->id]);
         
         // History B
         SerialNumberHistory::create([

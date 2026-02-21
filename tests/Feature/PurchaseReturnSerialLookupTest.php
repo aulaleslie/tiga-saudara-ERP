@@ -225,6 +225,8 @@ class PurchaseReturnSerialLookupTest extends TestCase
                 'location_id' => $this->location->id,
                 'location_name' => 'LOCATION 1',
                 'location_label' => 'TENANT A - LOCATION 1',
+                'purchase_order_id' => $purchase->id,
+                'purchase_reference' => $purchase->reference,
             ]);
     }
 

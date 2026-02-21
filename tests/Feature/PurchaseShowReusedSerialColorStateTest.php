@@ -104,6 +104,7 @@ class PurchaseShowReusedSerialColorStateTest extends TestCase
             'received_note_detail_id' => $rnd->id,
             'location_id' => 1,
         ]);
+        $activeSerial->receivedNoteDetails()->attach($rnd->id);
 
         $returnedSerial = ProductSerialNumber::create([
             'product_id' => $product->id,
@@ -112,6 +113,7 @@ class PurchaseShowReusedSerialColorStateTest extends TestCase
             'received_note_detail_id' => $rnd->id,
             'location_id' => 1,
         ]);
+        $returnedSerial->receivedNoteDetails()->attach($rnd->id);
 
         // History for both
         SerialNumberHistory::create([
@@ -242,6 +244,7 @@ class PurchaseShowReusedSerialColorStateTest extends TestCase
             'received_note_detail_id' => $rnd->id,
             'location_id' => 1,
         ]);
+        $serial->receivedNoteDetails()->attach($rnd->id);
 
         // History entry (Returned mapping will also find it)
         SerialNumberHistory::create([

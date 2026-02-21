@@ -101,6 +101,11 @@ class Purchase extends BaseModel implements HasMedia
     {
         parent::boot();
 
+        static::saving(function ($model) {
+            // Backward compatibility: some callers still pass legacy supplier_name.
+            unset($model->attributes['supplier_name']);
+        });
+
         static::creating(function ($model) {
             // Use the purchase date if available, otherwise fallback to now()
             $purchaseDate = $model->date ? Carbon::parse($model->date) : now();

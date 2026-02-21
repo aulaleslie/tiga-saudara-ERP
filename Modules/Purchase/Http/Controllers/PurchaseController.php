@@ -1086,10 +1086,6 @@ class PurchaseController extends Controller
                 return redirect()->back();
             };
 
-            if (app()->runningUnitTests()) {
-                return $callback();
-            }
-
             $result = $lock->get($callback);
 
             if ($result === false) {
