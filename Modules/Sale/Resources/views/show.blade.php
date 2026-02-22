@@ -207,6 +207,14 @@
                         <div class="card">
                             <div class="card-body">
                                 <h4 class="mb-3">Pengeluaran Barang</h4>
+                                <div class="mb-3">
+                                    <span class="badge bg-info me-1">Biru</span>
+                                    <small class="me-3">Serial masih aktif pada penjualan ini</small>
+                                    <span class="badge bg-danger me-1">Merah</span>
+                                    <small class="me-3">Serial sudah diretur dari penjualan ini</small>
+                                    <span class="badge bg-secondary me-1">Abu-abu</span>
+                                    <small>Status pengiriman belum final / serial tidak ditemukan</small>
+                                </div>
                                 <div class="table-responsive">
                                     <table id="sale-dispatches-table" class="table table-striped table-bordered">
                                         <thead>
@@ -315,8 +323,17 @@
                                                                     <td>{{ $detail->location->name ?? '-' }}</td>
                                                                     <td>{{ $detail->dispatched_quantity }}</td>
                                                                     <td>
-                                                                        @if($detail->serial_numbers)
-                                                                            {{ implode(', ', json_decode($detail->serial_numbers, true)) }}
+                                                                        @if(!empty($detail->serialNumberBadges))
+                                                                            <div class="d-flex flex-wrap">
+                                                                                @foreach($detail->serialNumberBadges as $serialBadge)
+                                                                                    <span class="badge {{ $serialBadge['badge_class'] }} me-1 mb-1"
+                                                                                          title="{{ $serialBadge['title'] }}">
+                                                                                        {{ $serialBadge['serial_number'] }}
+                                                                                    </span>
+                                                                                @endforeach
+                                                                            </div>
+                                                                        @elseif($detail->serial_numbers)
+                                                                            {{ implode(', ', json_decode($detail->serial_numbers, true) ?: []) }}
                                                                         @else
                                                                             -
                                                                         @endif

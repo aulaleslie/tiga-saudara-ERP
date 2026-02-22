@@ -16,6 +16,7 @@ use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
+use Modules\Sale\Entities\SalesOrderSerialTracking;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
 use Modules\Setting\Entities\Location;
@@ -161,6 +162,14 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
             'status' => ProductSerialNumber::STATUS_SOLD,
         ]);
 
+        SalesOrderSerialTracking::create([
+            'sale_id' => $sale->id,
+            'product_serial_number_id' => $serial->id,
+            'quantity_allocated' => 1,
+            'dispatch_date' => now(),
+            'return_date' => null,
+        ]);
+
         $saleReturn = SaleReturn::create([
             'sale_id' => $sale->id,
             'setting_id' => 1,
@@ -222,5 +231,13 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $this->assertNull($serial->dispatch_detail_id);
         $this->assertEquals(ProductSerialNumber::STATUS_ACTIVE, $serial->status);
         $this->assertEquals($location->id, $serial->location_id);
+
+        $tracking = SalesOrderSerialTracking::query()
+            ->where('sale_id', $sale->id)
+            ->where('product_serial_number_id', $serial->id)
+            ->first();
+
+        $this->assertNotNull($tracking);
+        $this->assertNotNull($tracking->return_date);
     }
 }

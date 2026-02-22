@@ -13,6 +13,7 @@ use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SalesOrderSerialTracking;
 use App\Services\SerialNumberHistoryService;
 use Modules\Product\Entities\SerialNumberHistory;
 use Modules\SalesReturn\DataTables\SaleReturnsDataTable;
@@ -240,6 +241,8 @@ class SalesReturnController extends Controller
 
         try {
             DB::transaction(function () use ($sale_return) {
+                $receivedAt = now();
+
                 $lockedSaleReturn = SaleReturn::query()
                     ->whereKey($sale_return->id)
                     ->lockForUpdate()
@@ -352,6 +355,14 @@ class SalesReturnController extends Controller
                                 'status' => ProductSerialNumber::STATUS_ACTIVE,
                             ]);
 
+                        SalesOrderSerialTracking::query()
+                            ->where('sale_id', $lockedSaleReturn->sale_id)
+                            ->whereIn('product_serial_number_id', $serialIds)
+                            ->update([
+                                'return_date' => $receivedAt,
+                                'updated_at' => $receivedAt,
+                            ]);
+
                         foreach ($serials as $serial) {
                             SerialNumberHistoryService::record(
                                 $serial->id,
@@ -366,7 +377,7 @@ class SalesReturnController extends Controller
                 $lockedSaleReturn->forceFill([
                     'status' => 'Awaiting Settlement',
                     'received_by' => auth()->id(),
-                    'received_at' => now(),
+                    'received_at' => $receivedAt,
                     'settled_at' => null,
                     'settled_by' => null,
                 ])->save();

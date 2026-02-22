@@ -12,6 +12,7 @@ use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
+use Modules\Sale\Entities\SalesOrderSerialTracking;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
@@ -395,5 +396,15 @@ class SalesDispatchTaxTest extends TestCase
         $this->assertEquals(1, $stock->quantity);
         $this->assertEquals($detail->id, $sn1->dispatch_detail_id);
         $this->assertEquals(ProductSerialNumber::STATUS_SOLD, $sn1->status);
+
+        $tracking = SalesOrderSerialTracking::query()
+            ->where('sale_id', $sale->id)
+            ->where('product_serial_number_id', $sn1->id)
+            ->first();
+
+        $this->assertNotNull($tracking);
+        $this->assertNull($tracking->return_date);
+        $this->assertNotNull($tracking->dispatch_date);
+        $this->assertSame(now()->toDateString(), $tracking->dispatch_date->toDateString());
     }
 }

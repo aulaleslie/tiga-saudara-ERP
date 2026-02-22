@@ -62,6 +62,11 @@ class Sale extends BaseModel
         return $this->hasMany(DispatchDetail::class, 'sale_id', 'id');
     }
 
+    public function serialTrackings(): HasMany
+    {
+        return $this->hasMany(SalesOrderSerialTracking::class, 'sale_id', 'id');
+    }
+
     public static function boot(): void
     {
         parent::boot();

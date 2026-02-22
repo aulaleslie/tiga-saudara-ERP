@@ -33,6 +33,7 @@ use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
+use Modules\Sale\Entities\SalesOrderSerialTracking;
 use Modules\Sale\Http\Requests\StoreSaleRequest;
 use Modules\Sale\Http\Requests\UpdateSaleRequest;
 use Modules\Setting\Entities\Location;
@@ -41,6 +42,7 @@ use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\Tax;
 use Modules\Sale\Services\SaleCartAggregator;
 use Modules\Sale\Services\SaleService;
+use Modules\Sale\Services\SaleSerialDisplayResolver;
 
 class SaleController extends Controller
 {
@@ -140,6 +142,7 @@ class SaleController extends Controller
 
         // optional: if you want a clean var for the view
         $dispatches = $sale->saleDispatches;
+        app(SaleSerialDisplayResolver::class)->annotateDispatchesForSale($sale);
 
         return $dataTable
             ->with(['sale_id' => $sale->id])
@@ -748,6 +751,7 @@ class SaleController extends Controller
                 'approved_at' => now(),
             ]);
 
+            $this->recordSerialTrackingForApprovedDispatch($dispatch);
             $this->updateSaleStatus($sale);
 
             DB::commit();
@@ -880,6 +884,106 @@ class SaleController extends Controller
                 }
             }
         }
+    }
+
+    private function recordSerialTrackingForApprovedDispatch(Dispatch $dispatch): void
+    {
+        $dispatch->loadMissing('details');
+
+        $serialPairs = collect();
+
+        foreach ($dispatch->details as $detail) {
+            foreach ($this->normalizeDispatchSerials($detail->serial_numbers) as $serialNumber) {
+                $serialPairs->push([
+                    'product_id' => (int) $detail->product_id,
+                    'serial_number' => $serialNumber,
+                ]);
+            }
+        }
+
+        if ($serialPairs->isEmpty()) {
+            return;
+        }
+
+        $productIds = $serialPairs->pluck('product_id')->unique()->values();
+        $serialNumbers = $serialPairs->pluck('serial_number')
+            ->map(fn ($value) => $this->normalizeSerialValueForLookup($value))
+            ->unique()
+            ->values();
+
+        $serialRecords = ProductSerialNumber::query()
+            ->whereIn('product_id', $productIds)
+            ->whereIn('serial_number', $serialNumbers)
+            ->get(['id', 'product_id', 'serial_number'])
+            ->keyBy(fn (ProductSerialNumber $serial) => $this->saleSerialLookupKey((int) $serial->product_id, (string) $serial->serial_number));
+
+        $dispatchDate = $dispatch->dispatch_date ? Carbon::parse($dispatch->dispatch_date) : now();
+        $timestamp = now();
+        $upsertRowsBySerialId = [];
+
+        foreach ($serialPairs as $pair) {
+            $serialRecord = $serialRecords->get(
+                $this->saleSerialLookupKey((int) $pair['product_id'], (string) $pair['serial_number'])
+            );
+
+            if (! $serialRecord) {
+                continue;
+            }
+
+            $upsertRowsBySerialId[(int) $serialRecord->id] = [
+                'sale_id' => (int) $dispatch->sale_id,
+                'product_serial_number_id' => (int) $serialRecord->id,
+                'quantity_allocated' => 1,
+                'dispatch_date' => $dispatchDate,
+                'return_date' => null,
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ];
+        }
+
+        if (empty($upsertRowsBySerialId)) {
+            return;
+        }
+
+        SalesOrderSerialTracking::query()->upsert(
+            array_values($upsertRowsBySerialId),
+            ['sale_id', 'product_serial_number_id'],
+            ['quantity_allocated', 'dispatch_date', 'return_date', 'updated_at']
+        );
+    }
+
+    /**
+     * @param mixed $serialNumbers
+     * @return array<int, string>
+     */
+    private function normalizeDispatchSerials($serialNumbers): array
+    {
+        $decoded = $serialNumbers;
+
+        if (is_string($serialNumbers)) {
+            $decoded = json_decode($serialNumbers, true);
+        }
+
+        if (! is_array($decoded)) {
+            return [];
+        }
+
+        return collect($decoded)
+            ->filter(fn ($value) => is_string($value) || is_numeric($value))
+            ->map(fn ($value) => trim((string) $value))
+            ->filter(fn ($value) => $value !== '')
+            ->values()
+            ->all();
+    }
+
+    private function normalizeSerialValueForLookup(string $serialNumber): string
+    {
+        return mb_strtoupper(trim($serialNumber), 'UTF-8');
+    }
+
+    private function saleSerialLookupKey(int $productId, string $serialNumber): string
+    {
+        return $productId.'|'.$this->normalizeSerialValueForLookup($serialNumber);
     }
 
     private function updateSaleStatus(Sale $sale)
