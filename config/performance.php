@@ -12,5 +12,15 @@ return [
     |
     */
     'livewire_hotpath_debug' => (bool) env('LIVEWIRE_HOTPATH_DEBUG', false),
-];
 
+    /*
+    |--------------------------------------------------------------------------
+    | Purchase Submit Diagnostics Logging
+    |--------------------------------------------------------------------------
+    |
+    | Enable detailed structured logging for purchase create/edit submit flows
+    | when debugging silent validation failures or early returns.
+    |
+    */
+    'purchase_submit_debug' => (bool) env('PURCHASE_SUBMIT_DEBUG', false),
+];

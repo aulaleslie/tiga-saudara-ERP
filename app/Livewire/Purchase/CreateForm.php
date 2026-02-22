@@ -18,6 +18,7 @@ use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Purchase\Livewire\PaymentTermSearchDropdown;
+use Modules\Purchase\Services\PurchaseTaxInclusionResolver;
 use Modules\Setting\Entities\Setting;
 use Throwable;
 
@@ -83,6 +84,85 @@ class CreateForm extends Component
         }
 
         Log::info($message, $context);
+    }
+
+    private function purchaseSubmitDebugEnabled(): bool
+    {
+        return (bool) config('performance.purchase_submit_debug');
+    }
+
+    private function purchaseSubmitDebug(string $event, array $context = []): void
+    {
+        if (! $this->purchaseSubmitDebugEnabled()) {
+            return;
+        }
+
+        Log::info($event, $this->purchaseSubmitBaseContext($context));
+    }
+
+    private function purchaseSubmitInfo(string $event, array $context = []): void
+    {
+        if (! $this->purchaseSubmitDebugEnabled()) {
+            return;
+        }
+
+        Log::info($event, $this->purchaseSubmitBaseContext($context));
+    }
+
+    private function purchaseSubmitWarning(string $event, array $context = []): void
+    {
+        Log::warning($event, $this->purchaseSubmitBaseContext($context));
+    }
+
+    private function purchaseSubmitBaseContext(array $extra = []): array
+    {
+        $cart = Cart::instance('purchase');
+        $cartItems = $cart->content();
+
+        return array_merge([
+            'flow' => 'purchase.create',
+            'user_id' => auth()->id(),
+            'setting_id' => session('setting_id'),
+            'component' => static::class,
+            'idempotency_token' => $this->idempotencyToken ?? null,
+            'duplicate_purchase_id' => $this->duplicatePurchase?->id,
+            'supplier_id_state' => $this->supplier_id,
+            'payment_term_state' => $this->payment_term,
+            'date' => $this->date,
+            'due_date' => $this->due_date,
+            'due_date_is_manual' => $this->dueDateIsManual,
+            'is_pkp' => $this->isPkp,
+            'cart_count' => (int) $cart->count(),
+            'cart_total_sub_total' => (float) $cartItems->sum(fn ($item) => (float) ($item->options['sub_total'] ?? 0)),
+            'transaction_level' => DB::transactionLevel(),
+            'has_note' => filled($this->note),
+            'note_length' => is_string($this->note) ? strlen($this->note) : 0,
+            'has_tax_ref_no' => filled($this->tax_ref_no),
+            'has_supplier_purchase_number' => filled($this->supplier_purchase_number),
+            'tag_count' => count($this->tags),
+        ], $extra);
+    }
+
+    private function flattenValidationErrors(ValidationException $e): array
+    {
+        $flattened = [];
+
+        foreach ($e->errors() as $field => $messages) {
+            $flattened[$field] = implode(' | ', array_map(static fn ($message) => (string) $message, (array) $messages));
+        }
+
+        return $flattened;
+    }
+
+    private function isSuspiciousHiddenIdArg(?string $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed !== '' && ! preg_match('/^\d+$/', $trimmed);
     }
 
     private function isCustomPaymentTerm(?int $termId): bool
@@ -478,12 +558,61 @@ class CreateForm extends Component
 
     private function prefillFromPurchase(int $purchaseId): void
     {
+        $this->purchaseSubmitDebug('purchase.duplicate.prefill.start', [
+            'requested_duplicate_purchase_id' => $purchaseId,
+            'current_setting_id' => session('setting_id'),
+        ]);
+
         $purchase = Purchase::with(['purchaseDetails.product', 'tags'])->withArchived()->find($purchaseId);
-        if (! $purchase || (int) $purchase->setting_id !== (int) session('setting_id')) {
+        if (! $purchase) {
+            $this->purchaseSubmitWarning('purchase.duplicate.prefill.skipped', [
+                'requested_duplicate_purchase_id' => $purchaseId,
+                'reason' => 'not_found',
+            ]);
+            return;
+        }
+
+        if ((int) $purchase->setting_id !== (int) session('setting_id')) {
+            $this->purchaseSubmitWarning('purchase.duplicate.prefill.skipped', [
+                'requested_duplicate_purchase_id' => $purchaseId,
+                'source_purchase_id' => $purchase->id,
+                'source_setting_id' => (int) $purchase->setting_id,
+                'reason' => 'setting_mismatch',
+            ]);
             return;
         }
 
         $today = now()->format('Y-m-d');
+        $taxInclusionResolution = app(PurchaseTaxInclusionResolver::class)->resolveForDuplicate($purchase);
+        $resolvedTaxIncluded = (bool) $taxInclusionResolution['effective'];
+        $purchase->is_tax_included = $resolvedTaxIncluded;
+
+        if ($taxInclusionResolution['used_fallback']) {
+            $this->purchaseSubmitWarning('purchase.duplicate.prefill.tax_inclusion_resolved', [
+                'source_purchase_id' => $purchase->id,
+                'stored_is_tax_included' => $taxInclusionResolution['stored'],
+                'inferred_is_tax_included' => $taxInclusionResolution['inferred'],
+                'used_fallback' => $taxInclusionResolution['used_fallback'],
+                'reason' => $taxInclusionResolution['reason'],
+            ]);
+        } elseif ($taxInclusionResolution['reason'] === 'ambiguous_keep_stored') {
+            $this->purchaseSubmitWarning('purchase.duplicate.prefill.tax_inclusion_resolved', [
+                'source_purchase_id' => $purchase->id,
+                'stored_is_tax_included' => $taxInclusionResolution['stored'],
+                'inferred_is_tax_included' => $taxInclusionResolution['inferred'],
+                'used_fallback' => $taxInclusionResolution['used_fallback'],
+                'reason' => $taxInclusionResolution['reason'],
+            ]);
+        } elseif ($taxInclusionResolution['reason'] === 'no_inferable_lines_keep_stored') {
+            $this->purchaseSubmitInfo('purchase.duplicate.prefill.tax_inclusion_resolved', [
+                'source_purchase_id' => $purchase->id,
+                'stored_is_tax_included' => $taxInclusionResolution['stored'],
+                'inferred_is_tax_included' => $taxInclusionResolution['inferred'],
+                'used_fallback' => $taxInclusionResolution['used_fallback'],
+                'reason' => $taxInclusionResolution['reason'],
+            ]);
+        }
+
         $this->duplicatePurchase = $purchase;
         $this->supplier_id = $purchase->supplier_id;
         $this->payment_term = $purchase->payment_term_id;
@@ -510,7 +639,15 @@ class CreateForm extends Component
         }
 
         $this->shipping = $purchase->shipping_amount ?? 0;
-        $this->is_tax_included = (bool) $purchase->is_tax_included;
+        $this->is_tax_included = $resolvedTaxIncluded;
+
+        $this->purchaseSubmitInfo('purchase.duplicate.prefill.loaded', [
+            'source_purchase_id' => $purchase->id,
+            'source_supplier_id' => $purchase->supplier_id,
+            'source_payment_term_id' => $purchase->payment_term_id,
+            'source_detail_count' => (int) $purchase->purchaseDetails->count(),
+            'date_reset_to_today' => true,
+        ]);
 
         // Ensure dropdown UI is in sync with the prefilled payment term
         // Do not call syncPaymentTermAndDueDate() here because it may overwrite
@@ -551,6 +688,13 @@ class CreateForm extends Component
                 ],
             ]);
         }
+
+        $this->purchaseSubmitDebug('purchase.duplicate.prefill.cart_seeded', [
+            'source_purchase_id' => $purchase->id,
+            'detail_count' => (int) $purchase->purchaseDetails->count(),
+            'seeded_cart_count' => (int) $cart->count(),
+            'seeded_cart_total_sub_total' => (float) $cart->content()->sum(fn ($item) => (float) ($item->options['sub_total'] ?? 0)),
+        ]);
     }
 
     /**
@@ -558,6 +702,35 @@ class CreateForm extends Component
      */
     public function submit(?string $supplierId = null, ?string $paymentTermId = null)
     {
+        $rawSupplierArg = $supplierId;
+        $rawPaymentTermArg = $paymentTermId;
+        $parsedSupplierArg = $this->normalizeSupplierId($supplierId);
+        $parsedPaymentTermArg = $this->normalizePaymentTermId($paymentTermId);
+
+        $this->purchaseSubmitDebug('purchase.submit.start', [
+            'hidden_supplier_arg' => $rawSupplierArg,
+            'hidden_payment_term_arg' => $rawPaymentTermArg,
+            'supplier_id_state_before_submit' => $this->supplier_id,
+            'payment_term_state_before_submit' => $this->payment_term,
+            'duplicate_mode' => $this->duplicatePurchase !== null,
+        ]);
+
+        $this->purchaseSubmitDebug('purchase.submit.hidden_payload_parsed', [
+            'hidden_supplier_arg' => $rawSupplierArg,
+            'hidden_payment_term_arg' => $rawPaymentTermArg,
+            'parsed_supplier_arg' => $parsedSupplierArg,
+            'parsed_payment_term_arg' => $parsedPaymentTermArg,
+            'supplier_arg_changed_by_parse' => ($rawSupplierArg !== null && $rawSupplierArg !== '') && ((string) $parsedSupplierArg !== $rawSupplierArg),
+            'payment_term_arg_changed_by_parse' => ($rawPaymentTermArg !== null && $rawPaymentTermArg !== '') && ((string) $parsedPaymentTermArg !== $rawPaymentTermArg),
+        ]);
+
+        if ($this->isSuspiciousHiddenIdArg($rawSupplierArg) || $this->isSuspiciousHiddenIdArg($rawPaymentTermArg)) {
+            $this->purchaseSubmitWarning('purchase.submit.hidden_payload_invalid', [
+                'hidden_supplier_arg' => $rawSupplierArg,
+                'hidden_payment_term_arg' => $rawPaymentTermArg,
+            ]);
+        }
+
         // Use passed values from hidden inputs if available (bypasses broken wire:model binding)
         if ($supplierId !== null && $supplierId !== '') {
             $this->supplier_id = (int) $supplierId;
@@ -566,17 +739,29 @@ class CreateForm extends Component
             $this->payment_term = (int) $paymentTermId;
             $this->lastAppliedPaymentTermId = (int) $paymentTermId;
         }
-        
+
         // Fallback: Re-sync payment_term from supplier if still not set
         if ($this->supplier_id && !$this->payment_term) {
             $supplierPaymentTerm = Supplier::query()->whereKey($this->supplier_id)->value('payment_term_id');
             $paymentTermId = $supplierPaymentTerm ? (int) $supplierPaymentTerm : $this->resolveDefaultPaymentTermId();
             $this->applyPaymentTermSelection($paymentTermId);
+
+            $this->purchaseSubmitDebug('purchase.submit.payment_term_fallback_applied', [
+                'supplier_id' => $this->supplier_id,
+                'resolved_payment_term_id' => $paymentTermId,
+            ]);
         }
 
         $purchase = null;
+        $failureStage = 'before_validation';
 
         try {
+            $this->purchaseSubmitDebug('purchase.submit.before_validation', [
+                'hidden_supplier_arg' => $rawSupplierArg,
+                'hidden_payment_term_arg' => $rawPaymentTermArg,
+            ]);
+
+            $failureStage = 'validation';
             $this->validate([
                 'supplier_id' => 'required|exists:suppliers,id',
                 'supplier_purchase_number' => 'nullable|string|max:255|unique:purchases,supplier_purchase_number,NULL,id,setting_id,' . session('setting_id'),
@@ -599,25 +784,35 @@ class CreateForm extends Component
                 'payment_term.exists' => 'Jatuh tempo yang dipilih tidak valid.',
             ]);
 
+            $failureStage = 'cart_check';
             $cart = Cart::instance('purchase');
 
             if ($cart->count() === 0) {
+                $this->purchaseSubmitWarning('purchase.submit.aborted_empty_cart');
                 $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk harus dipilih']);
                 return;
             }
 
+            $failureStage = 'ensure_cart_taxes_for_pkp';
             $this->ensureCartTaxesForPkp($cart->content());
 
+            $failureStage = 'idempotency_claim';
             if (! IdempotencyService::claim($this->idempotencyToken, 'purchases.store', auth()->id())) {
+                $this->purchaseSubmitWarning('purchase.submit.idempotency_claim_failed', [
+                    'token' => $this->idempotencyToken,
+                ]);
                 session()->flash('error', 'Permintaan pembelian sudah diproses. Silakan tunggu sebelum mencoba lagi.');
                 return;
             }
 
+            $failureStage = 'db_transaction_begin';
             DB::beginTransaction();
+            $this->purchaseSubmitDebug('purchase.submit.transaction_begin');
 
             $setting_id = session('setting_id');
 
             // Global discount and tax calculations
+            $failureStage = 'calculating_totals';
             $cartItems = $cart->content();
             $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
             $shipping = $this->shipping;
@@ -639,6 +834,7 @@ class CreateForm extends Component
 
             $total_amount = $total_sub_total - $global_discount_amount + $shipping;
 
+            $failureStage = 'purchase_create';
             $purchase = Purchase::create([
                 'date' => $this->date,
                 'due_date' => $this->due_date,
@@ -663,11 +859,26 @@ class CreateForm extends Component
                 'payment_method' => '',
             ]);
 
-            Log::info('Purchase Submit', [
-                'tags' => $this->tags,
+            $this->purchaseSubmitInfo('purchase.submit.purchase_created', [
+                'purchase_id' => $purchase->id,
+                'supplier_id' => $purchase->supplier_id,
+                'payment_term_id' => $purchase->payment_term_id,
+                'status' => $purchase->status,
+                'total_amount' => (float) $purchase->total_amount,
+                'tax_amount' => (float) $purchase->tax_amount,
             ]);
-            $purchase->syncTags($this->tags);
 
+            $failureStage = 'tags_sync';
+            $purchase->syncTags($this->tags);
+            $this->purchaseSubmitDebug('purchase.submit.tags_synced', [
+                'purchase_id' => $purchase->id,
+                'tag_count' => count($this->tags),
+            ]);
+
+            $failureStage = 'details_create';
+            $detailCount = 0;
+            $detailQuantityTotal = 0;
+            $detailTaxTotal = 0.0;
             foreach ($cartItems as $item) {
                 $product_tax_amount = $item->options['sub_total'] - ($item->options['sub_total_before_tax'] ?? 0);
 
@@ -685,9 +896,24 @@ class CreateForm extends Component
                     'product_tax_amount' => $product_tax_amount,
                     'tax_id' => $item->options['product_tax'],
                 ]);
+
+                $detailCount++;
+                $detailQuantityTotal += (int) $item->qty;
+                $detailTaxTotal += (float) $product_tax_amount;
             }
 
+            $this->purchaseSubmitDebug('purchase.submit.details_created', [
+                'purchase_id' => $purchase->id,
+                'detail_count' => $detailCount,
+                'detail_quantity_total' => $detailQuantityTotal,
+                'detail_tax_total' => $detailTaxTotal,
+            ]);
+
+            $failureStage = 'commit';
             DB::commit();
+            $this->purchaseSubmitInfo('purchase.submit.committed', [
+                'purchase_id' => $purchase->id,
+            ]);
             $cart->destroy();
 
             session()->flash('success', 'Pembelian Ditambahkan!');
@@ -697,12 +923,29 @@ class CreateForm extends Component
             if (DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
+
+            $this->purchaseSubmitWarning('purchase.submit.validation_failed', [
+                'failure_stage' => $failureStage,
+                'hidden_supplier_arg' => $rawSupplierArg,
+                'hidden_payment_term_arg' => $rawPaymentTermArg,
+                'validation_errors' => $this->flattenValidationErrors($e),
+                'duplicate_mode' => $this->duplicatePurchase !== null,
+            ]);
             throw $e;
         } catch (\Exception $e) {
             if (DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
-            Log::error('Livewire Purchase Store Failed: ' . $e->getMessage());
+
+            Log::error('purchase.submit.exception', $this->purchaseSubmitBaseContext([
+                'failure_stage' => $failureStage,
+                'hidden_supplier_arg' => $rawSupplierArg,
+                'hidden_payment_term_arg' => $rawPaymentTermArg,
+                'purchase_id' => $purchase?->id,
+                'exception_class' => $e::class,
+                'message' => $e->getMessage(),
+                'exception' => $e,
+            ]));
 
             session()->flash('error', 'Gagal menyimpan pembelian. Silakan coba lagi.');
             return;

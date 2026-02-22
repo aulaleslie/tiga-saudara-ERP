@@ -62,20 +62,43 @@ class PurchaseProductCartNoDefaultTaxTest extends TestCase
         Cart::instance('purchase')->destroy();
     }
 
-    public function test_pkp_product_add_does_not_autoselect_tax_when_no_default_exists(): void
+    public function test_pkp_product_add_autoselects_latest_tax_when_no_default_exists(): void
     {
-        Tax::create([
+        $olderTax = Tax::create([
             'name' => 'PPN 11',
             'value' => 11,
             'is_default' => false,
         ]);
 
-        Tax::create([
+        $latestTax = Tax::create([
             'name' => 'PPN 12',
             'value' => 12,
             'is_default' => false,
         ]);
 
+        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->call('productSelected', [
+                'id' => $this->product->id,
+                'product_name' => $this->product->product_name,
+                'product_code' => $this->product->product_code,
+                'product_quantity' => $this->product->product_quantity,
+                'product_unit' => $this->product->product_unit,
+                'last_purchase_price' => 1000,
+                'average_purchase_price' => 1000,
+                'purchase_tax_id' => null,
+            ]);
+
+        $cartItem = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id);
+
+        $this->assertNotNull($cartItem);
+        $this->assertNotSame($olderTax->id, (int) $cartItem->options->product_tax);
+        $this->assertSame($latestTax->id, (int) $cartItem->options->product_tax);
+        $this->assertTrue((float) $cartItem->options->sub_total > (float) $cartItem->options->sub_total_before_tax);
+        $this->assertTrue((float) $cartItem->options->product_tax_amount > 0);
+    }
+
+    public function test_pkp_product_add_keeps_tax_null_when_no_tax_rows_exist(): void
+    {
         Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
             ->call('productSelected', [
                 'id' => $this->product->id,

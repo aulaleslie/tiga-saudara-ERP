@@ -122,6 +122,8 @@ class ProductCart extends Component
                 $this->discount_type[$cart_item->id] = $this->discount_type[$cart_item->id] ?? 'fixed';
             }
         }
+
+        $this->reconcileMissingPkpTaxesInCart();
     }
 
     private function initializeCartItemAttributes($cart_item): void
@@ -228,11 +230,103 @@ class ProductCart extends Component
             ->get();
     }
 
+    private function reconcileMissingPkpTaxesInCart(): void
+    {
+        if ($this->cart_instance !== 'purchase' || ! $this->isPkp) {
+            return;
+        }
+
+        $cart = Cart::instance($this->cart_instance);
+        $cartItems = $cart->content();
+
+        foreach ($cartItems as $cartItem) {
+            $existingTaxId = $cartItem->options->get('product_tax');
+            if ($existingTaxId !== null && $existingTaxId !== '') {
+                continue;
+            }
+
+            $productId = (int) $cartItem->id;
+            $resolvedTaxId = $this->resolvePreferredPkpAutoTaxId($productId);
+            if (! $resolvedTaxId) {
+                continue;
+            }
+
+            $this->product_tax[$productId] = $resolvedTaxId;
+
+            $discountAmount = (float) ($cartItem->options->product_discount ?? 0);
+            $calculated = $this->calculateSubtotalAndTax(
+                $cartItem->price,
+                $cartItem->qty,
+                $discountAmount,
+                $resolvedTaxId
+            );
+
+            $cart->update($cartItem->rowId, [
+                'options' => array_merge($cartItem->options->toArray(), [
+                    'product_tax' => $resolvedTaxId,
+                    'sub_total' => $calculated['sub_total'],
+                    'sub_total_before_tax' => $calculated['sub_total_before_tax'],
+                    'product_tax_amount' => $calculated['product_tax_amount'],
+                ]),
+            ]);
+        }
+    }
+
     private function resolveDefaultTaxId(): ?int
     {
         $defaultTax = $this->taxes->firstWhere('is_default', true);
 
         return $defaultTax ? (int) $defaultTax->id : null;
+    }
+
+    private function resolveLatestTaxId(): ?int
+    {
+        $latestTaxId = Tax::query()->latest('id')->value('id');
+
+        return $latestTaxId ? (int) $latestTaxId : null;
+    }
+
+    private function resolveProductPurchaseTaxIdForProduct(int $productId, ?array $productPayload = null): ?int
+    {
+        if ($productId <= 0) {
+            return null;
+        }
+
+        $productPriceTaxId = ProductPrice::query()
+            ->forProduct($productId)
+            ->forSetting((int) $this->setting_id)
+            ->value('purchase_tax_id');
+
+        if ($productPriceTaxId) {
+            return (int) $productPriceTaxId;
+        }
+
+        $payloadTaxId = $productPayload['purchase_tax_id'] ?? $productPayload['product_tax'] ?? null;
+
+        return $payloadTaxId ? (int) $payloadTaxId : null;
+    }
+
+    private function resolvePreferredPkpAutoTaxId(?int $productId = null, ?array $productPayload = null): ?int
+    {
+        if ($this->cart_instance !== 'purchase' || ! $this->isPkp) {
+            return null;
+        }
+
+        $defaultTaxId = $this->resolveDefaultTaxId();
+        if ($defaultTaxId) {
+            return $defaultTaxId;
+        }
+
+        $latestTaxId = $this->resolveLatestTaxId();
+        if ($latestTaxId) {
+            return $latestTaxId;
+        }
+
+        if ($productId) {
+            return $this->resolveProductPurchaseTaxIdForProduct($productId, $productPayload);
+        }
+
+        return null;
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
@@ -307,7 +401,10 @@ class ProductCart extends Component
         $this->product = $product;
 
         $calc = $this->calculate($product);
-        $defaultTaxId = $calc['product_tax'] ?: ($this->isPkp ? $this->resolveDefaultTaxId() : null);
+        $defaultTaxId = $this->resolvePreferredPkpAutoTaxId((int) ($product['id'] ?? 0), $product);
+        if (! $defaultTaxId) {
+            $defaultTaxId = $calc['product_tax'];
+        }
         $taxCalculation = $this->calculateSubtotalAndTax(
             $calc['price'],
             1,

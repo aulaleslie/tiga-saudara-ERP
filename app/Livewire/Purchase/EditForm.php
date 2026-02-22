@@ -133,6 +133,84 @@ class EditForm extends Component
         return (bool) (Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
     }
 
+    private function purchaseSubmitDebugEnabled(): bool
+    {
+        return (bool) config('performance.purchase_submit_debug');
+    }
+
+    private function purchaseSubmitDebug(string $event, array $context = []): void
+    {
+        if (! $this->purchaseSubmitDebugEnabled()) {
+            return;
+        }
+
+        Log::info($event, $this->purchaseSubmitBaseContext($context));
+    }
+
+    private function purchaseSubmitInfo(string $event, array $context = []): void
+    {
+        if (! $this->purchaseSubmitDebugEnabled()) {
+            return;
+        }
+
+        Log::info($event, $this->purchaseSubmitBaseContext($context));
+    }
+
+    private function purchaseSubmitWarning(string $event, array $context = []): void
+    {
+        Log::warning($event, $this->purchaseSubmitBaseContext($context));
+    }
+
+    private function purchaseSubmitBaseContext(array $extra = []): array
+    {
+        $cart = Cart::instance('purchase');
+        $cartItems = $cart->content();
+
+        return array_merge([
+            'flow' => 'purchase.edit',
+            'user_id' => auth()->id(),
+            'setting_id' => session('setting_id'),
+            'component' => static::class,
+            'purchase_id' => $this->purchaseId,
+            'supplier_id_state' => $this->supplier_id,
+            'payment_term_state' => $this->payment_term,
+            'date' => $this->date,
+            'due_date' => $this->due_date,
+            'due_date_is_manual' => $this->dueDateIsManual,
+            'is_pkp' => $this->isPkpEnabled(),
+            'cart_count' => (int) $cart->count(),
+            'cart_total_sub_total' => (float) $cartItems->sum(fn ($item) => (float) ($item->options['sub_total'] ?? 0)),
+            'transaction_level' => DB::transactionLevel(),
+            'has_note' => filled($this->note),
+            'note_length' => is_string($this->note) ? strlen($this->note) : 0,
+            'has_tax_ref_no' => filled($this->tax_ref_no),
+            'has_supplier_purchase_number' => filled($this->supplier_purchase_number),
+            'tag_count' => count($this->tags),
+        ], $extra);
+    }
+
+    private function flattenValidationErrors(ValidationException $e): array
+    {
+        $flattened = [];
+
+        foreach ($e->errors() as $field => $messages) {
+            $flattened[$field] = implode(' | ', array_map(static fn ($message) => (string) $message, (array) $messages));
+        }
+
+        return $flattened;
+    }
+
+    private function isSuspiciousHiddenIdArg(?string $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed !== '' && ! preg_match('/^\d+$/', $trimmed);
+    }
+
     private function ensureCartTaxesForPkp($cartItems): void
     {
         if (! $this->isPkpEnabled()) {
@@ -160,6 +238,19 @@ class EditForm extends Component
     {
         if (is_array($value)) {
             $value = $value['paymentTermId'] ?? $value['payment_term_id'] ?? $value[0] ?? null;
+        }
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return (int) $value;
+    }
+
+    private function normalizeSupplierId(mixed $value): ?int
+    {
+        if (is_array($value)) {
+            $value = $value['supplier_id'] ?? $value['supplierId'] ?? $value['id'] ?? $value[0] ?? null;
         }
 
         if ($value === null || $value === '') {
@@ -365,6 +456,36 @@ class EditForm extends Component
      */
     public function submit(?string $supplierId = null, ?string $paymentTermId = null)
     {
+        $rawSupplierArg = $supplierId;
+        $rawPaymentTermArg = $paymentTermId;
+        $parsedSupplierArg = $this->normalizeSupplierId($supplierId);
+        $parsedPaymentTermArg = $this->normalizePaymentTermId($paymentTermId);
+
+        $this->purchaseSubmitDebug('purchase.submit.start', [
+            'hidden_supplier_arg' => $rawSupplierArg,
+            'hidden_payment_term_arg' => $rawPaymentTermArg,
+            'supplier_id_state_before_submit' => $this->supplier_id,
+            'payment_term_state_before_submit' => $this->payment_term,
+            'purchase_status' => $this->purchase?->status,
+            'payment_status' => $this->purchase?->payment_status,
+        ]);
+
+        $this->purchaseSubmitDebug('purchase.submit.hidden_payload_parsed', [
+            'hidden_supplier_arg' => $rawSupplierArg,
+            'hidden_payment_term_arg' => $rawPaymentTermArg,
+            'parsed_supplier_arg' => $parsedSupplierArg,
+            'parsed_payment_term_arg' => $parsedPaymentTermArg,
+            'supplier_arg_changed_by_parse' => ($rawSupplierArg !== null && $rawSupplierArg !== '') && ((string) $parsedSupplierArg !== $rawSupplierArg),
+            'payment_term_arg_changed_by_parse' => ($rawPaymentTermArg !== null && $rawPaymentTermArg !== '') && ((string) $parsedPaymentTermArg !== $rawPaymentTermArg),
+        ]);
+
+        if ($this->isSuspiciousHiddenIdArg($rawSupplierArg) || $this->isSuspiciousHiddenIdArg($rawPaymentTermArg)) {
+            $this->purchaseSubmitWarning('purchase.submit.hidden_payload_invalid', [
+                'hidden_supplier_arg' => $rawSupplierArg,
+                'hidden_payment_term_arg' => $rawPaymentTermArg,
+            ]);
+        }
+
         // Use passed values from hidden inputs if available (bypasses broken wire:model binding)
         if ($supplierId !== null && $supplierId !== '') {
             $this->supplier_id = (int) $supplierId;
@@ -380,9 +501,25 @@ class EditForm extends Component
                 ? (int) $supplier->payment_term_id
                 : $this->resolveDefaultPaymentTermId();
             $this->applyPaymentTermSelection($paymentTermId);
+
+            $this->purchaseSubmitDebug('purchase.submit.payment_term_fallback_applied', [
+                'supplier_id' => $this->supplier_id,
+                'resolved_payment_term_id' => $paymentTermId,
+            ]);
         }
 
+        $failureStage = 'before_validation';
+        $purchase = null;
+
         try {
+            $purchase = $this->purchase;
+
+            $this->purchaseSubmitDebug('purchase.submit.before_validation', [
+                'hidden_supplier_arg' => $rawSupplierArg,
+                'hidden_payment_term_arg' => $rawPaymentTermArg,
+            ]);
+
+            $failureStage = 'validation';
             $this->validate([
                 'supplier_id' => 'required|exists:suppliers,id',
                 'supplier_purchase_number' => 'nullable|string|max:255|unique:purchases,supplier_purchase_number,' . $this->purchaseId . ',id,setting_id,' . session('setting_id'),
@@ -405,20 +542,26 @@ class EditForm extends Component
                 'payment_term.exists' => 'Jatuh tempo yang dipilih tidak valid.',
             ]);
 
+            $failureStage = 'cart_check';
             $cart = Cart::instance('purchase');
 
             if ($cart->count() === 0) {
+                $this->purchaseSubmitWarning('purchase.submit.aborted_empty_cart');
                 $this->dispatch('notify', ['type' => 'error', 'message' => 'Produk harus dipilih']);
                 return;
             }
 
+            $failureStage = 'ensure_cart_taxes_for_pkp';
             $cartItems = $cart->content();
             $this->ensureCartTaxesForPkp($cartItems);
 
+            $failureStage = 'db_transaction_begin';
             DB::beginTransaction();
+            $this->purchaseSubmitDebug('purchase.submit.transaction_begin');
 
             $purchase = $this->purchase; // already loaded in mount()
 
+            $failureStage = 'calculating_totals';
             $total_sub_total = $cartItems->sum(fn($item) => $item->options['sub_total']);
             $shipping = (float) $this->shipping;
             $globalDiscount = is_numeric($this->global_discount) ? (float) $this->global_discount : 0;
@@ -443,6 +586,7 @@ class EditForm extends Component
             $supplierPurchaseNumber = $this->supplier_purchase_number ?: null;
             $taxRefNo = $this->tax_ref_no ?: null;
 
+            $failureStage = 'purchase_update';
             $purchase->update([
                 'date' => $this->date,
                 'due_date' => $this->due_date,
@@ -460,15 +604,35 @@ class EditForm extends Component
                 'payment_term_id' => $this->payment_term,
             ]);
 
-            Log::info('Purchase Edit Submit', [
-                'tags' => $this->tags,
+            $this->purchaseSubmitInfo('purchase.submit.purchase_updated', [
+                'purchase_id' => $purchase->id,
+                'supplier_id' => $purchase->supplier_id,
+                'payment_term_id' => $purchase->payment_term_id,
+                'status' => $purchase->status,
+                'total_amount' => (float) $purchase->total_amount,
+                'tax_amount' => (float) $purchase->tax_amount,
             ]);
+
+            $failureStage = 'tags_sync';
             $this->purchase->syncTags($this->tags);
+            $this->purchaseSubmitDebug('purchase.submit.tags_synced', [
+                'purchase_id' => $purchase->id,
+                'tag_count' => count($this->tags),
+            ]);
 
             // Remove old details
-            $purchase->purchaseDetails()->delete();
+            $failureStage = 'details_delete';
+            $deletedDetailCount = (int) $purchase->purchaseDetails()->delete();
+            $this->purchaseSubmitDebug('purchase.submit.details_deleted', [
+                'purchase_id' => $purchase->id,
+                'deleted_detail_count' => $deletedDetailCount,
+            ]);
 
             // Re-add from cart
+            $failureStage = 'details_recreate';
+            $detailCount = 0;
+            $detailQuantityTotal = 0;
+            $detailTaxTotal = 0.0;
             foreach ($cartItems as $item) {
                 $product_tax_amount = $item->options['sub_total'] - ($item->options['sub_total_before_tax'] ?? 0);
 
@@ -485,9 +649,24 @@ class EditForm extends Component
                     'product_tax_amount' => $product_tax_amount,
                     'tax_id' => $item->options['product_tax'],
                 ]);
+
+                $detailCount++;
+                $detailQuantityTotal += (int) $item->qty;
+                $detailTaxTotal += (float) $product_tax_amount;
             }
 
+            $this->purchaseSubmitDebug('purchase.submit.details_recreated', [
+                'purchase_id' => $purchase->id,
+                'detail_count' => $detailCount,
+                'detail_quantity_total' => $detailQuantityTotal,
+                'detail_tax_total' => $detailTaxTotal,
+            ]);
+
+            $failureStage = 'commit';
             DB::commit();
+            $this->purchaseSubmitInfo('purchase.submit.committed', [
+                'purchase_id' => $purchase->id,
+            ]);
             Cart::instance('purchase')->destroy();
 
             session()->flash('success', 'Pembelian berhasil diperbarui.');
@@ -497,12 +676,28 @@ class EditForm extends Component
             if (DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
+
+            $this->purchaseSubmitWarning('purchase.submit.validation_failed', [
+                'failure_stage' => $failureStage,
+                'hidden_supplier_arg' => $rawSupplierArg,
+                'hidden_payment_term_arg' => $rawPaymentTermArg,
+                'validation_errors' => $this->flattenValidationErrors($e),
+            ]);
             throw $e;
         } catch (\Exception $e) {
             if (DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
-            Log::error('Edit Purchase Failed: ' . $e->getMessage());
+
+            Log::error('purchase.submit.exception', $this->purchaseSubmitBaseContext([
+                'failure_stage' => $failureStage,
+                'hidden_supplier_arg' => $rawSupplierArg,
+                'hidden_payment_term_arg' => $rawPaymentTermArg,
+                'purchase_id' => $purchase?->id ?? $this->purchaseId,
+                'exception_class' => $e::class,
+                'message' => $e->getMessage(),
+                'exception' => $e,
+            ]));
 
             session()->flash('error', 'Gagal memperbarui pembelian. Silakan coba lagi.');
             return;

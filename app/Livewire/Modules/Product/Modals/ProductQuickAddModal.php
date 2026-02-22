@@ -2,42 +2,36 @@
 
 namespace App\Livewire\Modules\Product\Modals;
 
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
-use Modules\Product\Entities\ProductUnitConversionPrice;
-use Modules\Product\Entities\Brand;
-use Modules\Product\Entities\Category;
+use Modules\Product\Services\ProductCreator;
+use Modules\Product\Support\ProductCreateValidation;
 use Modules\Setting\Entities\Unit;
-use Modules\Setting\Entities\Setting;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-use Livewire\Attributes\On;
+use Throwable;
 
 class ProductQuickAddModal extends Component
 {
-    public $showModal = false;
+    public bool $showModal = false;
 
-    // Basic Product Fields
     public $product_name;
     public $product_code;
     public $barcode;
     public $category_id;
     public $brand_id;
-    public $unit_id; // Maps to base_unit_id
-    public $note;
+    public $base_unit_id;
     public bool $serial_number_required = false;
 
-    // Stock Management
-    public $stock_managed = false;
-    public $product_stock_alert = 0;
+    public bool $stock_managed = true;
+    public $product_stock_alert;
 
-    // Settings
-    public $is_purchased = true;
-    public $is_sold = true;
+    public bool $is_purchased = true;
+    public bool $is_sold = false;
 
-    // Price Fields
     public $purchase_price;
     public $sale_price;
     public $tier_1_price;
@@ -45,13 +39,11 @@ class ProductQuickAddModal extends Component
     public $purchase_tax_id;
     public $sale_tax_id;
 
-    // Unit Configuration State
     public array $conversions = [];
-    public array $displayPrices = []; // For conversion prices
+    public array $displayPrices = [];
     public array $rowKeys = [];
-    public array $unitOptions = []; // For UnitSearchDropdown options reuse if needed
 
-    public $formResetVersion = 1;
+    public int $formResetVersion = 1;
 
     protected $listeners = [
         'openProductModal' => 'openModal',
@@ -61,101 +53,114 @@ class ProductQuickAddModal extends Component
         'taxDropdownSelected' => 'handleTaxSelected',
     ];
 
-    public function mount()
+    public function mount(): void
     {
-        // define unit options if needed, but dropdowns handle themselves usually
-        // We initialize conversions array
+        $this->applyPurchaseDefaults();
     }
 
-    public function openModal()
+    public function openModal(): void
     {
         $this->resetForm();
         $this->showModal = true;
     }
 
-    public function closeModal()
+    public function closeModal(): void
     {
         $this->showModal = false;
         $this->resetForm();
     }
 
-    public function resetForm()
+    public function resetForm(): void
     {
         $this->reset([
-            'product_name', 'product_code', 'barcode', 'category_id', 'brand_id', 'unit_id', 'note',
-            'stock_managed', 'product_stock_alert',
-            'is_purchased', 'is_sold',
-            'purchase_price', 'sale_price', 'tier_1_price', 'tier_2_price',
-            'purchase_tax_id', 'sale_tax_id', 'serial_number_required'
+            'product_name',
+            'product_code',
+            'barcode',
+            'category_id',
+            'brand_id',
+            'base_unit_id',
+            'serial_number_required',
+            'product_stock_alert',
+            'is_purchased',
+            'is_sold',
+            'purchase_price',
+            'sale_price',
+            'tier_1_price',
+            'tier_2_price',
+            'purchase_tax_id',
+            'sale_tax_id',
         ]);
+
         $this->conversions = [];
         $this->displayPrices = [];
         $this->rowKeys = [];
         $this->formResetVersion++;
-        $this->dispatch('product-modal-reset'); // Helper for clearing dropdowns if they listen
+        $this->resetErrorBag();
+        $this->resetValidation();
+        $this->applyPurchaseDefaults();
+
+        $this->dispatch('product-modal-reset');
     }
 
-    // --- Event Handlers for Dropdowns ---
-
-    public function handleCategorySelected($name, $value)
+    public function handleCategorySelected($name, $value): void
     {
         if ($name === 'category_id') {
             $this->category_id = $value;
         }
     }
 
-    public function handleBrandSelected($name, $value)
+    public function handleBrandSelected($name, $value): void
     {
         if ($name === 'brand_id') {
             $this->brand_id = $value;
         }
     }
 
-    public function handleUnitSelected($name, $value)
+    public function handleUnitSelected($name, $value): void
     {
-        if ($name === 'unit_id') {
-            $this->unit_id = $value;
-        } elseif (Str::startsWith($name, 'conversions.')) {
-            // conversions.0.unit_id
+        if ($name === 'base_unit_id') {
+            $this->base_unit_id = $value;
+            return;
+        }
+
+        if (Str::startsWith($name, 'conversions.')) {
             $parts = explode('.', $name);
-            if (isset($parts[1])) {
-                $index = $parts[1];
-                if (isset($this->conversions[$index])) {
-                    $this->conversions[$index]['unit_id'] = $value;
-                }
+            if (isset($parts[1]) && isset($this->conversions[$parts[1]])) {
+                $this->conversions[$parts[1]]['unit_id'] = $value;
             }
         }
     }
 
-    public function handleTaxSelected($name, $value)
+    public function handleTaxSelected($name, $value): void
     {
         if ($name === 'purchase_tax_id') {
             $this->purchase_tax_id = $value;
-        } elseif ($name === 'sale_tax_id') {
+            return;
+        }
+
+        if ($name === 'sale_tax_id') {
             $this->sale_tax_id = $value;
         }
     }
 
-    // --- Unit Configuration Logic ---
-
-    public function addConversionRow()
+    public function addConversionRow(): void
     {
-        if (!$this->stock_managed) {
+        if (! $this->stock_managed) {
             return;
         }
 
         $this->conversions[] = [
-            'id'               => null,
-            'unit_id'          => '',
-            'conversion_factor'=> '',
-            'barcode'          => '',
-            'price'            => '',
+            'id' => null,
+            'unit_id' => '',
+            'conversion_factor' => '',
+            'barcode' => '',
+            'price' => '',
         ];
         $this->displayPrices[] = '';
         $this->rowKeys[] = uniqid('conv_', true);
     }
 
-    public function removeConversionRow($key)
+    public function removeConversionRow(string $key): void
     {
         $index = array_search($key, $this->rowKeys, true);
         if ($index === false) {
@@ -170,171 +175,102 @@ class ProductQuickAddModal extends Component
 
     public function updatedStockManaged($value): void
     {
-        if (! $value) {
-            $this->serial_number_required = false;
-            $this->product_stock_alert = 0;
-            $this->conversions = [];
-            $this->displayPrices = [];
-            $this->rowKeys = [];
+        if (! (bool) $value) {
+            $this->stock_managed = true;
         }
     }
 
-    public function showRawPrice($index)
+    public function updatedIsPurchased($value): void
     {
-        if (isset($this->conversions[$index])) {
-            $this->displayPrices[$index] = $this->conversions[$index]['price'] !== ''
-                ? rtrim(rtrim((string) $this->conversions[$index]['price'], '0'), '.')
-                : '';
+        if (! (bool) $value) {
+            $this->is_purchased = true;
         }
     }
 
-    public function syncPrice($index)
+    public function updatedIsSold($value): void
+    {
+        if ((bool) $value) {
+            return;
+        }
+
+        $this->sale_price = null;
+        $this->tier_1_price = null;
+        $this->tier_2_price = null;
+        $this->sale_tax_id = null;
+    }
+
+    public function showRawPrice(int $index): void
+    {
+        if (! isset($this->conversions[$index])) {
+            return;
+        }
+
+        $this->displayPrices[$index] = $this->conversions[$index]['price'] !== ''
+            ? rtrim(rtrim((string) $this->conversions[$index]['price'], '0'), '.')
+            : '';
+    }
+
+    public function syncPrice(int $index): void
     {
         $raw = $this->displayPrices[$index] ?? '';
+        $clean = str_replace(',', '.', preg_replace('/[^\d,\.]/', '', (string) $raw));
+        $num = $clean === '' ? null : (float) $clean;
+
+        if (isset($this->conversions[$index])) {
+            $this->conversions[$index]['price'] = $num ?? '';
+        }
+
+        $this->displayPrices[$index] = $num === null ? '' : number_format($num, 2, '.', '');
+    }
+
+    public function updatedDisplayPrices($value, string $name): void
+    {
+        if (! preg_match('/displayPrices\.(\d+)/', $name, $matches)) {
+            return;
+        }
+
+        $index = (int) $matches[1];
+        $raw = is_string($value) ? $value : '';
         $clean = str_replace(',', '.', preg_replace('/[^\d,\.]/', '', $raw));
         $num = $clean === '' ? null : (float) $clean;
 
         if (isset($this->conversions[$index])) {
             $this->conversions[$index]['price'] = $num ?? '';
         }
-        $this->displayPrices[$index] = $num === null ? '' : number_format($num, 2);
     }
 
-    // --- Save Logic ---
-
-    public function save()
+    public function save(): void
     {
-        $this->validate([
-            'product_name' => 'required|string|max:255',
-            'product_code' => 'nullable|string|max:255|unique:products,product_code',
-            'category_id' => 'required',
-            'unit_id' => 'required',
-            'purchase_price' => 'nullable|numeric|min:0',
-            'sale_price' => 'nullable|numeric|min:0',
-            'stock_managed' => 'boolean',
-            'serial_number_required' => 'boolean',
-        ]);
+        $payload = $this->buildValidationPayload();
+        $validator = Validator::make(
+            $payload,
+            ProductCreateValidation::rules($payload),
+            ProductCreateValidation::messages()
+        );
+
+        if ($validator->fails()) {
+            throw new ValidationException($validator);
+        }
+
+        $validated = $validator->validated();
 
         try {
-            DB::beginTransaction();
+            /** @var ProductCreator $creator */
+            $creator = app(ProductCreator::class);
+            $product = $creator->create($validated);
 
-            $settingId = session('setting_id') ?? 1;
-            $settingIds = Setting::pluck('id');
-            if ($settingIds->isEmpty()) $settingIds = collect([$settingId]);
-
-            // Auto-generate Code
-            if (empty($this->product_code)) {
-                $lastSku = Product::where('product_code', 'like', 'SKU-%')
-                    ->orderByRaw("CAST(SUBSTRING(product_code, 5) AS UNSIGNED) DESC")
-                    ->value('product_code');
-                $nextNumber = 1;
-                if ($lastSku) {
-                    $nextNumber = (int) substr($lastSku, 4) + 1;
-                }
-                $this->product_code = 'SKU-' . str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
-            }
-
-            // Create Product
-            $product = Product::create([
-                'product_name' => $this->product_name,
-                'product_code' => $this->product_code,
-                'barcode' => $this->barcode,
-                'category_id' => $this->category_id,
-                'brand_id' => $this->brand_id,
-                'base_unit_id' => $this->unit_id,
-                'unit_id' => $this->unit_id, // Map both for safety? Model relies on base_unit_id for logic mostly
-                'product_stock_alert' => $this->product_stock_alert,
-                'stock_managed' => $this->stock_managed ? 1 : 0,
-                'serial_number_required' => $this->serial_number_required ? 1 : 0,
-                'is_purchased' => $this->is_purchased,
-                'is_sold' => $this->is_sold,
-                'product_note' => $this->note,
-                'setting_id' => $settingId,
-                // Defaults
-                'product_quantity' => 0,
-                'product_cost' => 0,
-                'product_price' => 0,
-                'product_order_tax' => 0,
-                'product_tax_type' => 0,
-                'purchase_price' => 0,
-                'sale_price' => 0,
-            ]);
-
-            // Create ProductPrice
-            ProductPrice::seedForSettings(
-                $product->id,
-                [
-                    'sale_price' => $this->sale_price ?: 0,
-                    'tier_1_price' => $this->tier_1_price ?: 0,
-                    'tier_2_price' => $this->tier_2_price ?: 0,
-                    'last_purchase_price' => $this->purchase_price ?: 0,
-                    'average_purchase_price' => $this->purchase_price ?: 0,
-                    'purchase_tax_id' => $this->purchase_tax_id,
-                    'sale_tax_id' => $this->sale_tax_id,
-                ],
-                $settingIds
-            );
-
-            // Create Conversions
-            if (!empty($this->conversions)) {
-                foreach ($this->conversions as $conversion) {
-                    if (empty($conversion['unit_id'])) continue;
-                    
-                    $price = (float) ($conversion['price'] ?? 0);
-                    $newConv = $product->conversions()->create([
-                        'unit_id' => $conversion['unit_id'],
-                        'base_unit_id' => $this->unit_id,
-                        'conversion_factor' => $conversion['conversion_factor'] ?? 1,
-                        'barcode' => $conversion['barcode'] ?? null,
-                    ]);
-
-                    ProductUnitConversionPrice::seedForSettings(
-                        $newConv->id,
-                        $price,
-                        $settingIds
-                    );
-                }
-            }
-
-            DB::commit();
-
-            // Dispatch event to add to cart
-            // We mimic the structure expected by ProductCart::productSelected
-            
-            // Re-fetch product with relations just in case, or construct manually
-            // SearchProduct sends array structure.
-            // We'll construct it carefully.
-            
-            // Need unit name
-            $unitName = Unit::where('id', $this->unit_id)->value('name') ?? 'pc';
-            
-            $productData = [
-                'id' => $product->id,
-                'product_name' => $product->product_name,
-                'product_code' => $product->product_code,
-                'display_name' => $product->product_name . ' | ' . $product->product_code,
-                'product_quantity' => 0,
-                'product_unit' => $unitName,
-                'last_purchase_price' => (float)$this->purchase_price,
-                'average_purchase_price' => (float)$this->purchase_price,
-                'purchase_tax_id' => $this->purchase_tax_id,
-                'base_unit_name' => $unitName,
-                'serial_number_required' => (bool) $this->serial_number_required,
-                // Additional fields for ProductCart to be safe
-                'product_id' => $product->id, 
-            ];
+            $productData = $this->buildPurchaseProductPayload($product);
 
             $this->dispatch('productSelected', $productData);
-
-            // And also productCreated for SearchProduct to refresh
             $this->dispatch('productCreated', $productData);
 
             $this->closeModal();
             session()->flash('success', 'Produk berhasil ditambahkan dan dimasukkan ke keranjang!');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Quick Add Product Error: ' . $e->getMessage());
+        } catch (Throwable $e) {
+            Log::error('Quick Add Product Error', [
+                'message' => $e->getMessage(),
+                'exception' => $e,
+            ]);
             session()->flash('error', 'Gagal menambahkan produk: ' . $e->getMessage());
         }
     }
@@ -342,5 +278,83 @@ class ProductQuickAddModal extends Component
     public function render()
     {
         return view('livewire.modules.product.modals.product-quick-add-modal');
+    }
+
+    private function applyPurchaseDefaults(): void
+    {
+        $this->stock_managed = true;
+        $this->is_purchased = true;
+        $this->is_sold = false;
+        $this->serial_number_required = false;
+        $this->product_stock_alert = null;
+    }
+
+    private function buildValidationPayload(): array
+    {
+        $payload = [
+            'product_name' => $this->product_name,
+            'product_code' => $this->emptyToNull($this->product_code),
+            'barcode' => $this->emptyToNull($this->barcode),
+            'category_id' => $this->emptyToNull($this->category_id),
+            'brand_id' => $this->emptyToNull($this->brand_id),
+            'base_unit_id' => $this->emptyToNull($this->base_unit_id),
+            'serial_number_required' => (bool) $this->serial_number_required,
+            'stock_managed' => true,
+            'product_stock_alert' => $this->emptyToNull($this->product_stock_alert),
+            'is_purchased' => true,
+            'is_sold' => (bool) $this->is_sold,
+            'purchase_price' => $this->emptyToNull($this->purchase_price),
+            'sale_price' => $this->emptyToNull($this->sale_price),
+            'tier_1_price' => $this->emptyToNull($this->tier_1_price),
+            'tier_2_price' => $this->emptyToNull($this->tier_2_price),
+            'purchase_tax_id' => $this->emptyToNull($this->purchase_tax_id),
+            'sale_tax_id' => $this->emptyToNull($this->sale_tax_id),
+            'conversions' => array_values($this->conversions),
+        ];
+
+        $payload = array_merge($payload, ProductCreateValidation::normalize($payload));
+        $payload['stock_managed'] = true;
+        $payload['is_purchased'] = true;
+
+        return $payload;
+    }
+
+    private function buildPurchaseProductPayload(Product $product): array
+    {
+        $settingId = (int) (session('setting_id') ?? $product->setting_id ?? 0);
+        $product->loadMissing('baseUnit:id,name');
+
+        $priceRow = null;
+        if ($settingId > 0) {
+            $priceRow = ProductPrice::query()
+                ->forProduct($product->id)
+                ->forSetting($settingId)
+                ->first();
+        }
+        $priceRow = $priceRow ?: ProductPrice::query()->forProduct($product->id)->first();
+
+        $unitName = $product->baseUnit?->name
+            ?? ($product->base_unit_id ? Unit::query()->whereKey($product->base_unit_id)->value('name') : null)
+            ?? 'pc';
+
+        return [
+            'id' => $product->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'display_name' => $product->product_name . ' | ' . $product->product_code,
+            'product_quantity' => (int) ($product->product_quantity ?? 0),
+            'product_unit' => $unitName,
+            'last_purchase_price' => (float) ($priceRow?->last_purchase_price ?? 0),
+            'average_purchase_price' => (float) ($priceRow?->average_purchase_price ?? 0),
+            'purchase_tax_id' => $priceRow?->purchase_tax_id,
+            'base_unit_name' => $unitName,
+            'serial_number_required' => (bool) $product->serial_number_required,
+        ];
+    }
+
+    private function emptyToNull(mixed $value): mixed
+    {
+        return $value === '' ? null : $value;
     }
 }

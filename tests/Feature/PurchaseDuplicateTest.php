@@ -10,10 +10,12 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Supplier;
+use Modules\Product\Entities\Product;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
 use Tests\TestCase;
 
 class PurchaseDuplicateTest extends TestCase
@@ -144,5 +146,153 @@ class PurchaseDuplicateTest extends TestCase
         $component->assertSet('global_discount_type', 'fixed');
         $component->assertSet('global_discount', 50);
         $component->assertSet('is_tax_included', false);
+    }
+
+    public function test_purchase_duplicate_infers_tax_included_for_legacy_mismatched_flag(): void
+    {
+        $sourcePurchase = $this->createLegacyMismatchedTaxIncludedPurchase();
+
+        $component = Livewire::test(CreateForm::class, [
+            'idempotencyToken' => 'token-legacy-prefill',
+            'duplicateId' => $sourcePurchase->id,
+        ]);
+
+        $component->assertSet('is_tax_included', true);
+    }
+
+    public function test_purchase_duplicate_submit_persists_inferred_tax_included_for_legacy_mismatch(): void
+    {
+        $sourcePurchase = $this->createLegacyMismatchedTaxIncludedPurchase();
+
+        $component = Livewire::test(CreateForm::class, [
+            'idempotencyToken' => 'token-legacy-submit',
+            'duplicateId' => $sourcePurchase->id,
+        ]);
+
+        $component->assertSet('is_tax_included', true)
+            ->call('submit')
+            ->assertRedirect(route('purchases.index'));
+
+        $this->assertDatabaseCount('purchases', 2);
+
+        $duplicatedPurchase = Purchase::query()->latest('id')->first();
+        $this->assertNotNull($duplicatedPurchase);
+        $this->assertTrue((bool) $duplicatedPurchase->is_tax_included);
+    }
+
+    public function test_purchase_duplicate_keeps_stored_flag_when_inference_is_not_available(): void
+    {
+        [$supplier, $paymentTerm] = $this->createSupplierAndTerm();
+        $product = $this->createTestProduct();
+
+        $originalPurchase = Purchase::create([
+            'date' => Carbon::now()->subDays(1)->format('Y-m-d'),
+            'due_date' => Carbon::now()->addDays(29)->format('Y-m-d'),
+            'supplier_id' => $supplier->id,
+            'payment_term_id' => $paymentTerm->id,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'paid_amount' => 0,
+            'payment_method' => 'Cash',
+            'total_amount' => 10000,
+            'due_amount' => 10000,
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'is_tax_included' => false,
+            'setting_id' => session('setting_id'),
+            'note' => 'No inferable tax line',
+        ]);
+
+        PurchaseDetail::create([
+            'purchase_id' => $originalPurchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 10000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        $component = Livewire::test(CreateForm::class, [
+            'idempotencyToken' => 'token-no-inferable',
+            'duplicateId' => $originalPurchase->id,
+        ]);
+
+        $component->assertSet('is_tax_included', false);
+    }
+
+    private function createLegacyMismatchedTaxIncludedPurchase(): Purchase
+    {
+        [$supplier, $paymentTerm] = $this->createSupplierAndTerm();
+        $product = $this->createTestProduct();
+        $tax = Tax::create(['name' => 'PPN 11%', 'value' => 11]);
+
+        $purchase = Purchase::create([
+            'date' => Carbon::now()->subDays(5)->format('Y-m-d'),
+            'due_date' => Carbon::now()->addDays(25)->format('Y-m-d'),
+            'supplier_id' => $supplier->id,
+            'payment_term_id' => $paymentTerm->id,
+            'tax_amount' => 2200,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'paid_amount' => 0,
+            'payment_method' => 'Cash',
+            'total_amount' => 22200,
+            'due_amount' => 22200,
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'is_tax_included' => false, // Legacy inconsistent flag
+            'setting_id' => session('setting_id'),
+            'note' => 'Legacy tax included purchase',
+        ]);
+
+        PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 2,
+            'price' => 11100,
+            'unit_price' => 11100,
+            'sub_total' => 22200,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 2200,
+            'tax_id' => $tax->id,
+        ]);
+
+        return $purchase;
+    }
+
+    /**
+     * @return array{0:\Modules\People\Entities\Supplier,1:\Modules\Purchase\Entities\PaymentTerm}
+     */
+    private function createSupplierAndTerm(): array
+    {
+        $supplier = Supplier::factory()->create(['setting_id' => session('setting_id')]);
+        $paymentTerm = PaymentTerm::where('name', 'NET 30')->firstOrFail();
+
+        return [$supplier, $paymentTerm];
+    }
+
+    private function createTestProduct(): Product
+    {
+        return Product::create([
+            'product_name' => 'Duplicate Test Product',
+            'product_code' => 'DUP-TEST-001',
+            'product_quantity' => 10,
+            'setting_id' => session('setting_id'),
+            'product_cost' => 100,
+            'product_price' => 120,
+            'product_unit' => 'pcs',
+        ]);
     }
 }
