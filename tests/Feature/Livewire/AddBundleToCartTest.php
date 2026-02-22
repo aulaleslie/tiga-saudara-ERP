@@ -14,6 +14,7 @@ use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductBundleItem;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
 use Tests\TestCase;
 
 class AddBundleToCartTest extends TestCase
@@ -48,9 +49,16 @@ class AddBundleToCartTest extends TestCase
             'notification_email' => 'notify@example.com',
             'footer_text' => 'Footer',
             'company_address' => 'Addr',
+            'is_pkp' => true,
         ]);
 
         Session::put('setting_id', $setting->id);
+
+        $defaultTax = Tax::create([
+            'name' => 'PPN 11',
+            'value' => 11,
+            'is_default' => true,
+        ]);
 
         // Create parent product
         $product = Product::create([
@@ -123,5 +131,9 @@ class AddBundleToCartTest extends TestCase
 
         // options.sub_total should be parent + bundle = 5,555,000
         $this->assertEquals(5555000.00, (float) ($row->options->sub_total ?? 0));
+
+        // PKP flow should auto-select tax and compute DPP immediately
+        $this->assertSame($defaultTax->id, (int) ($row->options->product_tax ?? 0));
+        $this->assertTrue((float) ($row->options->sub_total ?? 0) > (float) ($row->options->sub_total_before_tax ?? 0));
     }
 }

@@ -38,7 +38,6 @@ class EditForm extends Component
         'customerSelected' => 'handleCustomerSelected',
         'customerCreated' => 'handleCustomerCreated',
         'confirmUpdate'   => 'update',
-        'taxCreated'      => 'handleTaxCreated',
         'tagsUpdated'     => 'handleTagsUpdated',
         'payment-term-changed' => 'handlePaymentTermChanged',
     ];
@@ -298,11 +297,6 @@ class EditForm extends Component
             : $this->resolveDefaultPaymentTermId();
 
         $this->applyPaymentTermSelection($paymentTermId, true);
-    }
-
-    public function handleTaxCreated($data): void
-    {
-        $this->dispatch('taxCreated', $data);
     }
 
     public function handleTagsUpdated(array $tags): void

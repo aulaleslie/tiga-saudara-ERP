@@ -68,18 +68,20 @@ class ProductCart extends Component
         $this->cart_instance = $cartInstance;
         $this->settingId = (int) session('setting_id');
         $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->settingId)->value('is_pkp') ?? false);
-        $this->taxes = Tax::all();
+        $this->taxes = $this->loadTaxes();
 
         if ($data) {
             $this->data = $data;
 
             if ($data->discount_percentage > 0) {
                 $this->global_discount_type = 'percentage';
+                $this->global_discount = $data->discount_percentage;
             } else if ($data->discount_amount > 0) {
                 $this->global_discount_type = 'fixed';
+                $this->global_discount = $data->discount_amount;
+            } else {
+                $this->global_discount = 0;
             }
-
-            $this->global_discount = $data->discount_percentage ?? 0;
             $this->shipping = $data->shipping_amount;
             $this->is_tax_included = $data->is_tax_included;
         } else {
@@ -103,6 +105,15 @@ class ProductCart extends Component
                 $this->quantity[$cart_item->id] ?? $cart_item->qty
             );
         }
+
+        $this->reconcileMissingPkpTaxesInCart();
+
+        if ($data) {
+            $this->dispatch('taxIncludedUpdated', (bool) $this->is_tax_included);
+            $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
+            $this->dispatch('globalDiscountUpdated', (float) $this->global_discount);
+            $this->dispatch('shippingUpdated', (float) $this->shipping);
+        }
     }
 
     private function initializeCartItemAttributes($cart_item): void
@@ -113,6 +124,132 @@ class ProductCart extends Component
         $this->discount_type[$cart_item->id] = $cart_item->options->product_discount_type ?? 'fixed';
         $this->item_discount[$cart_item->id] = $cart_item->options->product_discount ?? 0;
         $this->product_tax[$cart_item->id] = $cart_item->options->product_tax ?? null;
+    }
+
+    private function loadTaxes()
+    {
+        return Tax::query()
+            ->orderByDesc('is_default')
+            ->orderBy('name')
+            ->get();
+    }
+
+    private function reconcileMissingPkpTaxesInCart(): void
+    {
+        if ($this->cart_instance !== 'sale' || ! $this->isPkp) {
+            return;
+        }
+
+        $cart = Cart::instance($this->cart_instance);
+        $cartItems = $cart->content();
+
+        foreach ($cartItems as $cartItem) {
+            $existingTaxId = $cartItem->options->get('product_tax');
+            if ($existingTaxId !== null && $existingTaxId !== '') {
+                continue;
+            }
+
+            $rowKey = (string) $cartItem->id;
+            $productId = (int) ($cartItem->options->get('product_id') ?? 0);
+            $resolvedTaxId = $this->resolvePreferredPkpAutoTaxId($productId);
+            if (! $resolvedTaxId) {
+                continue;
+            }
+
+            $this->product_tax[$rowKey] = $resolvedTaxId;
+
+            $discountAmount = (float) ($cartItem->options->product_discount ?? 0);
+            $calculated = $this->calculateSubtotalAndTax(
+                $cartItem->price,
+                $cartItem->qty,
+                $discountAmount,
+                $resolvedTaxId
+            );
+
+            [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+                $cartItem->options->bundle_items ?? [],
+                (int) $cartItem->qty,
+                (int) $cartItem->qty
+            );
+
+            $newSubTotal = $calculated['sub_total'] + $bundleTotal;
+            $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
+
+            $cart->update($cartItem->rowId, [
+                'options' => array_merge($cartItem->options->toArray(), [
+                    'product_tax' => $resolvedTaxId,
+                    'sub_total' => $newSubTotal,
+                    'sub_total_before_tax' => $newSubTotalBeforeTax,
+                    'bundle_items' => $updatedBundleItems,
+                    'bundle_price' => $bundleTotal,
+                ]),
+            ]);
+        }
+    }
+
+    private function resolveDefaultTaxId(): ?int
+    {
+        $defaultTax = $this->taxes->firstWhere('is_default', true);
+
+        return $defaultTax ? (int) $defaultTax->id : null;
+    }
+
+    private function resolveLatestTaxId(): ?int
+    {
+        $latestTaxId = Tax::query()->latest('id')->value('id');
+
+        return $latestTaxId ? (int) $latestTaxId : null;
+    }
+
+    private function resolveProductSaleTaxIdForProduct(int $productId, ?array $productPayload = null): ?int
+    {
+        if ($productId <= 0) {
+            return null;
+        }
+
+        $settingId = $this->settingId ?: (int) session('setting_id');
+        if (! $this->settingId && $settingId) {
+            $this->settingId = $settingId;
+        }
+
+        $productPriceTaxId = null;
+        if ($settingId) {
+            $productPriceTaxId = ProductPrice::query()
+                ->forProduct($productId)
+                ->forSetting((int) $settingId)
+                ->value('sale_tax_id');
+        }
+
+        if ($productPriceTaxId) {
+            return (int) $productPriceTaxId;
+        }
+
+        $payloadTaxId = $productPayload['sale_tax_id'] ?? $productPayload['product_tax'] ?? null;
+
+        return $payloadTaxId ? (int) $payloadTaxId : null;
+    }
+
+    private function resolvePreferredPkpAutoTaxId(?int $productId = null, ?array $productPayload = null): ?int
+    {
+        if ($this->cart_instance !== 'sale' || ! $this->isPkp) {
+            return null;
+        }
+
+        $defaultTaxId = $this->resolveDefaultTaxId();
+        if ($defaultTaxId) {
+            return $defaultTaxId;
+        }
+
+        $latestTaxId = $this->resolveLatestTaxId();
+        if ($latestTaxId) {
+            return $latestTaxId;
+        }
+
+        if ($productId) {
+            return $this->resolveProductSaleTaxIdForProduct($productId, $productPayload);
+        }
+
+        return null;
     }
 
     public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
@@ -306,7 +443,13 @@ class ProductCart extends Component
 
         $calculated = $this->calculate($product);
         $resolvedPrices = $calculated['resolved_prices'] ?? $this->resolveProductPricing($product);
-        $defaultTaxId = $this->isPkp ? optional($this->taxes->first())->id : null;
+        $defaultTaxId = $this->resolvePreferredPkpAutoTaxId((int) ($product['id'] ?? 0), $product);
+        $taxCalculation = $this->calculateSubtotalAndTax(
+            $calculated['price'],
+            1,
+            0,
+            $defaultTaxId
+        );
 
         $cartItem = $cart->add([
             'id' => Str::uuid()->toString(),
@@ -318,12 +461,13 @@ class ProductCart extends Component
                 'product_id' => $product['id'],
                 'product_discount' => 0.00,
                 'product_discount_type' => 'fixed',
-                'sub_total' => $calculated['sub_total'],
-                'sub_total_before_tax' => $calculated['sub_total'],
+                'sub_total' => $taxCalculation['sub_total'],
+                'sub_total_before_tax' => $taxCalculation['subtotal_before_tax'],
                 'code' => $product['product_code'],
                 'stock' => $product['product_quantity'],
                 'unit' => $product['product_unit'],
                 'product_tax' => $defaultTaxId,
+                'tax_amount' => $taxCalculation['tax_amount'],
                 'unit_price' => $calculated['unit_price'],
                 'sale_price' => $resolvedPrices['sale_price'] ?? 0,
                 'tier_1_price' => $resolvedPrices['tier_1_price'] ?? 0,
@@ -469,7 +613,15 @@ class ProductCart extends Component
             $parentResolved = $parentCalculated['resolved_prices'] ?? $this->resolveProductPricing($this->pendingProduct);
 
             $parentUnitPrice = $parentCalculated['unit_price'] ?? $parentCalculated['price'] ?? 0.0;
-            $combinedSubTotal = $parentCalculated['sub_total'] + $bundleTotal;
+            $defaultTaxId = $this->resolvePreferredPkpAutoTaxId((int) ($this->pendingProduct['id'] ?? 0), $this->pendingProduct);
+            $parentTaxCalculation = $this->calculateSubtotalAndTax(
+                $parentUnitPrice,
+                1,
+                0,
+                $defaultTaxId
+            );
+            $combinedSubTotal = $parentTaxCalculation['sub_total'] + $bundleTotal;
+            $combinedSubTotalBeforeTax = $parentTaxCalculation['subtotal_before_tax'] + $bundleTotal;
 
             $cartItem = $cart->add([
                 'id' => Str::uuid()->toString(),
@@ -482,11 +634,12 @@ class ProductCart extends Component
                     'product_discount' => 0.00,
                     'product_discount_type' => 'fixed',
                     'sub_total' => $combinedSubTotal,
-                    'sub_total_before_tax' => $combinedSubTotal,
+                    'sub_total_before_tax' => $combinedSubTotalBeforeTax,
                     'code' => $this->pendingProduct['product_code'],
                     'stock' => $this->pendingProduct['product_quantity'],
                     'unit' => $this->pendingProduct['product_unit'],
-                    'product_tax' => $this->isPkp ? optional($this->taxes->first())->id : null,
+                    'product_tax' => $defaultTaxId,
+                    'tax_amount' => $parentTaxCalculation['tax_amount'],
                     'unit_price' => $parentUnitPrice,
                     'sale_price' => $parentResolved['sale_price'] ?? 0,
                     'tier_1_price' => $parentResolved['tier_1_price'] ?? 0,
@@ -662,12 +815,11 @@ class ProductCart extends Component
     private function calculateSubtotalAndTax($price, $qty, $discount = 0, $tax_id = null)
     {
         // Validate inputs
-        $price = max(0, (float)$price); // Ensure price is non-negative
-        $qty = max(1, (int)$qty);
-        $discount = max(0, (float)$discount);
+        $price = max(0, (float) $price);
+        $qty = max(1, (int) $qty);
+        $discount = max(0.0, (float) $discount);
 
-        $price = $price - $discount;// Ensure quantity is at least 1
-        // Ensure discount is non-negative
+        $effective_price = max(0.0, $price - $discount);
 
         // Initialize variables
         $tax_amount = 0;
@@ -678,8 +830,8 @@ class ProductCart extends Component
                 $tax = Tax::find($tax_id);
                 if ($tax) {
                     // Calculate price excluding tax
-                    $price_ex_tax = $price / (1 + $tax->value / 100);
-                    $tax_amount_per_unit = $price - $price_ex_tax;
+                    $price_ex_tax = $effective_price / (1 + $tax->value / 100);
+                    $tax_amount_per_unit = $effective_price - $price_ex_tax;
                     $tax_amount = $tax_amount_per_unit * $qty;
                     $subtotal_before_tax = $price_ex_tax * $qty;
                     Log::info('Tax included - Price ex tax and tax amount per unit calculated', [
@@ -689,15 +841,15 @@ class ProductCart extends Component
                 } else {
                     Log::warning("Invalid tax ID provided", ['tax_id' => $tax_id]);
                     // No tax applied, discount only
-                    $subtotal_before_tax = $price * $qty;
+                    $subtotal_before_tax = $effective_price * $qty;
                 }
             } else {
                 // No tax applied
-                $subtotal_before_tax = $price * $qty;
+                $subtotal_before_tax = $effective_price * $qty;
             }
         } else {
             // Case: Tax is not included in the price
-            $subtotal_before_tax = $price * $qty;
+            $subtotal_before_tax = $effective_price * $qty;
 
             if ($tax_id) {
                 $tax = Tax::find($tax_id);
@@ -1107,6 +1259,8 @@ class ProductCart extends Component
     {
         $cart_items = Cart::instance($this->cart_instance)->content();
 
+        $this->dispatch('taxIncludedUpdated', (bool) $this->is_tax_included);
+
         foreach ($cart_items as $cart_item) {
             $row_id = $cart_item->rowId;
 
@@ -1154,6 +1308,7 @@ class ProductCart extends Component
     public function setGlobalDiscountType($type): void
     {
         $this->global_discount_type = $type;
+        $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
         $this->updateGlobalDiscount(); // Ensure recalculation happens
     }
 
@@ -1187,11 +1342,31 @@ class ProductCart extends Component
             }
         }
 
+        $this->dispatch('globalDiscountUpdated', (float) $this->global_discount);
         $this->recalculateCart();
     }
 
-    public function handleTaxCreated($data): void
+    public function updatedShipping(): void
     {
-        $this->taxes = Tax::all(); // Refresh the taxes list
+        $raw = $this->shipping;
+        $this->shipping = is_numeric($raw) ? (float) $raw : 0;
+        $this->dispatch('shippingUpdated', (float) $this->shipping);
+    }
+
+    public function handleTaxCreated($id, $name, $value, $product_id = null): void
+    {
+        $this->taxes = $this->loadTaxes(); // Refresh the taxes list
+
+        if ($product_id) {
+            $this->product_tax[$product_id] = $id;
+
+            $cart_items = Cart::instance($this->cart_instance)->content();
+            foreach ($cart_items as $cart_item) {
+                if ((string) $cart_item->id === (string) $product_id) {
+                    $this->updateTax($cart_item->rowId, $product_id);
+                    break;
+                }
+            }
+        }
     }
 }

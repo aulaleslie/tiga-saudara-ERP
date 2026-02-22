@@ -31,6 +31,10 @@ class CreateForm extends Component
     public $paymentTerms = [];
     public $note;
     public $tax_ref_no;
+    public $shipping = 0;
+    public $global_discount = 0;
+    public string $global_discount_type = 'percentage';
+    public bool $is_tax_included = false;
     public array $tags = [];
     public string $idempotencyToken;
     public bool $isPkp = false;
@@ -41,9 +45,12 @@ class CreateForm extends Component
         'customerSelected' => 'handleCustomerSelected',
         'customerCreated' => 'handleCustomerCreated',
         'confirmSubmit' => 'submit',
-        'taxCreated' => 'handleTaxCreated',
         'tagsUpdated' => 'handleTagsUpdated',
         'payment-term-changed' => 'handlePaymentTermChanged',
+        'shippingUpdated' => 'handleShippingUpdated',
+        'globalDiscountUpdated' => 'handleGlobalDiscountUpdated',
+        'globalDiscountTypeUpdated' => 'handleGlobalDiscountTypeUpdated',
+        'taxIncludedUpdated' => 'handleTaxIncludedUpdated',
     ];
 
     public function mount(string $idempotencyToken)
@@ -262,12 +269,6 @@ class CreateForm extends Component
         $this->applyPaymentTermSelection($paymentTermId, true);
     }
 
-    public function handleTaxCreated($data): void
-    {
-        // This will be handled by the product cart component
-        $this->dispatch('taxCreated', $data);
-    }
-
     public function submit(?string $customerId = null, ?string $paymentTermId = null)
     {
         Log::info('Sale create submit called', [
@@ -353,24 +354,39 @@ class CreateForm extends Component
 
                 $cartItems = Cart::instance('sale')->content();
 
+                $totalSubTotal = (float) $cartItems->sum(fn($i) => $i->options['sub_total']);
+                $shipping = (float) $this->shipping;
+                $globalDiscount = (float) $this->global_discount;
+                $discountAmount = $this->global_discount_type === 'fixed' ? $globalDiscount : 0.0;
+                $discountPercentage = $this->global_discount_type === 'percentage' ? $globalDiscount : 0.0;
+                $taxAmount = (float) $cartItems->sum(
+                    fn($i) => ($i->options['sub_total'] ?? 0) - ($i->options['sub_total_before_tax'] ?? 0)
+                );
+
+                $globalDiscountAmount = $discountPercentage > 0
+                    ? ($totalSubTotal * ($discountPercentage / 100))
+                    : $discountAmount;
+
+                $totalAmount = $totalSubTotal - $globalDiscountAmount + $shipping;
+
                 $data = [
                     'date'               => $this->date,
                     'due_date'           => $this->dueDate,
                     'customer_id'        => $this->customerId,
                     'tax_id'             => null,
                     'tax_percentage'     => 0,
-                    'tax_amount'         => $cartItems->sum(fn($i) => $i->options['sub_total'] - ($i->options['sub_total_before_tax'] ?? 0)),
-                    'discount_percentage'=> 0,
-                    'discount_amount'    => 0,
-                    'shipping_amount'    => 0,
-                    'total_amount'       => $cartItems->sum(fn($i) => $i->options['sub_total']),
+                    'tax_amount'         => $taxAmount,
+                    'discount_percentage'=> $discountPercentage,
+                    'discount_amount'    => $discountAmount,
+                    'shipping_amount'    => $shipping,
+                    'total_amount'       => $totalAmount,
                     'status'             => Sale::STATUS_DRAFTED,
                     'payment_status'     => 'Unpaid',
                     'payment_term_id'    => $this->paymentTermId,
                     'note'               => $this->note,
                     'setting_id'         => session('setting_id'),
                     'paid_amount'        => 0.0,
-                    'is_tax_included'    => false,
+                    'is_tax_included'    => (bool) $this->is_tax_included,
                     'payment_method'     => '',
                     'tax_ref_no'         => $this->tax_ref_no ?: null,
                     'tags'               => $this->tags,
@@ -398,5 +414,25 @@ class CreateForm extends Component
     public function render()
     {
         return view('livewire.sale.create-form');
+    }
+
+    public function handleShippingUpdated($shipping): void
+    {
+        $this->shipping = is_numeric($shipping) ? (float) $shipping : 0.0;
+    }
+
+    public function handleGlobalDiscountUpdated($discount): void
+    {
+        $this->global_discount = is_numeric($discount) ? (float) $discount : 0.0;
+    }
+
+    public function handleGlobalDiscountTypeUpdated($type): void
+    {
+        $this->global_discount_type = $type === 'fixed' ? 'fixed' : 'percentage';
+    }
+
+    public function handleTaxIncludedUpdated(bool $included): void
+    {
+        $this->is_tax_included = $included;
     }
 }
