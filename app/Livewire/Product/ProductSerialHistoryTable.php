@@ -63,16 +63,33 @@ class ProductSerialHistoryTable extends Component
         }
     }
 
+    protected function applyHistorySettingScope($query, int $settingId)
+    {
+        return $query->where(function ($historyQuery) use ($settingId) {
+            $historyQuery->whereNull('location_id')
+                ->orWhereHas('location', function ($locationQuery) use ($settingId) {
+                    $locationQuery->where('setting_id', $settingId);
+                });
+        });
+    }
+
     public function getSerialNumbersProperty()
     {
         $settingId = $this->getActiveSettingId();
 
         $query = ProductSerialNumber::where('product_id', $this->productId)
-            ->with(['location', 'histories' => function ($q) {
+            ->whereHas('location', function ($q) use ($settingId) {
+                $q->where('setting_id', $settingId);
+            })
+            ->with(['location', 'histories' => function ($q) use ($settingId) {
+                $this->applyHistorySettingScope($q, $settingId);
+
                 $q->orderBy('created_at', 'desc')
-                  ->with(['location', 'user', 'reference']);
+                    ->with(['location', 'user', 'reference']);
             }])
-            ->withCount('histories');
+            ->withCount(['histories' => function ($q) use ($settingId) {
+                $this->applyHistorySettingScope($q, $settingId);
+            }]);
 
         if (!empty($this->searchQuery)) {
             $query->where('serial_number', 'like', '%' . $this->searchQuery . '%');

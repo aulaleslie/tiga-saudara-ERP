@@ -20,6 +20,8 @@ class ProductSerialHistoryTest extends TestCase
     protected $product;
     protected $setting;
     protected $location;
+    protected $otherSetting;
+    protected $otherLocation;
 
     protected function setUp(): void
     {
@@ -53,6 +55,23 @@ class ProductSerialHistoryTest extends TestCase
         $this->location = \Modules\Setting\Entities\Location::create([
             'name' => 'Test Location',
             'setting_id' => $this->setting->id,
+        ]);
+
+        $this->otherSetting = Setting::create([
+            'company_name' => 'OtherCo',
+            'company_email' => 'other@example.com',
+            'company_phone' => '67890',
+            'site_logo' => null,
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'left',
+            'notification_email' => 'notify-other@example.com',
+            'footer_text' => 'Footer Other',
+            'company_address' => 'Addr Other',
+        ]);
+
+        $this->otherLocation = \Modules\Setting\Entities\Location::create([
+            'name' => 'Other Location',
+            'setting_id' => $this->otherSetting->id,
         ]);
 
         $this->product = Product::create([
@@ -127,6 +146,102 @@ class ProductSerialHistoryTest extends TestCase
             ->assertDontSee('Diterima dari Pembelian')
             ->call('toggleExpand', $serial->id)
             ->assertSee('Diterima dari Pembelian');
+    }
+
+    public function test_it_hides_serials_from_other_settings()
+    {
+        ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-ACTIVE-SETTING',
+            'status' => 'active',
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->otherLocation->id,
+            'serial_number' => 'SN-OTHER-SETTING',
+            'status' => 'active',
+        ]);
+
+        Livewire::test(ProductSerialHistoryTable::class, ['productId' => $this->product->id])
+            ->assertSee('SN-ACTIVE-SETTING')
+            ->assertDontSee('SN-OTHER-SETTING');
+    }
+
+    public function test_it_filters_expanded_histories_to_active_setting()
+    {
+        $serial = ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-FILTER-HIST-001',
+            'status' => 'active',
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serial->id,
+            'event_type' => SerialNumberHistory::EVENT_RECEIVED,
+            'user_id' => $this->user->id,
+            'created_at' => now()->subMinute(),
+            'location_id' => $this->location->id,
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serial->id,
+            'event_type' => SerialNumberHistory::EVENT_SOLD,
+            'user_id' => $this->user->id,
+            'created_at' => now(),
+            'location_id' => $this->otherLocation->id,
+        ]);
+
+        Livewire::test(ProductSerialHistoryTable::class, ['productId' => $this->product->id])
+            ->call('toggleExpand', $serial->id)
+            ->assertSee('Diterima dari Pembelian')
+            ->assertDontSee('Terjual');
+    }
+
+    public function test_it_keeps_locationless_history_events_for_scoped_serial()
+    {
+        $serial = ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-NULL-LOC-HIST-001',
+            'status' => 'active',
+        ]);
+
+        SerialNumberHistory::create([
+            'product_serial_number_id' => $serial->id,
+            'event_type' => SerialNumberHistory::EVENT_STATUS_CHANGED,
+            'user_id' => $this->user->id,
+            'created_at' => now(),
+            'location_id' => null,
+        ]);
+
+        Livewire::test(ProductSerialHistoryTable::class, ['productId' => $this->product->id])
+            ->call('toggleExpand', $serial->id)
+            ->assertSee('Perubahan Status');
+    }
+
+    public function test_it_keeps_search_working_after_setting_scope()
+    {
+        ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'UNIQUE-A-111',
+            'status' => 'active',
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->otherLocation->id,
+            'serial_number' => 'UNIQUE-B-222',
+            'status' => 'active',
+        ]);
+
+        Livewire::test(ProductSerialHistoryTable::class, ['productId' => $this->product->id])
+            ->set('searchQuery', 'UNIQUE')
+            ->assertSee('UNIQUE-A-111')
+            ->assertDontSee('UNIQUE-B-222');
     }
 
     public function test_purchase_return_dispatch_event_label_is_rendered()
