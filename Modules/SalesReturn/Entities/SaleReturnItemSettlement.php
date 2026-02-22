@@ -94,6 +94,19 @@ class SaleReturnItemSettlement extends BaseModel
     }
 
     /**
+     * Statuses that count as final/settled in the sale return lifecycle.
+     *
+     * @return array<int, string>
+     */
+    public static function finalSettlementStatuses(): array
+    {
+        return [
+            self::STATUS_APPROVED,
+            self::STATUS_DISPATCHED,
+        ];
+    }
+
+    /**
      * Get the effective nominal for this settlement item.
      * Falls back to detail sub_total if nominal is zero or null.
      */

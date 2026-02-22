@@ -2,6 +2,7 @@
 
 namespace Modules\SalesReturn\Http\Controllers;
 
+use App\Support\SalesReturn\SaleReturnLifecycleSyncService;
 use Illuminate\Routing\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -250,6 +251,23 @@ class SaleReturnDispatchController extends Controller
                     'dispatch_approved_at' => now(),
                     'dispatch_approved_by' => Auth::id(),
                 ]);
+            });
+
+            DB::transaction(function () use ($itemSettlement) {
+                $saleReturn = SaleReturn::query()
+                    ->whereKey($itemSettlement->sale_return_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $saleReturn) {
+                    return;
+                }
+
+                $lifecycleSync = app(SaleReturnLifecycleSyncService::class);
+                $actorId = (int) Auth::id();
+
+                $lifecycleSync->syncSaleReturnCompletionRollup($saleReturn, $actorId);
+                $lifecycleSync->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
             });
 
             return back()->with('success', 'Pengiriman disetujui.');

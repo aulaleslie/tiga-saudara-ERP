@@ -2,6 +2,8 @@
 
 namespace Modules\SalesReturn\Http\Controllers;
 
+use App\Support\SalesReturn\SaleReturnLifecycleSyncService;
+use App\Services\SerialNumberHistoryService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
@@ -10,12 +12,11 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
-use Modules\Product\Entities\ProductStock;
-use Modules\Sale\Entities\DispatchDetail;
-use Modules\Sale\Entities\Sale;
-use Modules\Sale\Entities\SalesOrderSerialTracking;
-use App\Services\SerialNumberHistoryService;
 use Modules\Product\Entities\SerialNumberHistory;
+use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\Transaction;
+use Modules\Sale\Entities\DispatchDetail;
+use Modules\Sale\Entities\SalesOrderSerialTracking;
 use Modules\SalesReturn\DataTables\SaleReturnsDataTable;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
@@ -304,6 +305,8 @@ class SalesReturnController extends Controller
                         ]);
                     }
 
+                    $previousProductQuantity = (int) ($product->product_quantity ?? 0);
+                    $previousQuantityAtLocation = (int) ($productStock->quantity ?? 0);
                     $taxId = $dispatchDetail->tax_id;
 
                     if ($taxId) {
@@ -323,6 +326,26 @@ class SalesReturnController extends Controller
 
                     $product->product_quantity = (int) $product->product_quantity + $quantity;
                     $product->save();
+
+                    Transaction::create([
+                        'product_id' => $product->id,
+                        'setting_id' => (int) ($lockedSaleReturn->setting_id ?? session('setting_id')),
+                        'type' => $taxId ? 'SALE_RETURN_GOOD_TAX' : 'SALE_RETURN_GOOD_NON_TAX',
+                        'quantity' => $quantity,
+                        'current_quantity' => (int) $product->product_quantity,
+                        'broken_quantity' => (int) ($productStock->broken_quantity ?? 0),
+                        'location_id' => $locationId,
+                        'user_id' => auth()->id(),
+                        'reason' => 'PENERIMAAN RETUR PENJUALAN: ' . $lockedSaleReturn->reference,
+                        'previous_quantity' => $previousProductQuantity,
+                        'after_quantity' => (int) $product->product_quantity,
+                        'previous_quantity_at_location' => $previousQuantityAtLocation,
+                        'after_quantity_at_location' => (int) ($productStock->quantity ?? 0),
+                        'quantity_tax' => $taxId ? $quantity : 0,
+                        'quantity_non_tax' => $taxId ? 0 : $quantity,
+                        'broken_quantity_tax' => 0,
+                        'broken_quantity_non_tax' => 0,
+                    ]);
 
                     $serialIds = collect($detail->serial_number_ids ?? [])
                         ->map(fn ($id) => (int) $id)
@@ -382,27 +405,8 @@ class SalesReturnController extends Controller
                     'settled_by' => null,
                 ])->save();
 
-                $sale = $lockedSaleReturn->sale()->lockForUpdate()->first();
-                if ($sale) {
-                    $dispatchedQuantity = DispatchDetail::query()
-                        ->where('sale_id', $sale->id)
-                        ->sum('dispatched_quantity');
-
-                    $returnedQuantity = SaleReturnDetail::query()
-                        ->whereHas('saleReturn', function ($query) use ($sale) {
-                            $query->where('sale_id', $sale->id)
-                                ->whereIn('status', ['Awaiting Settlement', 'Completed']);
-                        })
-                        ->sum('quantity');
-
-                    if ($dispatchedQuantity > 0 && $returnedQuantity >= $dispatchedQuantity) {
-                        $sale->status = Sale::STATUS_RETURNED;
-                        $sale->save();
-                    } elseif ($returnedQuantity > 0) {
-                        $sale->status = Sale::STATUS_RETURNED_PARTIALLY;
-                        $sale->save();
-                    }
-                }
+                app(SaleReturnLifecycleSyncService::class)
+                    ->syncSourceSaleReturnStatusFromReceivedReturns($lockedSaleReturn);
             });
         } catch (Throwable $e) {
             Log::error('Gagal menerima retur penjualan', [

@@ -11,6 +11,8 @@ use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\SerialNumberHistory;
+use Modules\Product\Entities\Transaction;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\DispatchDetail;
@@ -19,6 +21,8 @@ use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalesOrderSerialTracking;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
+use Modules\SalesReturn\Entities\SaleReturnItemSettlement;
+use Modules\SalesReturn\Entities\SaleReturnPayment;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
@@ -26,6 +30,8 @@ use Tests\TestCase;
 class SaleReturnReceiveSerialStatusTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected User $user;
 
     protected function setUp(): void
     {
@@ -59,14 +65,17 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
 
         session(['setting_id' => 1]);
 
-        $user = User::factory()->create();
-        $this->actingAs($user);
+        $this->user = User::factory()->create();
+        $this->actingAs($this->user);
 
         Gate::define('saleReturns.receive', fn () => true);
+        Gate::define('saleReturnSettlements.approve', fn () => true);
     }
 
-    /** @test */
-    public function receiving_sales_return_restores_sold_serial_to_active_and_clears_dispatch_link(): void
+    /**
+     * @return array{sale: Sale, saleReturn: SaleReturn, saleReturnDetail: SaleReturnDetail, product: Product, stock: ProductStock, serial: ProductSerialNumber, location: Location}
+     */
+    protected function createSingleSerialSaleReturnFixture(): array
     {
         $paymentTerm = PaymentTerm::create(['name' => 'Net 30', 'longevity' => 30]);
         $customer = Customer::factory()->create([
@@ -208,10 +217,34 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
             'serial_number_ids' => [$serial->id],
         ]);
 
+        return [
+            'sale' => $sale,
+            'saleReturn' => $saleReturn,
+            'saleReturnDetail' => $saleReturnDetail,
+            'product' => $product,
+            'stock' => $stock,
+            'serial' => $serial,
+            'location' => $location,
+        ];
+    }
+
+    /** @test */
+    public function receiving_sales_return_restores_sold_serial_to_active_and_clears_dispatch_link(): void
+    {
+        $fixture = $this->createSingleSerialSaleReturnFixture();
+        $sale = $fixture['sale'];
+        $saleReturn = $fixture['saleReturn'];
+        $saleReturnDetail = $fixture['saleReturnDetail'];
+        $product = $fixture['product'];
+        $stock = $fixture['stock'];
+        $serial = $fixture['serial'];
+        $location = $fixture['location'];
+
         $this->assertSame([(int) $serial->id], array_map('intval', $saleReturnDetail->fresh()->serial_number_ids ?? []));
-        $this->assertEquals($dispatchDetail->id, (int) $saleReturnDetail->fresh()->dispatch_detail_id);
+        $this->assertNotNull($saleReturnDetail->fresh()->dispatch_detail_id);
         $this->assertEquals('approved', strtolower((string) $saleReturn->fresh()->approval_status));
         $this->assertEquals('awaiting receiving', strtolower((string) $saleReturn->fresh()->status));
+        $this->assertSame(0, Transaction::query()->count());
 
         $response = $this->post(route('sale-returns.receive', $saleReturn));
 
@@ -222,15 +255,24 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $stock->refresh();
         $product->refresh();
         $saleReturn->refresh();
+        $sale->refresh();
 
         $this->assertEquals(1, (int) $stock->quantity);
         $this->assertEquals(1, (int) $stock->quantity_non_tax);
         $this->assertEquals(1, (int) $product->product_quantity);
         $this->assertEquals('AWAITING SETTLEMENT', strtoupper((string) $saleReturn->status));
+        $this->assertEquals(Sale::STATUS_RETURNED, $sale->status);
+        $this->assertNull($sale->archived_at);
 
         $this->assertNull($serial->dispatch_detail_id);
         $this->assertEquals(ProductSerialNumber::STATUS_ACTIVE, $serial->status);
         $this->assertEquals($location->id, $serial->location_id);
+
+        $transaction = Transaction::query()->where('product_id', $product->id)->latest('id')->first();
+        $this->assertNotNull($transaction);
+        $this->assertEquals('SALE_RETURN_GOOD_NON_TAX', $transaction->type);
+        $this->assertEquals(1, (int) $transaction->quantity);
+        $this->assertStringContainsString((string) $saleReturn->reference, (string) $transaction->reason);
 
         $tracking = SalesOrderSerialTracking::query()
             ->where('sale_id', $sale->id)
@@ -239,5 +281,67 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
 
         $this->assertNotNull($tracking);
         $this->assertNotNull($tracking->return_date);
+
+        $this->assertTrue(
+            SerialNumberHistory::query()
+                ->where('product_serial_number_id', $serial->id)
+                ->where('event_type', SerialNumberHistory::EVENT_SALE_RETURNED)
+                ->exists()
+        );
+    }
+
+    /** @test */
+    public function cash_refund_completion_archives_source_sale_without_deducting_received_stock_again(): void
+    {
+        $fixture = $this->createSingleSerialSaleReturnFixture();
+        $sale = $fixture['sale'];
+        $saleReturn = $fixture['saleReturn'];
+        $saleReturnDetail = $fixture['saleReturnDetail'];
+        $product = $fixture['product'];
+        $stock = $fixture['stock'];
+        $serial = $fixture['serial'];
+
+        $receiveResponse = $this->post(route('sale-returns.receive', $saleReturn));
+        $receiveResponse->assertRedirect();
+
+        $settlementItem = SaleReturnItemSettlement::create([
+            'sale_return_id' => $saleReturn->id,
+            'sale_return_detail_id' => $saleReturnDetail->id,
+            'product_serial_number_id' => $serial->id,
+            'method' => SaleReturnDetail::METHOD_CASH_REFUND,
+            'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
+            'nominal' => 1500,
+        ]);
+
+        $response = $this->post(route('sale-return-settlements.item.approve', $settlementItem), [
+            'approval_note' => 'Cash refund finalized',
+        ]);
+
+        $response->assertRedirect();
+
+        $sale->refresh();
+        $saleReturn->refresh();
+        $settlementItem->refresh();
+        $product->refresh();
+        $stock->refresh();
+        $serial->refresh();
+
+        $this->assertEquals(SaleReturnItemSettlement::STATUS_APPROVED, $settlementItem->status);
+        $this->assertEquals('COMPLETED', strtoupper((string) $saleReturn->status));
+        $this->assertNotNull($saleReturn->settled_at);
+
+        $this->assertEquals(Sale::STATUS_RETURNED, $sale->status);
+        $this->assertNotNull($sale->archived_at);
+        $this->assertEquals($this->user->id, (int) $sale->archived_by);
+        $this->assertStringContainsString((string) $saleReturn->reference, (string) $sale->note);
+
+        // Receiving restores stock; cash refund completion must not deduct stock a second time.
+        $this->assertEquals(1, (int) $stock->quantity);
+        $this->assertEquals(1, (int) $stock->quantity_non_tax);
+        $this->assertEquals(1, (int) $product->product_quantity);
+        $this->assertEquals(ProductSerialNumber::STATUS_ACTIVE, $serial->status);
+
+        $this->assertSame(1, Transaction::query()->count());
+        $this->assertTrue(SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->exists());
     }
 }

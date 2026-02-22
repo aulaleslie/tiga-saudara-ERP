@@ -160,6 +160,11 @@ class DispatchApprovalWorkflowTest extends TestCase
         // Stock SHOULD have changed
         $product = Product::find(1);
         $this->assertEquals(9, $product->product_quantity);
+
+        $saleReturn = SaleReturn::find($item->sale_return_id);
+        $this->assertNotNull($saleReturn);
+        $this->assertEquals('COMPLETED', strtoupper((string) $saleReturn->status));
+        $this->assertNotNull($saleReturn->settled_at);
     }
 
     /** @test */

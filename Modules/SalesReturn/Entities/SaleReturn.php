@@ -174,9 +174,9 @@ class SaleReturn extends BaseModel
             return 'Awaiting Settlement';
         }
 
-        $approvedStatuses = ['APPROVED'];
-        $allApproved = $items->every(fn($i) => in_array(strtoupper($i->status), $approvedStatuses));
-        $anyApproved = $items->contains(fn($i) => in_array(strtoupper($i->status), $approvedStatuses));
+        $finalStatuses = SaleReturnItemSettlement::finalSettlementStatuses();
+        $allApproved = $items->every(fn($i) => in_array(strtoupper($i->status), $finalStatuses, true));
+        $anyApproved = $items->contains(fn($i) => in_array(strtoupper($i->status), $finalStatuses, true));
 
         if ($allApproved) {
             return 'Settled';

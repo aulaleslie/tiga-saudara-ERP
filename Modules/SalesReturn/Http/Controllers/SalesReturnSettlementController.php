@@ -2,6 +2,7 @@
 
 namespace Modules\SalesReturn\Http\Controllers;
 
+use App\Support\SalesReturn\SaleReturnLifecycleSyncService;
 use Illuminate\Routing\Controller;
 use Illuminate\Http\Request;
 use Modules\SalesReturn\Entities\SaleReturn;
@@ -52,15 +53,12 @@ class SalesReturnSettlementController extends Controller
                     ]);
                 }
 
-                // Update Sale Return status roll-up
-                $saleReturn = $itemSettlement->saleReturn->load('settlementItems');
-                $newStatus = $saleReturn->settlement_status === 'Settled' ? 'Completed' : $saleReturn->status;
-                
-                $saleReturn->update([
-                    'status' => $newStatus,
-                    'settled_at' => $newStatus === 'Completed' ? now() : $saleReturn->settled_at,
-                    'settled_by' => $newStatus === 'Completed' ? Auth::id() : $saleReturn->settled_by,
-                ]);
+                $saleReturn = $itemSettlement->saleReturn()->lockForUpdate()->firstOrFail();
+                $lifecycleSync = app(SaleReturnLifecycleSyncService::class);
+                $actorId = (int) Auth::id();
+
+                $lifecycleSync->syncSaleReturnCompletionRollup($saleReturn, $actorId);
+                $lifecycleSync->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
             });
 
             return back()->with('success', 'Item penyelesaian berhasil disetujui.');
