@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Setting\Entities\Location;
@@ -239,5 +240,180 @@ class StandardSaleLocationScopeRegressionTest extends TestCase
 
         // 6. Assert: Should fail validation
         $response->assertSessionHasErrors(["selectedLocations.$compositeKey" => "Lokasi tidak valid untuk bisnis ini."]);
+    }
+
+    public function test_standard_sale_dispatch_serial_ajax_validation_rejects_borrowed_location(): void
+    {
+        $this->withoutMiddleware(CheckUserRoleForSetting::class);
+
+        $ownerSetting = $this->createSetting('Owner Company');
+        $borrowedSetting = $this->createSetting('Borrowed Company');
+
+        $borrowedLocation = Location::create([
+            'setting_id' => $borrowedSetting->id,
+            'name' => 'Borrowed Location',
+        ]);
+
+        SettingSaleLocation::where('location_id', $borrowedLocation->id)->delete();
+        SettingSaleLocation::create([
+            'setting_id' => $ownerSetting->id,
+            'location_id' => $borrowedLocation->id,
+            'position' => 1,
+        ]);
+
+        $product = Product::create([
+            'product_name' => 'Serial Product',
+            'product_code' => 'SN-P001',
+            'product_quantity' => 1,
+            'product_cost' => 50,
+            'product_price' => 100,
+            'product_unit' => 'pcs',
+            'product_stock_alert' => 1,
+            'setting_id' => $ownerSetting->id,
+            'serial_number_required' => true,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $borrowedLocation->id,
+            'serial_number' => 'SERIAL-BORROWED-001',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+        ]);
+
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $ownerSetting->id])
+            ->postJson(route('serial-numbers.validate-dispatch'), [
+                'product_id' => $product->id,
+                'serial_number' => 'SERIAL-BORROWED-001',
+            ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'valid' => false,
+                'message' => 'Serial number berada di lokasi yang tidak valid untuk bisnis ini.',
+            ]);
+
+        $payload = $response->json();
+        $this->assertIsArray($payload);
+        $this->assertArrayNotHasKey('location_id', $payload);
+        $this->assertArrayNotHasKey('location_name', $payload);
+    }
+
+    public function test_standard_sale_dispatch_serial_submit_rejects_spoofed_owned_location_for_borrowed_serial(): void
+    {
+        $this->withoutMiddleware(CheckUserRoleForSetting::class);
+
+        $ownerSetting = $this->createSetting('Owner Company');
+        $borrowedSetting = $this->createSetting('Borrowed Company');
+
+        $ownedLocation = Location::create([
+            'setting_id' => $ownerSetting->id,
+            'name' => 'Owned Location',
+        ]);
+
+        $borrowedLocation = Location::create([
+            'setting_id' => $borrowedSetting->id,
+            'name' => 'Borrowed Location',
+        ]);
+
+        SettingSaleLocation::where('location_id', $borrowedLocation->id)->delete();
+        SettingSaleLocation::create([
+            'setting_id' => $ownerSetting->id,
+            'location_id' => $borrowedLocation->id,
+            'position' => 1,
+        ]);
+
+        $product = Product::create([
+            'product_name' => 'Serial Product',
+            'product_code' => 'SN-P002',
+            'product_quantity' => 1,
+            'product_cost' => 50,
+            'product_price' => 100,
+            'product_unit' => 'pcs',
+            'product_stock_alert' => 1,
+            'setting_id' => $ownerSetting->id,
+            'serial_number_required' => true,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $borrowedLocation->id,
+            'serial_number' => 'SERIAL-BORROWED-002',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+        ]);
+
+        Permission::firstOrCreate(['name' => 'sales.dispatch']);
+        $user = User::factory()->create();
+        $user->settings()->attach($ownerSetting->id, ['role_id' => 1]);
+        $user->givePermissionTo('sales.dispatch');
+
+        $customer = Customer::create([
+            'customer_name' => 'Guest',
+            'customer_email' => 'guest@example.com',
+            'customer_phone' => '00000',
+            'setting_id' => $ownerSetting->id,
+            'address' => 'Address',
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $ownerSetting->id,
+            'date' => now(),
+            'reference' => 'SALE-003',
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'tax_percentage' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100,
+            'paid_amount' => 0,
+            'due_amount' => 100,
+            'status' => Sale::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+        ]);
+
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 100,
+            'unit_price' => 100,
+            'sub_total' => 100,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $compositeKey = $product->id . '--0';
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $ownerSetting->id])
+            ->post(route('sales.storeDispatch', $sale), [
+                'dispatch_date' => now()->toDateString(),
+                'dispatchedQuantities' => [
+                    $compositeKey => 1,
+                ],
+                'selectedSerialNumbers' => [
+                    $compositeKey => ['SERIAL-BORROWED-002'],
+                ],
+                'serialNumberLocations' => [
+                    $compositeKey => ['SERIAL-BORROWED-002' => $ownedLocation->id],
+                ],
+            ]);
+
+        $response->assertSessionHasErrors([
+            "serialNumberLocations.$compositeKey" => "Lokasi serial SERIAL-BORROWED-002 tidak valid untuk bisnis ini.",
+        ]);
+
+        $this->assertDatabaseMissing('dispatches', [
+            'sale_id' => $sale->id,
+        ]);
+        $this->assertDatabaseMissing('dispatch_details', [
+            'sale_id' => $sale->id,
+        ]);
     }
 }

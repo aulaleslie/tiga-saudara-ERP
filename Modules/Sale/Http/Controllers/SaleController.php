@@ -557,19 +557,34 @@ class SaleController extends Controller
                             continue;
                         }
 
-                        $locationId = (int) $locations[$serialNumber];
-                        if (!in_array($locationId, $allowedLocationIds, true)) {
+                        $submittedLocationId = (int) $locations[$serialNumber];
+                        if (!in_array($submittedLocationId, $allowedLocationIds, true)) {
                             $validator->errors()->add("serialNumberLocations.$compositeKey", "Lokasi serial {$serialNumber} tidak valid untuk bisnis ini.");
                         }
 
                         // Verify serial status and tax
                         $snRecord = ProductSerialNumber::where('product_id', $productId)
                             ->where('serial_number', $serialNumber)
+                            ->with('location')
                             ->first();
                         
                         if (!$snRecord) {
                             $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} tidak ditemukan di sistem.");
                         } else {
+                            if (empty($snRecord->location_id) || !$snRecord->location) {
+                                $validator->errors()->add("serialNumberLocations.$compositeKey", "Lokasi serial {$serialNumber} tidak ditemukan di sistem.");
+                            } else {
+                                $actualLocationId = (int) $snRecord->location_id;
+
+                                if (!in_array($actualLocationId, $allowedLocationIds, true)) {
+                                    $validator->errors()->add("serialNumberLocations.$compositeKey", "Lokasi serial {$serialNumber} tidak valid untuk bisnis ini.");
+                                }
+
+                                if ($submittedLocationId !== $actualLocationId) {
+                                    $validator->errors()->add("serialNumberLocations.$compositeKey", "Lokasi serial {$serialNumber} tidak sesuai dengan data sistem.");
+                                }
+                            }
+
                             if ($snRecord->dispatch_detail_id) {
                                 $validator->errors()->add("selectedSerialNumbers.$compositeKey", "Serial number {$serialNumber} sudah terpakai.");
                             }
@@ -637,8 +652,6 @@ class SaleController extends Controller
             $dispatchedQuantities = $request->input('dispatchedQuantities', []);
             $selectedLocations = $request->input('selectedLocations', []);
             $selectedSerialNumbers = $request->input('selectedSerialNumbers', []);
-            $serialNumberLocations = $request->input('serialNumberLocations', []);
-
             foreach ($dispatchedQuantities as $compositeKey => $qty) {
                 if ((int)$qty <= 0) continue;
 
@@ -649,11 +662,23 @@ class SaleController extends Controller
                 
                 if ($selectedSerialNumbers[$compositeKey] ?? null) {
                     $serials = $selectedSerialNumbers[$compositeKey];
-                    $locations = $serialNumberLocations[$compositeKey];
                     $serialsByLocation = [];
 
                     foreach ($serials as $sn) {
-                        $locId = (int) $locations[$sn];
+                        $serialRecord = ProductSerialNumber::where('product_id', $productId)
+                            ->where('serial_number', $sn)
+                            ->first();
+
+                        if (!$serialRecord || empty($serialRecord->location_id)) {
+                            throw new Exception("Lokasi serial number {$sn} tidak valid.");
+                        }
+
+                        $locId = (int) $serialRecord->location_id;
+
+                        if (!in_array($locId, $allowedLocationIds, true)) {
+                            throw new Exception("Lokasi serial number {$sn} tidak valid untuk bisnis ini.");
+                        }
+
                         if (!isset($serialsByLocation[$locId])) {
                             $serialsByLocation[$locId] = [];
                         }

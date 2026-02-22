@@ -70,12 +70,29 @@ class SerialNumberController extends Controller
 
         $serial = ProductSerialNumber::where('product_id', $validated['product_id'])
             ->where('serial_number', $validated['serial_number'])
+            ->with('location')
             ->first();
 
         if (!$serial) {
             return response()->json([
                 'valid' => false,
                 'message' => 'Serial number tidak ditemukan.',
+            ], 200);
+        }
+
+        $currentSettingId = (int) session('setting_id');
+
+        if (empty($serial->location_id) || !$serial->location) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number tidak memiliki lokasi yang valid.',
+            ], 200);
+        }
+
+        if ($currentSettingId > 0 && (int) $serial->location->setting_id !== $currentSettingId) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number berada di lokasi yang tidak valid untuk bisnis ini.',
             ], 200);
         }
 
