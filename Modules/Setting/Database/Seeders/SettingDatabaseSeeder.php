@@ -35,6 +35,7 @@ class SettingDatabaseSeeder extends Seeder
                 'footer_text' => 'CV Tiga Computer © 2021',
                 'company_address' => 'Bima, NTB',
                 'document_prefix' => $company['document_prefix'],
+                'is_pkp' => $company['name'] === 'CV Tiga Nusa Computer',
                 'purchase_prefix_document' => 'BL',
                 'purchase_return_prefix_document' => 'PRRN',
                 'sale_prefix_document' => 'JL',
