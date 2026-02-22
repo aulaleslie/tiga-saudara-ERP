@@ -865,7 +865,10 @@ class SaleController extends Controller
                     ->first();
 
                 if ($serialRecord) {
-                    $serialRecord->update(['dispatch_detail_id' => $detail->id]);
+                    $serialRecord->update([
+                        'dispatch_detail_id' => $detail->id,
+                        'status' => ProductSerialNumber::STATUS_SOLD,
+                    ]);
 
                     // Record SOLD history event
                     SerialNumberHistoryService::record(

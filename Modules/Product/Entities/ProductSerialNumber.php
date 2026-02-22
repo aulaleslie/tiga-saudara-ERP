@@ -31,6 +31,7 @@ class ProductSerialNumber extends BaseModel
 
     // Status Constants
     const STATUS_ACTIVE = 'ACTIVE';
+    const STATUS_SOLD = 'SOLD';
     const STATUS_RETURN_IN_PROCESS = 'RETURN_IN_PROCESS';
     const STATUS_RETURNED = 'RETURNED';
     const STATUS_BROKEN = 'BROKEN';

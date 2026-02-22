@@ -389,8 +389,11 @@ class SalesDispatchTaxTest extends TestCase
             ->post(route('dispatches.approve', $dispatch));
 
         $stock->refresh();
+        $sn1->refresh();
         // Since S1 had a tax_id (it was taxed), quantity_tax should decrement.
         $this->assertEquals(1, $stock->quantity_tax);
         $this->assertEquals(1, $stock->quantity);
+        $this->assertEquals($detail->id, $sn1->dispatch_detail_id);
+        $this->assertEquals(ProductSerialNumber::STATUS_SOLD, $sn1->status);
     }
 }

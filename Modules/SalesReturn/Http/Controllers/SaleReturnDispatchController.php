@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnItemSettlement;
 
@@ -93,7 +94,7 @@ class SaleReturnDispatchController extends Controller
 
                         // Also mark the serial as sold (out of our warehouse)
                         $itemSettlement->serialNumber?->update([
-                            'status' => 'sold',
+                            'status' => ProductSerialNumber::STATUS_SOLD,
                         ]);
                         return;
                     }
@@ -163,7 +164,7 @@ class SaleReturnDispatchController extends Controller
 
                         // mark the serial as dispatched (sold)
                         $sn->update([
-                            'status' => 'sold',
+                            'status' => ProductSerialNumber::STATUS_SOLD,
                         ]);
 
                         // finalize item

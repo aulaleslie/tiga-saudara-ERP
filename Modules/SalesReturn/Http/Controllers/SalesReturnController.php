@@ -349,6 +349,7 @@ class SalesReturnController extends Controller
                                 'dispatch_detail_id' => null,
                                 'location_id' => $locationId,
                                 'tax_id' => $taxId,
+                                'status' => ProductSerialNumber::STATUS_ACTIVE,
                             ]);
 
                         foreach ($serials as $serial) {
