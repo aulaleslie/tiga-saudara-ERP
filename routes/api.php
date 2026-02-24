@@ -94,7 +94,13 @@ Route::middleware('web')->get('/products/search', function (Request $request) {
             'p.id',
             'p.product_name',
             'p.product_code',
-            'p.product_quantity',
+            DB::raw('COALESCE((
+                SELECT SUM(ps.quantity)
+                FROM product_stocks ps
+                INNER JOIN locations l ON l.id = ps.location_id
+                WHERE ps.product_id = p.id
+                ' . ($settingId ? 'AND l.setting_id = ' . (int) $settingId : '') . '
+            ), 0) as product_quantity'),
             'p.product_unit',
         ], $priceSelect));
 
