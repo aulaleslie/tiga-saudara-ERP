@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Konfigurasi Gudang Penjualan')
+@section('title', 'Konfigurasi Lokasi Penjualan POS')
 
 @section('content')
     <div class="container">
@@ -9,7 +9,7 @@
             <div class="col-lg-8">
                 <div class="card mb-4">
                     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                        <span>Lokasi Penjualan Aktif</span>
+                        <span>Lokasi Penjualan POS Aktif</span>
                         <div class="d-flex align-items-center gap-2">
                             <span class="badge bg-primary text-white">{{ $setting->company_name }}</span>
                             @if($canEdit && count($assignedLocations) > 0)
@@ -89,8 +89,8 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="{{ $canEdit ? 6 : 4 }}" class="text-center py-4">
-                                            Belum ada lokasi penjualan yang dikonfigurasi.
+                                            <td colspan="{{ $canEdit ? 6 : 4 }}" class="text-center py-4">
+                                                Belum ada Lokasi Penjualan POS yang dikonfigurasi.
                                         </td>
                                     </tr>
                                 @endforelse
@@ -105,7 +105,7 @@
             @if($canEdit)
                 <div class="col-lg-4">
                     <div class="card">
-                        <div class="card-header">Tambah Lokasi Penjualan</div>
+                        <div class="card-header">Tambah Lokasi Penjualan POS</div>
                         <div class="card-body">
                             <form action="{{ route('sales-location-configurations.store') }}" method="POST">
                                 @csrf

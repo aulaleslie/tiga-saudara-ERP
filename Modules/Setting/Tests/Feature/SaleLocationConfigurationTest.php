@@ -79,7 +79,7 @@ class SaleLocationConfigurationTest extends TestCase
         $response->assertOk();
         $response->assertSee('CVTN 1');
         $response->assertSee('TIT 1');
-        $response->assertSee('Konfigurasi Gudang Penjualan');
+        $response->assertSee('Konfigurasi Lokasi Penjualan POS');
         $response->assertDontSee('Jadikan POS');
         $response->assertDontSee('Nonaktifkan POS');
         $this->assertEquals($settingA->id, $ownedLocation->saleAssignment->setting_id);

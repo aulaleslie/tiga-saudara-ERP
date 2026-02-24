@@ -523,7 +523,7 @@
                     <a class="c-sidebar-nav-link {{ request()->routeIs('sales-location-configurations*') ? 'c-active' : '' }}"
                        href="{{ route('sales-location-configurations.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-diagram-3" style="line-height: 1;"></i>
-                        Konfigurasi Gudang Penjualan
+                        Konfigurasi Lokasi Penjualan POS
                     </a>
                 </li>
             @endcan

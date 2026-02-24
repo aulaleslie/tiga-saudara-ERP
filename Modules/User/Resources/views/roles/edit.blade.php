@@ -325,7 +325,7 @@
                                             'locations.edit'   => 'Ubah',
                                         ],
 
-                                        'Konfigurasi Gudang Penjualan' => [
+                                        'Konfigurasi Lokasi Penjualan POS' => [
                                             'saleLocations.access' => 'Akses Konfigurasi',
                                             'saleLocations.edit'   => 'Kelola Konfigurasi',
                                         ],
