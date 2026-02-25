@@ -67,6 +67,7 @@
             </div>
 
             <!-- Nomor Faktur Pajak -->
+            @if($isPkp)
             <div class="col-lg-6 mb-3">
                 <label for="tax_ref_no">Nomor Faktur Pajak</label>
                 <input type="text" class="form-control" id="tax_ref_no" wire:model="tax_ref_no" placeholder="Opsional">
@@ -74,6 +75,7 @@
                     <div class="invalid-feedback d-block">{{ $message }}</div>
                 @enderror
             </div>
+            @endif
 
             <!-- Tag Penjualan -->
             <div class="col-lg-6 mb-3">

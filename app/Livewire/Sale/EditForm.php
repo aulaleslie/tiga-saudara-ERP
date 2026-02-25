@@ -31,6 +31,7 @@ class EditForm extends Component
     public $note;
     public $tax_ref_no;
     public array $tags = [];
+    public bool $isPkp = false;
     public bool $dueDateIsManual = false;
     public bool $suppressAutoDueDate = false;
     public int $dueDateRenderVersion = 0;
@@ -58,6 +59,7 @@ class EditForm extends Component
         }
 
         $this->sale          = $sale;
+        $this->isPkp         = $this->isPkpEnabled();
         $this->reference     = $sale->reference;
         $this->customerId    = $sale->customer_id;
         $this->customerName  = $sale->customer?->customer_name;
@@ -475,6 +477,16 @@ class EditForm extends Component
         } finally {
             $this->dispatch('sale:submit-finish');
         }
+    }
+
+    private function isPkpEnabled(): bool
+    {
+        $settingId = (int) session('setting_id');
+        if ($settingId <= 0) {
+            return false;
+        }
+
+        return (bool) (\Modules\Setting\Entities\Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
     }
 
     public function render()

@@ -25,8 +25,10 @@
                     <th class="align-middle text-center">Stok</th>
                     <th class="align-middle text-center">Jumlah</th>
                     <th class="align-middle text-center" style="width: 18%;">Diskon</th>
+                    @if($isPkp)
                     <th class="align-middle text-center" style="width: 18%;">Pajak</th>
                     <th class="align-middle text-center">Sub Total Sebelum Pajak</th>
+                    @endif
                     <th class="align-middle text-center">Sub Total</th>
                     <th class="align-middle text-center">Aksi</th>
                 </tr>
@@ -125,6 +127,7 @@
                                 @endif
                             </td>
 
+                            @if($isPkp)
                             <td class="align-middle text-center">
                                 <div class="input-group input-group-sm">
                                     <select
@@ -132,8 +135,8 @@
                                         class="form-control form-control-sm"
                                         wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
                                     >
-                                        <option value="" {{ $isPkp ? 'disabled' : '' }} {{ blank($cart_item->options->get('product_tax')) ? 'selected' : '' }}>
-                                            {{ $isPkp ? 'Wajib Pilih Pajak' : 'Non Pajak' }}
+                                        <option value="" disabled {{ blank($cart_item->options->get('product_tax')) ? 'selected' : '' }}>
+                                            Wajib Pilih Pajak
                                         </option>
                                         @foreach($taxes as $tax)
                                             <option
@@ -160,6 +163,7 @@
                             <td class="align-middle text-center">
                                 {{ format_currency($cart_item->options->sub_total_before_tax ?? ($cart_item->price * $cart_item->qty - $cart_item->options->product_discount)) }}
                             </td>
+                            @endif
 
                             <td class="align-middle text-center">
                                 {{ format_currency($cart_item->options->sub_total) }}
@@ -174,7 +178,7 @@
                     @endforeach
                 @else
                     <tr>
-                        <td colspan="9" class="text-center">
+                        <td colspan="{{ $isPkp ? 9 : 7 }}" class="text-center">
                             <span class="text-danger">Silahkan cari dan pilih produk!</span>
                         </td>
                     </tr>
@@ -188,6 +192,7 @@
         <div class="col-md-4">
             <div class="table-responsive">
                 <table class="table table-striped">
+                    @if($isPkp)
                     <tr>
                         <th>Termasuk Pajak</th>
                         <td>
@@ -217,6 +222,12 @@
                         <th>Total Setelah Pajak</th>
                         <td>{{ format_currency($total_sub_total) }}</td>
                     </tr>
+                    @else
+                    <tr>
+                        <th>Sub Total</th>
+                        <td>{{ format_currency($total_sub_total) }}</td>
+                    </tr>
+                    @endif
                     <tr>
                         <th>Diskon Global</th>
                         <td>(-) {{ format_currency($global_discount_amount) }}</td>
