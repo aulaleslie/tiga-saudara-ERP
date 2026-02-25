@@ -33,6 +33,7 @@ class EditForm extends Component
     public array $tags = [];
     public bool $dueDateIsManual = false;
     public bool $suppressAutoDueDate = false;
+    public int $dueDateRenderVersion = 0;
 
     protected $listeners = [
         'customerSelected' => 'handleCustomerSelected',
@@ -222,21 +223,37 @@ class EditForm extends Component
 
     private function updateDueDateFromPaymentTerm(): void
     {
+        $previousDueDate = $this->dueDate;
         $this->dueDate = $this->date;
 
         $termId = $this->paymentTermId ? (int) $this->paymentTermId : null;
         if (! $termId || ! $this->date) {
+            if ($previousDueDate !== $this->dueDate) {
+                $this->bumpDueDateRenderVersion();
+            }
             return;
         }
 
         $term = PaymentTerm::find($termId);
         if (! $term) {
+            if ($previousDueDate !== $this->dueDate) {
+                $this->bumpDueDateRenderVersion();
+            }
             return;
         }
 
         $this->dueDate = Carbon::parse($this->date)
             ->addDays($term->longevity)
             ->format('Y-m-d');
+
+        if ($previousDueDate !== $this->dueDate) {
+            $this->bumpDueDateRenderVersion();
+        }
+    }
+
+    private function bumpDueDateRenderVersion(): void
+    {
+        $this->dueDateRenderVersion++;
     }
 
     public function updatedPaymentTermId($value): void
@@ -462,6 +479,8 @@ class EditForm extends Component
 
     public function render()
     {
-        return view('livewire.sale.edit-form');
+        return view('livewire.sale.edit-form', [
+            'dueDateForView' => $this->dueDate ?? '',
+        ]);
     }
 }

@@ -37,11 +37,17 @@
 
             <!-- Jatuh Tempo -->
             <div class="col-lg-6 mb-3">
+                @php
+                    $dueDateInputValue = $dueDateForView ?? '';
+                    $dueDateFieldKey = 'sale-due-date-field-' . $dueDateRenderVersion . '-' . ($dueDateInputValue !== '' ? $dueDateInputValue : 'empty');
+                @endphp
                 <label for="dueDate">Tanggal Jatuh Tempo <span class="text-danger">*</span></label>
                 <input id="dueDate"
                        type="date"
                        class="form-control @error('dueDate') is-invalid @enderror"
-                       wire:model.live="dueDate">
+                       wire:model.live="dueDate"
+                       wire:key="{{ $dueDateFieldKey }}"
+                       value="{{ $dueDateInputValue }}">
                 @error('dueDate') <div class="invalid-feedback">{{ $message }}</div> @enderror
             </div>
 
