@@ -32,6 +32,9 @@
                             if ($status === \Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE) {
                                 $badgeClass = 'bg-info';
                                 $title = 'Active';
+                            } elseif ($status === \Modules\Product\Entities\ProductSerialNumber::STATUS_SOLD) {
+                                $badgeClass = 'bg-info';
+                                $title = 'Sold';
                             } elseif ($status === \Modules\Product\Entities\ProductSerialNumber::STATUS_RETURN_IN_PROCESS) {
                                 $badgeClass = 'bg-warning text-dark';
                                 $title = 'Sedang diretur';

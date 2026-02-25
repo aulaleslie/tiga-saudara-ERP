@@ -1261,4 +1261,117 @@ class PurchaseShowReturnedSerialVisibilityTest extends TestCase
         $responseB->assertSee('SN-REUSE-TEST');
         $responseB->assertSee('bg-info');
     }
+
+    public function test_sold_serial_stays_blue_on_new_purchase()
+    {
+        Permission::findOrCreate('purchases.receive', 'web');
+        Permission::findOrCreate('purchaseReturnSettlements.receive', 'web');
+        $this->user->givePermissionTo(['purchases.receive', 'purchaseReturnSettlements.receive']);
+        
+        // Mock Cache lock to ensure approveReceiving executes
+        \Illuminate\Support\Facades\Cache::shouldReceive('lock')
+             ->andReturn(new class {
+                 public function get($callback) {
+                     return $callback();
+                 }
+                 public function block($seconds, $callback = null) {
+                     return $callback ? $callback() : true;
+                 }
+             });
+        \Illuminate\Support\Facades\Cache::shouldReceive('forget')->andReturn(true);
+        \Illuminate\Support\Facades\Cache::shouldReceive('get')->andReturn(null);
+        \Illuminate\Support\Facades\Cache::shouldReceive('put')->andReturn(true);
+        \Illuminate\Support\Facades\Cache::shouldReceive('remember')->andReturnUsing(function($key, $ttl, $callback) {
+            return $callback();
+        });
+        \Illuminate\Support\Facades\Cache::shouldReceive('rememberForever')->andReturnUsing(function($key, $callback) {
+            return $callback();
+        });
+
+        \Modules\Setting\Entities\Location::create([
+            'id' => 1,
+            'name' => 'Test Location',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        // 1. Setup Purchase
+        $purchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(30),
+            'reference' => 'PO-SOLD-TEST',
+            'supplier_id' => 1,
+            'supplier_name' => 'Supplier A',
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $product = Product::create([
+            'product_name' => 'Sold Test Product',
+            'product_code' => 'STP001',
+            'product_unit' => 'pc',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'product_quantity' => 0,
+            'product_stock_alert' => 1,
+            'setting_id' => $this->setting->id,
+            'category_id' => 1,
+            'product_barcode_symbology' => 'C128',
+            'unit_id' => 1,
+            'stock_managed' => 1,
+            'serial_number_required' => 1,
+        ]);
+
+        $detail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 1000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        // Receive
+        $receivedNote = \Modules\Purchase\Entities\ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'status' => \Modules\Purchase\Entities\ReceivedNote::STATUS_APPROVED,
+            'location_id' => 1,
+            'setting_id' => $this->setting->id,
+            'date' => now(),
+            'external_delivery_number' => 'DN-SOLD',
+            'approved_by' => $this->user->id,
+            'approved_at' => now(),
+        ]);
+
+        $detailFn = \Modules\Purchase\Entities\ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $detail->id,
+            'quantity_received' => 1,
+        ]);
+
+        $serial = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => 1,
+            'serial_number' => 'SN-SOLD-TEST',
+            'status' => ProductSerialNumber::STATUS_SOLD, // Set to SOLD
+            'received_note_detail_id' => $detailFn->id,
+        ]);
+        $serial->receivedNoteDetails()->attach($detailFn->id);
+
+        $response = $this->get(route('purchases.show', $purchase->id));
+        $response->assertStatus(200);
+        $response->assertSee('SN-SOLD-TEST');
+        
+        // Use a more specific assertion for the badge color
+        $response->assertSee('class="badge bg-info me-1" title="Sold">', false);
+        $response->assertSee('SN-SOLD-TEST');
+    }
 }
