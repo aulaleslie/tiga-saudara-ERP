@@ -333,8 +333,8 @@ class PurchasesReturnSettlementController extends Controller
                                     throw new \Exception("Serial number {$replacementSerialNumber} sedang dalam proses retur.");
                                 }
 
-                                if (! in_array($status, [ProductSerialNumber::STATUS_RETURNED, ProductSerialNumber::STATUS_BROKEN], true)) {
-                                    throw new \Exception("Serial number {$replacementSerialNumber} hanya bisa digunakan jika status RETURNED atau BROKEN.");
+                                if (! in_array($status, [ProductSerialNumber::STATUS_RETURNED, ProductSerialNumber::STATUS_BROKEN, ProductSerialNumber::STATUS_SOLD], true)) {
+                                    throw new \Exception("Serial number {$replacementSerialNumber} hanya bisa digunakan jika status RETURNED, BROKEN, atau SOLD.");
                                 }
                             }
 

@@ -700,7 +700,7 @@ class PurchaseController extends Controller
                     ->first();
 
                 if ($existing) {
-                    if ($existing->status !== ProductSerialNumber::STATUS_RETURNED) {
+                    if (!in_array($existing->status, [ProductSerialNumber::STATUS_RETURNED, ProductSerialNumber::STATUS_SOLD], true)) {
                         $duplicateErrors[] = "Serial number '$serial' sudah ada untuk produk ini (Status: {$existing->status}).";
                     }
                 }
@@ -1007,7 +1007,7 @@ class PurchaseController extends Controller
                                         ->first();
                                         
                                     if ($existingSerial) {
-                                        if ($existingSerial->status === ProductSerialNumber::STATUS_RETURNED) {
+                                        if (in_array($existingSerial->status, [ProductSerialNumber::STATUS_RETURNED, ProductSerialNumber::STATUS_SOLD], true)) {
                                             // Reactivate existing serial
                                             $existingSerial->update([
                                                 'status' => ProductSerialNumber::STATUS_ACTIVE,
@@ -1020,7 +1020,7 @@ class PurchaseController extends Controller
                                             $existingSerial->receivedNoteDetails()->syncWithoutDetaching([$detail->id]);
                                             $serialRecord = $existingSerial;
                                         } else {
-                                            throw new Exception("Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED.");
+                                            throw new Exception("Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED atau SOLD.");
                                         }
                                     } else {
                                         $serialRecord = ProductSerialNumber::create([

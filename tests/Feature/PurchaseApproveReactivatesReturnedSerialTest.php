@@ -318,6 +318,6 @@ class PurchaseApproveReactivatesReturnedSerialTest extends TestCase
         $response = $this->post(route('receivings.approve', $receivedNote->id));
 
         $response->assertStatus(409);
-        $this->assertEquals("Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED.", $response->getContent());
+        $this->assertEquals("Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED atau SOLD.", $response->getContent());
     }
 }
