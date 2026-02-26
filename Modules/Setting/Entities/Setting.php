@@ -25,6 +25,7 @@ class Setting extends BaseModel
 
     protected $casts = [
         'is_pkp' => 'boolean',
+        'pos_enabled' => 'boolean',
     ];
 
     protected $with = ['currency'];

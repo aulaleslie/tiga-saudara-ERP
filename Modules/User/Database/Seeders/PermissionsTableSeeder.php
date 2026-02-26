@@ -194,6 +194,25 @@ class PermissionsTableSeeder extends Seeder
             'settings.access',
             'settings.edit',
 
+            // POS (Phase 1 / MVP)
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.close',
+            'pos.safeDrops.create',
+            'pos.safeDrops.approve',
+            'pos.overrides.price',
+            'pos.overrides.discount',
+            'pos.void',
+            'pos.supervisor.approval',
+            'pos.monitor.access',
+            'pos.reports.access',
+            'pos.reconciliation.access',
+            'pos.receipts.reprint',
+            'pos.terminals.access',
+            'pos.terminals.edit',
+            'pos.settings.edit',
+
             // Stock Transfers
             'stockTransfers.access',
             'stockTransfers.create',

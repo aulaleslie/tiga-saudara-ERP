@@ -9,6 +9,7 @@
     "Setting": true,
     "Sale": true,
     "Purchase": true,
+    "Pos": true,
     "SaleReturn": true,
     "SalesReturn": true,
     "PurchasesReturn": true,

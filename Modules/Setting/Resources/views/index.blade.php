@@ -105,6 +105,18 @@
                                         </div>
                                     </div>
                                 </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="pos_enabled">Aktifkan POS</label>
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" id="pos_enabled" name="pos_enabled" value="1"
+                                                   {{ old('pos_enabled', (bool) ($settings->pos_enabled ?? false)) ? 'checked' : '' }}>
+                                            <label class="form-check-label" for="pos_enabled">
+                                                Izinkan akses modul POS untuk bisnis ini.
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-row">

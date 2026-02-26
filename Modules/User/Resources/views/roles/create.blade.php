@@ -321,6 +321,26 @@
                                             'saleLocations.edit'   => 'Kelola Konfigurasi',
                                         ],
 
+                                        'POS' => [
+                                            'pos.access' => 'Akses POS',
+                                            'pos.sell' => 'Jual POS',
+                                            'pos.sessions.open' => 'Buka Sesi POS',
+                                            'pos.sessions.close' => 'Tutup Sesi POS',
+                                            'pos.safeDrops.create' => 'Buat Safe Drop POS',
+                                            'pos.safeDrops.approve' => 'Setujui Safe Drop POS',
+                                            'pos.overrides.price' => 'Override Harga POS',
+                                            'pos.overrides.discount' => 'Override Diskon POS',
+                                            'pos.void' => 'Void POS',
+                                            'pos.supervisor.approval' => 'Persetujuan Supervisor POS',
+                                            'pos.monitor.access' => 'Akses Monitor POS',
+                                            'pos.reports.access' => 'Akses Laporan POS',
+                                            'pos.reconciliation.access' => 'Akses Rekonsiliasi POS',
+                                            'pos.receipts.reprint' => 'Cetak Ulang Struk POS',
+                                            'pos.terminals.access' => 'Akses Terminal POS',
+                                            'pos.terminals.edit' => 'Kelola Terminal POS',
+                                            'pos.settings.edit' => 'Ubah Pengaturan POS',
+                                        ],
+
                                         'Metode / Syarat Pembayaran' => [
                                             'paymentMethods.access' => 'Akses Metode Pembayaran',
                                             'paymentMethods.create' => 'Buat Metode Pembayaran',

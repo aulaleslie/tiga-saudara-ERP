@@ -27,6 +27,7 @@ class StoreSettingsRequest extends FormRequest
             'sale_return_prefix_document' => 'nullable|string|max:10',
             'company_address' => 'required|string|max:500',
             'is_pkp' => 'nullable|boolean',
+            'pos_enabled' => 'nullable|boolean',
             'footer_text' => 'nullable|string|max:255',
         ];
     }

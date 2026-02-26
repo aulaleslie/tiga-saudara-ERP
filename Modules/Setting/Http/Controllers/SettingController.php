@@ -42,6 +42,7 @@ class SettingController extends Controller
             'sale_prefix_document'     => $request->sale_prefix_document,
             'purchase_return_prefix_document' => $request->purchase_return_prefix_document,
             'sale_return_prefix_document' => $request->sale_return_prefix_document,
+            'pos_enabled'              => $request->boolean('pos_enabled'),
         ];
 
         // Uppercase text-type columns
@@ -85,6 +86,7 @@ class SettingController extends Controller
                 'sale_prefix_document',
                 'purchase_return_prefix_document',
                 'sale_return_prefix_document',
+                'pos_enabled',
             ];
 
             $current = session('user_settings');
