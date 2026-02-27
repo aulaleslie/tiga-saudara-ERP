@@ -82,7 +82,7 @@ class PosCartTotalsCalculator
                 (float) ($line['tax_rate'] ?? 0),
                 $isPkp
             );
-            $lineTotalCents = $lineSubtotalCents + $lineTaxCents;
+            $lineTotalCents = $lineSubtotalCents;
 
             $lineDiscountTotalCents += $lineDiscountCents;
             $billDiscountTotalCents += $billShareCents;
@@ -101,7 +101,7 @@ class PosCartTotalsCalculator
         }
 
         $discountTotalCents = $lineDiscountTotalCents + $billDiscountTotalCents;
-        $grandTotalCents = $subtotalCents + $taxTotalCents;
+        $grandTotalCents = $subtotalCents;
 
         $resultLines = array_map(function (array $line): array {
             unset(
@@ -235,7 +235,15 @@ class PosCartTotalsCalculator
             return 0;
         }
 
-        return intdiv(($lineSubtotalCents * $rateBasisPoints) + 5000, 10000);
+        // POS prices are treated as gross; extract tax with whole-rupiah rounding.
+        $grossAmount = $lineSubtotalCents / 100;
+        $taxAmount = (int) round(
+            ($grossAmount * $rateBasisPoints) / (10000 + $rateBasisPoints),
+            0,
+            PHP_ROUND_HALF_UP
+        );
+
+        return $taxAmount * 100;
     }
 
     private function toMinor(float $value): int

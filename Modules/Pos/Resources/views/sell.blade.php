@@ -54,7 +54,7 @@
                 <div class="card h-100">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <strong>Cart</strong>
-                        <span id="pos-cart-tax-badge" class="badge badge-secondary">Tax: ESTIMATED (EXCLUDED)</span>
+                        <span id="pos-cart-tax-badge" class="badge badge-secondary">Tax: ESTIMATED (INCLUDED)</span>
                     </div>
                     <div class="card-body">
                         <div class="table-responsive">
@@ -327,7 +327,7 @@
 
                 if (taxBadge) {
                     const displayMode = escapeHtml(meta.tax_display_mode || 'ESTIMATED');
-                    const taxMode = escapeHtml(meta.tax_mode || 'EXCLUDED');
+                    const taxMode = escapeHtml(meta.tax_mode || 'INCLUDED');
                     taxBadge.textContent = 'Tax: ' + displayMode + ' (' + taxMode + ')';
                 }
             }

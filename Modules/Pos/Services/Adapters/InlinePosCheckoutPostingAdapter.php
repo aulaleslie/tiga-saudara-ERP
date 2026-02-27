@@ -50,7 +50,6 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $paymentMethodId = $this->resolvePaymentMethodId($methodCode);
 
         $grandTotal = round((float) ($totals['grand_total'] ?? 0), 2);
-        $taxTotal = round((float) ($totals['tax_total'] ?? 0), 2);
         $discountTotal = round((float) ($totals['discount_total'] ?? 0), 2);
 
         $totalPostedTaxTotal = 0.0;
@@ -62,7 +61,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'customer_name' => (string) ($customer->customer_name ?? ''),
             'tax_id' => null,
             'tax_percentage' => 0,
-            'tax_amount' => $taxTotal,
+            'tax_amount' => 0,
             'discount_percentage' => 0,
             'discount_amount' => $discountTotal,
             'shipping_amount' => 0,
@@ -119,28 +118,31 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
             $unitPrice = round((float) ($line['unit_price'] ?? 0), 2);
             $lineSubtotal = round((float) ($line['line_subtotal'] ?? ($unitPrice * $qty)), 2);
-            
-            // Calculate actual line tax by summing per-chunk tax
-            $linePostedTax = 0.0;
-            foreach ($lineAllocations as $chunk) {
+
+            $lineSubtotalMinor = $this->toMinor($lineSubtotal);
+            $chunkGrossMinor = $this->allocateMinorByQuantity($lineAllocations, $lineSubtotalMinor, $qty);
+
+            $linePostedTaxMinor = 0;
+            foreach ($lineAllocations as $chunkIndex => $chunk) {
                 $chunkQty = (int) ($chunk['allocated_qty'] ?? 0);
                 $snapshot = $chunk['tax_policy_snapshot'] ?? [];
                 $sourceIsPkp = (bool) ($snapshot['source_is_pkp'] ?? false);
-                
+
                 if ($sourceIsPkp) {
                     $taxRate = (float) ($snapshot['tax_rate'] ?? 0);
-                    $chunkTax = round(($unitPrice * $chunkQty) * ($taxRate / 100), 2);
-                    $linePostedTax += $chunkTax;
+                    $linePostedTaxMinor += $this->extractIncludedTaxMinor(
+                        (int) ($chunkGrossMinor[$chunkIndex] ?? 0),
+                        $taxRate
+                    );
                 }
             }
-            $linePostedTax = round($linePostedTax, 2);
+            $linePostedTax = $this->fromMinor($linePostedTaxMinor);
             $totalPostedTaxTotal += $linePostedTax;
 
             $lineDiscount = round(
                 (float) ($line['line_discount_amount'] ?? 0) + (float) ($line['bill_discount_amount'] ?? 0),
                 2
             );
-            $lineTotal = round($lineSubtotal + $linePostedTax, 2);
 
             SaleDetails::query()->create([
                 'sale_id' => $sale->id,
@@ -237,12 +239,14 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             }
         }
 
-        // Update Sale header with final calculated tax and totals
-        $totalPostedGrandTotal = round($sale->total_amount - $taxTotal + $totalPostedTaxTotal, 2);
+        // Keep payable total aligned with gross cart totals; tax is extracted for reporting only.
+        $totalPostedTaxTotal = round($totalPostedTaxTotal, 2);
+        $totalPostedGrandTotal = $grandTotal;
         $sale->update([
             'tax_amount' => $totalPostedTaxTotal,
             'total_amount' => $totalPostedGrandTotal,
             'paid_amount' => $totalPostedGrandTotal,
+            'is_tax_included' => $totalPostedTaxTotal > 0,
         ]);
 
         $salePayment = SalePayment::query()->create([
@@ -310,5 +314,86 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         }
 
         throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method is not configured for POS.');
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $allocations
+     * @return array<int, int>
+     */
+    private function allocateMinorByQuantity(array $allocations, int $totalMinor, int $totalQty): array
+    {
+        $shares = [];
+        if ($totalMinor <= 0 || $totalQty <= 0 || $allocations === []) {
+            foreach ($allocations as $index => $_allocation) {
+                $shares[$index] = 0;
+            }
+
+            return $shares;
+        }
+
+        $fractionalRows = [];
+        $allocated = 0;
+
+        foreach ($allocations as $index => $allocation) {
+            $chunkQty = max(0, (int) ($allocation['allocated_qty'] ?? 0));
+            $numerator = $totalMinor * $chunkQty;
+            $floorShare = intdiv($numerator, $totalQty);
+            $remainder = $numerator % $totalQty;
+
+            $shares[$index] = $floorShare;
+            $allocated += $floorShare;
+            $fractionalRows[] = [
+                'index' => $index,
+                'remainder' => $remainder,
+            ];
+        }
+
+        $remaining = max(0, $totalMinor - $allocated);
+        usort($fractionalRows, function (array $left, array $right): int {
+            if ((int) $left['remainder'] === (int) $right['remainder']) {
+                return (int) $left['index'] <=> (int) $right['index'];
+            }
+
+            return (int) $right['remainder'] <=> (int) $left['remainder'];
+        });
+
+        $rowCount = count($fractionalRows);
+        for ($index = 0; $index < $remaining && $rowCount > 0; $index++) {
+            $row = $fractionalRows[$index % $rowCount];
+            $shares[(int) $row['index']]++;
+        }
+
+        return $shares;
+    }
+
+    private function extractIncludedTaxMinor(int $grossMinor, float $taxRate): int
+    {
+        if ($grossMinor <= 0) {
+            return 0;
+        }
+
+        $rateBasisPoints = (int) round(max(0.0, $taxRate) * 100, 0, PHP_ROUND_HALF_UP);
+        if ($rateBasisPoints <= 0) {
+            return 0;
+        }
+
+        $grossAmount = $grossMinor / 100;
+        $taxAmount = (int) round(
+            ($grossAmount * $rateBasisPoints) / (10000 + $rateBasisPoints),
+            0,
+            PHP_ROUND_HALF_UP
+        );
+
+        return $taxAmount * 100;
+    }
+
+    private function toMinor(float $value): int
+    {
+        return (int) round($value * 100, 0, PHP_ROUND_HALF_UP);
+    }
+
+    private function fromMinor(int $value): float
+    {
+        return round($value / 100, 2);
     }
 }

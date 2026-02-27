@@ -84,7 +84,7 @@ class PosCartTotalsCalculatorTest extends TestCase
         $this->assertSame(199.99, $snapshot['totals']['subtotal']);
     }
 
-    public function test_tax_excluded_calculation_uses_discounted_base(): void
+    public function test_tax_included_extraction_uses_discounted_gross_base(): void
     {
         $calculator = new PosCartTotalsCalculator();
 
@@ -108,8 +108,9 @@ class PosCartTotalsCalculatorTest extends TestCase
         );
 
         $this->assertSame(190.0, $snapshot['totals']['subtotal']);
-        $this->assertSame(20.9, $snapshot['totals']['tax_total']);
-        $this->assertSame(210.9, $snapshot['totals']['grand_total']);
+        $this->assertSame(19.0, $snapshot['totals']['tax_total']);
+        $this->assertSame(190.0, $snapshot['totals']['grand_total']);
+        $this->assertSame($snapshot['totals']['subtotal'], $snapshot['totals']['grand_total']);
     }
 
     public function test_result_is_stable_regardless_of_input_line_order(): void

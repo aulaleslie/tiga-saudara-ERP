@@ -87,7 +87,7 @@ class POSCartTotalsDisplayTest extends TestCase
             ->assertJsonPath('cart_snapshot.lines.0.product_id', $product->id)
             ->assertJsonPath('cart_snapshot.lines.0.qty', 1)
             ->assertJsonPath('cart_snapshot.meta.tax_display_mode', 'ESTIMATED')
-            ->assertJsonPath('cart_snapshot.meta.tax_mode', 'EXCLUDED');
+            ->assertJsonPath('cart_snapshot.meta.tax_mode', 'INCLUDED');
 
         $response = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -99,8 +99,8 @@ class POSCartTotalsDisplayTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('cart_snapshot.lines.0.qty', 3)
             ->assertJsonPath('cart_snapshot.totals.subtotal', 30000)
-            ->assertJsonPath('cart_snapshot.totals.tax_total', 3300)
-            ->assertJsonPath('cart_snapshot.totals.grand_total', 33300);
+            ->assertJsonPath('cart_snapshot.totals.tax_total', 2973)
+            ->assertJsonPath('cart_snapshot.totals.grand_total', 30000);
     }
 
     public function test_line_and_bill_discount_recalculate_totals_deterministically(): void
@@ -147,12 +147,12 @@ class POSCartTotalsDisplayTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('cart_snapshot.totals.subtotal', 24300)
             ->assertJsonPath('cart_snapshot.totals.discount_total', 5700)
-            ->assertJsonPath('cart_snapshot.totals.tax_total', 2673)
-            ->assertJsonPath('cart_snapshot.totals.grand_total', 26973)
+            ->assertJsonPath('cart_snapshot.totals.tax_total', 2408)
+            ->assertJsonPath('cart_snapshot.totals.grand_total', 24300)
             ->assertJsonPath('cart_snapshot.lines.0.bill_discount_amount', 900)
             ->assertJsonPath('cart_snapshot.lines.1.bill_discount_amount', 1800)
             ->assertJsonPath('cart_snapshot.meta.tax_display_mode', 'ESTIMATED')
-            ->assertJsonPath('cart_snapshot.meta.tax_mode', 'EXCLUDED');
+            ->assertJsonPath('cart_snapshot.meta.tax_mode', 'INCLUDED');
     }
 
     public function test_price_override_rejected_with_invalid_supervisor_pin(): void
@@ -227,8 +227,8 @@ class POSCartTotalsDisplayTest extends TestCase
             ->assertOk()
             ->assertJsonPath('cart_snapshot.lines.0.unit_price', 9000)
             ->assertJsonPath('cart_snapshot.totals.subtotal', 9000)
-            ->assertJsonPath('cart_snapshot.totals.tax_total', 990)
-            ->assertJsonPath('cart_snapshot.totals.grand_total', 9990);
+            ->assertJsonPath('cart_snapshot.totals.tax_total', 892)
+            ->assertJsonPath('cart_snapshot.totals.grand_total', 9000);
 
         $this->assertDatabaseHas('pos_supervisor_approvals', [
             'setting_id' => $setting->id,

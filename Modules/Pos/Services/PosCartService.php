@@ -288,7 +288,7 @@ class PosCartService
                 'line_count' => count($calculated['lines']),
                 'total_qty' => $totalQty,
                 'tax_display_mode' => 'ESTIMATED',
-                'tax_mode' => 'EXCLUDED',
+                'tax_mode' => $isPkp ? 'INCLUDED' : 'EXCLUDED',
             ],
         ];
     }

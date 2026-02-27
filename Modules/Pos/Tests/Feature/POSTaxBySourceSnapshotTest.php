@@ -88,7 +88,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
             'idempotency_key' => 'K-TAX-PKP-001',
             'payment' => [
                 'method_code' => 'cash',
-                'amount_paid' => 110000, // 100k + 10k tax
+                'amount_paid' => 100000, // Gross/final price
             ],
         ]);
 
@@ -100,7 +100,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $this->assertDatabaseHas('sale_details', [
             'sale_id' => $response->json('sale_id'),
             'product_id' => $product->id,
-            'product_tax_amount' => 10000,
+            'product_tax_amount' => 9091,
         ]);
 
         // Check DispatchDetail has tax_id
@@ -112,8 +112,8 @@ class POSTaxBySourceSnapshotTest extends TestCase
         // Check PosCheckout totals
         $this->assertDatabaseHas('pos_checkouts', [
             'id' => $checkoutId,
-            'tax_total' => 10000,
-            'grand_total' => 110000,
+            'tax_total' => 9091,
+            'grand_total' => 100000,
         ]);
     }
 
@@ -148,7 +148,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
             'idempotency_key' => 'K-TAX-NON-PKP-001',
             'payment' => [
                 'method_code' => 'cash',
-                'amount_paid' => 110000, // Pay 110k (estimated) even if source is non-PKP
+                'amount_paid' => 100000, // Gross/final price
             ],
         ]);
 
@@ -172,6 +172,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $this->assertDatabaseHas('pos_checkouts', [
             'id' => $response->json('pos_checkout_id'),
             'tax_total' => 0,
+            'grand_total' => 100000,
         ]);
     }
 
@@ -212,15 +213,15 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $this->addCartLine($cashier, $terminalSetting, $product->id, 5);
 
         // Expected: 
-        // 3 units from locPKP -> taxed (3 * 10k = 30k tax)
+        // 3 units from locPKP -> taxed (included extraction = round(300k * 10/110) = 27,273 tax)
         // 2 units from locNonPKP -> non-taxed (0 tax)
-        // Total subtotal = 500k, Total tax = 30k, Grand = 530k
+        // Total subtotal = 500k, Total tax = 27,273, Grand = 500k
         
         $response = $this->finalize($cashier, $terminalSetting, [
             'idempotency_key' => 'K-TAX-MIXED-001',
             'payment' => [
                 'method_code' => 'cash',
-                'amount_paid' => 550000, // Pay 550k (estimated)
+                'amount_paid' => 500000, // Gross/final price
             ],
         ]);
 
@@ -231,7 +232,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
             'sale_id' => $response->json('sale_id'),
             'product_id' => $product->id,
             'quantity' => 5,
-            'product_tax_amount' => 30000, // Only 3 units taxed
+            'product_tax_amount' => 27273, // Only 3 units taxed
         ]);
 
         // Should have 2 dispatch details (one per location) or one if consolidated? 
@@ -249,7 +250,8 @@ class POSTaxBySourceSnapshotTest extends TestCase
 
         $this->assertDatabaseHas('pos_checkouts', [
             'id' => $response->json('pos_checkout_id'),
-            'tax_total' => 30000,
+            'tax_total' => 27273,
+            'grand_total' => 500000,
         ]);
 
         // Check stock buckets
@@ -283,7 +285,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
             'idempotency_key' => 'K-STABILITY-001',
             'payment' => [
                 'method_code' => 'cash',
-                'amount_paid' => 110000,
+                'amount_paid' => 100000,
             ],
         ]);
 
@@ -297,12 +299,13 @@ class POSTaxBySourceSnapshotTest extends TestCase
         // 3. Verification: Historical values must remain unchanged
         $this->assertDatabaseHas('pos_checkouts', [
             'id' => $checkoutId,
-            'tax_total' => 10000,
+            'tax_total' => 9091,
+            'grand_total' => 100000,
         ]);
 
         $this->assertDatabaseHas('sale_details', [
             'sale_id' => $saleId,
-            'product_tax_amount' => 10000,
+            'product_tax_amount' => 9091,
         ]);
     }
 
@@ -438,7 +441,6 @@ class POSTaxBySourceSnapshotTest extends TestCase
         ], [
             'sale_price' => $product->product_price,
             'sale_tax_id' => $tax->id,
-            'tax_type' => 1, // Excluded
         ]);
     }
 
