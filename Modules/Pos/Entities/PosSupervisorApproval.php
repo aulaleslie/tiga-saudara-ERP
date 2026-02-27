@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PosSupervisorApproval extends BaseModel
 {
+    public const ACTION_PRICE_OVERRIDE = 'PRICE_OVERRIDE';
+
     public const ACTION_SAFE_DROP_APPROVAL = 'SAFE_DROP_APPROVAL';
 
     public const ACTION_SESSION_CLOSE_VARIANCE_APPROVAL = 'SESSION_CLOSE_VARIANCE_APPROVAL';

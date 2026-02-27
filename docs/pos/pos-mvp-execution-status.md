@@ -11,18 +11,18 @@ Primary docs:
 ## Summary
 
 - Overall status: `in-progress`
-- Current milestone: `Milestone 1 - POS Session and Cash Control Core`
-- Current task: `POS-MVP-009`
-- Next proposed task: `POS-MVP-009`
-- Last updated: 2026-02-27 10:13 WITA
+- Current milestone: `Milestone 2 - POS Checkout Shell and Cart`
+- Current task: `POS-MVP-012`
+- Next proposed task: `POS-MVP-012`
+- Last updated: 2026-02-27 13:32 WITA
 
 ## Milestone Tracker
 
 | Milestone | Status | Notes |
 | --- | --- | --- |
 | 0 - Foundations and Safety Rails | done | `POS-MVP-001` to `POS-MVP-003` completed |
-| 1 - POS Session and Cash Control Core | in-progress | `POS-MVP-008` completed, proceed to `POS-MVP-009` |
-| 2 - POS Checkout Shell and Cart | pending | |
+| 1 - POS Session and Cash Control Core | done | `POS-MVP-004` to `POS-MVP-008` completed |
+| 2 - POS Checkout Shell and Cart | in-progress | `POS-MVP-009` to `POS-MVP-011` completed, proceed to `POS-MVP-012` |
 | 3 - Hybrid Posting and Immediate Stock Deduction | pending | |
 | 4 - Payments, Receipt, and Cashier Finish Flow | pending | |
 | 5 - Supervisor Monitoring, Reports, and Reconciliation | pending | |
@@ -30,21 +30,21 @@ Primary docs:
 
 ## Active Task Plan
 
-- Task ID: `POS-MVP-009`
-- Milestone: `Milestone 1 - POS Session and Cash Control Core`
+- Task ID: `POS-MVP-012`
+- Milestone: `Milestone 2 - POS Checkout Shell and Cart`
 - Status: `pending`
-- Scope: Implement POS shell/session guard workflow so cashier without active session is redirected to session-open flow and active session can access sell shell.
-- Acceptance criteria (confirmed):
-  - no-active-session cashier requests cannot continue to sell shell flow
-  - active-session cashier can access POS shell route and session context is available
-  - POS shell route remains gated by feature + permission middleware
+- Scope: Implement walk-in/default customer resolution and optional customer selection flow on top of completed `POS-MVP-011` cart API.
+- Acceptance criteria (draft):
+  - POS checkout always resolves a valid customer ID using business-scoped walk-in fallback
+  - cashier can keep customer optional unless explicitly selected
+  - missing walk-in mapping returns clear configuration error before finalization
 - Out of scope:
-  - full cart/search/payment implementation
-  - checkout posting logic
+  - payment posting/finalization logic (`POS-MVP-013+`)
+  - receipt generation and settlement capture (`POS-MVP-019+`)
 - Tests to write first:
-  - `Modules/Pos/Tests/Feature/POSShellSessionGuardTest.php`
+  - `Modules/Pos/Tests/Feature/POSWalkInCustomerSelectionTest.php`
 - Dependencies:
-  - `POS-MVP-008`
+  - `POS-MVP-011`
 
 ## Task Log (Append Entries)
 
@@ -367,6 +367,132 @@ Primary docs:
   - session-close approval still uses password-as-PIN surrogate pending dedicated PIN credential model
   - close flow is API/service complete for MVP guardrails but does not yet provide dedicated cashier close UI screen
 - Next proposed task: `POS-MVP-009`
+
+### 2026-02-27 - POS-MVP-009 - Status: done
+
+- Milestone: `Milestone 2 - POS Checkout Shell and Cart`
+- Acceptance criteria summary:
+  - `/pos/sell` now redirects cashiers without active session to session-open route, preventing continuation in sell shell state
+  - active-session cashier access to `/pos/sell` now includes explicit session context payload (`pos_session_id` + `pos_active_session`) and visible shell context banner
+  - sell shell remains behind feature flag and permission middleware while providing shell-only placeholders (no posting side effects)
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSShellSessionGuardTest.php`
+  - `Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php` (guard expectation alignment)
+  - `Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php` (guard expectation alignment)
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSShellSessionGuardTest.php Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php`
+  - result: failed baseline before implementation (`/pos/sell` still returned `403` without active session and shell context/layout markers were missing)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - result: failed baseline after expectation alignment (`/pos/sell` still returned `403` without active session)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php`
+  - result: failed baseline after expectation alignment (closed sessions still received `403` on `/pos/sell`)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSShellSessionGuardTest.php`
+  - result: pass (5 tests, 20 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - result: pass (6 tests, 24 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php`
+  - result: pass (7 tests, 38 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSRouteFeatureFlagTest.php`
+  - result: pass (4 tests, 9 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (54 tests, 208 assertions)
+- Changed files:
+  - `Modules/Pos/Http/Middleware/EnsureActivePosSessionMiddleware.php`
+  - `Modules/Pos/Http/Controllers/PosSellController.php`
+  - `Modules/Pos/Resources/views/sell.blade.php`
+  - `Modules/Pos/Tests/Feature/POSShellSessionGuardTest.php`
+  - `Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - `Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php`
+- Risks / follow-ups:
+  - POS sell shell is intentionally skeleton-only; search/scan behavior is deferred to `POS-MVP-010`
+  - users lacking `pos.sessions.open` are redirected from sell guard but remain blocked at session-open route (`403`), so role mapping must include open permission for cashier operations
+- Next proposed task: `POS-MVP-010`
+
+### 2026-02-27 - POS-MVP-010 - Status: done
+
+- Milestone: `Milestone 2 - POS Checkout Shell and Cart`
+- Acceptance criteria summary:
+  - added POS-scoped search endpoint `pos.sell.products.search` with `barcode/SKU/name` matching and deterministic ranking
+  - search is scoped to active setting and allowed sales locations, with positive stock guard and no empty-location fallback leakage
+  - exact barcode matches (product barcode or conversion barcode) now set `meta.auto_select_product_id` for immediate cashier selection
+  - sell shell now performs debounced lookup, supports auto-select/manual select, and renders a client-side ephemeral cart line with `Perlu Serial` badge
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSProductSearchScanTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSProductSearchScanTest.php`
+  - result: failed baseline before implementation (`PosSellController::search` missing)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSProductSearchScanTest.php`
+  - result: pass (6 tests, 31 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSShellSessionGuardTest.php`
+  - result: pass (5 tests, 20 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - result: pass (6 tests, 24 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php`
+  - result: pass (7 tests, 38 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSRouteFeatureFlagTest.php`
+  - result: pass (4 tests, 9 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (60 tests, 239 assertions)
+- Changed files:
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Http/Controllers/PosSellController.php`
+  - `Modules/Pos/Services/PosProductSearchService.php`
+  - `Modules/Pos/Resources/views/sell.blade.php`
+  - `Modules/Pos/Tests/Feature/POSProductSearchScanTest.php`
+- Risks / follow-ups:
+  - shell cart state remains client-side ephemeral and intentionally non-persistent until `POS-MVP-011`
+  - bundle availability logic is deferred; response currently exposes bundle-parent flag only
+  - search latency target still needs manual cashier UAT validation under production-like data volume
+- Next proposed task: `POS-MVP-011`
+
+### 2026-02-27 - POS-MVP-011 - Status: done
+
+- Milestone: `Milestone 2 - POS Checkout Shell and Cart`
+- Acceptance criteria summary:
+  - added server-session-backed cart API (`show/add/update/remove/discount/clear`) bound to active POS session and current setting context
+  - cart totals now compute deterministically with policy order `line discount -> bill discount proration -> estimated tax (excluded mode)`
+  - line-level manual price override now requires supervisor PIN approval and writes `PRICE_OVERRIDE` audit rows in `pos_supervisor_approvals`
+  - sell shell now consumes cart API and supports qty updates, line/bill discounts, tax-estimate display, and price-override actions without posting sales/payment/dispatch records
+- Tests written first:
+  - `Modules/Pos/Tests/Unit/PosCartTotalsCalculatorTest.php`
+  - `Modules/Pos/Tests/Feature/POSCartTotalsDisplayTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Unit/PosCartTotalsCalculatorTest.php Modules/Pos/Tests/Feature/POSCartTotalsDisplayTest.php`
+  - result: failed baseline before implementation (missing `PosCartTotalsCalculator` and cart route contracts)
+  - command: `php artisan test Modules/Pos/Tests/Unit/PosCartTotalsCalculatorTest.php`
+  - result: pass (4 tests, 14 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSCartTotalsDisplayTest.php`
+  - result: pass (6 tests, 43 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSProductSearchScanTest.php`
+  - result: pass (6 tests, 31 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSShellSessionGuardTest.php`
+  - result: pass (5 tests, 20 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (70 tests, 296 assertions)
+  - command: `php artisan test Modules/Setting/Tests/Feature/SaleLocationConfigurationTest.php`
+  - result: pass (6 tests, 25 assertions)
+  - command: `php artisan test Modules/Sale/Tests/Feature/SaleRequestAuthorizationTest.php`
+  - result: pass (6 tests, 6 assertions)
+- Changed files:
+  - `Modules/Pos/Entities/PosSupervisorApproval.php`
+  - `Modules/Pos/Http/Controllers/PosSellController.php`
+  - `Modules/Pos/Http/Requests/StorePosCartLineRequest.php`
+  - `Modules/Pos/Http/Requests/StorePosCartPriceOverrideRequest.php`
+  - `Modules/Pos/Http/Requests/UpdatePosCartDiscountRequest.php`
+  - `Modules/Pos/Http/Requests/UpdatePosCartLineRequest.php`
+  - `Modules/Pos/Resources/views/sell.blade.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/PosCartService.php`
+  - `Modules/Pos/Services/PosCartSessionStore.php`
+  - `Modules/Pos/Services/PosCartTotalsCalculator.php`
+  - `Modules/Pos/Services/PosSupervisorApprovalService.php`
+  - `Modules/Pos/Tests/Feature/POSCartTotalsDisplayTest.php`
+  - `Modules/Pos/Tests/Unit/PosCartTotalsCalculatorTest.php`
+- Risks / follow-ups:
+  - cart persistence is session-scoped for MVP and does not survive cashier/device/session changes
+  - tax shown in shell is estimated from product tax setup and will be finalized by source-allocation logic in later milestones
+  - supervisor PIN still uses existing password-as-PIN surrogate until dedicated PIN credential model is implemented
+- Next proposed task: `POS-MVP-012`
 
 ## Blockers / Decisions Needed
 

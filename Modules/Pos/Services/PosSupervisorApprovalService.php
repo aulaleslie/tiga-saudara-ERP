@@ -17,6 +17,41 @@ class PosSupervisorApprovalService
      *     reason:string|null
      * }
      */
+    public function approvePriceOverride(
+        int $settingId,
+        int $targetSessionId,
+        int $requestedBy,
+        string $supervisorIdentifier,
+        string $supervisorPin,
+        int $lineId,
+        float $fromUnitPrice,
+        float $toUnitPrice
+    ): array {
+        return $this->approveSessionAction(
+            $settingId,
+            $targetSessionId,
+            $requestedBy,
+            $supervisorIdentifier,
+            $supervisorPin,
+            PosSupervisorApproval::ACTION_PRICE_OVERRIDE,
+            ['pos.overrides.price', 'pos.supervisor.approval'],
+            [
+                'line_id' => $lineId,
+                'from_unit_price' => round($fromUnitPrice, 2),
+                'to_unit_price' => round($toUnitPrice, 2),
+            ]
+        );
+    }
+
+    /**
+     * @return array{
+     *     approval_id:int,
+     *     approved:bool,
+     *     approved_by:int|null,
+     *     approval_result:string,
+     *     reason:string|null
+     * }
+     */
     public function approveSafeDrop(
         int $settingId,
         int $targetSessionId,
@@ -77,7 +112,8 @@ class PosSupervisorApprovalService
         int $targetSessionId,
         int $requestedBy,
         string $reason,
-        string $supervisorIdentifier
+        string $supervisorIdentifier,
+        array $context = []
     ): array {
         $approval = PosSupervisorApproval::query()->create([
             'setting_id' => $settingId,
@@ -88,9 +124,9 @@ class PosSupervisorApprovalService
             'approved_by' => null,
             'approval_result' => PosSupervisorApproval::RESULT_REJECTED,
             'reason' => $reason,
-            'context_snapshot' => [
+            'context_snapshot' => array_merge([
                 'supervisor_identifier' => $supervisorIdentifier,
-            ],
+            ], $context),
             'occurred_at' => now(),
         ]);
 
@@ -120,7 +156,8 @@ class PosSupervisorApprovalService
         string $supervisorIdentifier,
         string $supervisorPin,
         string $actionType,
-        array $requiredPermissions
+        array $requiredPermissions,
+        array $context = []
     ): array {
         $supervisor = User::query()
             ->where('email', $supervisorIdentifier)
@@ -133,7 +170,8 @@ class PosSupervisorApprovalService
                 $targetSessionId,
                 $requestedBy,
                 'INVALID_CREDENTIALS',
-                $supervisorIdentifier
+                $supervisorIdentifier,
+                $context
             );
         }
 
@@ -148,7 +186,8 @@ class PosSupervisorApprovalService
                 $targetSessionId,
                 $requestedBy,
                 'INVALID_CREDENTIALS',
-                $supervisorIdentifier
+                $supervisorIdentifier,
+                $context
             );
         }
 
@@ -159,7 +198,8 @@ class PosSupervisorApprovalService
                 $targetSessionId,
                 $requestedBy,
                 'INVALID_CREDENTIALS',
-                $supervisorIdentifier
+                $supervisorIdentifier,
+                $context
             );
         }
 
@@ -171,7 +211,8 @@ class PosSupervisorApprovalService
                     $targetSessionId,
                     $requestedBy,
                     'MISSING_PERMISSION',
-                    $supervisorIdentifier
+                    $supervisorIdentifier,
+                    $context
                 );
             }
         }
@@ -185,9 +226,9 @@ class PosSupervisorApprovalService
             'approved_by' => $supervisor->id,
             'approval_result' => PosSupervisorApproval::RESULT_APPROVED,
             'reason' => null,
-            'context_snapshot' => [
+            'context_snapshot' => array_merge([
                 'supervisor_identifier' => $supervisorIdentifier,
-            ],
+            ], $context),
             'occurred_at' => now(),
         ]);
 

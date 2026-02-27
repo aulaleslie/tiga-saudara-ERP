@@ -146,7 +146,7 @@ class POSSessionLifecycleTest extends TestCase
         }
     }
 
-    public function test_sell_route_returns_forbidden_without_active_session(): void
+    public function test_sell_route_redirects_to_session_open_without_active_session(): void
     {
         $setting = $this->createSetting('BIZ A');
         $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell']);
@@ -154,7 +154,8 @@ class POSSessionLifecycleTest extends TestCase
         $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
             ->get(route('pos.sell'))
-            ->assertForbidden();
+            ->assertRedirect(route('pos.sessions.create'))
+            ->assertSessionHas('warning', 'Active POS session is required before accessing POS sell screen.');
     }
 
     public function test_sell_route_allows_access_with_active_session(): void

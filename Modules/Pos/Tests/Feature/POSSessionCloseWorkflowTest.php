@@ -317,7 +317,8 @@ class POSSessionCloseWorkflowTest extends TestCase
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->get(route('pos.sell'))
-            ->assertForbidden();
+            ->assertRedirect(route('pos.sessions.create'))
+            ->assertSessionHas('warning', 'Active POS session is required before accessing POS sell screen.');
     }
 
     private function createOpenSession(

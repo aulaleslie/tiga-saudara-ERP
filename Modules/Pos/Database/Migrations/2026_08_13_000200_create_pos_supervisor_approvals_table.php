@@ -22,7 +22,7 @@ return new class extends Migration
             $table->timestamp('occurred_at');
             $table->timestamps();
 
-            $table->index(['setting_id', 'action_type', 'occurred_at']);
+            $table->index(['setting_id', 'action_type', 'occurred_at'], 'pos_sup_approvals_setting_action_occurred_idx');
             $table->index(['target_type', 'target_id']);
             $table->index(['approved_by', 'occurred_at']);
 

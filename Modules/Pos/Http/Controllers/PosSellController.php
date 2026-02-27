@@ -2,13 +2,221 @@
 
 namespace Modules\Pos\Http\Controllers;
 
+use DomainException;
 use Illuminate\Contracts\Support\Renderable;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\Pos\Entities\PosSession;
+use Modules\Pos\Http\Requests\StorePosCartLineRequest;
+use Modules\Pos\Http\Requests\StorePosCartPriceOverrideRequest;
+use Modules\Pos\Http\Requests\UpdatePosCartDiscountRequest;
+use Modules\Pos\Http\Requests\UpdatePosCartLineRequest;
+use Modules\Pos\Services\PosCartService;
+use Modules\Pos\Services\PosProductSearchService;
 
 class PosSellController extends Controller
 {
-    public function index(): Renderable
+    public function index(Request $request): Renderable
     {
-        return view('pos::sell');
+        $activeSession = $request->attributes->get('pos_active_session');
+
+        if (! $activeSession instanceof PosSession) {
+            abort(403, 'Active POS session context is required.');
+        }
+
+        $activeSession->loadMissing([
+            'terminal:id,code,name,location_id',
+            'terminal.location:id,name',
+        ]);
+
+        return view('pos::sell', [
+            'activeSession' => $activeSession,
+        ]);
+    }
+
+    public function search(Request $request, PosProductSearchService $searchService): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => ['required', 'string', 'max:255'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:20'],
+        ]);
+
+        $settingId = (int) session('setting_id');
+        abort_if($settingId <= 0, 403, 'Setting context is required.');
+
+        $payload = $searchService->search(
+            $settingId,
+            (string) $validated['q'],
+            (int) ($validated['limit'] ?? 10)
+        );
+
+        return response()->json($payload);
+    }
+
+    public function cartShow(Request $request, PosCartService $cartService): JsonResponse
+    {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+
+        return response()->json([
+            'cart_snapshot' => $cartService->getSnapshot($settingId, $sessionId),
+        ]);
+    }
+
+    public function cartStoreLine(
+        StorePosCartLineRequest $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+
+        try {
+            $snapshot = $cartService->addLine(
+                $settingId,
+                $sessionId,
+                (int) $request->input('product_id'),
+                (int) ($request->input('qty', 1))
+            );
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function cartUpdateLine(
+        int $lineId,
+        UpdatePosCartLineRequest $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+
+        try {
+            $snapshot = $cartService->updateLine(
+                $settingId,
+                $sessionId,
+                $lineId,
+                $request->validated()
+            );
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function cartDestroyLine(
+        int $lineId,
+        Request $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+
+        try {
+            $snapshot = $cartService->removeLine($settingId, $sessionId, $lineId);
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function cartUpdateDiscount(
+        UpdatePosCartDiscountRequest $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+
+        try {
+            $snapshot = $cartService->updateBillDiscount(
+                $settingId,
+                $sessionId,
+                (string) $request->input('bill_discount_type'),
+                (float) $request->input('bill_discount_value')
+            );
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function cartOverridePrice(
+        int $lineId,
+        StorePosCartPriceOverrideRequest $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+        $requestedBy = (int) ($request->user()?->id ?? 0);
+
+        if ($requestedBy <= 0) {
+            abort(403, 'Authentication is required.');
+        }
+
+        try {
+            $snapshot = $cartService->overrideLinePrice(
+                $settingId,
+                $sessionId,
+                $requestedBy,
+                $lineId,
+                (float) $request->input('unit_price'),
+                (string) $request->input('supervisor_identifier'),
+                (string) $request->input('supervisor_pin')
+            );
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function cartClear(Request $request, PosCartService $cartService): JsonResponse
+    {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+        $snapshot = $cartService->clear($settingId, $sessionId);
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    private function currentSettingId(): int
+    {
+        $settingId = (int) session('setting_id');
+
+        abort_if($settingId <= 0, 403, 'Setting context is required.');
+
+        return $settingId;
+    }
+
+    private function activeSessionId(Request $request): int
+    {
+        $sessionId = (int) $request->attributes->get('pos_session_id');
+
+        if ($sessionId > 0) {
+            return $sessionId;
+        }
+
+        $activeSession = $request->attributes->get('pos_active_session');
+
+        if ($activeSession instanceof PosSession) {
+            return (int) $activeSession->id;
+        }
+
+        abort(403, 'Active POS session context is required.');
     }
 }

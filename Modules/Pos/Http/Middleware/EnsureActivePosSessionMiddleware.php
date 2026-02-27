@@ -29,10 +29,13 @@ class EnsureActivePosSessionMiddleware
         $activeSession = $this->sessionLifecycleService->getActiveSessionForCashier($settingId, (int) $user->id);
 
         if (! $activeSession) {
-            abort(403, 'Active POS session is required.');
+            return redirect()
+                ->route('pos.sessions.create')
+                ->with('warning', 'Active POS session is required before accessing POS sell screen.');
         }
 
-        $request->attributes->set('pos_session_id', $activeSession->id);
+        $request->attributes->set('pos_session_id', (int) $activeSession->id);
+        $request->attributes->set('pos_active_session', $activeSession);
 
         return $next($request);
     }
