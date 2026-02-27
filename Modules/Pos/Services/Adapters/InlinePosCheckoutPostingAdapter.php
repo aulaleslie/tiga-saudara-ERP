@@ -27,6 +27,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $checkoutId = (int) ($context['checkout_id'] ?? 0);
         $payment = is_array($context['payment'] ?? null) ? $context['payment'] : [];
         $cartSnapshot = is_array($context['cart_snapshot'] ?? null) ? $context['cart_snapshot'] : [];
+        $allocations = is_array($context['allocations'] ?? null) ? $context['allocations'] : [];
         $lines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
         $totals = is_array($cartSnapshot['totals'] ?? null) ? $cartSnapshot['totals'] : [];
 
@@ -85,7 +86,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'rejection_reason' => null,
         ]);
 
-        foreach ($lines as $line) {
+        foreach ($lines as $index => $line) {
             $productId = (int) ($line['product_id'] ?? 0);
             $qty = (int) ($line['qty'] ?? 0);
             $taxId = isset($line['tax_id']) ? (int) $line['tax_id'] : 0;
@@ -100,26 +101,18 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Product is not available for posting.');
             }
 
-            $stock = ProductStock::query()
-                ->where('product_id', $productId)
-                ->where('location_id', $sourceLocationId)
-                ->lockForUpdate()
-                ->first();
+            $lineAllocations = $allocations[$index] ?? [
+                [
+                    'source_location_id' => $sourceLocationId,
+                    'source_setting_id' => $settingId,
+                    'allocated_qty' => $qty,
+                ]
+            ];
 
-            if (! $stock) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Product stock is unavailable at terminal location.');
-            }
-
-            if ((int) $stock->quantity < $qty) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient stock at terminal location.');
-            }
-
-            if ($taxId !== null && (int) $stock->quantity_tax < $qty) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient taxed stock at terminal location.');
-            }
-
-            if ($taxId === null && (int) $stock->quantity_non_tax < $qty) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient non-tax stock at terminal location.');
+            // Validate total allocated matches line qty
+            $totalAllocated = array_sum(array_column($lineAllocations, 'allocated_qty'));
+            if ((int) $totalAllocated !== $qty) {
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Allocated quantity does not match line quantity.');
             }
 
             $unitPrice = round((float) ($line['unit_price'] ?? 0), 2);
@@ -147,53 +140,80 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'serial_number_ids' => null,
             ]);
 
-            $dispatchDetail = DispatchDetail::query()->create([
-                'dispatch_id' => $dispatch->id,
-                'sale_id' => $sale->id,
-                'tax_id' => $taxId,
-                'product_id' => $productId,
-                'bundle_id' => null,
-                'dispatched_quantity' => $qty,
-                'location_id' => $sourceLocationId,
-                'serial_numbers' => null,
-            ]);
+            foreach ($lineAllocations as $chunk) {
+                $chunkQty = (int) $chunk['allocated_qty'];
+                $chunkLocId = (int) $chunk['source_location_id'];
 
-            $previousProductQty = (int) $product->product_quantity;
-            $previousLocationQty = (int) $stock->quantity;
+                $stock = ProductStock::query()
+                    ->where('product_id', $productId)
+                    ->where('location_id', $chunkLocId)
+                    ->lockForUpdate()
+                    ->first();
 
-            $stock->quantity = max(0, (int) $stock->quantity - $qty);
-            if ($taxId !== null) {
-                $stock->quantity_tax = max(0, (int) $stock->quantity_tax - $qty);
-            } else {
-                $stock->quantity_non_tax = max(0, (int) $stock->quantity_non_tax - $qty);
+                if (! $stock) {
+                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Product stock is unavailable at source location.');
+                }
+
+                if ((int) $stock->quantity < $chunkQty) {
+                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient stock at source location.');
+                }
+
+                if ($taxId !== null && (int) $stock->quantity_tax < $chunkQty) {
+                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient taxed stock at source location.');
+                }
+
+                if ($taxId === null && (int) $stock->quantity_non_tax < $chunkQty) {
+                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient non-tax stock at source location.');
+                }
+
+                DispatchDetail::query()->create([
+                    'dispatch_id' => $dispatch->id,
+                    'sale_id' => $sale->id,
+                    'tax_id' => $taxId,
+                    'product_id' => $productId,
+                    'bundle_id' => null,
+                    'dispatched_quantity' => $chunkQty,
+                    'location_id' => $chunkLocId,
+                    'serial_numbers' => null,
+                ]);
+
+                $previousProductQty = (int) $product->product_quantity;
+                $previousLocationQty = (int) $stock->quantity;
+
+                $stock->quantity = max(0, (int) $stock->quantity - $chunkQty);
+                if ($taxId !== null) {
+                    $stock->quantity_tax = max(0, (int) $stock->quantity_tax - $chunkQty);
+                } else {
+                    $stock->quantity_non_tax = max(0, (int) $stock->quantity_non_tax - $chunkQty);
+                }
+                $stock->save();
+
+                $product->product_quantity = max(0, (int) $product->product_quantity - $chunkQty);
+                $product->save();
+
+                $afterProductQty = (int) $product->product_quantity;
+                $afterLocationQty = (int) $stock->quantity;
+
+                Transaction::query()->create([
+                    'product_id' => $productId,
+                    'setting_id' => $settingId,
+                    'quantity' => -$chunkQty,
+                    'current_quantity' => $afterProductQty,
+                    'broken_quantity' => 0,
+                    'location_id' => $chunkLocId,
+                    'user_id' => $cashierUserId,
+                    'reason' => 'POS checkout #' . $checkoutId,
+                    'type' => 'DISPATCH',
+                    'previous_quantity' => $previousProductQty,
+                    'after_quantity' => $afterProductQty,
+                    'previous_quantity_at_location' => $previousLocationQty,
+                    'after_quantity_at_location' => $afterLocationQty,
+                    'quantity_tax' => $taxId !== null ? $chunkQty : 0,
+                    'quantity_non_tax' => $taxId !== null ? 0 : $chunkQty,
+                    'broken_quantity_tax' => 0,
+                    'broken_quantity_non_tax' => 0,
+                ]);
             }
-            $stock->save();
-
-            $product->product_quantity = max(0, (int) $product->product_quantity - $qty);
-            $product->save();
-
-            $afterProductQty = (int) $product->product_quantity;
-            $afterLocationQty = (int) $stock->quantity;
-
-            Transaction::query()->create([
-                'product_id' => $productId,
-                'setting_id' => $settingId,
-                'quantity' => -$qty,
-                'current_quantity' => $afterProductQty,
-                'broken_quantity' => 0,
-                'location_id' => $sourceLocationId,
-                'user_id' => $cashierUserId,
-                'reason' => 'POS checkout #' . $checkoutId,
-                'type' => 'DISPATCH',
-                'previous_quantity' => $previousProductQty,
-                'after_quantity' => $afterProductQty,
-                'previous_quantity_at_location' => $previousLocationQty,
-                'after_quantity_at_location' => $afterLocationQty,
-                'quantity_tax' => $taxId !== null ? $qty : 0,
-                'quantity_non_tax' => $taxId !== null ? 0 : $qty,
-                'broken_quantity_tax' => 0,
-                'broken_quantity_non_tax' => 0,
-            ]);
         }
 
         $salePayment = SalePayment::query()->create([

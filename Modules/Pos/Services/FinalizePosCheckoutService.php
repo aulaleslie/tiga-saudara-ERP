@@ -20,7 +20,8 @@ class FinalizePosCheckoutService
     public function __construct(
         private readonly PosCartService $cartService,
         private readonly PosCartSessionStore $cartSessionStore,
-        private readonly PosCheckoutPostingAdapter $postingAdapter
+        private readonly PosCheckoutPostingAdapter $postingAdapter,
+        private readonly ResolvePosStockAllocationsService $stockResolver
     ) {
     }
 
@@ -448,6 +449,17 @@ class FinalizePosCheckoutService
                     );
                 }
 
+                /** @var array<int, array{product_id: int, qty: int, tax_id: int|null}> $lines */
+                $lines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
+
+                $resolution = $this->stockResolver->resolve($settingId, $lines);
+                if (! empty($resolution['unfulfilled_lines'])) {
+                    throw new PosCheckoutValidationException(
+                        'STOCK_UNAVAILABLE',
+                        'One or more items in the cart are no longer available in stock across allowed locations.'
+                    );
+                }
+
                 /** @var PosCheckout|null $lockedCheckout */
                 $lockedCheckout = PosCheckout::query()
                     ->whereKey($checkoutId)
@@ -479,6 +491,7 @@ class FinalizePosCheckoutService
                     'source_location_id' => $sourceLocationId,
                     'payment' => $payment,
                     'cart_snapshot' => $cartSnapshot,
+                    'allocations' => $resolution['allocations'],
                 ]);
 
                 $dispatchIds = array_values(array_map(

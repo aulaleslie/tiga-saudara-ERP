@@ -12,8 +12,9 @@ Primary docs:
 
 - Overall status: `in-progress`
 - Current milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
-- Current task: `POS-MVP-013 (done)`
-- Next proposed task: `POS-MVP-014`
+- Current task: `POS-MVP-014 (done)`
+- Completed cross-cutting: `POS-MVP-015 (done)`, `POS-MVP-016 (done)`
+- Next proposed task: `POS-MVP-017`
 - Last updated: 2026-02-27 17:05 WITA
 
 ## Milestone Tracker
@@ -23,7 +24,7 @@ Primary docs:
 | 0 - Foundations and Safety Rails | done | `POS-MVP-001` to `POS-MVP-003` completed |
 | 1 - POS Session and Cash Control Core | done | `POS-MVP-004` to `POS-MVP-008` completed |
 | 2 - POS Checkout Shell and Cart | done | `POS-MVP-009` to `POS-MVP-012` completed |
-| 3 - Hybrid Posting and Immediate Stock Deduction | in-progress | proceed to `POS-MVP-013` |
+| 3 - Hybrid Posting and Immediate Stock Deduction | in-progress | proceed to `POS-MVP-017` |
 | 4 - Payments, Receipt, and Cashier Finish Flow | pending | |
 | 5 - Supervisor Monitoring, Reports, and Reconciliation | pending | |
 | 6 - Hardening, UAT, and Controlled Enablement | pending | |
@@ -588,7 +589,56 @@ Primary docs:
   - `POSTED` idempotency replay is key-first (returns stored payload) to preserve deterministic retry semantics after cart clear; payload-mismatch checks remain enforced for non-posted states
   - stock source remains terminal-location only by design; multi-location fallback/split remains deferred to `POS-MVP-014`
   - serial assignment orchestration remains intentionally rejected in finalize path (`SERIAL_NOT_SUPPORTED`) until `POS-MVP-018`
-- Next proposed task: `POS-MVP-014`
+- Next proposed task: `POS-MVP-017`
+
+### 2026-02-27 - POS-MVP-014 - Status: done
+
+- Milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
+- Acceptance criteria summary:
+  - implemented `ResolvePosStockAllocationsService` supporting priority, fallback, split, and borrowed locations
+  - integrated resolver into `FinalizePosCheckoutService` with `STOCK_UNAVAILABLE` protection
+  - updated `InlinePosCheckoutPostingAdapter` to handle multi-location chunks, separate `DispatchDetail` rows, and localized stock transactions
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSStockAllocationResolverTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSStockAllocationResolverTest.php`
+  - result: pass (5 tests, 14 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (82 tests total in POS suite)
+- Changed files:
+  - `Modules/Pos/Services/ResolvePosStockAllocationsService.php`
+  - `Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php`
+  - `Modules/Pos/Services/FinalizePosCheckoutService.php`
+  - `Modules/Pos/Tests/Feature/POSStockAllocationResolverTest.php`
+- Risks / follow-ups:
+  - complex split allocations are now supported at the infrastructure layer, but UI for manual location override remains deferred (MVP uses priority-based auto-resolution)
+  - tax finalization per localized source remains deferred until `POS-MVP-017`
+- Next proposed task: `POS-MVP-017`
+
+### 2026-02-27 - POS-MVP-015 - Status: done
+
+- Milestone: `Milestone 1 - POS Session and Cash Control Core`
+- Acceptance criteria summary:
+  - implemented `PosSupervisorApprovalService` for PIN/password-based overrides
+  - approval logic enforces supervisor permissions and records explicit audit logs in `pos_supervisor_approvals`
+  - service is now consumed by Safe Drop (`007`), Session Close (`008`), and Price Override (`011`)
+- Changed files:
+  - `Modules/Pos/Services/PosSupervisorApprovalService.php`
+  - `Modules/Pos/Entities/PosSupervisorApproval.php`
+  - `Modules/Pos/Database/Migrations/2026_08_13_000200_create_pos_supervisor_approvals_table.php`
+
+### 2026-02-27 - POS-MVP-016 - Status: done
+
+- Milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
+- Acceptance criteria summary:
+  - implemented `InlinePosCheckoutPostingAdapter` as the primary bridge to existing `Sales` and `Dispatch` modules
+  - ensures all POS sales results in standard financial and inventory records (immediate deduction)
+  - adapter lifecycle is strictly transactional within the `FinalizePosCheckoutService` boundary
+- Changed files:
+  - `Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php`
+  - `Modules/Pos/Services/Contracts/PosCheckoutPostingAdapter.php`
+
+- Next proposed task: `POS-MVP-017`
 
 ## Blockers / Decisions Needed
 
