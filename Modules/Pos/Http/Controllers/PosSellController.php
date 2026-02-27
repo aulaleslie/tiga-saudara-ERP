@@ -7,6 +7,7 @@ use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Http\Requests\StorePosCartLineRequest;
 use Modules\Pos\Http\Requests\StorePosCartPriceOverrideRequest;
@@ -22,6 +23,7 @@ use Modules\Pos\Services\PosProductSearchService;
 use Modules\Pos\Services\Exceptions\PosCheckoutConflictException;
 use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
+use Modules\Pos\Services\PosReceiptService;
 
 class PosSellController extends Controller
 {
@@ -330,6 +332,34 @@ class PosSellController extends Controller
         }
 
         return response()->json($result['payload'], (int) $result['http_status'], [], JSON_PRESERVE_ZERO_FRACTION);
+    }
+
+    public function receiptView(PosCheckout $checkout, PosReceiptService $receiptService)
+    {
+        $settingId = $this->currentSettingId();
+        
+        if ($checkout->setting_id !== $settingId) {
+            abort(403, 'Unauthorized access to receipt.');
+        }
+
+        $receiptData = $receiptService->getReceiptData($checkout);
+        $receiptService->logPrint($settingId, $checkout->id, auth()->id(), 'PRINT');
+
+        return view('pos::receipt', compact('receiptData'));
+    }
+
+    public function receiptReprint(PosCheckout $checkout, PosReceiptService $receiptService)
+    {
+        $settingId = $this->currentSettingId();
+        
+        if ($checkout->setting_id !== $settingId) {
+            abort(403, 'Unauthorized access to receipt.');
+        }
+
+        $receiptData = $receiptService->getReceiptData($checkout);
+        $receiptService->logPrint($settingId, $checkout->id, auth()->id(), 'REPRINT');
+
+        return view('pos::receipt', compact('receiptData'));
     }
 
     private function currentSettingId(): int

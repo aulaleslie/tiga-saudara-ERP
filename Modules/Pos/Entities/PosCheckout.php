@@ -39,6 +39,7 @@ class PosCheckout extends BaseModel
         'change_total',
         'payment_method_code',
         'payment_reference',
+        'receipt_number',
         'sale_id',
         'sale_payment_id',
         'dispatch_ids',
@@ -95,5 +96,10 @@ class PosCheckout extends BaseModel
     public function salePayment(): BelongsTo
     {
         return $this->belongsTo(SalePayment::class, 'sale_payment_id');
+    }
+
+    public function printLogs()
+    {
+        return $this->hasMany(PosReceiptPrintLog::class, 'pos_checkout_id', 'id');
     }
 }

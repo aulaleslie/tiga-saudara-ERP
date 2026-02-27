@@ -235,6 +235,7 @@
                     <p id="pos-success-receipt" class="text-muted mb-1"></p>
                     <p id="pos-success-change" class="font-weight-bold text-success mb-1"></p>
                     <hr>
+                    <button type="button" class="btn btn-outline-primary btn-block mb-2" id="pos-success-print-btn" onclick="printReceipt()">Cetak Struk</button>
                     <button type="button" class="btn btn-primary btn-block" data-dismiss="modal">Lanjut Jualan</button>
                 </div>
             </div>
@@ -1149,6 +1150,8 @@
                             successChangeElement.textContent = change > 0 ? 'Kembalian: ' + formatPrice(change) : '';
                         }
                         
+                        window.lastCheckoutId = response.pos_checkout_id;
+                        
                         $('#pos-success-modal').modal('show');
                         
                         // Reset everything
@@ -1164,6 +1167,13 @@
                     }
                 });
             }
+
+            window.printReceipt = function() {
+                if (window.lastCheckoutId) {
+                    const url = `{{ url('/pos/sell/checkout') }}/${window.lastCheckoutId}/receipt`;
+                    window.open(url, '_blank');
+                }
+            };
 
             refreshCart();
         })();

@@ -44,6 +44,11 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::post('/pos/sell/checkout/finalize', [PosSellController::class, 'checkoutFinalize'])
         ->name('pos.sell.checkout.finalize');
 
+    Route::get('/pos/sell/checkout/{checkout}/receipt', [PosSellController::class, 'receiptView'])
+        ->name('pos.sell.checkout.receipt');
+    Route::get('/pos/sell/checkout/{checkout}/receipt/reprint', [PosSellController::class, 'receiptReprint'])
+        ->name('pos.sell.checkout.receipt.reprint');
+
     Route::get('/pos/sell/serials/search', [PosSellController::class, 'serialSearch'])->name('pos.sell.serials.search');
     Route::post('/pos/sell/cart/lines/{lineId}/serials', [PosSellController::class, 'cartAssignSerials'])
         ->whereNumber('lineId')

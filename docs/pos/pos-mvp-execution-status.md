@@ -12,10 +12,10 @@ Primary docs:
 
 - Overall status: `in-progress`
 - Current milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
-- Current task: `POS-MVP-018 (done)`
+- Current task: `POS-MVP-020 (done)`
 - Completed cross-cutting: `POS-MVP-015 (done)`, `POS-MVP-016 (done)`
-- Next proposed task: `POS-MVP-019`
-- Last updated: 2026-02-27 21:30 WITA
+- Next proposed task: `POS-MVP-021`
+- Last updated: 2026-02-28 00:00 WITA
 
 ## Milestone Tracker
 
@@ -24,8 +24,8 @@ Primary docs:
 | 0 - Foundations and Safety Rails | done | `POS-MVP-001` to `POS-MVP-003` completed |
 | 1 - POS Session and Cash Control Core | done | `POS-MVP-004` to `POS-MVP-008` completed |
 | 2 - POS Checkout Shell and Cart | done | `POS-MVP-009` to `POS-MVP-012` completed |
-| 3 - Hybrid Posting and Immediate Stock Deduction | in-progress | proceed to `POS-MVP-017` |
-| 4 - Payments, Receipt, and Cashier Finish Flow | pending | |
+| 3 - Hybrid Posting and Immediate Stock Deduction | done | proceed to `POS-MVP-019` |
+| 4 - Payments, Receipt, and Cashier Finish Flow | in-progress | `POS-MVP-019`, `POS-MVP-020` done |
 | 5 - Supervisor Monitoring, Reports, and Reconciliation | pending | |
 | 6 - Hardening, UAT, and Controlled Enablement | pending | |
 
@@ -718,3 +718,33 @@ Primary docs:
 - Risks / follow-ups:
   - PHPUnit XML deprecation warning remains (non-blocking for this fix)
 - Next proposed task: `POS-MVP-020` (Receipt Generation and PDF Slip)
+
+### 2026-02-28 - POS-MVP-020 - Status: done
+
+- Milestone: `Milestone 4 – Payments, Receipt, and Cashier Finish Flow`
+- Acceptance criteria summary:
+  - receipt number generated natively (e.g. `RCP-202X-07-00512` based on `settings.pos_receipt_prefix`) and decoupled from `Sale.reference`
+  - POS Checkout API returns formatting payload or deep-link to generic POS thermal print view
+  - view handles `thermal/80mm` and `thermal/58mm` layout permutations cleanly
+  - print/reprint actions logged in `pos_receipt_print_logs` to maintain cashier auditability
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSReceiptGenerationTest.php`
+  - result: pass (5 tests, 20 assertions)
+- Changed files:
+  - `Modules/Pos/Database/Migrations/2026_02_27_212846_add_receipt_number_to_pos_checkouts_table.php`
+  - `Modules/Pos/Database/Migrations/2026_02_27_212847_create_pos_receipt_print_logs_table.php`
+  - `Modules/Setting/Database/Migrations/2026_02_27_212908_add_pos_receipt_prefix_to_settings_table.php`
+  - `Modules/Pos/Entities/PosCheckout.php`
+  - `Modules/Pos/Entities/PosReceiptPrintLog.php`
+  - `Modules/Setting/Entities/Setting.php`
+  - `Modules/Pos/Http/Controllers/PosSellController.php`
+  - `Modules/Pos/Resources/views/receipt.blade.php`
+  - `Modules/Pos/Resources/views/sell.blade.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/FinalizePosCheckoutService.php`
+  - `Modules/Pos/Services/PosReceiptNumberGenerator.php`
+  - `Modules/Pos/Services/PosReceiptService.php`
+  - `Modules/Pos/Tests/Feature/POSReceiptGenerationTest.php`
+- Risks / follow-ups:
+  - Additional CSS tweaks might be required for specific thermal printer models down the line
+- Next proposed task: `POS-MVP-021` (Suspend and Resume Cart)

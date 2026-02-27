@@ -21,7 +21,8 @@ class FinalizePosCheckoutService
         private readonly PosCartService $cartService,
         private readonly PosCartSessionStore $cartSessionStore,
         private readonly PosCheckoutPostingAdapter $postingAdapter,
-        private readonly ResolvePosStockAllocationsService $stockResolver
+        private readonly ResolvePosStockAllocationsService $stockResolver,
+        private readonly PosReceiptNumberGenerator $receiptNumberGenerator
     ) {
     }
 
@@ -503,10 +504,12 @@ class FinalizePosCheckoutService
                     ? round(max(0, $paidTotal - $actualGrandTotal), 2)
                     : 0.0;
 
+                $receiptNumber = $this->receiptNumberGenerator->generate($settingId);
+
                 $responsePayload = [
                     'pos_checkout_id' => $checkoutId,
                     'status' => PosCheckout::STATUS_POSTED,
-                    'receipt_number' => (string) ($postingResult['receipt_number'] ?? ''),
+                    'receipt_number' => $receiptNumber,
                     'sale_id' => (int) ($postingResult['sale_id'] ?? 0),
                     'dispatch_ids' => $dispatchIds,
                     'sale_payment_id' => (int) ($postingResult['sale_payment_id'] ?? 0),
@@ -539,6 +542,7 @@ class FinalizePosCheckoutService
                 }
 
                 $lockedCheckout->status = PosCheckout::STATUS_POSTED;
+                $lockedCheckout->receipt_number = $receiptNumber;
                 $lockedCheckout->sale_id = $responsePayload['sale_id'];
                 $lockedCheckout->sale_payment_id = $responsePayload['sale_payment_id'];
                 $lockedCheckout->tax_total = $actualTaxTotal;
@@ -658,7 +662,7 @@ class FinalizePosCheckoutService
             : [
                 'pos_checkout_id' => (int) $checkout->id,
                 'status' => PosCheckout::STATUS_POSTED,
-                'receipt_number' => '',
+                'receipt_number' => (string) ($checkout->receipt_number ?? ''),
                 'sale_id' => (int) ($checkout->sale_id ?? 0),
                 'dispatch_ids' => array_values(array_map(
                     static fn ($id): int => (int) $id,
