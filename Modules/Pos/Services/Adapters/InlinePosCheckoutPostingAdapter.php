@@ -53,6 +53,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $taxTotal = round((float) ($totals['tax_total'] ?? 0), 2);
         $discountTotal = round((float) ($totals['discount_total'] ?? 0), 2);
 
+        $totalPostedTaxTotal = 0.0;
+
         $sale = Sale::query()->create([
             'date' => now()->toDateString(),
             'due_date' => now()->toDateString(),
@@ -117,12 +119,28 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
             $unitPrice = round((float) ($line['unit_price'] ?? 0), 2);
             $lineSubtotal = round((float) ($line['line_subtotal'] ?? ($unitPrice * $qty)), 2);
-            $lineTax = round((float) ($line['line_tax_total'] ?? 0), 2);
-            $lineTotal = round((float) ($line['line_total'] ?? ($lineSubtotal + $lineTax)), 2);
+            
+            // Calculate actual line tax by summing per-chunk tax
+            $linePostedTax = 0.0;
+            foreach ($lineAllocations as $chunk) {
+                $chunkQty = (int) ($chunk['allocated_qty'] ?? 0);
+                $snapshot = $chunk['tax_policy_snapshot'] ?? [];
+                $sourceIsPkp = (bool) ($snapshot['source_is_pkp'] ?? false);
+                
+                if ($sourceIsPkp) {
+                    $taxRate = (float) ($snapshot['tax_rate'] ?? 0);
+                    $chunkTax = round(($unitPrice * $chunkQty) * ($taxRate / 100), 2);
+                    $linePostedTax += $chunkTax;
+                }
+            }
+            $linePostedTax = round($linePostedTax, 2);
+            $totalPostedTaxTotal += $linePostedTax;
+
             $lineDiscount = round(
                 (float) ($line['line_discount_amount'] ?? 0) + (float) ($line['bill_discount_amount'] ?? 0),
                 2
             );
+            $lineTotal = round($lineSubtotal + $linePostedTax, 2);
 
             SaleDetails::query()->create([
                 'sale_id' => $sale->id,
@@ -132,17 +150,20 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'quantity' => $qty,
                 'price' => $unitPrice,
                 'unit_price' => $unitPrice,
-                'sub_total' => $lineTotal,
+                'sub_total' => $lineSubtotal,
                 'product_discount_amount' => $lineDiscount,
                 'product_discount_type' => (string) ($line['line_discount_type'] ?? 'fixed'),
-                'product_tax_amount' => $lineTax,
+                'product_tax_amount' => $linePostedTax,
                 'tax_id' => $taxId,
                 'serial_number_ids' => null,
             ]);
 
             foreach ($lineAllocations as $chunk) {
-                $chunkQty = (int) $chunk['allocated_qty'];
-                $chunkLocId = (int) $chunk['source_location_id'];
+                $chunkQty = (int) ($chunk['allocated_qty'] ?? 0);
+                $chunkLocId = (int) ($chunk['source_location_id'] ?? 0);
+                $snapshot = $chunk['tax_policy_snapshot'] ?? [];
+                $sourceIsPkp = (bool) ($snapshot['source_is_pkp'] ?? false);
+                $effectiveTaxId = $sourceIsPkp ? ($snapshot['tax_id'] ?? $taxId) : null;
 
                 $stock = ProductStock::query()
                     ->where('product_id', $productId)
@@ -158,18 +179,18 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient stock at source location.');
                 }
 
-                if ($taxId !== null && (int) $stock->quantity_tax < $chunkQty) {
+                if ($effectiveTaxId !== null && (int) $stock->quantity_tax < $chunkQty) {
                     throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient taxed stock at source location.');
                 }
 
-                if ($taxId === null && (int) $stock->quantity_non_tax < $chunkQty) {
+                if ($effectiveTaxId === null && (int) $stock->quantity_non_tax < $chunkQty) {
                     throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient non-tax stock at source location.');
                 }
 
                 DispatchDetail::query()->create([
                     'dispatch_id' => $dispatch->id,
                     'sale_id' => $sale->id,
-                    'tax_id' => $taxId,
+                    'tax_id' => $effectiveTaxId,
                     'product_id' => $productId,
                     'bundle_id' => null,
                     'dispatched_quantity' => $chunkQty,
@@ -181,7 +202,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 $previousLocationQty = (int) $stock->quantity;
 
                 $stock->quantity = max(0, (int) $stock->quantity - $chunkQty);
-                if ($taxId !== null) {
+                if ($effectiveTaxId !== null) {
                     $stock->quantity_tax = max(0, (int) $stock->quantity_tax - $chunkQty);
                 } else {
                     $stock->quantity_non_tax = max(0, (int) $stock->quantity_non_tax - $chunkQty);
@@ -208,17 +229,25 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'after_quantity' => $afterProductQty,
                     'previous_quantity_at_location' => $previousLocationQty,
                     'after_quantity_at_location' => $afterLocationQty,
-                    'quantity_tax' => $taxId !== null ? $chunkQty : 0,
-                    'quantity_non_tax' => $taxId !== null ? 0 : $chunkQty,
+                    'quantity_tax' => $effectiveTaxId !== null ? $chunkQty : 0,
+                    'quantity_non_tax' => $effectiveTaxId !== null ? 0 : $chunkQty,
                     'broken_quantity_tax' => 0,
                     'broken_quantity_non_tax' => 0,
                 ]);
             }
         }
 
+        // Update Sale header with final calculated tax and totals
+        $totalPostedGrandTotal = round($sale->total_amount - $taxTotal + $totalPostedTaxTotal, 2);
+        $sale->update([
+            'tax_amount' => $totalPostedTaxTotal,
+            'total_amount' => $totalPostedGrandTotal,
+            'paid_amount' => $totalPostedGrandTotal,
+        ]);
+
         $salePayment = SalePayment::query()->create([
             'sale_id' => $sale->id,
-            'amount' => $grandTotal,
+            'amount' => $totalPostedGrandTotal,
             'date' => now()->toDateString(),
             'reference' => $sale->reference,
             'payment_method' => strtoupper($methodCode),
@@ -231,6 +260,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'dispatch_ids' => [(int) $dispatch->id],
             'sale_payment_id' => (int) $salePayment->id,
             'receipt_number' => (string) $sale->reference,
+            'actual_tax_total' => (float) $totalPostedTaxTotal,
+            'actual_grand_total' => (float) $totalPostedGrandTotal,
         ];
     }
 

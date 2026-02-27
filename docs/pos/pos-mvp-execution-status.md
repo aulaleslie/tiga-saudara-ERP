@@ -12,10 +12,10 @@ Primary docs:
 
 - Overall status: `in-progress`
 - Current milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
-- Current task: `POS-MVP-014 (done)`
+- Current task: `POS-MVP-017 (done)`
 - Completed cross-cutting: `POS-MVP-015 (done)`, `POS-MVP-016 (done)`
-- Next proposed task: `POS-MVP-017`
-- Last updated: 2026-02-27 17:05 WITA
+- Next proposed task: `POS-MVP-018`
+- Last updated: 2026-02-27 21:00 WITA
 
 ## Milestone Tracker
 

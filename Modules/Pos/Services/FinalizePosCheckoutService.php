@@ -499,6 +499,12 @@ class FinalizePosCheckoutService
                     is_array($postingResult['dispatch_ids'] ?? null) ? $postingResult['dispatch_ids'] : []
                 ));
 
+                $actualTaxTotal = (float) ($postingResult['actual_tax_total'] ?? $lockedCheckout->tax_total);
+                $actualGrandTotal = (float) ($postingResult['actual_grand_total'] ?? $lockedCheckout->grand_total);
+                $actualChangeTotal = $payment['method_code'] === 'cash'
+                    ? round(max(0, $paidTotal - $actualGrandTotal), 2)
+                    : 0.0;
+
                 $responsePayload = [
                     'pos_checkout_id' => $checkoutId,
                     'status' => PosCheckout::STATUS_POSTED,
@@ -507,7 +513,7 @@ class FinalizePosCheckoutService
                     'dispatch_ids' => $dispatchIds,
                     'sale_payment_id' => (int) ($postingResult['sale_payment_id'] ?? 0),
                     'paid_total' => $paidTotal,
-                    'change_total' => $changeTotal,
+                    'change_total' => $actualChangeTotal,
                     'idempotent_replay' => false,
                 ];
 
@@ -517,7 +523,7 @@ class FinalizePosCheckoutService
                         'pos_session_id' => $sessionId,
                         'event_type' => PosSessionCashEvent::EVENT_CASH_SALE_IN,
                         'direction' => PosSessionCashEvent::DIRECTION_IN,
-                        'amount' => $grandTotal,
+                        'amount' => $actualGrandTotal,
                         'reference_type' => 'pos_checkout',
                         'reference_id' => $checkoutId,
                         'performed_by' => $cashierUserId,
@@ -530,13 +536,16 @@ class FinalizePosCheckoutService
                         'occurred_at' => now(),
                     ]);
 
-                    $session->expected_cash_total = round((float) $session->expected_cash_total + $grandTotal, 2);
+                    $session->expected_cash_total = round((float) $session->expected_cash_total + $actualGrandTotal, 2);
                     $session->save();
                 }
 
                 $lockedCheckout->status = PosCheckout::STATUS_POSTED;
                 $lockedCheckout->sale_id = $responsePayload['sale_id'];
                 $lockedCheckout->sale_payment_id = $responsePayload['sale_payment_id'];
+                $lockedCheckout->tax_total = $actualTaxTotal;
+                $lockedCheckout->grand_total = $actualGrandTotal;
+                $lockedCheckout->change_total = $actualChangeTotal;
                 $lockedCheckout->dispatch_ids = $dispatchIds;
                 $lockedCheckout->response_payload = $responsePayload;
                 $lockedCheckout->failure_code = null;
