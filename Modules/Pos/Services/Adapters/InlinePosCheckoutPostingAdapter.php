@@ -14,7 +14,10 @@ use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Entities\SalePayment;
+use Modules\Sale\Entities\SalesOrderSerialTracking;
 use Modules\Setting\Entities\PaymentMethod;
+use Modules\Product\Entities\ProductSerialNumber;
+use App\Services\SerialNumberHistoryService;
 
 class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 {
@@ -102,18 +105,77 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Product is not available for posting.');
             }
 
-            $lineAllocations = $allocations[$index] ?? [
-                [
-                    'source_location_id' => $sourceLocationId,
-                    'source_setting_id' => $settingId,
-                    'allocated_qty' => $qty,
-                ]
-            ];
+            // Handle serial assignments
+            $isSerialTracked = (bool) ($line['serial_number_required'] ?? false);
+            $assignedSerials = (array) ($line['assigned_serials'] ?? []);
+            $serialRecords = [];
+            $serialIds = [];
 
-            // Validate total allocated matches line qty
-            $totalAllocated = array_sum(array_column($lineAllocations, 'allocated_qty'));
-            if ((int) $totalAllocated !== $qty) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Allocated quantity does not match line quantity.');
+            if ($isSerialTracked) {
+                if (count($assignedSerials) !== $qty) {
+                    throw new PosCheckoutValidationException('SERIAL_INVALID', "Serial tracked product $productId requires $qty serials, but " . count($assignedSerials) . " assigned.");
+                }
+
+                $serialRecords = ProductSerialNumber::query()
+                    ->where('product_id', $productId)
+                    ->whereIn('serial_number', $assignedSerials)
+                    ->get()
+                    ->keyBy('serial_number');
+
+                foreach ($assignedSerials as $sn) {
+                    if (! isset($serialRecords[$sn])) {
+                        throw new PosCheckoutValidationException('SERIAL_INVALID', "Serial $sn not found for product $productId.");
+                    }
+                    $serialIds[] = (int) $serialRecords[$sn]->id;
+                }
+
+                // Override allocations based on actual serial locations
+                $lineAllocations = [];
+                $grouped = [];
+                foreach ($assignedSerials as $sn) {
+                    $record = $serialRecords[$sn];
+                    $chunkLocId = (int) $record->location_id;
+                    $chunkTaxId = $record->tax_id;
+                    
+                    $groupKey = $chunkLocId . '_' . ($chunkTaxId ?? 'null');
+                    if (! isset($grouped[$groupKey])) {
+                        $grouped[$groupKey] = [
+                            'source_location_id' => $chunkLocId,
+                            'source_setting_id' => $settingId,
+                            'allocated_qty' => 0,
+                            'serial_numbers' => [],
+                            'tax_policy_snapshot' => [
+                                'source_is_pkp' => true,
+                                'tax_id' => $chunkTaxId,
+                                'tax_name' => null,
+                                'tax_rate' => 0.0, 
+                            ]
+                        ];
+                        if ($chunkTaxId) {
+                            $taxRecord = \Modules\Setting\Entities\Tax::find($chunkTaxId);
+                            $grouped[$groupKey]['tax_policy_snapshot']['tax_name'] = (string) ($taxRecord?->name ?? '');
+                            $grouped[$groupKey]['tax_policy_snapshot']['tax_rate'] = (float) ($taxRecord?->value ?? 0.0);
+                        } else {
+                            $grouped[$groupKey]['tax_policy_snapshot']['source_is_pkp'] = false;
+                        }
+                    }
+                    $grouped[$groupKey]['allocated_qty']++;
+                    $grouped[$groupKey]['serial_numbers'][] = $sn;
+                }
+                $lineAllocations = array_values($grouped);
+            } else {
+                $lineAllocations = $allocations[$index] ?? [
+                    [
+                        'source_location_id' => $sourceLocationId,
+                        'source_setting_id' => $settingId,
+                        'allocated_qty' => $qty,
+                    ]
+                ];
+
+                $totalAllocated = array_sum(array_column($lineAllocations, 'allocated_qty'));
+                if ((int) $totalAllocated !== $qty) {
+                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Allocated quantity does not match line quantity.');
+                }
             }
 
             $unitPrice = round((float) ($line['unit_price'] ?? 0), 2);
@@ -157,7 +219,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'product_discount_type' => (string) ($line['line_discount_type'] ?? 'fixed'),
                 'product_tax_amount' => $linePostedTax,
                 'tax_id' => $taxId,
-                'serial_number_ids' => null,
+                'serial_number_ids' => $isSerialTracked ? $serialIds : null,
             ]);
 
             foreach ($lineAllocations as $chunk) {
@@ -189,7 +251,9 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient non-tax stock at source location.');
                 }
 
-                DispatchDetail::query()->create([
+                $assignedSerialsForChunk = $chunk['serial_numbers'] ?? null;
+
+                $dispatchDetail = DispatchDetail::query()->create([
                     'dispatch_id' => $dispatch->id,
                     'sale_id' => $sale->id,
                     'tax_id' => $effectiveTaxId,
@@ -197,8 +261,32 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     'bundle_id' => null,
                     'dispatched_quantity' => $chunkQty,
                     'location_id' => $chunkLocId,
-                    'serial_numbers' => null,
+                    'serial_numbers' => $assignedSerialsForChunk ? json_encode($assignedSerialsForChunk) : null,
                 ]);
+
+                if ($assignedSerialsForChunk) {
+                    foreach ($assignedSerialsForChunk as $sn) {
+                        $snRecord = $serialRecords[$sn];
+                        $snRecord->update([
+                            'status' => 'SOLD',
+                            'dispatch_detail_id' => $dispatchDetail->id,
+                        ]);
+
+                        SerialNumberHistoryService::record(
+                            (int) $snRecord->id,
+                            'SOLD',
+                            $chunkLocId,
+                            $dispatchDetail
+                        );
+
+                        SalesOrderSerialTracking::query()->create([
+                            'sale_id' => (int) $sale->id,
+                            'product_serial_number_id' => (int) $snRecord->id,
+                            'quantity_allocated' => 1,
+                            'dispatch_date' => now()->toDateTimeString(),
+                        ]);
+                    }
+                }
 
                 $previousProductQty = (int) $product->product_quantity;
                 $previousLocationQty = (int) $stock->quantity;

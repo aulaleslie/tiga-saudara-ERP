@@ -173,12 +173,10 @@ class FinalizePosCheckoutService
             throw new PosCheckoutValidationException('CUSTOMER_UNRESOLVED', 'Customer is not resolved for checkout.');
         }
 
+        $settingId = (int) ($cartSnapshot['setting_id'] ?? 0);
         foreach ($lines as $line) {
             if ((bool) ($line['serial_number_required'] ?? false)) {
-                throw new PosCheckoutValidationException(
-                    'SERIAL_NOT_SUPPORTED',
-                    'Serial tracked products are not supported for POS checkout in MVP.'
-                );
+                $this->validateSerialAssignments($line, $settingId);
             }
         }
 
@@ -766,6 +764,42 @@ class FinalizePosCheckoutService
         $decoded = json_decode($encoded, true);
 
         return is_array($decoded) ? $decoded : $snapshotPart;
+    }
+
+    private function validateSerialAssignments(array $line, int $settingId): void
+    {
+        $assigned = (array) ($line['assigned_serials'] ?? []);
+        $qty = (int) ($line['qty'] ?? 0);
+        $productId = (int) ($line['product_id'] ?? 0);
+        $productName = (string) ($line['product_name'] ?? 'Product');
+
+        if (count($assigned) !== $qty) {
+            throw new PosCheckoutValidationException(
+                'SERIAL_INVALID',
+                "Product $productName requires $qty serial number(s) but " . count($assigned) . " assigned."
+            );
+        }
+
+        foreach ($assigned as $sn) {
+            $record = \Modules\Product\Entities\ProductSerialNumber::query()
+                ->where('product_id', $productId)
+                ->where('serial_number', $sn)
+                ->first();
+
+            if (! $record) {
+                throw new PosCheckoutValidationException(
+                    'SERIAL_INVALID',
+                    "Serial number $sn for product $productName was not found."
+                );
+            }
+
+            if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+                throw new PosCheckoutValidationException(
+                    'SERIAL_INVALID',
+                    "Serial number $sn for product $productName is no longer available."
+                );
+            }
+        }
     }
 
     private function isUniqueConstraintViolation(QueryException $exception): bool

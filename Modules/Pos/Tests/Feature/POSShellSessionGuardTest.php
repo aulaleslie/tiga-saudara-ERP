@@ -94,6 +94,7 @@ class POSShellSessionGuardTest extends TestCase
 
         $activeSession = $this->createActiveSessionForCashier($setting, $cashier);
         $cashEventCountBefore = DB::table('pos_session_cash_events')->count();
+        $checkoutCountBefore = DB::table('pos_checkouts')->count();
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -104,9 +105,10 @@ class POSShellSessionGuardTest extends TestCase
             ->assertSee('Product Search / Scan')
             ->assertSee('Cart')
             ->assertSee('Payment Shortcuts')
-            ->assertSee('No transaction is posted from this shell.');
+            ->assertSee('pos-shell-posting-note');
 
         $this->assertSame($cashEventCountBefore, DB::table('pos_session_cash_events')->count());
+        $this->assertSame($checkoutCountBefore, DB::table('pos_checkouts')->count());
     }
 
     public function test_sell_route_remains_blocked_by_feature_flag_when_disabled(): void

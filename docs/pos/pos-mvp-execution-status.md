@@ -12,10 +12,10 @@ Primary docs:
 
 - Overall status: `in-progress`
 - Current milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
-- Current task: `POS-MVP-017 (done)`
+- Current task: `POS-MVP-018 (done)`
 - Completed cross-cutting: `POS-MVP-015 (done)`, `POS-MVP-016 (done)`
-- Next proposed task: `POS-MVP-018`
-- Last updated: 2026-02-27 21:00 WITA
+- Next proposed task: `POS-MVP-019`
+- Last updated: 2026-02-27 21:30 WITA
 
 ## Milestone Tracker
 
@@ -644,7 +644,77 @@ Primary docs:
 
 - None
 
-## Notes
+### 2026-02-27 - POS-MVP-018 - Status: done
 
-- Keep entries append-only for completed work.
-- Update this file after every task checkpoint.
+- Milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
+- Acceptance criteria summary:
+  - POS cart now supports serial assignment for tracked products with immediate validation against active/available serials
+  - POS sell shell provides serial-search lookup and "Perlu Serial" badges for tracked lines
+  - `FinalizePosCheckoutService` enforces complete serial assignment before payment, validating status, product, and location match
+  - `InlinePosCheckoutPostingAdapter` records serial-aware allocations, updates serial status to `SOLD`, records history, and writes `SalesOrderSerialTracking`
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSSerialValidationCheckoutTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSerialValidationCheckoutTest.php`
+  - result: pass (6 tests, 34 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSCheckoutFinalizeIdempotencyTest.php`
+  - result: pass (regression check)
+- Changed files:
+  - `Modules/Pos/Http/Controllers/PosSellController.php`
+  - `Modules/Pos/Http/Requests/StorePosCartSerialAssignmentRequest.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/PosCartService.php`
+  - `Modules/Pos/Services/PosCartSessionStore.php`
+  - `Modules/Pos/Services/FinalizePosCheckoutService.php`
+  - `Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php`
+  - `Modules/Pos/Tests/Feature/POSSerialValidationCheckoutTest.php`
+- Risks / follow-ups:
+  - Manual serial entry/override in case of barcode scan failure is supported via search, but UX could be further optimized
+  - Serial-tracked bundles are not explicitly prioritized in this task and may require additional work in standard bundle tasks
+- Next proposed task: `POS-MVP-019`
+
+### 2026-02-27 - POS-MVP-019 - Status: done
+
+- Milestone: `Milestone 4 – Payments, Receipt, and Cashier Finish Flow`
+- Acceptance criteria summary:
+  - Wired sell shell payment buttons (Cash, Transfer, QRIS, Checkout) to a modal-based checkout flow.
+  - Implemented client-side payment validation (reference number requirement, full cash payment enforcement, real-time change calculation).
+  - Integrated with `pos.sell.checkout.finalize` API using client-side idempotency keys.
+  - Success state clears the cart and displays the receipt number and change amount.
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSPaymentValidationRulesTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSPaymentValidationRulesTest.php`
+  - result: pass (7 tests, 39 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSCheckoutFinalizeIdempotencyTest.php`
+  - result: pass (regression)
+- Changed files:
+  - `Modules/Pos/Resources/views/sell.blade.php`
+  - `Modules/Pos/Tests/Feature/POSPaymentValidationRulesTest.php`
+- Risks / follow-ups:
+  - Backend validation already enforcement was verified; UI acts as the first line of defense for UX.
+- Next proposed task: `POS-MVP-020` (Receipt Generation and PDF Slip)
+
+### 2026-02-27 - POS-MVP-025-R1 - Status: done
+
+- Milestone: `Milestone 6 - Hardening, UAT, and Controlled Enablement`
+- Acceptance criteria summary:
+  - aligned POS shell guard assertion with current sell-shell behavior introduced after payment flow wiring
+  - replaced brittle footer sentence assertion with stable shell marker assertion (`pos-shell-posting-note`)
+  - strengthened non-posting guard by asserting no `pos_checkouts` row is created during shell render (existing cash-event no-mutation assertion retained)
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSShellSessionGuardTest.php`
+  - result: pass (5 tests, 21 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSPaymentValidationRulesTest.php`
+  - result: pass (7 tests, 39 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (107 tests, 482 assertions)
+  - command: `php artisan test`
+  - result: pass (464 passed, 2 skipped, 1711 assertions)
+- Changed files:
+  - `Modules/Pos/Resources/views/sell.blade.php`
+  - `Modules/Pos/Tests/Feature/POSShellSessionGuardTest.php`
+  - `docs/pos/pos-mvp-execution-status.md`
+- Risks / follow-ups:
+  - PHPUnit XML deprecation warning remains (non-blocking for this fix)
+- Next proposed task: `POS-MVP-020` (Receipt Generation and PDF Slip)

@@ -69,6 +69,7 @@ class PosCartService
             'product_code' => (string) ($product->product_code ?? ''),
             'barcode' => $product->barcode !== null ? (string) $product->barcode : null,
             'serial_number_required' => (bool) $product->serial_number_required,
+            'assigned_serials' => [],
             'qty' => $newQty,
             'available_qty' => $availableQty,
             'unit_price' => round($unitPrice, 2),
@@ -115,8 +116,14 @@ class PosCartService
         $discountType = $payload['line_discount_type'] ?? $line['line_discount_type'] ?? 'fixed';
         $discountValue = (float) ($payload['line_discount_value'] ?? $line['line_discount_value'] ?? 0);
 
+        $assignedSerials = (array) ($line['assigned_serials'] ?? []);
+        if ($qty !== (int) $line['qty']) {
+            $assignedSerials = [];
+        }
+
         $cart['lines'][$lineKey] = array_merge($line, [
             'qty' => $qty,
+            'assigned_serials' => $assignedSerials,
             'line_discount_type' => $this->normalizeDiscountType((string) $discountType),
             'line_discount_value' => round(max(0.0, $discountValue), 2),
         ]);
@@ -235,6 +242,89 @@ class PosCartService
         $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
 
         return $this->buildSnapshot($settingId, $sessionId, $cart);
+    }
+
+    /**
+     * @param  array<int, string>  $serialNumbers
+     * @return array<string, mixed>
+     */
+    public function assignSerials(int $settingId, int $sessionId, int $lineId, array $serialNumbers): array
+    {
+        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $lineKey = (string) $lineId;
+
+        if (! isset($cart['lines'][$lineKey])) {
+            throw new DomainException('Cart line was not found.');
+        }
+
+        $line = $cart['lines'][$lineKey];
+        if (! (bool) ($line['serial_number_required'] ?? false)) {
+            throw new DomainException('This product does not require serial numbers.');
+        }
+
+        $qty = (int) ($line['qty'] ?? 0);
+        if (count($serialNumbers) !== $qty) {
+            throw new DomainException("Quantity mismatch: expected $qty serial(s), got " . count($serialNumbers));
+        }
+
+        if (count($serialNumbers) !== count(array_unique($serialNumbers))) {
+            throw new DomainException('Duplicate serial numbers provided.');
+        }
+
+        $productId = (int) ($line['product_id'] ?? 0);
+        $taxId = $line['tax_id'] ?? null;
+        $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+
+        foreach ($serialNumbers as $sn) {
+            $record = \Modules\Product\Entities\ProductSerialNumber::query()
+                ->where('product_id', $productId)
+                ->where('serial_number', $sn)
+                ->first();
+
+            if (! $record) {
+                throw new DomainException("Serial number $sn does not exist for this product.");
+            }
+
+            if (strtoupper($record->status) !== 'ACTIVE' || $record->dispatch_detail_id !== null) {
+                throw new DomainException("Serial number $sn is not available (status: {$record->status}).");
+            }
+
+            if (! in_array((int) $record->location_id, $allowedLocationIds, true)) {
+                throw new DomainException("Serial number $sn is located in a restricted location.");
+            }
+
+            // Tax match validation
+            $isTaxedItem = ! empty($taxId) && (int) $taxId > 0;
+            if ($isTaxedItem && $record->tax_id === null) {
+                throw new DomainException("Serial number $sn is non-taxed, but line is taxed.");
+            }
+            if (! $isTaxedItem && $record->tax_id !== null) {
+                throw new DomainException("Serial number $sn is taxed, but line is non-taxed.");
+            }
+        }
+
+        $cart['lines'][$lineKey]['assigned_serials'] = $serialNumbers;
+        $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
+
+        return $this->buildSnapshot($settingId, $sessionId, $cart);
+    }
+
+    /**
+     * @return array<int, array{id: int, serial_number: string}>
+     */
+    public function availableSerialsForProduct(int $settingId, int $productId, string $query, int $limit = 10): array
+    {
+        $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+
+        return \Modules\Product\Entities\ProductSerialNumber::query()
+            ->where('product_id', $productId)
+            ->whereIn('location_id', $allowedLocationIds)
+            ->where('status', 'ACTIVE')
+            ->whereNull('dispatch_detail_id')
+            ->when($query !== '', fn ($q) => $q->where('serial_number', 'like', "%$query%"))
+            ->limit($limit)
+            ->get(['id', 'serial_number'])
+            ->toArray();
     }
 
     /**

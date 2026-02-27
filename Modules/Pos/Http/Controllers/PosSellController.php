@@ -11,6 +11,7 @@ use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Http\Requests\StorePosCartLineRequest;
 use Modules\Pos\Http\Requests\StorePosCartPriceOverrideRequest;
 use Modules\Pos\Http\Requests\StorePosCheckoutFinalizeRequest;
+use Modules\Pos\Http\Requests\StorePosCartSerialAssignmentRequest;
 use Modules\Pos\Http\Requests\UpdatePosCartCustomerRequest;
 use Modules\Pos\Http\Requests\UpdatePosCartDiscountRequest;
 use Modules\Pos\Http\Requests\UpdatePosCartLineRequest;
@@ -240,6 +241,50 @@ class PosSellController extends Controller
         }
 
         return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function cartAssignSerials(
+        int $lineId,
+        StorePosCartSerialAssignmentRequest $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+
+        try {
+            $snapshot = $cartService->assignSerials(
+                $settingId,
+                $sessionId,
+                $lineId,
+                (array) $request->input('serial_numbers')
+            );
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function serialSearch(Request $request, PosCartService $cartService): JsonResponse
+    {
+        $validated = $request->validate([
+            'product_id' => ['required', 'integer', 'min:1'],
+            'q' => ['nullable', 'string', 'max:255'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:50'],
+        ]);
+
+        $settingId = $this->currentSettingId();
+
+        $serials = $cartService->availableSerialsForProduct(
+            $settingId,
+            (int) $validated['product_id'],
+            (string) ($validated['q'] ?? ''),
+            (int) ($validated['limit'] ?? 20)
+        );
+
+        return response()->json(['serials' => $serials]);
     }
 
     public function checkoutFinalize(

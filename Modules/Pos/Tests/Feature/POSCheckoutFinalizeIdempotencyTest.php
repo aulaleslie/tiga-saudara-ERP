@@ -337,7 +337,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-            ->assertJsonPath('code', 'SERIAL_NOT_SUPPORTED');
+            ->assertJsonPath('code', 'SERIAL_INVALID');
     }
 
     public function test_cash_overpay_computes_change_and_updates_expected_cash_by_grand_total(): void

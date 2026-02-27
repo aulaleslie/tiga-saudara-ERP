@@ -43,6 +43,11 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::patch('/pos/sell/cart/customer', [PosSellController::class, 'cartUpdateCustomer'])->name('pos.sell.cart.customer.update');
     Route::post('/pos/sell/checkout/finalize', [PosSellController::class, 'checkoutFinalize'])
         ->name('pos.sell.checkout.finalize');
+
+    Route::get('/pos/sell/serials/search', [PosSellController::class, 'serialSearch'])->name('pos.sell.serials.search');
+    Route::post('/pos/sell/cart/lines/{lineId}/serials', [PosSellController::class, 'cartAssignSerials'])
+        ->whereNumber('lineId')
+        ->name('pos.sell.cart.lines.serials.store');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'can:pos.terminals.access']], function () {

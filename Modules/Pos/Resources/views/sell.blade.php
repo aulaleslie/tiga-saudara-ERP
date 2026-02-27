@@ -147,10 +147,10 @@
                             <p id="pos-customer-action-status" class="small text-muted mt-1 mb-2"></p>
                         </div>
                         <hr class="my-2">
-                        <button class="btn btn-success btn-block mb-2" type="button" disabled>Cash</button>
-                        <button class="btn btn-info btn-block mb-2" type="button" disabled>Transfer</button>
-                        <button class="btn btn-dark btn-block mb-2" type="button" disabled>QRIS</button>
-                        <button class="btn btn-primary btn-block" type="button" disabled>Checkout</button>
+                        <button id="pos-payment-cash" class="btn btn-success btn-block mb-2" type="button">Cash</button>
+                        <button id="pos-payment-transfer" class="btn btn-info btn-block mb-2" type="button">Transfer</button>
+                        <button id="pos-payment-qris" class="btn btn-dark btn-block mb-2" type="button">QRIS</button>
+                        <button id="pos-checkout-final" class="btn btn-primary btn-block" type="button">Checkout</button>
                     </div>
                 </div>
             </div>
@@ -158,9 +158,85 @@
 
         <div class="card">
             <div class="card-body py-2">
-                <p class="mb-0 text-muted small">
-                    No transaction is posted from this shell.
+                <p id="pos-shell-posting-note" class="mb-0 text-muted small">
+                    All transactions are posted to the selected setting's general ledger.
                 </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Checkout Modal -->
+    <div class="modal fade" id="pos-checkout-modal" tabindex="-1" role="dialog" aria-labelledby="pos-checkout-modal-label" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="pos-checkout-modal-label">Pembayaran</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="pos-checkout-error" class="alert alert-danger d-none"></div>
+                    
+                    <div class="form-group row mb-2">
+                        <label class="col-sm-4 col-form-label font-weight-bold">Metode</label>
+                        <div class="col-sm-8">
+                            <input type="text" id="pos-checkout-method-label" class="form-control-plaintext font-weight-bold text-uppercase" readonly value="CASH">
+                            <input type="hidden" id="pos-checkout-method-code" value="cash">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group row mb-2">
+                        <label class="col-sm-4 col-form-label font-weight-bold">Grand Total</label>
+                        <div class="col-sm-8">
+                            <input type="text" id="pos-checkout-total-label" class="form-control-plaintext font-weight-bold h5 mb-0" readonly value="Rp0">
+                        </div>
+                    </div>
+
+                    <div class="form-group mb-2">
+                        <label for="pos-checkout-amount-paid" class="font-weight-bold">Jumlah Bayar</label>
+                        <div class="input-group">
+                            <div class="input-group-prepend">
+                                <span class="input-group-text">Rp</span>
+                            </div>
+                            <input type="number" id="pos-checkout-amount-paid" class="form-control form-control-lg" step="0.01" min="0">
+                        </div>
+                    </div>
+
+                    <div id="pos-checkout-change-wrapper" class="form-group row mb-2">
+                        <label class="col-sm-4 col-form-label font-weight-bold">Kembalian</label>
+                        <div class="col-sm-8">
+                            <input type="text" id="pos-checkout-change-label" class="form-control-plaintext font-weight-bold text-success h5 mb-0" readonly value="Rp0">
+                        </div>
+                    </div>
+
+                    <div id="pos-checkout-reference-wrapper" class="form-group d-none">
+                        <label for="pos-checkout-reference" class="font-weight-bold">Referensi / No. Transaksi</label>
+                        <input type="text" id="pos-checkout-reference" class="form-control" placeholder="Masukkan referensi pembayaran">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                    <button type="button" id="pos-checkout-submit" class="btn btn-primary btn-lg">Konfirmasi Checkout</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div class="modal fade" id="pos-success-modal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-sm" role="document">
+            <div class="modal-content text-center py-4">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <i class="fas fa-check-circle text-success fa-5x"></i>
+                    </div>
+                    <h4 class="mb-2">Checkout Berhasil!</h4>
+                    <p id="pos-success-receipt" class="text-muted mb-1"></p>
+                    <p id="pos-success-change" class="font-weight-bold text-success mb-1"></p>
+                    <hr>
+                    <button type="button" class="btn btn-primary btn-block" data-dismiss="modal">Lanjut Jualan</button>
+                </div>
             </div>
         </div>
     </div>
@@ -189,6 +265,26 @@
             const customerResolutionElement = document.getElementById('pos-customer-resolution');
             const customerStatusElement = document.getElementById('pos-customer-action-status');
 
+            const btnCash = document.getElementById('pos-payment-cash');
+            const btnTransfer = document.getElementById('pos-payment-transfer');
+            const btnQRIS = document.getElementById('pos-payment-qris');
+            const btnCheckout = document.getElementById('pos-checkout-final');
+
+            const checkoutModalElement = document.getElementById('pos-checkout-modal');
+            const checkoutMethodLabel = document.getElementById('pos-checkout-method-label');
+            const checkoutMethodCode = document.getElementById('pos-checkout-method-code');
+            const checkoutTotalLabel = document.getElementById('pos-checkout-total-label');
+            const checkoutAmountPaid = document.getElementById('pos-checkout-amount-paid');
+            const checkoutChangeLabel = document.getElementById('pos-checkout-change-label');
+            const checkoutChangeWrapper = document.getElementById('pos-checkout-change-wrapper');
+            const checkoutReference = document.getElementById('pos-checkout-reference');
+            const checkoutReferenceWrapper = document.getElementById('pos-checkout-reference-wrapper');
+            const checkoutSubmit = document.getElementById('pos-checkout-submit');
+            const checkoutError = document.getElementById('pos-checkout-error');
+
+            const successReceiptElement = document.getElementById('pos-success-receipt');
+            const successChangeElement = document.getElementById('pos-success-change');
+
             const searchEndpoint = @json(route('pos.sell.products.search'));
             const customerSearchEndpoint = @json(route('pos.sell.customers.search'));
             const cartShowEndpoint = @json(route('pos.sell.cart.show'));
@@ -196,6 +292,7 @@
             const cartDiscountEndpoint = @json(route('pos.sell.cart.discount.update'));
             const cartClearEndpoint = @json(route('pos.sell.cart.clear'));
             const cartCustomerEndpoint = @json(route('pos.sell.cart.customer.update'));
+            const finalizeEndpoint = @json(route('pos.sell.checkout.finalize'));
             const cartLinesBaseUrl = @json(url('/pos/sell/cart/lines'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
@@ -563,6 +660,14 @@
                 renderMeta(snapshot);
                 renderBillDiscount(snapshot);
                 renderCustomer(snapshot);
+
+                const grandTotal = snapshot && snapshot.totals ? Number(snapshot.totals.grand_total || 0) : 0;
+                const hasItems = snapshot && Array.isArray(snapshot.lines) && snapshot.lines.length > 0;
+                const canCheckout = hasItems && grandTotal > 0;
+
+                [btnCash, btnTransfer, btnQRIS, btnCheckout].forEach(btn => {
+                    if (btn) btn.disabled = !canCheckout;
+                });
             }
 
             async function refreshCart() {
@@ -938,6 +1043,127 @@
                     }
                 }
             });
+
+            // Payment Logic
+            function generateIdempotencyKey() {
+                return 'pos-' + Date.now() + '-' + Math.random().toString(36).substring(2, 15);
+            }
+
+            function openPaymentModal(method) {
+                if (!currentSnapshot || !currentSnapshot.totals) return;
+                
+                const grandTotal = Number(currentSnapshot.totals.grand_total || 0);
+                if (grandTotal <= 0) return;
+
+                checkoutMethodCode.value = method;
+                checkoutMethodLabel.value = method;
+                checkoutTotalLabel.value = formatPrice(grandTotal);
+                checkoutAmountPaid.value = grandTotal.toFixed(2);
+                checkoutReference.value = '';
+                checkoutError.classList.add('d-none');
+                checkoutError.textContent = '';
+                
+                if (method === 'cash') {
+                    checkoutAmountPaid.readOnly = false;
+                    checkoutChangeWrapper.classList.remove('d-none');
+                    checkoutReferenceWrapper.classList.add('d-none');
+                    updateChange(grandTotal, grandTotal);
+                } else {
+                    checkoutAmountPaid.readOnly = true;
+                    checkoutChangeWrapper.classList.add('d-none');
+                    checkoutReferenceWrapper.classList.remove('d-none');
+                }
+
+                $(checkoutModalElement).modal('show');
+                
+                setTimeout(() => checkoutAmountPaid.focus(), 500);
+            }
+
+            function updateChange(amountPaid, grandTotal) {
+                const change = Math.max(0, amountPaid - grandTotal);
+                checkoutChangeLabel.value = formatPrice(change);
+            }
+
+            if (checkoutAmountPaid) {
+                checkoutAmountPaid.addEventListener('input', function() {
+                    const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
+                    const amountPaid = Number(this.value || 0);
+                    updateChange(amountPaid, grandTotal);
+                });
+            }
+
+            [btnCash, btnTransfer, btnQRIS, btnCheckout].forEach(btn => {
+                if (!btn) return;
+                btn.addEventListener('click', function() {
+                    const method = this.id.replace('pos-payment-', '').replace('pos-checkout-final', 'cash');
+                    openPaymentModal(method);
+                });
+            });
+
+            if (checkoutSubmit) {
+                checkoutSubmit.addEventListener('click', async function() {
+                    const method = checkoutMethodCode.value;
+                    const amountPaid = Number(checkoutAmountPaid.value || 0);
+                    const reference = checkoutReference.value.trim();
+                    const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
+                    
+                    if (amountPaid < grandTotal && method === 'cash') {
+                        checkoutError.textContent = 'Pembayaran tunai harus mencukupi total belanja.';
+                        checkoutError.classList.remove('d-none');
+                        return;
+                    }
+
+                    if (!reference && (method === 'transfer' || method === 'qris')) {
+                        checkoutError.textContent = 'Referensi pembayaran wajib diisi untuk non-tunai.';
+                        checkoutError.classList.remove('d-none');
+                        return;
+                    }
+
+                    checkoutSubmit.disabled = true;
+                    checkoutSubmit.textContent = 'Memproses...';
+                    checkoutError.classList.add('d-none');
+
+                    try {
+                        const payload = {
+                            idempotency_key: generateIdempotencyKey(),
+                            payment: {
+                                method_code: method,
+                                amount_paid: amountPaid,
+                                reference: reference || null
+                            }
+                        };
+
+                        const response = await jsonRequest(finalizeEndpoint, 'POST', payload);
+                        if (!response) {
+                            checkoutSubmit.disabled = false;
+                            checkoutSubmit.textContent = 'Konfirmasi Checkout';
+                            return;
+                        }
+
+                        $(checkoutModalElement).modal('hide');
+                        
+                        // Show success
+                        if (successReceiptElement) successReceiptElement.textContent = 'No. Struk: ' + (response.receipt_number || '-');
+                        if (successChangeElement) {
+                            const change = Number(response.change_total || 0);
+                            successChangeElement.textContent = change > 0 ? 'Kembalian: ' + formatPrice(change) : '';
+                        }
+                        
+                        $('#pos-success-modal').modal('show');
+                        
+                        // Reset everything
+                        renderCart(null);
+                        setCartStatus('Transaksi berhasil diselesaikan.', 'text-success');
+
+                    } catch (error) {
+                        checkoutError.textContent = error.message || 'Gagal memproses checkout.';
+                        checkoutError.classList.remove('d-none');
+                    } finally {
+                        checkoutSubmit.disabled = false;
+                        checkoutSubmit.textContent = 'Konfirmasi Checkout';
+                    }
+                });
+            }
 
             refreshCart();
         })();
