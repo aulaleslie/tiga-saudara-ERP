@@ -10,12 +10,17 @@ use Illuminate\Routing\Controller;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Http\Requests\StorePosCartLineRequest;
 use Modules\Pos\Http\Requests\StorePosCartPriceOverrideRequest;
+use Modules\Pos\Http\Requests\StorePosCheckoutFinalizeRequest;
 use Modules\Pos\Http\Requests\UpdatePosCartCustomerRequest;
 use Modules\Pos\Http\Requests\UpdatePosCartDiscountRequest;
 use Modules\Pos\Http\Requests\UpdatePosCartLineRequest;
+use Modules\Pos\Services\FinalizePosCheckoutService;
 use Modules\Pos\Services\PosCartService;
 use Modules\Pos\Services\PosCustomerSearchService;
 use Modules\Pos\Services\PosProductSearchService;
+use Modules\Pos\Services\Exceptions\PosCheckoutConflictException;
+use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
+use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
 
 class PosSellController extends Controller
 {
@@ -235,6 +240,51 @@ class PosSellController extends Controller
         }
 
         return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function checkoutFinalize(
+        StorePosCheckoutFinalizeRequest $request,
+        FinalizePosCheckoutService $finalizeService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $activeSession = $request->attributes->get('pos_active_session');
+        $user = $request->user();
+
+        if (! $activeSession instanceof PosSession) {
+            abort(403, 'Active POS session context is required.');
+        }
+
+        if (! $user) {
+            abort(403, 'Authentication is required.');
+        }
+
+        try {
+            $result = $finalizeService->finalize(
+                $settingId,
+                $activeSession,
+                (int) $user->id,
+                (string) $request->input('idempotency_key'),
+                is_array($request->input('payment')) ? $request->input('payment') : [],
+                $request->input('client_context')
+            );
+        } catch (PosCheckoutValidationException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], 422);
+        } catch (PosCheckoutConflictException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], 409);
+        } catch (PosCheckoutPostingException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => 'Checkout posting failed due to an internal error.',
+            ], 500);
+        }
+
+        return response()->json($result['payload'], (int) $result['http_status'], [], JSON_PRESERVE_ZERO_FRACTION);
     }
 
     private function currentSettingId(): int

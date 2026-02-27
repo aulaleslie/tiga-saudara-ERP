@@ -10,6 +10,8 @@ class PosSessionCashEvent extends BaseModel
 {
     public const EVENT_OPEN_FLOAT = 'OPEN_FLOAT';
 
+    public const EVENT_CASH_SALE_IN = 'CASH_SALE_IN';
+
     public const EVENT_SAFE_DROP_OUT = 'SAFE_DROP_OUT';
 
     public const EVENT_CLOSE_COUNT = 'CLOSE_COUNT';

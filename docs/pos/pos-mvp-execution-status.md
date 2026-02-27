@@ -12,9 +12,9 @@ Primary docs:
 
 - Overall status: `in-progress`
 - Current milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
-- Current task: `POS-MVP-013`
-- Next proposed task: `POS-MVP-013`
-- Last updated: 2026-02-27 15:36 WITA
+- Current task: `POS-MVP-013 (done)`
+- Next proposed task: `POS-MVP-014`
+- Last updated: 2026-02-27 17:05 WITA
 
 ## Milestone Tracker
 
@@ -32,12 +32,12 @@ Primary docs:
 
 - Task ID: `POS-MVP-013`
 - Milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
-- Status: `pending`
-- Scope: Implement checkout finalization service skeleton with idempotency guard on top of completed `POS-MVP-012` customer/cart context.
-- Acceptance criteria (draft):
-  - finalization service is wrapped in DB transaction boundary
-  - idempotency key is required and duplicate submit returns deterministic replay/conflict response
-  - failed posting attempts are observable and do not leave partial records
+- Status: `done`
+- Scope: Implement end-to-end checkout finalization endpoint + idempotency ledger + transactional posting adapter + replay/conflict semantics on top of completed `POS-MVP-012` customer/cart context.
+- Acceptance criteria (implemented):
+  - finalization flow executes within posting transaction boundary and rollback is verified by injected-failure test
+  - idempotency key is mandatory and duplicates now return deterministic replay (`POSTED`) or explicit `409` conflict (`FINALIZING`/`FAILED`/hash mismatch)
+  - failed posting attempts persist `pos_checkouts` `FAILED` state with failure code/message and structured server log context
 - Out of scope:
   - stock source resolver fallback (`POS-MVP-014`)
   - tax-by-source snapshot and serial validation orchestration (`POS-MVP-017`, `POS-MVP-018`)
@@ -541,6 +541,54 @@ Primary docs:
   - sell shell customer selector is text-search dropdown and does not yet include quick-add customer flow (explicitly deferred)
   - setting-level walk-in mapping depends on customer master data hygiene per business; operations SOP should define who owns this configuration
 - Next proposed task: `POS-MVP-013`
+
+### 2026-02-27 - POS-MVP-013 - Status: done
+
+- Milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
+- Acceptance criteria summary:
+  - new endpoint `POST /pos/sell/checkout/finalize` (`pos.sell.checkout.finalize`) added under active-session sell middleware
+  - implemented `FinalizePosCheckoutService` with deterministic payload hashing, `pos_checkouts` ledger idempotency, replay/conflict semantics, and explicit failure persistence
+  - implemented transactional inline posting adapter path for `sales` + `sale_details` + `dispatch` + `dispatch_details` + `sale_payments` + stock decrement + `transactions`
+  - cash checkout now records `CASH_SALE_IN` session cash event with net amount (`grand_total`) and increments session expected cash cache by same value
+  - posting rollback and observability enforced (`FAILED` checkout status, failure code/message/metadata, structured error logs)
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSCheckoutFinalizeIdempotencyTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSCheckoutFinalizeIdempotencyTest.php`
+  - result: failed baseline before implementation (missing `pos.sell.checkout.finalize` route)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSCheckoutFinalizeIdempotencyTest.php`
+  - result: pass (9 tests, 50 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSCartTotalsDisplayTest.php`
+  - result: pass (6 tests, 43 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSWalkInCustomerSelectionTest.php`
+  - result: pass (6 tests, 29 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php`
+  - result: pass (7 tests, 38 assertions)
+  - command: `php artisan test Modules/Sale/Tests/Feature/DispatchApprovalTest.php`
+  - result: pass (6 tests, 26 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (85 tests, 375 assertions)
+- Changed files:
+  - `Modules/Pos/Database/Migrations/2026_08_13_000300_create_pos_checkouts_table.php`
+  - `Modules/Pos/Entities/PosCheckout.php`
+  - `Modules/Pos/Entities/PosSessionCashEvent.php`
+  - `Modules/Pos/Http/Controllers/PosSellController.php`
+  - `Modules/Pos/Http/Requests/StorePosCheckoutFinalizeRequest.php`
+  - `Modules/Pos/Providers/PosServiceProvider.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php`
+  - `Modules/Pos/Services/Contracts/PosCheckoutPostingAdapter.php`
+  - `Modules/Pos/Services/Exceptions/PosCheckoutConflictException.php`
+  - `Modules/Pos/Services/Exceptions/PosCheckoutPostingException.php`
+  - `Modules/Pos/Services/Exceptions/PosCheckoutValidationException.php`
+  - `Modules/Pos/Services/FinalizePosCheckoutService.php`
+  - `Modules/Pos/Tests/Feature/POSCheckoutFinalizeIdempotencyTest.php`
+  - `docs/pos/pos-mvp-execution-status.md`
+- Risks / follow-ups:
+  - `POSTED` idempotency replay is key-first (returns stored payload) to preserve deterministic retry semantics after cart clear; payload-mismatch checks remain enforced for non-posted states
+  - stock source remains terminal-location only by design; multi-location fallback/split remains deferred to `POS-MVP-014`
+  - serial assignment orchestration remains intentionally rejected in finalize path (`SERIAL_NOT_SUPPORTED`) until `POS-MVP-018`
+- Next proposed task: `POS-MVP-014`
 
 ## Blockers / Decisions Needed
 

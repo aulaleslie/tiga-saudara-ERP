@@ -3,6 +3,8 @@
 namespace Modules\Pos\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Modules\Pos\Services\Adapters\InlinePosCheckoutPostingAdapter;
+use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
 
 class PosServiceProvider extends ServiceProvider
 {
@@ -22,6 +24,7 @@ class PosServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->register(RouteServiceProvider::class);
+        $this->app->bind(PosCheckoutPostingAdapter::class, InlinePosCheckoutPostingAdapter::class);
     }
 
     protected function registerConfig(): void
