@@ -5,6 +5,10 @@ namespace Modules\Pos\Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Currency\Entities\Currency;
+use Modules\Pos\Entities\PosSession;
+use Modules\Pos\Entities\PosTerminal;
+use Modules\Pos\Entities\PosTerminalPolicy;
+use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -60,6 +64,7 @@ class POSRouteFeatureFlagTest extends TestCase
     public function test_it_allows_pos_route_when_pos_is_enabled_for_current_setting(): void
     {
         [$user, $setting] = $this->createCashierForSetting(posEnabled: true, grantSalesAccess: true);
+        $this->createActiveSessionForCashier($setting, $user);
 
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -82,6 +87,7 @@ class POSRouteFeatureFlagTest extends TestCase
         $user->settings()->attach($disabledSetting->id, ['role_id' => $cashierRole->id]);
         $user->givePermissionTo('sales.access');
         $user->givePermissionTo(['pos.access', 'pos.sell']);
+        $this->createActiveSessionForCashier($enabledSetting, $user);
 
         $this->actingAs($user);
 
@@ -132,6 +138,43 @@ class POSRouteFeatureFlagTest extends TestCase
             'purchase_prefix_document' => 'PO',
             'sale_prefix_document' => 'SO',
             'pos_enabled' => $posEnabled,
+        ]);
+    }
+
+    private function createActiveSessionForCashier(Setting $setting, User $user): void
+    {
+        $location = Location::create([
+            'name' => 'SESSION LOC ' . $setting->id,
+            'setting_id' => $setting->id,
+        ]);
+
+        $terminal = PosTerminal::create([
+            'setting_id' => $setting->id,
+            'code' => 'SESSION-' . $setting->id . '-' . $user->id,
+            'name' => 'Session Terminal',
+            'location_id' => $location->id,
+            'is_active' => true,
+        ]);
+
+        PosTerminalPolicy::create([
+            'terminal_id' => $terminal->id,
+            'require_session_open' => true,
+            'require_opening_float' => true,
+            'allow_total_only_float_input' => true,
+            'close_variance_approval_threshold' => 0,
+            'require_pickup_supervisor_approval' => true,
+        ]);
+
+        PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $user->id,
+            'status' => PosSession::STATUS_OPEN,
+            'opened_at' => now(),
+            'opened_by' => $user->id,
+            'opening_float_total' => 0,
+            'expected_cash_total' => 0,
+            'active_marker' => 1,
         ]);
     }
 }

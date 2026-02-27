@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 use Modules\Currency\Entities\Currency;
+use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Setting\Entities\Location;
@@ -53,6 +54,7 @@ class POSPermissionRoleMappingTest extends TestCase
         $setting = $this->createSetting('BIZ A');
 
         $userWithBoth = $this->createUserForSetting($setting, 'Cashier Both', ['pos.access', 'pos.sell']);
+        $this->createActiveSessionForCashier($setting, $userWithBoth);
         $this->actingAs($userWithBoth)
             ->withSession(['setting_id' => $setting->id])
             ->get(route('pos.sell'))
@@ -210,5 +212,42 @@ class POSPermissionRoleMappingTest extends TestCase
         $user->settings()->attach($setting->id, ['role_id' => $role->id]);
 
         return $user;
+    }
+
+    private function createActiveSessionForCashier(Setting $setting, User $user): void
+    {
+        $location = Location::create([
+            'name' => 'SESSION LOC ' . $setting->id,
+            'setting_id' => $setting->id,
+        ]);
+
+        $terminal = PosTerminal::create([
+            'setting_id' => $setting->id,
+            'code' => 'SESSION-' . $setting->id . '-' . $user->id,
+            'name' => 'Session Terminal',
+            'location_id' => $location->id,
+            'is_active' => true,
+        ]);
+
+        PosTerminalPolicy::create([
+            'terminal_id' => $terminal->id,
+            'require_session_open' => true,
+            'require_opening_float' => true,
+            'allow_total_only_float_input' => true,
+            'close_variance_approval_threshold' => 0,
+            'require_pickup_supervisor_approval' => true,
+        ]);
+
+        PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $user->id,
+            'status' => PosSession::STATUS_OPEN,
+            'opened_at' => now(),
+            'opened_by' => $user->id,
+            'opening_float_total' => 0,
+            'expected_cash_total' => 0,
+            'active_marker' => 1,
+        ]);
     }
 }

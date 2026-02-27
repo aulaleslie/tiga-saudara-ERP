@@ -12,16 +12,16 @@ Primary docs:
 
 - Overall status: `in-progress`
 - Current milestone: `Milestone 1 - POS Session and Cash Control Core`
-- Current task: `POS-MVP-004`
-- Next proposed task: `POS-MVP-004`
-- Last updated: 2026-02-27 07:39 WITA
+- Current task: `POS-MVP-009`
+- Next proposed task: `POS-MVP-009`
+- Last updated: 2026-02-27 10:13 WITA
 
 ## Milestone Tracker
 
 | Milestone | Status | Notes |
 | --- | --- | --- |
 | 0 - Foundations and Safety Rails | done | `POS-MVP-001` to `POS-MVP-003` completed |
-| 1 - POS Session and Cash Control Core | in-progress | proceed to `POS-MVP-004` |
+| 1 - POS Session and Cash Control Core | in-progress | `POS-MVP-008` completed, proceed to `POS-MVP-009` |
 | 2 - POS Checkout Shell and Cart | pending | |
 | 3 - Hybrid Posting and Immediate Stock Deduction | pending | |
 | 4 - Payments, Receipt, and Cashier Finish Flow | pending | |
@@ -30,21 +30,21 @@ Primary docs:
 
 ## Active Task Plan
 
-- Task ID: `POS-MVP-004`
+- Task ID: `POS-MVP-009`
 - Milestone: `Milestone 1 - POS Session and Cash Control Core`
 - Status: `pending`
-- Scope: Implement POS session lifecycle core (`open`, `closing`, `closed`) with active-session guardrails and one-active-session enforcement baseline.
+- Scope: Implement POS shell/session guard workflow so cashier without active session is redirected to session-open flow and active session can access sell shell.
 - Acceptance criteria (confirmed):
-  - one active session per cashier+terminal is enforceable via portable service + DB checks
-  - sell/payment routes are blocked when no active POS session exists
-  - valid session state transitions only (`OPEN` -> `CLOSING` -> `CLOSED`)
+  - no-active-session cashier requests cannot continue to sell shell flow
+  - active-session cashier can access POS shell route and session context is available
+  - POS shell route remains gated by feature + permission middleware
 - Out of scope:
-  - opening float cash event posting details
-  - safe drop and close variance approval behavior
+  - full cart/search/payment implementation
+  - checkout posting logic
 - Tests to write first:
-  - `Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - `Modules/Pos/Tests/Feature/POSShellSessionGuardTest.php`
 - Dependencies:
-  - `POS-MVP-002`, `POS-MVP-003`
+  - `POS-MVP-008`
 
 ## Task Log (Append Entries)
 
@@ -180,6 +180,193 @@ Primary docs:
   - no auto-role mapping is intentionally applied; operations must assign POS permissions explicitly per business role
   - `pos.settings.edit` is seeded and visible for upcoming POS settings scope but not yet consumed by route contracts
 - Next proposed task: `POS-MVP-004`
+
+### 2026-02-27 - POS-MVP-004 - Status: done
+
+- Milestone: `Milestone 1 - POS Session and Cash Control Core`
+- Acceptance criteria summary:
+  - one active session per cashier+terminal enforced with app-level transaction checks plus portable DB uniqueness key
+  - valid status transitions enforced server-side (`OPEN` -> `CLOSING` -> `CLOSED`) and invalid transitions rejected
+  - POS sell route now requires active session context and returns `403` when missing
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php` (`POS-TM-002`, `POS-TM-003` baseline plus lifecycle guard assertions)
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - result: failed baseline before implementation (missing `PosSessionLifecycleService` and missing active-session route guard)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - result: pass (6 tests, 22 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (23 tests, 76 assertions)
+  - command: `php artisan test Modules/Setting/Tests/Feature/SaleLocationConfigurationTest.php`
+  - result: pass (6 tests, 25 assertions)
+  - command: `php artisan test Modules/Sale/Tests/Feature/SaleRequestAuthorizationTest.php`
+  - result: pass (6 tests, 6 assertions)
+- Changed files:
+  - `Modules/Pos/Database/Migrations/2026_08_13_000000_create_pos_sessions_table.php`
+  - `Modules/Pos/Entities/PosSession.php`
+  - `Modules/Pos/Services/PosSessionLifecycleService.php`
+  - `Modules/Pos/Http/Middleware/EnsureActivePosSessionMiddleware.php`
+  - `Modules/Pos/Routes/web.php`
+  - `app/Http/Kernel.php`
+  - `Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - `Modules/Pos/Tests/Feature/POSPermissionRoleMappingTest.php`
+  - `Modules/Pos/Tests/Feature/POSRouteFeatureFlagTest.php`
+- Risks / follow-ups:
+  - active-session uniqueness relies on `active_marker` nullable key strategy; behavior is validated in sqlite test runtime and should be rechecked against production MySQL before rollout
+  - historical root-level POS migrations remain forward-only artifacts; new module migration recreates `pos_sessions` after cleanup for fresh migrations
+- Next proposed task: `POS-MVP-005`
+
+### 2026-02-27 - POS-MVP-005 - Status: done
+
+- Milestone: `Milestone 1 - POS Session and Cash Control Core`
+- Acceptance criteria summary:
+  - opening float is mandatory (`> 0`) for session open in MVP, with terminal assignment and policy-aware denomination validation
+  - denomination behavior enforces strict sum match when provided and requires denominations when terminal disallows total-only mode
+  - session open now writes `OPEN_FLOAT` cash event to POS ledger atomically with session creation
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSOpeningFloatCaptureTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSOpeningFloatCaptureTest.php`
+  - result: failed baseline before implementation (missing `pos.sessions.create`/`pos.sessions.store` routes)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSOpeningFloatCaptureTest.php`
+  - result: pass (6 tests, 25 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - result: pass (6 tests, 22 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (29 tests, 101 assertions)
+  - command: `php artisan test Modules/Setting/Tests/Feature/SaleLocationConfigurationTest.php`
+  - result: pass (6 tests, 25 assertions)
+  - command: `php artisan test Modules/Sale/Tests/Feature/SaleRequestAuthorizationTest.php`
+  - result: pass (6 tests, 6 assertions)
+- Changed files:
+  - `Modules/Pos/Database/Migrations/2026_08_13_000100_create_pos_session_cash_events_table.php`
+  - `Modules/Pos/Entities/PosSessionCashEvent.php`
+  - `Modules/Pos/Entities/PosSession.php`
+  - `Modules/Pos/Services/PosSessionLifecycleService.php`
+  - `Modules/Pos/Http/Requests/StorePosSessionOpenRequest.php`
+  - `Modules/Pos/Http/Controllers/PosSessionController.php`
+  - `Modules/Pos/Resources/views/session/open.blade.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Tests/Feature/POSOpeningFloatCaptureTest.php`
+  - `Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+- Risks / follow-ups:
+  - denominations are stored as normalized `{denomination: quantity}` map without denomination-catalog master; future reporting should standardize presentation/ordering
+  - session-open view is intentionally minimal and not yet wired into cashier navigation fallback from `/pos/sell` guard (`POS-MVP-009`)
+- Next proposed task: `POS-MVP-006`
+
+### 2026-02-27 - POS-MVP-006 - Status: done
+
+- Milestone: `Milestone 1 - POS Session and Cash Control Core`
+- Acceptance criteria summary:
+  - expected cash is now deterministically derived from `pos_session_cash_events` using strict direction semantics (`IN`, `OUT`, `NEUTRAL`)
+  - calculator syncs `pos_sessions.expected_cash_total` from the derived ledger value on every run
+  - session summary JSON endpoint exposes expected cash, threshold source/value, breach state, and event statistics for owner/monitor access
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSExpectedCashCalculatorTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSExpectedCashCalculatorTest.php`
+  - result: failed baseline before implementation (missing `PosSessionExpectedCashCalculator` service and `pos.sessions.summary` route)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSExpectedCashCalculatorTest.php`
+  - result: pass (8 tests, 18 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSOpeningFloatCaptureTest.php`
+  - result: pass (6 tests, 25 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - result: pass (6 tests, 22 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (37 tests, 119 assertions)
+  - command: `php artisan test Modules/Setting/Tests/Feature/SaleLocationConfigurationTest.php`
+  - result: pass (6 tests, 25 assertions)
+  - command: `php artisan test Modules/Sale/Tests/Feature/SaleRequestAuthorizationTest.php`
+  - result: pass (6 tests, 6 assertions)
+- Changed files:
+  - `Modules/Pos/Config/config.php`
+  - `Modules/Pos/Http/Controllers/PosSessionController.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/PosSessionExpectedCashCalculator.php`
+  - `Modules/Pos/Services/PosSessionSummaryService.php`
+  - `Modules/Pos/Tests/Feature/POSExpectedCashCalculatorTest.php`
+- Risks / follow-ups:
+  - malformed historical cash-event rows with unknown `direction` now hard-fail calculation and summary requests until corrected
+  - summary delivery is JSON-only in this task; monitoring dashboard UI remains deferred
+- Next proposed task: `POS-MVP-007`
+
+### 2026-02-27 - POS-MVP-007 - Status: done
+
+- Milestone: `Milestone 1 - POS Session and Cash Control Core`
+- Acceptance criteria summary:
+  - safe-drop requests now enforce policy-driven supervisor approval (`require_pickup_supervisor_approval`) before drawer cash leaves the session
+  - approved safe drops append `SAFE_DROP_OUT` cash events and recompute expected cash deterministically in the same transaction
+  - invalid supervisor credential/permission attempts are recorded as rejected approvals without mutating session cash-event ledger
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSSafeDropWorkflowTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSafeDropWorkflowTest.php`
+  - result: failed baseline before implementation (missing `pos.sessions.safe-drops.store` route)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSafeDropWorkflowTest.php`
+  - result: pass (5 tests, 29 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSExpectedCashCalculatorTest.php`
+  - result: pass (8 tests, 18 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (42 tests, 148 assertions)
+  - command: `php artisan test Modules/Setting/Tests/Feature/SaleLocationConfigurationTest.php`
+  - result: pass (6 tests, 25 assertions)
+  - command: `php artisan test Modules/Sale/Tests/Feature/SaleRequestAuthorizationTest.php`
+  - result: pass (6 tests, 6 assertions)
+- Changed files:
+  - `Modules/Pos/Database/Migrations/2026_08_13_000200_create_pos_supervisor_approvals_table.php`
+  - `Modules/Pos/Entities/PosSessionCashEvent.php`
+  - `Modules/Pos/Entities/PosSupervisorApproval.php`
+  - `Modules/Pos/Http/Controllers/PosSessionController.php`
+  - `Modules/Pos/Http/Requests/StorePosSafeDropRequest.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/PosSafeDropService.php`
+  - `Modules/Pos/Services/PosSupervisorApprovalService.php`
+  - `Modules/Pos/Tests/Feature/POSSafeDropWorkflowTest.php`
+- Risks / follow-ups:
+  - supervisor approval currently validates against supervisor account password as temporary PIN surrogate; dedicated PIN credential model remains deferred to later approval hardening
+  - safe-drop endpoint is JSON-first and does not yet include slip printing/drawer hook orchestration
+- Next proposed task: `POS-MVP-008`
+
+### 2026-02-27 - POS-MVP-008 - Status: done
+
+- Milestone: `Milestone 1 - POS Session and Cash Control Core`
+- Acceptance criteria summary:
+  - close-session finalize endpoint now captures counted cash and enforces cashier-only ownership with blind-response blocking when variance approval is required
+  - variance above terminal threshold requires supervisor approval (`pos.sessions.close` + `pos.supervisor.approval`) before session can close
+  - successful close finalizes session to `CLOSED`, appends `CLOSE_COUNT` neutral cash event, records variance metadata, and blocks further cashier selling due to inactive session
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php`
+  - result: failed baseline before implementation (missing `pos.sessions.close.finalize` route)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php`
+  - result: pass (7 tests, 36 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSessionLifecycleTest.php`
+  - result: pass (6 tests, 22 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSSafeDropWorkflowTest.php`
+  - result: pass (5 tests, 29 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSExpectedCashCalculatorTest.php`
+  - result: pass (8 tests, 18 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (49 tests, 184 assertions)
+  - command: `php artisan test Modules/Setting/Tests/Feature/SaleLocationConfigurationTest.php`
+  - result: pass (6 tests, 25 assertions)
+  - command: `php artisan test Modules/Sale/Tests/Feature/SaleRequestAuthorizationTest.php`
+  - result: pass (6 tests, 6 assertions)
+- Changed files:
+  - `Modules/Pos/Entities/PosSessionCashEvent.php`
+  - `Modules/Pos/Entities/PosSupervisorApproval.php`
+  - `Modules/Pos/Http/Controllers/PosSessionController.php`
+  - `Modules/Pos/Http/Requests/StorePosSessionCloseRequest.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/PosSessionCloseService.php`
+  - `Modules/Pos/Services/PosSessionLifecycleService.php`
+  - `Modules/Pos/Services/PosSupervisorApprovalService.php`
+  - `Modules/Pos/Tests/Feature/POSSessionCloseWorkflowTest.php`
+- Risks / follow-ups:
+  - session-close approval still uses password-as-PIN surrogate pending dedicated PIN credential model
+  - close flow is API/service complete for MVP guardrails but does not yet provide dedicated cashier close UI screen
+- Next proposed task: `POS-MVP-009`
 
 ## Blockers / Decisions Needed
 

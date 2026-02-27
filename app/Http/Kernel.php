@@ -67,5 +67,6 @@ class Kernel extends HttpKernel
         'role.setting' => \App\Http\Middleware\CheckUserRoleForSetting::class,
         'idempotency' => \App\Http\Middleware\IdempotencyMiddleware::class,
         'pos.enabled' => \Modules\Pos\Http\Middleware\PosEnabledMiddleware::class,
+        'pos.session.active' => \Modules\Pos\Http\Middleware\EnsureActivePosSessionMiddleware::class,
     ];
 }

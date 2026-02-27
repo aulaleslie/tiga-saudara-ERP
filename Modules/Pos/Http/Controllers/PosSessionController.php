@@ -1,0 +1,214 @@
+<?php
+
+namespace Modules\Pos\Http\Controllers;
+
+use DomainException;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Contracts\Support\Renderable;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Routing\Controller;
+use Modules\Pos\Entities\PosSession;
+use Modules\Pos\Entities\PosTerminal;
+use Modules\Pos\Http\Requests\StorePosSessionCloseRequest;
+use Modules\Pos\Http\Requests\StorePosSafeDropRequest;
+use Modules\Pos\Http\Requests\StorePosSessionOpenRequest;
+use Modules\Pos\Services\PosSessionCloseService;
+use Modules\Pos\Services\PosSafeDropService;
+use Modules\Pos\Services\PosSessionLifecycleService;
+use Modules\Pos\Services\PosSessionSummaryService;
+use Modules\Setting\Entities\SettingSaleLocation;
+
+class PosSessionController extends Controller
+{
+    public function create(): Renderable
+    {
+        $settingId = $this->currentSettingId();
+
+        $allowedLocationIds = SettingSaleLocation::query()
+            ->where('setting_id', $settingId)
+            ->pluck('location_id');
+
+        $terminals = PosTerminal::query()
+            ->with(['location:id,name', 'policy'])
+            ->where('setting_id', $settingId)
+            ->where('is_active', true)
+            ->whereIn('location_id', $allowedLocationIds)
+            ->orderBy('code')
+            ->get();
+
+        return view('pos::session.open', compact('terminals'));
+    }
+
+    public function store(StorePosSessionOpenRequest $request, PosSessionLifecycleService $sessionLifecycleService): RedirectResponse
+    {
+        $settingId = $this->currentSettingId();
+        $cashierId = (int) auth()->id();
+
+        try {
+            $sessionLifecycleService->openSession(
+                $settingId,
+                (int) $request->input('terminal_id'),
+                $cashierId,
+                (float) $request->input('opening_float_total'),
+                $request->input('opening_denominations'),
+                $cashierId,
+                $request->filled('notes') ? $request->string('notes')->value() : null
+            );
+        } catch (DomainException $exception) {
+            return redirect()
+                ->route('pos.sessions.create')
+                ->withInput()
+                ->withErrors([$this->errorFieldForMessage($exception->getMessage()) => $exception->getMessage()]);
+        }
+
+        toast('POS session opened successfully.', 'success');
+
+        return redirect()->route('pos.sell');
+    }
+
+    public function summary(int $session, PosSessionSummaryService $sessionSummaryService): JsonResponse
+    {
+        $settingId = $this->currentSettingId();
+        $user = auth()->user();
+
+        if (! $user) {
+            abort(403, 'Authentication is required.');
+        }
+
+        $posSession = PosSession::query()
+            ->select(['id', 'setting_id', 'cashier_user_id'])
+            ->where('id', $session)
+            ->where('setting_id', $settingId)
+            ->first();
+
+        if (! $posSession) {
+            abort(404, 'POS session not found for current setting.');
+        }
+
+        $isOwner = (int) $posSession->cashier_user_id === (int) $user->id;
+        $canMonitor = $user->can('pos.monitor.access');
+
+        if (! $isOwner && ! $canMonitor) {
+            abort(403, 'Not authorized to view POS session summary.');
+        }
+
+        return response()->json(
+            $sessionSummaryService->getSummary($posSession->id, (int) $user->id, $settingId)
+        );
+    }
+
+    public function safeDrop(
+        int $session,
+        StorePosSafeDropRequest $request,
+        PosSafeDropService $safeDropService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $user = auth()->user();
+
+        if (! $user) {
+            abort(403, 'Authentication is required.');
+        }
+
+        $posSession = PosSession::query()
+            ->select(['id', 'setting_id'])
+            ->where('id', $session)
+            ->where('setting_id', $settingId)
+            ->first();
+
+        if (! $posSession) {
+            abort(404, 'POS session not found for current setting.');
+        }
+
+        try {
+            $result = $safeDropService->createSafeDrop(
+                $settingId,
+                (int) $posSession->id,
+                (int) $user->id,
+                (float) $request->input('amount'),
+                $request->input('denominations'),
+                $request->filled('notes') ? $request->string('notes')->value() : null,
+                $request->filled('supervisor_identifier') ? $request->string('supervisor_identifier')->value() : null,
+                $request->filled('supervisor_pin') ? $request->string('supervisor_pin')->value() : null
+            );
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json($result);
+    }
+
+    public function closeFinalize(
+        int $session,
+        StorePosSessionCloseRequest $request,
+        PosSessionCloseService $sessionCloseService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $user = auth()->user();
+
+        if (! $user) {
+            abort(403, 'Authentication is required.');
+        }
+
+        $posSession = PosSession::query()
+            ->select(['id', 'setting_id'])
+            ->where('id', $session)
+            ->where('setting_id', $settingId)
+            ->first();
+
+        if (! $posSession) {
+            abort(404, 'POS session not found for current setting.');
+        }
+
+        try {
+            $result = $sessionCloseService->closeSession(
+                $settingId,
+                (int) $posSession->id,
+                (int) $user->id,
+                (float) $request->input('counted_cash_total'),
+                $request->input('counted_denominations'),
+                $request->filled('notes') ? $request->string('notes')->value() : null,
+                $request->filled('supervisor_identifier') ? $request->string('supervisor_identifier')->value() : null,
+                $request->filled('supervisor_pin') ? $request->string('supervisor_pin')->value() : null
+            );
+        } catch (AuthorizationException $exception) {
+            abort(403, $exception->getMessage());
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        if ((bool) ($result['blocked'] ?? false)) {
+            return response()->json($result['payload'], 422);
+        }
+
+        return response()->json($result['payload']);
+    }
+
+    private function currentSettingId(): int
+    {
+        $settingId = (int) session('setting_id');
+
+        abort_if($settingId <= 0, 403, 'Setting context is required.');
+
+        return $settingId;
+    }
+
+    private function errorFieldForMessage(string $message): string
+    {
+        $normalized = strtolower($message);
+
+        if (str_contains($normalized, 'denomination')) {
+            return 'opening_denominations';
+        }
+
+        if (str_contains($normalized, 'terminal')) {
+            return 'terminal_id';
+        }
+
+        return 'opening_float_total';
+    }
+}
