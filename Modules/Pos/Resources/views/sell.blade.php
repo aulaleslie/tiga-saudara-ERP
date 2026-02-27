@@ -135,6 +135,18 @@
                 <div class="card h-100">
                     <div class="card-header"><strong>Payment Shortcuts</strong></div>
                     <div class="card-body">
+                        <div class="form-group mb-2">
+                            <label for="pos-customer-search" class="small font-weight-bold mb-1">Customer (Optional)</label>
+                            <input id="pos-customer-search" type="text" class="form-control form-control-sm"
+                                   placeholder="Cari nama / telepon pelanggan">
+                            <div id="pos-customer-search-results" class="list-group mt-1"></div>
+                            <button id="pos-customer-clear" class="btn btn-sm btn-outline-secondary btn-block mt-2" type="button">
+                                Gunakan Walk-In Default
+                            </button>
+                            <p id="pos-customer-resolution" class="small text-muted mt-2 mb-0"></p>
+                            <p id="pos-customer-action-status" class="small text-muted mt-1 mb-2"></p>
+                        </div>
+                        <hr class="my-2">
                         <button class="btn btn-success btn-block mb-2" type="button" disabled>Cash</button>
                         <button class="btn btn-info btn-block mb-2" type="button" disabled>Transfer</button>
                         <button class="btn btn-dark btn-block mb-2" type="button" disabled>QRIS</button>
@@ -171,12 +183,19 @@
             const discountElement = document.getElementById('pos-cart-total-discount');
             const taxElement = document.getElementById('pos-cart-total-tax');
             const grandElement = document.getElementById('pos-cart-total-grand');
+            const customerSearchInput = document.getElementById('pos-customer-search');
+            const customerResultListElement = document.getElementById('pos-customer-search-results');
+            const customerClearButton = document.getElementById('pos-customer-clear');
+            const customerResolutionElement = document.getElementById('pos-customer-resolution');
+            const customerStatusElement = document.getElementById('pos-customer-action-status');
 
             const searchEndpoint = @json(route('pos.sell.products.search'));
+            const customerSearchEndpoint = @json(route('pos.sell.customers.search'));
             const cartShowEndpoint = @json(route('pos.sell.cart.show'));
             const cartStoreLineEndpoint = @json(route('pos.sell.cart.lines.store'));
             const cartDiscountEndpoint = @json(route('pos.sell.cart.discount.update'));
             const cartClearEndpoint = @json(route('pos.sell.cart.clear'));
+            const cartCustomerEndpoint = @json(route('pos.sell.cart.customer.update'));
             const cartLinesBaseUrl = @json(url('/pos/sell/cart/lines'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
@@ -186,6 +205,8 @@
 
             let debounceHandle = null;
             let latestRequestId = 0;
+            let customerDebounceHandle = null;
+            let latestCustomerRequestId = 0;
             let currentSnapshot = null;
 
             const idrFormatter = new Intl.NumberFormat('id-ID', {
@@ -210,8 +231,24 @@
                 cartStatusElement.classList.add(tone || 'text-muted');
             }
 
+            function setCustomerStatus(message, tone) {
+                if (!customerStatusElement) {
+                    return;
+                }
+
+                customerStatusElement.textContent = message || '';
+                customerStatusElement.classList.remove('text-muted', 'text-danger', 'text-success');
+                customerStatusElement.classList.add(tone || 'text-muted');
+            }
+
             function clearResults() {
                 resultListElement.innerHTML = '';
+            }
+
+            function clearCustomerResults() {
+                if (customerResultListElement) {
+                    customerResultListElement.innerHTML = '';
+                }
             }
 
             function formatPrice(value) {
@@ -308,6 +345,149 @@
                 billDiscountValueElement.value = String(Number.isFinite(discountValue) ? discountValue : 0);
             }
 
+            function renderCustomer(snapshot) {
+                if (!customerResolutionElement) {
+                    return;
+                }
+
+                const customer = snapshot && snapshot.customer ? snapshot.customer : {};
+                const selected = customer.selected_customer || null;
+                const selectedName = selected && selected.display_name ? selected.display_name : null;
+                const selectedPhone = selected && selected.customer_phone ? selected.customer_phone : null;
+                const defaultCustomer = customer.default_customer || null;
+                const defaultName = defaultCustomer && defaultCustomer.display_name ? defaultCustomer.display_name : null;
+                const defaultPhone = defaultCustomer && defaultCustomer.customer_phone ? defaultCustomer.customer_phone : null;
+                const resolutionSource = customer.resolution_source || 'unresolved';
+                const resolutionError = customer.resolution_error || null;
+
+                if (resolutionSource === 'selected') {
+                    customerResolutionElement.textContent = selectedName
+                        ? 'Pelanggan terpilih: ' + selectedName + (selectedPhone ? ' (' + selectedPhone + ')' : '')
+                        : 'Pelanggan terpilih.';
+                    customerResolutionElement.classList.remove('text-danger');
+                    customerResolutionElement.classList.add('text-muted');
+                    return;
+                }
+
+                if (resolutionSource === 'default') {
+                    customerResolutionElement.textContent = defaultName
+                        ? 'Default walk-in: ' + defaultName + (defaultPhone ? ' (' + defaultPhone + ')' : '')
+                        : 'Default walk-in digunakan.';
+                    customerResolutionElement.classList.remove('text-danger');
+                    customerResolutionElement.classList.add('text-muted');
+                    return;
+                }
+
+                const errorMessage = resolutionError && resolutionError.message
+                    ? String(resolutionError.message)
+                    : 'Default walk-in customer belum dikonfigurasi.';
+                customerResolutionElement.textContent = errorMessage;
+                customerResolutionElement.classList.remove('text-muted');
+                customerResolutionElement.classList.add('text-danger');
+            }
+
+            async function updateCustomerSelection(customerId) {
+                const payload = customerId === null ? { customer_id: null } : { customer_id: Number(customerId) };
+
+                const response = await jsonRequest(cartCustomerEndpoint, 'PATCH', payload);
+                if (!response) {
+                    return null;
+                }
+
+                renderCart(response.cart_snapshot || null);
+                return response;
+            }
+
+            function renderCustomerSearchResults(data) {
+                clearCustomerResults();
+
+                if (!customerResultListElement) {
+                    return;
+                }
+
+                const results = Array.isArray(data.results) ? data.results : [];
+
+                if (results.length === 0) {
+                    setCustomerStatus('Pelanggan tidak ditemukan.', 'text-muted');
+                    return;
+                }
+
+                results.forEach((customer) => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'list-group-item list-group-item-action list-group-item-light py-1 px-2';
+
+                    const displayName = escapeHtml(customer.display_name || customer.customer_name || '-');
+                    const phone = escapeHtml(customer.customer_phone || '-');
+
+                    button.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="small">${displayName}</span>
+                            <span class="small text-muted">${phone}</span>
+                        </div>
+                    `;
+
+                    button.addEventListener('click', async function () {
+                        try {
+                            await updateCustomerSelection(customer.id);
+                            clearCustomerResults();
+                            if (customerSearchInput) {
+                                customerSearchInput.value = '';
+                            }
+                            setCustomerStatus('Pelanggan berhasil dipilih.', 'text-success');
+                        } catch (error) {
+                            setCustomerStatus(error.message || 'Gagal memilih pelanggan.', 'text-danger');
+                        }
+                    });
+
+                    customerResultListElement.appendChild(button);
+                });
+            }
+
+            async function executeCustomerSearch(query) {
+                latestCustomerRequestId += 1;
+                const requestId = latestCustomerRequestId;
+                setCustomerStatus('Mencari pelanggan...', 'text-muted');
+
+                const url = new URL(customerSearchEndpoint, window.location.origin);
+                url.searchParams.set('q', query);
+                url.searchParams.set('limit', '8');
+
+                try {
+                    const response = await fetch(url.toString(), {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    });
+
+                    if (response.redirected) {
+                        window.location.href = response.url;
+                        return;
+                    }
+
+                    if (!response.ok) {
+                        throw new Error('Customer search failed.');
+                    }
+
+                    const data = await response.json();
+
+                    if (requestId !== latestCustomerRequestId) {
+                        return;
+                    }
+
+                    renderCustomerSearchResults(data);
+                } catch (error) {
+                    if (requestId !== latestCustomerRequestId) {
+                        return;
+                    }
+
+                    clearCustomerResults();
+                    setCustomerStatus('Pencarian pelanggan gagal.', 'text-danger');
+                }
+            }
+
             function buildLineRow(line) {
                 const serialBadge = line.serial_number_required
                     ? '<span class="badge badge-warning ml-1">Perlu Serial</span>'
@@ -382,6 +562,7 @@
                 renderTotals(snapshot);
                 renderMeta(snapshot);
                 renderBillDiscount(snapshot);
+                renderCustomer(snapshot);
             }
 
             async function refreshCart() {
@@ -538,6 +719,42 @@
                     executeSearch(query);
                 }, 250);
             });
+
+            if (customerSearchInput) {
+                customerSearchInput.addEventListener('input', function (event) {
+                    const query = (event.target.value || '').trim();
+
+                    if (customerDebounceHandle) {
+                        clearTimeout(customerDebounceHandle);
+                    }
+
+                    if (query.length === 0) {
+                        latestCustomerRequestId += 1;
+                        clearCustomerResults();
+                        setCustomerStatus('', 'text-muted');
+                        return;
+                    }
+
+                    customerDebounceHandle = setTimeout(function () {
+                        executeCustomerSearch(query);
+                    }, 250);
+                });
+            }
+
+            if (customerClearButton) {
+                customerClearButton.addEventListener('click', async function () {
+                    try {
+                        await updateCustomerSelection(null);
+                        clearCustomerResults();
+                        if (customerSearchInput) {
+                            customerSearchInput.value = '';
+                        }
+                        setCustomerStatus('Menggunakan customer walk-in default.', 'text-success');
+                    } catch (error) {
+                        setCustomerStatus(error.message || 'Gagal mengubah pelanggan.', 'text-danger');
+                    }
+                });
+            }
 
             if (scanFeedbackButton) {
                 scanFeedbackButton.addEventListener('click', function () {

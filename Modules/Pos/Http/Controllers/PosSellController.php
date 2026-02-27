@@ -10,9 +10,11 @@ use Illuminate\Routing\Controller;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Http\Requests\StorePosCartLineRequest;
 use Modules\Pos\Http\Requests\StorePosCartPriceOverrideRequest;
+use Modules\Pos\Http\Requests\UpdatePosCartCustomerRequest;
 use Modules\Pos\Http\Requests\UpdatePosCartDiscountRequest;
 use Modules\Pos\Http\Requests\UpdatePosCartLineRequest;
 use Modules\Pos\Services\PosCartService;
+use Modules\Pos\Services\PosCustomerSearchService;
 use Modules\Pos\Services\PosProductSearchService;
 
 class PosSellController extends Controller
@@ -44,6 +46,24 @@ class PosSellController extends Controller
 
         $settingId = (int) session('setting_id');
         abort_if($settingId <= 0, 403, 'Setting context is required.');
+
+        $payload = $searchService->search(
+            $settingId,
+            (string) $validated['q'],
+            (int) ($validated['limit'] ?? 10)
+        );
+
+        return response()->json($payload);
+    }
+
+    public function customerSearch(Request $request, PosCustomerSearchService $searchService): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => ['required', 'string', 'max:255'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:20'],
+        ]);
+
+        $settingId = $this->currentSettingId();
 
         $payload = $searchService->search(
             $settingId,
@@ -190,6 +210,29 @@ class PosSellController extends Controller
         $settingId = $this->currentSettingId();
         $sessionId = $this->activeSessionId($request);
         $snapshot = $cartService->clear($settingId, $sessionId);
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function cartUpdateCustomer(
+        UpdatePosCartCustomerRequest $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+        $customerId = $request->filled('customer_id') ? (int) $request->input('customer_id') : null;
+
+        try {
+            $snapshot = $cartService->updateCustomerSelection(
+                $settingId,
+                $sessionId,
+                $customerId
+            );
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
 
         return response()->json(['cart_snapshot' => $snapshot]);
     }

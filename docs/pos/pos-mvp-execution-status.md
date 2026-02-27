@@ -11,10 +11,10 @@ Primary docs:
 ## Summary
 
 - Overall status: `in-progress`
-- Current milestone: `Milestone 2 - POS Checkout Shell and Cart`
-- Current task: `POS-MVP-012`
-- Next proposed task: `POS-MVP-012`
-- Last updated: 2026-02-27 13:32 WITA
+- Current milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
+- Current task: `POS-MVP-013`
+- Next proposed task: `POS-MVP-013`
+- Last updated: 2026-02-27 15:36 WITA
 
 ## Milestone Tracker
 
@@ -22,29 +22,29 @@ Primary docs:
 | --- | --- | --- |
 | 0 - Foundations and Safety Rails | done | `POS-MVP-001` to `POS-MVP-003` completed |
 | 1 - POS Session and Cash Control Core | done | `POS-MVP-004` to `POS-MVP-008` completed |
-| 2 - POS Checkout Shell and Cart | in-progress | `POS-MVP-009` to `POS-MVP-011` completed, proceed to `POS-MVP-012` |
-| 3 - Hybrid Posting and Immediate Stock Deduction | pending | |
+| 2 - POS Checkout Shell and Cart | done | `POS-MVP-009` to `POS-MVP-012` completed |
+| 3 - Hybrid Posting and Immediate Stock Deduction | in-progress | proceed to `POS-MVP-013` |
 | 4 - Payments, Receipt, and Cashier Finish Flow | pending | |
 | 5 - Supervisor Monitoring, Reports, and Reconciliation | pending | |
 | 6 - Hardening, UAT, and Controlled Enablement | pending | |
 
 ## Active Task Plan
 
-- Task ID: `POS-MVP-012`
-- Milestone: `Milestone 2 - POS Checkout Shell and Cart`
+- Task ID: `POS-MVP-013`
+- Milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
 - Status: `pending`
-- Scope: Implement walk-in/default customer resolution and optional customer selection flow on top of completed `POS-MVP-011` cart API.
+- Scope: Implement checkout finalization service skeleton with idempotency guard on top of completed `POS-MVP-012` customer/cart context.
 - Acceptance criteria (draft):
-  - POS checkout always resolves a valid customer ID using business-scoped walk-in fallback
-  - cashier can keep customer optional unless explicitly selected
-  - missing walk-in mapping returns clear configuration error before finalization
+  - finalization service is wrapped in DB transaction boundary
+  - idempotency key is required and duplicate submit returns deterministic replay/conflict response
+  - failed posting attempts are observable and do not leave partial records
 - Out of scope:
-  - payment posting/finalization logic (`POS-MVP-013+`)
-  - receipt generation and settlement capture (`POS-MVP-019+`)
+  - stock source resolver fallback (`POS-MVP-014`)
+  - tax-by-source snapshot and serial validation orchestration (`POS-MVP-017`, `POS-MVP-018`)
 - Tests to write first:
-  - `Modules/Pos/Tests/Feature/POSWalkInCustomerSelectionTest.php`
+  - `Modules/Pos/Tests/Feature/POSCheckoutFinalizeIdempotencyTest.php`
 - Dependencies:
-  - `POS-MVP-011`
+  - `POS-MVP-012`
 
 ## Task Log (Append Entries)
 
@@ -493,6 +493,54 @@ Primary docs:
   - tax shown in shell is estimated from product tax setup and will be finalized by source-allocation logic in later milestones
   - supervisor PIN still uses existing password-as-PIN surrogate until dedicated PIN credential model is implemented
 - Next proposed task: `POS-MVP-012`
+
+### 2026-02-27 - POS-MVP-012 - Status: done
+
+- Milestone: `Milestone 2 - POS Checkout Shell and Cart`
+- Acceptance criteria summary:
+  - business-scoped walk-in mapping is now persisted at `settings.pos_walk_in_customer_id` with strict same-setting validation
+  - POS sell shell now supports optional customer search/select/clear while preserving deterministic cart totals (no repricing)
+  - cart snapshot now exposes resolver payload (`selected/default/unresolved`) so finalization can always consume resolved customer ID or explicit configuration error
+- Tests written first:
+  - `Modules/Pos/Tests/Feature/POSWalkInCustomerSelectionTest.php`
+  - `Modules/Setting/Tests/Feature/SettingsWalkInCustomerMappingTest.php`
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSWalkInCustomerSelectionTest.php Modules/Setting/Tests/Feature/SettingsWalkInCustomerMappingTest.php`
+  - result: failed baseline before implementation (`pos.sell.customers.search` route missing and `settings.pos_walk_in_customer_id` column absent)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSWalkInCustomerSelectionTest.php`
+  - result: pass (6 tests, 29 assertions)
+  - command: `php artisan test Modules/Setting/Tests/Feature/SettingsWalkInCustomerMappingTest.php`
+  - result: pass (3 tests, 8 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSCartTotalsDisplayTest.php`
+  - result: pass (6 tests, 43 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSProductSearchScanTest.php`
+  - result: pass (6 tests, 31 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (76 tests, 325 assertions)
+  - command: `php artisan test Modules/Setting/Tests/Feature/SaleLocationConfigurationTest.php`
+  - result: pass (6 tests, 25 assertions)
+- Changed files:
+  - `Modules/Pos/Http/Controllers/PosSellController.php`
+  - `Modules/Pos/Http/Requests/UpdatePosCartCustomerRequest.php`
+  - `Modules/Pos/Resources/views/sell.blade.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/PosCartService.php`
+  - `Modules/Pos/Services/PosCartSessionStore.php`
+  - `Modules/Pos/Services/PosCheckoutCustomerResolverService.php`
+  - `Modules/Pos/Services/PosCustomerSearchService.php`
+  - `Modules/Pos/Tests/Feature/POSWalkInCustomerSelectionTest.php`
+  - `Modules/Setting/Database/Migrations/2026_08_13_000300_add_pos_walk_in_customer_id_to_settings_table.php`
+  - `Modules/Setting/Entities/Setting.php`
+  - `Modules/Setting/Http/Controllers/SettingController.php`
+  - `Modules/Setting/Http/Requests/StoreSettingsRequest.php`
+  - `Modules/Setting/Resources/views/index.blade.php`
+  - `Modules/Setting/Tests/Feature/SettingsWalkInCustomerMappingTest.php`
+  - `docs/pos/pos-mvp-execution-status.md`
+- Risks / follow-ups:
+  - customer resolver currently surfaces unresolved configuration state in cart snapshot, but enforcement at payment-confirm still depends on `POS-MVP-013` finalization path
+  - sell shell customer selector is text-search dropdown and does not yet include quick-add customer flow (explicitly deferred)
+  - setting-level walk-in mapping depends on customer master data hygiene per business; operations SOP should define who owns this configuration
+- Next proposed task: `POS-MVP-013`
 
 ## Blockers / Decisions Needed
 

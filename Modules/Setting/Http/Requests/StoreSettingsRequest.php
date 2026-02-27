@@ -4,6 +4,7 @@ namespace Modules\Setting\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 
 class StoreSettingsRequest extends FormRequest
 {
@@ -28,6 +29,13 @@ class StoreSettingsRequest extends FormRequest
             'company_address' => 'required|string|max:500',
             'is_pkp' => 'nullable|boolean',
             'pos_enabled' => 'nullable|boolean',
+            'pos_walk_in_customer_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('customers', 'id')->where(static function ($query) use ($currentSettingId) {
+                    $query->where('setting_id', $currentSettingId);
+                }),
+            ],
             'footer_text' => 'nullable|string|max:255',
         ];
     }

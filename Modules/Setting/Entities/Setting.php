@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\People\Entities\Customer;
 use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Currency\Entities\Currency;
 
@@ -26,6 +27,7 @@ class Setting extends BaseModel
     protected $casts = [
         'is_pkp' => 'boolean',
         'pos_enabled' => 'boolean',
+        'pos_walk_in_customer_id' => 'integer',
     ];
 
     protected $with = ['currency'];
@@ -52,6 +54,11 @@ class Setting extends BaseModel
     public function saleLocationAssignments(): HasMany
     {
         return $this->hasMany(SettingSaleLocation::class);
+    }
+
+    public function posWalkInCustomer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'pos_walk_in_customer_id');
     }
 
 }

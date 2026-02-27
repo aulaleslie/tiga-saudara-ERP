@@ -7,6 +7,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Modules\People\Entities\Customer;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Http\Requests\StoreSettingsRequest;
 use Modules\Setting\Http\Requests\StoreSmtpSettingsRequest;
@@ -19,8 +20,13 @@ class SettingController extends Controller
 
         $currentSettingId = session('setting_id');
         $settings = Setting::findOrFail($currentSettingId);
+        $walkInCustomerOptions = Customer::query()
+            ->where('setting_id', $currentSettingId)
+            ->orderBy('customer_name')
+            ->orderBy('id')
+            ->get(['id', 'customer_name', 'contact_name', 'customer_phone']);
 
-        return view('setting::index', compact('settings'));
+        return view('setting::index', compact('settings', 'walkInCustomerOptions'));
     }
 
 
@@ -43,6 +49,9 @@ class SettingController extends Controller
             'purchase_return_prefix_document' => $request->purchase_return_prefix_document,
             'sale_return_prefix_document' => $request->sale_return_prefix_document,
             'pos_enabled'              => $request->boolean('pos_enabled'),
+            'pos_walk_in_customer_id'  => $request->input('pos_walk_in_customer_id') !== null
+                ? (int) $request->input('pos_walk_in_customer_id')
+                : null,
         ];
 
         // Uppercase text-type columns
@@ -87,6 +96,7 @@ class SettingController extends Controller
                 'purchase_return_prefix_document',
                 'sale_return_prefix_document',
                 'pos_enabled',
+                'pos_walk_in_customer_id',
             ];
 
             $current = session('user_settings');

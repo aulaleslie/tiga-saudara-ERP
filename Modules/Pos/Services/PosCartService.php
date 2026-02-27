@@ -5,6 +5,7 @@ namespace Modules\Pos\Services;
 use App\Support\SalesLocationResolver;
 use DomainException;
 use Illuminate\Support\Facades\DB;
+use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Setting\Entities\Setting;
@@ -15,7 +16,8 @@ class PosCartService
     public function __construct(
         private readonly PosCartSessionStore $cartSessionStore,
         private readonly PosCartTotalsCalculator $totalsCalculator,
-        private readonly PosSupervisorApprovalService $approvalService
+        private readonly PosSupervisorApprovalService $approvalService,
+        private readonly PosCheckoutCustomerResolverService $customerResolver
     ) {
     }
 
@@ -164,6 +166,30 @@ class PosCartService
     /**
      * @return array<string, mixed>
      */
+    public function updateCustomerSelection(int $settingId, int $sessionId, ?int $customerId): array
+    {
+        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+
+        if ($customerId !== null) {
+            $isValidCustomer = Customer::query()
+                ->where('setting_id', $settingId)
+                ->whereKey($customerId)
+                ->exists();
+
+            if (! $isValidCustomer) {
+                throw new DomainException('Selected customer is not valid for active setting.');
+            }
+        }
+
+        $cart['selected_customer_id'] = $customerId;
+        $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
+
+        return $this->buildSnapshot($settingId, $sessionId, $cart);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     public function overrideLinePrice(
         int $settingId,
         int $sessionId,
@@ -230,6 +256,8 @@ class PosCartService
     {
         $isPkp = (bool) (Setting::query()->whereKey($settingId)->value('is_pkp') ?? false);
         $lines = array_values($cart['lines'] ?? []);
+        $selectedCustomerId = isset($cart['selected_customer_id']) ? (int) $cart['selected_customer_id'] : null;
+        $selectedCustomerId = $selectedCustomerId > 0 ? $selectedCustomerId : null;
 
         $calculated = $this->totalsCalculator->calculate(
             lines: $lines,
@@ -244,6 +272,7 @@ class PosCartService
             fn (array $line): int => max(0, (int) ($line['qty'] ?? 0)),
             $calculated['lines']
         ));
+        $customerResolution = $this->customerResolver->resolve($settingId, $selectedCustomerId);
 
         return [
             'setting_id' => $settingId,
@@ -254,6 +283,7 @@ class PosCartService
                 'value' => round((float) ($cart['bill_discount_value'] ?? 0), 2),
             ],
             'totals' => $calculated['totals'],
+            'customer' => $customerResolution,
             'meta' => [
                 'line_count' => count($calculated['lines']),
                 'total_qty' => $totalQty,

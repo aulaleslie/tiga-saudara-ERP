@@ -10,7 +10,8 @@ class PosCartSessionStore
      *     session_id:int,
      *     lines:array<int|string, array<string, mixed>>,
      *     bill_discount_type:string,
-     *     bill_discount_value:float
+     *     bill_discount_value:float,
+     *     selected_customer_id:int|null
      * }
      */
     public function getCart(int $settingId, int $sessionId): array
@@ -30,6 +31,9 @@ class PosCartSessionStore
                 ? 'percentage'
                 : 'fixed',
             'bill_discount_value' => (float) ($stored['bill_discount_value'] ?? 0),
+            'selected_customer_id' => isset($stored['selected_customer_id'])
+                ? (int) $stored['selected_customer_id']
+                : null,
         ];
     }
 
@@ -39,7 +43,8 @@ class PosCartSessionStore
      *     session_id?:int,
      *     lines?:array<int|string, array<string, mixed>>,
      *     bill_discount_type?:string,
-     *     bill_discount_value?:float|int|string
+     *     bill_discount_value?:float|int|string,
+     *     selected_customer_id?:int|null
      * }  $cart
      */
     public function putCart(int $settingId, int $sessionId, array $cart): void
@@ -52,6 +57,9 @@ class PosCartSessionStore
                 ? 'percentage'
                 : 'fixed',
             'bill_discount_value' => (float) ($cart['bill_discount_value'] ?? 0),
+            'selected_customer_id' => isset($cart['selected_customer_id'])
+                ? (int) $cart['selected_customer_id']
+                : null,
         ]);
     }
 
@@ -66,7 +74,8 @@ class PosCartSessionStore
      *     session_id:int,
      *     lines:array<int|string, array<string, mixed>>,
      *     bill_discount_type:string,
-     *     bill_discount_value:float
+     *     bill_discount_value:float,
+     *     selected_customer_id:int|null
      * }
      */
     public function emptyCart(int $settingId, int $sessionId): array
@@ -77,6 +86,7 @@ class PosCartSessionStore
             'lines' => [],
             'bill_discount_type' => 'fixed',
             'bill_discount_value' => 0.0,
+            'selected_customer_id' => null,
         ];
     }
 

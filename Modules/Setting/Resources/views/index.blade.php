@@ -117,6 +117,28 @@
                                         </div>
                                     </div>
                                 </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="pos_walk_in_customer_id">Pelanggan Walk-In POS</label>
+                                        <select class="form-control" id="pos_walk_in_customer_id" name="pos_walk_in_customer_id">
+                                            <option value="">Belum diatur</option>
+                                            @foreach($walkInCustomerOptions as $customerOption)
+                                                @php
+                                                    $displayName = $customerOption->contact_name
+                                                        ? $customerOption->contact_name . ' - ' . $customerOption->customer_name
+                                                        : $customerOption->customer_name;
+                                                @endphp
+                                                <option value="{{ $customerOption->id }}"
+                                                    {{ (string) old('pos_walk_in_customer_id', $settings->pos_walk_in_customer_id) === (string) $customerOption->id ? 'selected' : '' }}>
+                                                    {{ $displayName }}{{ $customerOption->customer_phone ? ' (' . $customerOption->customer_phone . ')' : '' }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        <small class="form-text text-muted">
+                                            Digunakan sebagai pelanggan default saat kasir tidak memilih pelanggan pada POS.
+                                        </small>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-row">

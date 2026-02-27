@@ -25,6 +25,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sell', 'pos.session.active']], function () {
     Route::get('/pos/sell', [PosSellController::class, 'index'])->name('pos.sell');
     Route::get('/pos/sell/products/search', [PosSellController::class, 'search'])->name('pos.sell.products.search');
+    Route::get('/pos/sell/customers/search', [PosSellController::class, 'customerSearch'])->name('pos.sell.customers.search');
 
     Route::get('/pos/sell/cart', [PosSellController::class, 'cartShow'])->name('pos.sell.cart.show');
     Route::post('/pos/sell/cart/lines', [PosSellController::class, 'cartStoreLine'])->name('pos.sell.cart.lines.store');
@@ -39,6 +40,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
         ->whereNumber('lineId')
         ->name('pos.sell.cart.lines.price-override');
     Route::delete('/pos/sell/cart', [PosSellController::class, 'cartClear'])->name('pos.sell.cart.clear');
+    Route::patch('/pos/sell/cart/customer', [PosSellController::class, 'cartUpdateCustomer'])->name('pos.sell.cart.customer.update');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'can:pos.terminals.access']], function () {
