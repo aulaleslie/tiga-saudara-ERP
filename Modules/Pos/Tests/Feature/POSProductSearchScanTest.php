@@ -3,11 +3,13 @@
 namespace Modules\Pos\Tests\Feature;
 
 use App\Models\User;
+use App\Support\SalesLocationResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Currency\Entities\Currency;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
+// Removed redundant import
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
@@ -307,7 +309,7 @@ class POSProductSearchScanTest extends TestCase
         );
 
         $terminal = $this->createTerminalForSetting($setting);
-        $allowedLocation = Location::query()->findOrFail($terminal->location_id);
+        $allowedLocation = SalesLocationResolver::resolve((int) $terminal->setting_id);
 
         PosSession::create([
             'setting_id' => $setting->id,
@@ -333,11 +335,12 @@ class POSProductSearchScanTest extends TestCase
             'setting_id' => $setting->id,
         ]);
 
+        SalesLocationResolver::forget($setting->id);
+
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'POS-SEARCH-' . str_pad((string) $sequence, 2, '0', STR_PAD_LEFT),
             'name' => 'POS Search Terminal ' . $sequence,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

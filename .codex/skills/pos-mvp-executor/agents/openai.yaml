@@ -1,4 +1,0 @@
-interface:
-  display_name: "POS MVP Executor"
-  short_description: "TDD POS MVP execution with milestone tracking"
-  default_prompt: "Use $pos-mvp-executor to plan and execute the POS MVP in small TDD tasks with acceptance checks and progress tracking."

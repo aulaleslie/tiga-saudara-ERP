@@ -209,16 +209,10 @@ class POSCashDrawerHookTest extends TestCase
     {
         $sequence = $this->terminalSequence++;
 
-        $location = Location::create([
-            'name' => 'DRAWER TEST COUNTER ' . $sequence,
-            'setting_id' => $setting->id,
-        ]);
-
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'DRAWER-' . str_pad((string) $sequence, 2, '0', STR_PAD_LEFT),
             'name' => 'Drawer Test Terminal ' . $sequence,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

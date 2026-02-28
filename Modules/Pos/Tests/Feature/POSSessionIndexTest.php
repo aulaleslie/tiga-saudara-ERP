@@ -157,6 +157,75 @@ class POSSessionIndexTest extends TestCase
         $response->assertDontSee('AKTIF');
     }
 
+    public function test_index_supports_terminal_id_filtering(): void
+    {
+        $setting = $this->createSetting('BIZ INDEX E');
+        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sessions.view']);
+
+        $terminal1 = $this->createTerminalWithCode($setting, 'TRM-01');
+        $terminal2 = $this->createTerminalWithCode($setting, 'TRM-02');
+
+        // Session for terminal 1
+        PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => $terminal1->id,
+            'cashier_user_id' => $user->id,
+            'status' => 'OPEN',
+            'opened_at' => now(),
+            'opened_by' => $user->id,
+            'active_marker' => 1,
+        ]);
+
+        // Session for terminal 2
+        PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => $terminal2->id,
+            'cashier_user_id' => $user->id,
+            'status' => 'CLOSED',
+            'opened_at' => now()->subDay(),
+            'opened_by' => $user->id,
+        ]);
+
+        // Filter for terminal 1
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.index', ['terminal_id' => $terminal1->id]));
+
+        $response->assertSee('TRM-01');
+        $response->assertDontSee('TRM-02');
+        $response->assertSee('Terminal: TRM-01');
+
+        // Filter for terminal 2
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.index', ['terminal_id' => $terminal2->id]));
+
+        $response->assertSee('TRM-02');
+        $response->assertDontSee('TRM-01');
+        $response->assertSee('Terminal: TRM-02');
+    }
+
+    private function createTerminalWithCode(Setting $setting, string $code): PosTerminal
+    {
+        $terminal = PosTerminal::create([
+            'setting_id' => $setting->id,
+            'code' => $code,
+            'name' => 'Terminal ' . $code,
+            'is_active' => true,
+        ]);
+
+        PosTerminalPolicy::create([
+            'terminal_id' => $terminal->id,
+            'require_session_open' => true,
+            'require_opening_float' => true,
+            'allow_total_only_float_input' => true,
+            'close_variance_approval_threshold' => 0,
+            'require_pickup_supervisor_approval' => true,
+        ]);
+
+        return $terminal;
+    }
+
     private function createSetting(string $name): Setting
     {
         return Setting::create([
@@ -189,16 +258,10 @@ class POSSessionIndexTest extends TestCase
 
     private function createTerminal(Setting $setting): PosTerminal
     {
-        $location = Location::create([
-            'name' => 'Loc_' . uniqid(),
-            'setting_id' => $setting->id,
-        ]);
-
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'T1',
             'name' => 'Terminal 1',
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

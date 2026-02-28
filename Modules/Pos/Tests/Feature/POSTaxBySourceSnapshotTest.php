@@ -351,7 +351,6 @@ class POSTaxBySourceSnapshotTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'TERM-' . $this->sequence++,
             'name' => 'Terminal ' . $this->sequence,
-            'location_id' => $locationId,
             'is_active' => true,
         ]);
 

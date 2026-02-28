@@ -267,7 +267,7 @@ class POSLiveSessionMonitorTest extends TestCase
         $sequence = $this->terminalSequence++;
 
         $location = Location::create([
-            'name' => 'SUMMARY COUNTER ' . $sequence,
+            'name' => 'MONITOR LOC ' . $sequence,
             'setting_id' => $setting->id,
         ]);
 
@@ -275,7 +275,6 @@ class POSLiveSessionMonitorTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'MONITOR-' . str_pad((string) $sequence, 2, '0', STR_PAD_LEFT),
             'name' => $terminalName,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

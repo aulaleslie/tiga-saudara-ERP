@@ -277,7 +277,7 @@ class POSExpectedCashCalculatorTest extends TestCase
         $sequence = $this->terminalSequence++;
 
         $location = Location::create([
-            'name' => 'SUMMARY COUNTER ' . $sequence,
+            'name' => 'SUMMARY LOC ' . $sequence,
             'setting_id' => $setting->id,
         ]);
 
@@ -285,7 +285,6 @@ class POSExpectedCashCalculatorTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'SUMMARY-' . str_pad((string) $sequence, 2, '0', STR_PAD_LEFT),
             'name' => 'Summary Terminal ' . $sequence,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

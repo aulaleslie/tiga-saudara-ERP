@@ -3,6 +3,7 @@
 namespace Modules\Pos\Tests\Feature;
 
 use App\Models\User;
+use App\Support\SalesLocationResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Customer;
@@ -245,7 +246,7 @@ class POSWalkInCustomerSelectionTest extends TestCase
         );
 
         $terminal = $this->createTerminalForSetting($setting);
-        $location = Location::query()->findOrFail($terminal->location_id);
+        $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
 
         $session = PosSession::create([
             'setting_id' => $setting->id,
@@ -271,11 +272,12 @@ class POSWalkInCustomerSelectionTest extends TestCase
             'setting_id' => $setting->id,
         ]);
 
+        SalesLocationResolver::forget($setting->id);
+
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'POS-CUST-' . str_pad((string) $sequence, 2, '0', STR_PAD_LEFT),
             'name' => 'POS Customer Terminal ' . $sequence,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

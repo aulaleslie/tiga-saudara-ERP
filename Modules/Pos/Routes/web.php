@@ -80,7 +80,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
         ->name('pos.sell.cart.lines.serials.store');
 });
 
-Route::group(['middleware' => ['auth', 'role.setting', 'can:pos.terminals.access']], function () {
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.terminals.access']], function () {
     Route::get('/pos/terminals', [PosTerminalController::class, 'index'])->name('pos.terminals.index');
 
     Route::group(['middleware' => ['can:pos.terminals.edit']], function () {

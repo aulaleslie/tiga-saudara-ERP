@@ -3,6 +3,7 @@
 namespace Modules\Pos\Tests\Feature;
 
 use App\Models\User;
+use App\Support\SalesLocationResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +14,7 @@ use Modules\Pos\Entities\PosReceiptPrintLog;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
+// Removed redundant import
 use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
@@ -223,7 +225,7 @@ class POSReceiptGenerationTest extends TestCase
         $setting = $this->createSetting($prefix);
         $cashier = $this->createUserForSetting($setting, $prefix . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $terminal = $this->createTerminalForSetting($setting);
-        $location = Location::query()->findOrFail($terminal->location_id);
+        $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
 
         /** @var PosSessionLifecycleService $sessionLifecycle */
         $sessionLifecycle = app(PosSessionLifecycleService::class);
@@ -285,15 +287,16 @@ class POSReceiptGenerationTest extends TestCase
         $index = $this->sequence++;
 
         $location = Location::create([
-            'name' => 'POS CHECKOUT LOC ' . $index,
+            'name' => 'POS RECEIPT LOC ' . $index,
             'setting_id' => $setting->id,
         ]);
+
+        SalesLocationResolver::forget($setting->id);
 
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'POS-CHECKOUT-' . str_pad((string) $index, 2, '0', STR_PAD_LEFT),
             'name' => 'POS Checkout Terminal ' . $index,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

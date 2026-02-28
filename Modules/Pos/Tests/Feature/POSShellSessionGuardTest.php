@@ -220,16 +220,10 @@ class POSShellSessionGuardTest extends TestCase
     {
         $sequence = $this->terminalSequence++;
 
-        $location = Location::create([
-            'name' => 'SHELL LOC ' . $sequence,
-            'setting_id' => $setting->id,
-        ]);
-
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'SHELL-' . str_pad((string) $sequence, 2, '0', STR_PAD_LEFT),
             'name' => 'Shell Terminal ' . $sequence,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

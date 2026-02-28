@@ -14,14 +14,21 @@ class PosTerminalController extends Controller
     public function index(): Renderable
     {
         $settingId = $this->currentSettingId();
+        $setting = settings();
 
         $terminals = PosTerminal::query()
-            ->with('policy')
+            ->with(['policy', 'activeSessions.cashier'])
             ->where('setting_id', $settingId)
             ->orderBy('code')
             ->get();
 
-        return view('pos::terminals.index', compact('terminals'));
+        $saleLocations = \Modules\Setting\Entities\SettingSaleLocation::query()
+            ->with('location')
+            ->where('setting_id', $settingId)
+            ->orderBy('position')
+            ->get();
+
+        return view('pos::terminals.index', compact('terminals', 'setting', 'saleLocations'));
     }
 
     public function create(): Renderable
@@ -116,7 +123,6 @@ class PosTerminalController extends Controller
     private function policyPayload(StorePosTerminalRequest|UpdatePosTerminalRequest $request): array
     {
         return [
-            'require_session_open' => $request->boolean('require_session_open', true),
             'require_opening_float' => $request->boolean('require_opening_float', true),
             'allow_total_only_float_input' => $request->boolean('allow_total_only_float_input', true),
             'close_variance_approval_threshold' => (float) ($request->input('close_variance_approval_threshold', 0)),

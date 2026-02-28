@@ -384,9 +384,8 @@ class POSReportingPackTest extends TestCase
 
     private function createCheckout(int $settingId, int $cashierId, string $date, float $amount, string $paymentMethod, ?int $saleId = null): PosCheckout
     {
-        $location = Location::firstOrCreate(['setting_id' => $settingId], ['name' => 'Main']);
         $terminal = PosTerminal::firstOrCreate(['setting_id' => $settingId], [
-            'code' => 'T1', 'name' => 'T1', 'location_id' => $location->id, 'is_active' => true
+            'code' => 'T1', 'name' => 'T1', 'is_active' => true
         ]);
         $session = PosSession::firstOrCreate(['setting_id' => $settingId, 'cashier_user_id' => $cashierId], [
             'terminal_id' => $terminal->id, 'opening_float_total' => 0, 'status' => 'CLOSED', 

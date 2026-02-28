@@ -155,7 +155,6 @@ class POSRouteFeatureFlagTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'SESSION-' . $setting->id . '-' . $user->id,
             'name' => 'Session Terminal',
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

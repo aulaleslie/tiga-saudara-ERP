@@ -144,7 +144,7 @@
     $canAccessPosOperations = $posEnabledForCurrentSetting
         && auth()->user()->can('pos.access')
         && auth()->user()->canAny(['pos.sell', 'pos.sessions.view', 'pos.monitor.access', 'pos.reports.access', 'pos.reconciliation.access']);
-    $canAccessPosTerminals = auth()->user()->can('pos.terminals.access');
+    $canAccessPosTerminals = $posEnabledForCurrentSetting && auth()->user()->can('pos.terminals.access');
 @endphp
 
 @if($canAccessPosOperations || $canAccessPosTerminals)

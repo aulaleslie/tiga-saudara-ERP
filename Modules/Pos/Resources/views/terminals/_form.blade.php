@@ -49,10 +49,6 @@
 <div class="row">
     <div class="col-md-4">
         <div class="form-check mb-2">
-            <input type="checkbox" class="form-check-input" id="require_session_open" name="require_session_open" value="1" @checked($checkboxValue('require_session_open', true))>
-            <label class="form-check-label" for="require_session_open">Wajib buka sesi</label>
-        </div>
-        <div class="form-check mb-2">
             <input type="checkbox" class="form-check-input" id="require_opening_float" name="require_opening_float" value="1" @checked($checkboxValue('require_opening_float', true))>
             <label class="form-check-label" for="require_opening_float">Wajib saldo awal</label>
         </div>

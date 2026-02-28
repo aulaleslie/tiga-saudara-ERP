@@ -96,16 +96,10 @@ class POSPermissionRoleMappingTest extends TestCase
     public function test_terminal_read_requires_pos_terminals_access_and_write_requires_pos_terminals_edit(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $location = Location::create([
-            'name' => 'COUNTER A',
-            'setting_id' => $setting->id,
-        ]);
-
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'COUNTER-01',
             'name' => 'Terminal A',
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 
@@ -160,7 +154,7 @@ class POSPermissionRoleMappingTest extends TestCase
         $settingB = $this->createSetting('BIZ B');
 
         $locationB = Location::create([
-            'name' => 'B-LOC',
+            'name' => 'LOC B',
             'setting_id' => $settingB->id,
         ]);
 
@@ -168,7 +162,6 @@ class POSPermissionRoleMappingTest extends TestCase
             'setting_id' => $settingB->id,
             'code' => 'COUNTER-B',
             'name' => 'Terminal B',
-            'location_id' => $locationB->id,
             'is_active' => true,
         ]);
 
@@ -230,7 +223,6 @@ class POSPermissionRoleMappingTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'SESSION-' . $setting->id . '-' . $user->id,
             'name' => 'Session Terminal',
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

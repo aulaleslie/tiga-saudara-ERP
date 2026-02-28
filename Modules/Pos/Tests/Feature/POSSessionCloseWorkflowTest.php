@@ -403,7 +403,7 @@ class POSSessionCloseWorkflowTest extends TestCase
         $sequence = $this->terminalSequence++;
 
         $location = Location::create([
-            'name' => 'CLOSE COUNTER ' . $sequence,
+            'name' => 'CLOSE LOC ' . $sequence,
             'setting_id' => $setting->id,
         ]);
 
@@ -411,7 +411,6 @@ class POSSessionCloseWorkflowTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'CLOSE-' . str_pad((string) $sequence, 2, '0', STR_PAD_LEFT),
             'name' => 'Close Terminal ' . $sequence,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

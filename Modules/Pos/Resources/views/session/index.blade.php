@@ -18,10 +18,19 @@
         <div class="card shadow mb-4">
             <div class="card-header py-3 d-flex flex-wrap align-items-center">
                 <div class="btn-group mb-2 mb-md-0 me-3">
-                    <a href="{{ route('pos.sessions.index') }}" class="btn btn-sm {{ is_null($status) ? 'btn-primary' : 'btn-outline-primary' }}">Semua</a>
-                    <a href="{{ route('pos.sessions.index', ['status' => 'OPEN']) }}" class="btn btn-sm {{ $status === 'OPEN' ? 'btn-primary' : 'btn-outline-primary' }}">Aktif</a>
-                    <a href="{{ route('pos.sessions.index', ['status' => 'CLOSED']) }}" class="btn btn-sm {{ $status === 'CLOSED' ? 'btn-primary' : 'btn-outline-primary' }}">Selesai</a>
+                    <a href="{{ route('pos.sessions.index', ['terminal_id' => request('terminal_id')]) }}" class="btn btn-sm {{ is_null($status) ? 'btn-primary' : 'btn-outline-primary' }}">Semua</a>
+                    <a href="{{ route('pos.sessions.index', ['status' => 'OPEN', 'terminal_id' => request('terminal_id')]) }}" class="btn btn-sm {{ $status === 'OPEN' ? 'btn-primary' : 'btn-outline-primary' }}">Aktif</a>
+                    <a href="{{ route('pos.sessions.index', ['status' => 'CLOSED', 'terminal_id' => request('terminal_id')]) }}" class="btn btn-sm {{ $status === 'CLOSED' ? 'btn-primary' : 'btn-outline-primary' }}">Selesai</a>
                 </div>
+
+                @if($terminalFilter)
+                    <span class="badge bg-info text-dark me-2 mb-2 mb-md-0 d-inline-flex align-items-center">
+                        Terminal: {{ $terminalFilter->code }} - {{ $terminalFilter->name }}
+                        <a href="{{ route('pos.sessions.index', ['status' => $status]) }}" class="text-dark ms-2 text-decoration-none" title="Hapus filter">
+                            <i class="bi bi-x-circle-fill"></i>
+                        </a>
+                    </span>
+                @endif
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">

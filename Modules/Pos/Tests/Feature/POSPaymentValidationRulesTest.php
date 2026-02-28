@@ -324,7 +324,7 @@ class POSPaymentValidationRulesTest extends TestCase
         $cashier->settings()->attach($setting->id, ['role_id' => $role->id]);
 
         $location = Location::create([
-            'name' => 'Loc ' . $name,
+            'name' => 'LOC ' . $name,
             'setting_id' => $setting->id,
         ]);
 
@@ -332,7 +332,6 @@ class POSPaymentValidationRulesTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'T-' . substr($name, 0, 5),
             'name' => 'Terminal ' . $name,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

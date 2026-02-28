@@ -50,7 +50,9 @@ class PosSessionLifecycleService
 
             $openingTotal = round($openingFloatTotal, 2);
 
-            if ($openingTotal <= 0) {
+            $requireOpeningFloat = (bool) $terminal->policy->require_opening_float;
+
+            if ($requireOpeningFloat && $openingTotal <= 0) {
                 throw new DomainException('Opening float total must be greater than zero.');
             }
 
@@ -58,7 +60,7 @@ class PosSessionLifecycleService
 
             $allowTotalOnly = (bool) $terminal->policy->allow_total_only_float_input;
 
-            if (! $allowTotalOnly && empty($normalizedDenominations)) {
+            if ($requireOpeningFloat && ! $allowTotalOnly && empty($normalizedDenominations)) {
                 throw new DomainException('Opening denominations are required for this terminal.');
             }
 
@@ -73,13 +75,12 @@ class PosSessionLifecycleService
             $existingSession = PosSession::query()
                 ->where('setting_id', $settingId)
                 ->where('terminal_id', $terminalId)
-                ->where('cashier_user_id', $cashierUserId)
                 ->active()
                 ->lockForUpdate()
                 ->first();
 
             if ($existingSession) {
-                throw new DomainException('An active POS session already exists for this cashier and terminal.');
+                throw new DomainException('An active POS session already exists for this terminal.');
             }
 
             $openedByUserId = $openedBy ?: $cashierUserId;
@@ -124,7 +125,7 @@ class PosSessionLifecycleService
                 return $session;
             } catch (QueryException $exception) {
                 if ($this->isUniqueConstraintViolation($exception)) {
-                    throw new DomainException('An active POS session already exists for this cashier and terminal.');
+                    throw new DomainException('An active POS session already exists for this terminal.');
                 }
 
                 throw $exception;

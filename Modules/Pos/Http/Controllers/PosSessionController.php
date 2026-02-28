@@ -26,6 +26,7 @@ class PosSessionController extends Controller
     {
         $settingId = $this->currentSettingId();
         $status = request()->query('status');
+        $terminalId = request()->query('terminal_id');
 
         $sessions = PosSession::query()
             ->with(['terminal', 'cashier'])
@@ -33,14 +34,19 @@ class PosSessionController extends Controller
             ->when($status, function ($query) use ($status) {
                 return $query->where('status', $status);
             })
+            ->when($terminalId, function ($query) use ($terminalId) {
+                return $query->where('terminal_id', $terminalId);
+            })
             ->orderBy('opened_at', 'desc')
             ->paginate(15)
             ->withQueryString();
 
-        return view('pos::session.index', compact('sessions', 'status'));
+        $terminalFilter = $terminalId ? PosTerminal::find($terminalId) : null;
+
+        return view('pos::session.index', compact('sessions', 'status', 'terminalFilter'));
     }
 
-    public function create(): Renderable
+    public function create(): Renderable|RedirectResponse
     {
         $settingId = $this->currentSettingId();
 
@@ -49,7 +55,9 @@ class PosSessionController extends Controller
             ->exists();
 
         if (! $hasConfiguredSaleLocations) {
-            abort(422, 'Configure at least one sales location before opening a POS session.');
+            toast('Konfigurasi lokasi penjualan belum diatur. Silakan atur terlebih dahulu.', 'error');
+
+            return redirect()->route('pos.sessions.index');
         }
 
         $terminals = PosTerminal::query()

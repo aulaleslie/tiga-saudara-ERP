@@ -34,6 +34,13 @@ class SalesLocationResolver
         return static::resolveLocationIds($settingId)->first();
     }
 
+    public static function resolve(?int $settingId = null): ?\Modules\Setting\Entities\Location
+    {
+        $id = static::resolveId($settingId);
+
+        return $id ? \Modules\Setting\Entities\Location::find($id) : null;
+    }
+
     public static function resolveTenantsForLocation(int $locationId): Collection
     {
         return SettingSaleLocation::query()

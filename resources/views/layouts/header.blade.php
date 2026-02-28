@@ -12,7 +12,7 @@
         $posEnabledForCurrentSetting = (bool) ($currentSetting->pos_enabled ?? false);
         $canQuickOpenPosSell = $posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.sell');
         $canQuickOpenPosSession = $posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.sessions.open');
-        $canQuickOpenPosTerminals = auth()->user()->can('pos.terminals.access');
+        $canQuickOpenPosTerminals = $posEnabledForCurrentSetting && auth()->user()->can('pos.terminals.access');
 
         $posQuickLink = null;
         if ($canQuickOpenPosSell) {

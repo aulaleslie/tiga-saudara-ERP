@@ -3,6 +3,7 @@
 namespace Modules\Pos\Tests\Feature;
 
 use App\Models\User;
+use App\Support\SalesLocationResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -10,6 +11,7 @@ use Modules\Currency\Entities\Currency;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
+// Removed redundant import
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
@@ -336,7 +338,7 @@ class POSCartTotalsDisplayTest extends TestCase
         );
 
         $terminal = $this->createTerminalForSetting($setting);
-        $location = Location::query()->findOrFail($terminal->location_id);
+        $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
 
         $session = PosSession::create([
             'setting_id' => $setting->id,
@@ -362,11 +364,12 @@ class POSCartTotalsDisplayTest extends TestCase
             'setting_id' => $setting->id,
         ]);
 
+        SalesLocationResolver::forget($setting->id);
+
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'POS-CART-' . str_pad((string) $sequence, 2, '0', STR_PAD_LEFT),
             'name' => 'POS Cart Terminal ' . $sequence,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

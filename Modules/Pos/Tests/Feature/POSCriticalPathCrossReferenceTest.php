@@ -3,6 +3,7 @@
 namespace Modules\Pos\Tests\Feature;
 
 use App\Models\User;
+use App\Support\SalesLocationResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
@@ -10,6 +11,7 @@ use Modules\People\Entities\Customer;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
+// Removed redundant import
 use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
@@ -99,7 +101,7 @@ class POSCriticalPathCrossReferenceTest extends TestCase
         $setting = $this->createSetting($name);
         $cashier = $this->createUserForSetting($setting, $name . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $terminal = $this->createTerminalForSetting($setting);
-        $location = Location::query()->findOrFail($terminal->location_id);
+        $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
 
         /** @var PosSessionLifecycleService $sessionLifecycle */
         $sessionLifecycle = app(PosSessionLifecycleService::class);
@@ -160,15 +162,16 @@ class POSCriticalPathCrossReferenceTest extends TestCase
         $index = $this->sequence++;
 
         $location = Location::create([
-            'name' => 'POS CHECKOUT LOC ' . $index,
+            'name' => 'POS CROSS LOC ' . $index,
             'setting_id' => $setting->id,
         ]);
+
+        SalesLocationResolver::forget($setting->id);
 
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'POS-CHECKOUT-' . str_pad((string) $index, 2, '0', STR_PAD_LEFT),
             'name' => 'POS Checkout Terminal ' . $index,
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

@@ -82,9 +82,8 @@ class POSReconciliationViewTest extends TestCase
         
         $today = now()->format('Y-m-d');
         
-        $location = Location::firstOrCreate(['setting_id' => $setting->id], ['name' => 'Main']);
         $terminal = PosTerminal::firstOrCreate(['setting_id' => $setting->id], [
-            'code' => 'T1', 'name' => 'Terminal 1', 'location_id' => $location->id, 'is_active' => true
+            'code' => 'T1', 'name' => 'Terminal 1', 'is_active' => true
         ]);
         
         $session = PosSession::create([
@@ -197,9 +196,8 @@ class POSReconciliationViewTest extends TestCase
         
         $today = now()->format('Y-m-d');
         
-        $location = Location::firstOrCreate(['setting_id' => $setting->id], ['name' => 'Main']);
         $terminal = PosTerminal::firstOrCreate(['setting_id' => $setting->id], [
-            'code' => 'T1', 'name' => 'Terminal 1', 'location_id' => $location->id, 'is_active' => true
+            'code' => 'T1', 'name' => 'Terminal 1', 'is_active' => true
         ]);
         
         $session = PosSession::create([
@@ -283,9 +281,8 @@ class POSReconciliationViewTest extends TestCase
         
         $today = now()->format('Y-m-d');
         
-        $location1 = Location::firstOrCreate(['setting_id' => $setting1->id], ['name' => 'Main A']);
         $terminal1 = PosTerminal::firstOrCreate(['setting_id' => $setting1->id], [
-            'code' => 'T1', 'name' => 'T1', 'location_id' => $location1->id, 'is_active' => true
+            'code' => 'T1', 'name' => 'T1', 'is_active' => true
         ]);
         $cashier1 = $this->createUserForSetting($setting1, 'C1', ['pos.access']);
         $session1 = PosSession::create([
@@ -293,9 +290,8 @@ class POSReconciliationViewTest extends TestCase
             'status' => PosSession::STATUS_CLOSED, 'opened_at' => now(), 'closed_at' => now()
         ]);
         
-        $location2 = Location::firstOrCreate(['setting_id' => $setting2->id], ['name' => 'Main B']);
         $terminal2 = PosTerminal::firstOrCreate(['setting_id' => $setting2->id], [
-            'code' => 'T2', 'name' => 'T2', 'location_id' => $location2->id, 'is_active' => true
+            'code' => 'T2', 'name' => 'T2', 'is_active' => true
         ]);
         $cashier2 = $this->createUserForSetting($setting2, 'C2', ['pos.access']);
         $session2 = PosSession::create([

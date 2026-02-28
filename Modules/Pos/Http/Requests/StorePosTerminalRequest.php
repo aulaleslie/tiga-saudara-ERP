@@ -27,7 +27,6 @@ class StorePosTerminalRequest extends FormRequest
             ],
             'name' => ['required', 'string', 'max:100'],
             'is_active' => ['nullable', 'boolean'],
-            'require_session_open' => ['nullable', 'boolean'],
             'require_opening_float' => ['nullable', 'boolean'],
             'allow_total_only_float_input' => ['nullable', 'boolean'],
             'close_variance_approval_threshold' => ['nullable', 'numeric', 'min:0'],

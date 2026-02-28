@@ -120,7 +120,6 @@ class POSUatParallelRunSopTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'TERM-1',
             'name' => 'Terminal 1',
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 
