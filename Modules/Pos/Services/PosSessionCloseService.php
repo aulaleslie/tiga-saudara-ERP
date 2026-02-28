@@ -7,13 +7,15 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
+use Modules\Pos\Services\PosCashDrawerService;
 
 class PosSessionCloseService
 {
     public function __construct(
         private readonly PosSessionExpectedCashCalculator $expectedCashCalculator,
         private readonly PosSupervisorApprovalService $supervisorApprovalService,
-        private readonly PosSessionLifecycleService $sessionLifecycleService
+        private readonly PosSessionLifecycleService $sessionLifecycleService,
+        private readonly PosCashDrawerService $cashDrawerService
     ) {
     }
 
@@ -174,6 +176,17 @@ class PosSessionCloseService
                 ],
                 'occurred_at' => now(),
             ]);
+
+            $this->cashDrawerService->triggerDrawerOpen(
+                PosCashDrawerService::TRIGGER_CLOSE,
+                (int) $session->terminal_id,
+                $settingId,
+                [
+                    'pos_session_id' => $closedSession->id,
+                    'cash_event_id' => $cashEvent->id,
+                ],
+                $session->terminal
+            );
 
             return [
                 'blocked' => false,

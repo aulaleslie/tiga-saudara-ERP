@@ -11,11 +11,11 @@ Primary docs:
 ## Summary
 
 - Overall status: `in-progress`
-- Current milestone: `Milestone 3 - Hybrid Posting and Immediate Stock Deduction`
-- Current task: `POS-MVP-020 (done)`
+- Current milestone: `Milestone 5 - Supervisor Monitoring, Reports, and Reconciliation`
+- Current task: `POS-MVP-022 (done)`
 - Completed cross-cutting: `POS-MVP-015 (done)`, `POS-MVP-016 (done)`
-- Next proposed task: `POS-MVP-021`
-- Last updated: 2026-02-28 00:00 WITA
+- Next proposed task: `POS-MVP-023`
+- Last updated: 2026-02-28 15:33 WITA
 
 ## Milestone Tracker
 
@@ -25,8 +25,8 @@ Primary docs:
 | 1 - POS Session and Cash Control Core | done | `POS-MVP-004` to `POS-MVP-008` completed |
 | 2 - POS Checkout Shell and Cart | done | `POS-MVP-009` to `POS-MVP-012` completed |
 | 3 - Hybrid Posting and Immediate Stock Deduction | done | proceed to `POS-MVP-019` |
-| 4 - Payments, Receipt, and Cashier Finish Flow | in-progress | `POS-MVP-019`, `POS-MVP-020` done |
-| 5 - Supervisor Monitoring, Reports, and Reconciliation | pending | |
+| 4 - Payments, Receipt, and Cashier Finish Flow | done | `POS-MVP-019`, `POS-MVP-020`, `POS-MVP-021` done |
+| 5 - Supervisor Monitoring, Reports, and Reconciliation | in-progress | `POS-MVP-022` done |
 | 6 - Hardening, UAT, and Controlled Enablement | pending | |
 
 ## Active Task Plan
@@ -748,3 +748,53 @@ Primary docs:
 - Risks / follow-ups:
   - Additional CSS tweaks might be required for specific thermal printer models down the line
 - Next proposed task: `POS-MVP-021` (Suspend and Resume Cart)
+
+### 2026-02-28 - POS-MVP-021 - Status: done
+
+- Milestone: `Milestone 4 – Payments, Receipt, and Cashier Finish Flow`
+- Acceptance criteria summary:
+  - Cash drawer triggers natively for Session Open, Cash Sale, Safe Drop, and Session Close
+  - Drawer triggers respect boolean flags defined in `pos_terminal_policies`
+  - Graceful degradation: hardware failures log an error but do NOT halt POS operations
+  - Avoided PostgreSQL deadlocks during trigger DB lookups by passing loaded instances
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSCashDrawerHookTest.php`
+  - result: pass (6 tests, 12 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (118 tests, 520 assertions)
+- Changed files:
+  - `Modules/Pos/Providers/PosServiceProvider.php`
+  - `Modules/Pos/Services/Contracts/PosCashDrawerAdapter.php`
+  - `Modules/Pos/Services/Adapters/LoggingPosCashDrawerAdapter.php`
+  - `Modules/Pos/Services/PosCashDrawerService.php`
+  - `Modules/Pos/Services/PosSessionLifecycleService.php`
+  - `Modules/Pos/Services/FinalizePosCheckoutService.php`
+  - `Modules/Pos/Services/PosSafeDropService.php`
+  - `Modules/Pos/Services/PosSessionCloseService.php`
+  - `Modules/Pos/Tests/Feature/POSCashDrawerHookTest.php`
+- Risks / follow-ups:
+  - None. Ready for hardware-specific adapter implementations.
+- Next proposed task: `POS-MVP-022` (Suspend/Resume Cart)
+
+### 2026-02-28 - POS-MVP-022 - Status: done
+
+- Milestone: `Milestone 5 - Supervisor Monitoring, Reports, and Reconciliation`
+- Acceptance criteria summary:
+  - Added multi-session aggregation service `PosSessionMonitorService` that queries active sessions and their cached expected cash.
+  - Eager loads terminal policy to determine thresholds per terminal.
+  - New `monitor()` and `monitorApi()` actions in `PosSessionController` gated by `pos.monitor.access` permission.
+  - Added supervisor monitor view (`monitor/index.blade.php`) featuring auto-refresh table with highlighted threshold breaches.
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSLiveSessionMonitorTest.php`
+  - result: pass (6 tests, 29 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (124 tests, 549 assertions)
+- Changed files:
+  - `Modules/Pos/Http/Controllers/PosSessionController.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/PosSessionMonitorService.php`
+  - `Modules/Pos/Resources/views/monitor/index.blade.php`
+  - `Modules/Pos/Tests/Feature/POSLiveSessionMonitorTest.php`
+- Risks / follow-ups:
+  - Monitor is heavily scoped to `setting_id`, avoiding cross-tenant leaks natively.
+- Next proposed task: `POS-MVP-023`

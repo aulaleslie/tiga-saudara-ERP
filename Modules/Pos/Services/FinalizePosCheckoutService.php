@@ -10,6 +10,7 @@ use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
+use Modules\Pos\Services\PosCashDrawerService;
 use Modules\Pos\Services\Exceptions\PosCheckoutConflictException;
 use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
@@ -22,7 +23,8 @@ class FinalizePosCheckoutService
         private readonly PosCartSessionStore $cartSessionStore,
         private readonly PosCheckoutPostingAdapter $postingAdapter,
         private readonly ResolvePosStockAllocationsService $stockResolver,
-        private readonly PosReceiptNumberGenerator $receiptNumberGenerator
+        private readonly PosReceiptNumberGenerator $receiptNumberGenerator,
+        private readonly PosCashDrawerService $cashDrawerService
     ) {
     }
 
@@ -435,6 +437,7 @@ class FinalizePosCheckoutService
                 }
 
                 $terminal = PosTerminal::query()
+                    ->with('policy')
                     ->where('id', $session->terminal_id)
                     ->where('setting_id', $settingId)
                     ->lockForUpdate()
@@ -519,7 +522,7 @@ class FinalizePosCheckoutService
                 ];
 
                 if ($payment['method_code'] === 'cash') {
-                    PosSessionCashEvent::query()->create([
+                    $cashEvent = PosSessionCashEvent::query()->create([
                         'setting_id' => $settingId,
                         'pos_session_id' => $sessionId,
                         'event_type' => PosSessionCashEvent::EVENT_CASH_SALE_IN,
@@ -539,6 +542,17 @@ class FinalizePosCheckoutService
 
                     $session->expected_cash_total = round((float) $session->expected_cash_total + $actualGrandTotal, 2);
                     $session->save();
+
+                    $this->cashDrawerService->triggerDrawerOpen(
+                        PosCashDrawerService::TRIGGER_CASH_SALE,
+                        (int) $session->terminal_id,
+                        $settingId,
+                        [
+                            'pos_checkout_id' => $checkoutId,
+                            'cash_event_id' => $cashEvent->id,
+                        ],
+                        $terminal
+                    );
                 }
 
                 $lockedCheckout->status = PosCheckout::STATUS_POSTED;

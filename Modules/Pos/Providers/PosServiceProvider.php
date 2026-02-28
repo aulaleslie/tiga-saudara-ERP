@@ -4,6 +4,8 @@ namespace Modules\Pos\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use Modules\Pos\Services\Adapters\InlinePosCheckoutPostingAdapter;
+use Modules\Pos\Services\Adapters\LoggingPosCashDrawerAdapter;
+use Modules\Pos\Services\Contracts\PosCashDrawerAdapter;
 use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
 
 class PosServiceProvider extends ServiceProvider
@@ -25,6 +27,7 @@ class PosServiceProvider extends ServiceProvider
     {
         $this->app->register(RouteServiceProvider::class);
         $this->app->bind(PosCheckoutPostingAdapter::class, InlinePosCheckoutPostingAdapter::class);
+        $this->app->bind(PosCashDrawerAdapter::class, LoggingPosCashDrawerAdapter::class);
     }
 
     protected function registerConfig(): void

@@ -6,12 +6,16 @@ use DomainException;
 use Illuminate\Support\Facades\DB;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
+use Modules\Pos\Services\PosCashDrawerService;
+use Modules\Pos\Services\PosSessionExpectedCashCalculator;
+use Modules\Pos\Services\PosSupervisorApprovalService;
 
 class PosSafeDropService
 {
     public function __construct(
         private readonly PosSessionExpectedCashCalculator $expectedCashCalculator,
-        private readonly PosSupervisorApprovalService $supervisorApprovalService
+        private readonly PosSupervisorApprovalService $supervisorApprovalService,
+        private readonly PosCashDrawerService $cashDrawerService
     ) {
     }
 
@@ -128,9 +132,6 @@ class PosSafeDropService
                 }
             }
 
-            $this->expectedCashCalculator->calculate((int) $session->id);
-
-            $session->refresh();
             $expectedBefore = round((float) $session->expected_cash_total, 2);
 
             $cashEvent = PosSessionCashEvent::query()->create([
@@ -146,6 +147,17 @@ class PosSafeDropService
                 'metadata' => null,
                 'occurred_at' => now(),
             ]);
+
+            $this->cashDrawerService->triggerDrawerOpen(
+                PosCashDrawerService::TRIGGER_PICKUP,
+                (int) $session->terminal_id,
+                $settingId,
+                [
+                    'pos_session_id' => $session->id,
+                    'cash_event_id' => $cashEvent->id,
+                ],
+                $session->terminal
+            );
 
             $calculation = $this->expectedCashCalculator->calculate((int) $session->id);
             $expectedAfter = round((float) $calculation['expected_cash_total'], 2);

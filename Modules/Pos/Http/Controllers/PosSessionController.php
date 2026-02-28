@@ -16,6 +16,7 @@ use Modules\Pos\Http\Requests\StorePosSessionOpenRequest;
 use Modules\Pos\Services\PosSessionCloseService;
 use Modules\Pos\Services\PosSafeDropService;
 use Modules\Pos\Services\PosSessionLifecycleService;
+use Modules\Pos\Services\PosSessionMonitorService;
 use Modules\Pos\Services\PosSessionSummaryService;
 use Modules\Setting\Entities\SettingSaleLocation;
 
@@ -210,5 +211,21 @@ class PosSessionController extends Controller
         }
 
         return 'opening_float_total';
+    }
+
+    public function monitor(): Renderable
+    {
+        $settingId = $this->currentSettingId();
+
+        return view('pos::monitor.index', compact('settingId'));
+    }
+
+    public function monitorApi(PosSessionMonitorService $monitorService): JsonResponse
+    {
+        $settingId = $this->currentSettingId();
+
+        $summaries = $monitorService->getActiveSessionsSummary($settingId);
+
+        return response()->json($summaries);
     }
 }

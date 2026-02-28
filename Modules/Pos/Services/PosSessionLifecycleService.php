@@ -7,11 +7,14 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosSession;
+use Modules\Pos\Services\PosCashDrawerService;
 
 class PosSessionLifecycleService
 {
-    public function __construct(private readonly PosTerminalRuntimeResolver $terminalResolver)
-    {
+    public function __construct(
+        private readonly PosTerminalRuntimeResolver $terminalResolver,
+        private readonly PosCashDrawerService $cashDrawerService
+    ) {
     }
 
     public function openSession(
@@ -86,7 +89,7 @@ class PosSessionLifecycleService
                     'active_marker' => PosSession::activeMarkerForStatus(PosSession::STATUS_OPEN),
                 ]);
 
-                PosSessionCashEvent::query()->create([
+                $cashEvent = PosSessionCashEvent::query()->create([
                     'setting_id' => $settingId,
                     'pos_session_id' => $session->id,
                     'event_type' => PosSessionCashEvent::EVENT_OPEN_FLOAT,
@@ -98,6 +101,16 @@ class PosSessionLifecycleService
                     'metadata' => null,
                     'occurred_at' => now(),
                 ]);
+
+                $this->cashDrawerService->triggerDrawerOpen(
+                    PosCashDrawerService::TRIGGER_SESSION_OPEN,
+                    $terminalId,
+                    $settingId,
+                    [
+                        'pos_session_id' => $session->id,
+                        'cash_event_id' => $cashEvent->id,
+                    ]
+                );
 
                 return $session;
             } catch (QueryException $exception) {

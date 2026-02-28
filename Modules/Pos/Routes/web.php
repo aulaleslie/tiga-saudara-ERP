@@ -14,6 +14,11 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::get('/pos/sessions/{session}/summary', [PosSessionController::class, 'summary'])->name('pos.sessions.summary');
 });
 
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.monitor.access']], function () {
+    Route::get('/pos/monitor', [PosSessionController::class, 'monitor'])->name('pos.monitor.index');
+    Route::get('/pos/monitor/sessions', [PosSessionController::class, 'monitorApi'])->name('pos.monitor.sessions');
+});
+
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.safeDrops.create']], function () {
     Route::post('/pos/sessions/{session}/safe-drops', [PosSessionController::class, 'safeDrop'])->name('pos.sessions.safe-drops.store');
 });
