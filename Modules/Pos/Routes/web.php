@@ -5,6 +5,7 @@ use Modules\Pos\Http\Controllers\PosSessionController;
 use Modules\Pos\Http\Controllers\PosSellController;
 use Modules\Pos\Http\Controllers\PosTerminalController;
 use Modules\Pos\Http\Controllers\PosReportController;
+use Modules\Pos\Http\Controllers\PosReconciliationController;
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sessions.open']], function () {
     Route::get('/pos/sessions/open', [PosSessionController::class, 'create'])->name('pos.sessions.create');
@@ -27,6 +28,11 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::get('/pos/reports/payment-methods', [PosReportController::class, 'paymentMethodSummary'])->name('pos.reports.payment-methods');
     Route::get('/pos/reports/item-sales', [PosReportController::class, 'itemSales'])->name('pos.reports.item-sales');
     Route::get('/pos/reports/supervisor-approvals', [PosReportController::class, 'supervisorApprovals'])->name('pos.reports.supervisor-approvals');
+});
+
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.reconciliation.access']], function () {
+    Route::get('/pos/reconciliation', [PosReconciliationController::class, 'index'])->name('pos.reconciliation.index');
+    Route::get('/pos/reconciliation/sessions', [PosReconciliationController::class, 'sessions'])->name('pos.reconciliation.sessions');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.safeDrops.create']], function () {

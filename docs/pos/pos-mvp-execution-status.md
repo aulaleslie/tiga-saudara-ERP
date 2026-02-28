@@ -14,7 +14,7 @@ Primary docs:
 - Current milestone: `Milestone 5 - Supervisor Monitoring, Reports, and Reconciliation`
 - Current task: `POS-MVP-023 (done)`
 - Completed cross-cutting: `POS-MVP-015 (done)`, `POS-MVP-016 (done)`
-- Next proposed task: `POS-MVP-024`
+- Next proposed task: `POS-MVP-025`
 - Last updated: 2026-02-28 15:33 WITA
 
 ## Milestone Tracker
@@ -821,3 +821,26 @@ Primary docs:
 - Risks / follow-ups:
   - Report calculations depend on the current `PosCheckout` ledger.
 - Next proposed task: `POS-MVP-024`
+
+### 2026-02-28 - POS-MVP-024 - Status: done
+
+- Milestone: `Milestone 5 - Supervisor Monitoring, Reports, and Reconciliation`
+- Acceptance criteria summary:
+  - Created `PosReconciliationService` to aggregate expected vs actual counts.
+  - Implemented `PosReconciliationController` with JSON API and Blade view for mismatch detection.
+  - Wired routes under the `pos.reconciliation.access` permission.
+  - Display highlighting mismatch totals correctly against posted records.
+- Tests run:
+  - command: `vendor/bin/phpunit Modules/Pos/Tests/Feature/POSReconciliationViewTest.php`
+  - result: pass (6 tests)
+  - command: `vendor/bin/phpunit --testsuite=Pos`
+  - result: pass (139 tests, 654 assertions)
+- Changed files:
+  - `Modules/Pos/Http/Controllers/PosReconciliationController.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/PosReconciliationService.php`
+  - `Modules/Pos/Resources/views/reconciliation/index.blade.php`
+  - `Modules/Pos/Tests/Feature/POSReconciliationViewTest.php`
+- Risks / follow-ups:
+  - Mismatch resolution process currently requires manual intervention via database or other tools.
+- Next proposed task: `POS-MVP-025`
