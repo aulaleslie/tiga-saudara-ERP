@@ -199,6 +199,7 @@ class PermissionsTableSeeder extends Seeder
             'pos.sell',
             'pos.sessions.open',
             'pos.sessions.close',
+            'pos.sessions.view',
             'pos.safeDrops.create',
             'pos.safeDrops.approve',
             'pos.overrides.price',

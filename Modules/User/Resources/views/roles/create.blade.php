@@ -326,6 +326,7 @@
                                             'pos.sell' => 'Jual POS',
                                             'pos.sessions.open' => 'Buka Sesi POS',
                                             'pos.sessions.close' => 'Tutup Sesi POS',
+                                            'pos.sessions.view' => 'Lihat Sesi POS',
                                             'pos.safeDrops.create' => 'Buat Safe Drop POS',
                                             'pos.safeDrops.approve' => 'Setujui Safe Drop POS',
                                             'pos.overrides.price' => 'Override Harga POS',

@@ -21,6 +21,8 @@ class PosServiceProvider extends ServiceProvider
         $this->registerViews();
 
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+
+        \Livewire\Livewire::component('modules.pos.pos-terminal-search-dropdown', \Modules\Pos\Livewire\PosTerminalSearchDropdown::class);
     }
 
     public function register(): void

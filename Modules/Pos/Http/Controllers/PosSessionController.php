@@ -22,6 +22,24 @@ use Modules\Setting\Entities\SettingSaleLocation;
 
 class PosSessionController extends Controller
 {
+    public function index(): Renderable
+    {
+        $settingId = $this->currentSettingId();
+        $status = request()->query('status');
+
+        $sessions = PosSession::query()
+            ->with(['terminal', 'cashier'])
+            ->where('setting_id', $settingId)
+            ->when($status, function ($query) use ($status) {
+                return $query->where('status', $status);
+            })
+            ->orderBy('opened_at', 'desc')
+            ->paginate(15)
+            ->withQueryString();
+
+        return view('pos::session.index', compact('sessions', 'status'));
+    }
+
     public function create(): Renderable
     {
         $settingId = $this->currentSettingId();

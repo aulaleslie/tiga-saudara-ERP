@@ -7,6 +7,10 @@ use Modules\Pos\Http\Controllers\PosTerminalController;
 use Modules\Pos\Http\Controllers\PosReportController;
 use Modules\Pos\Http\Controllers\PosReconciliationController;
 
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sessions.view']], function () {
+    Route::get('/pos/sessions', [PosSessionController::class, 'index'])->name('pos.sessions.index');
+});
+
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sessions.open']], function () {
     Route::get('/pos/sessions/open', [PosSessionController::class, 'create'])->name('pos.sessions.create');
     Route::post('/pos/sessions/open', [PosSessionController::class, 'store'])->name('pos.sessions.store');

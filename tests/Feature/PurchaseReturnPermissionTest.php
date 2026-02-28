@@ -71,6 +71,7 @@ class PurchaseReturnPermissionTest extends TestCase
         Gate::shouldReceive('check')->andReturnTrue()->zeroOrMoreTimes();
         Gate::shouldReceive('authorize')->andReturnTrue()->zeroOrMoreTimes();
         Gate::shouldReceive('any')->andReturnTrue()->zeroOrMoreTimes();
+        Gate::shouldReceive('forUser')->andReturnSelf()->zeroOrMoreTimes();
 
         $response = $this->actingAs($this->user)
             ->withSession(['setting_id' => $this->setting->id])

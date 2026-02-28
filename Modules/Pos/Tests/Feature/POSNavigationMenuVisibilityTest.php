@@ -36,6 +36,7 @@ class POSNavigationMenuVisibilityTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.sessions.view',
             'sales.access',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
@@ -48,7 +49,7 @@ class POSNavigationMenuVisibilityTest extends TestCase
         $user = $this->createUserForSetting($setting, 'POS NAV VISIBLE ROLE', [
             'pos.access',
             'pos.sell',
-            'pos.sessions.open',
+            'pos.sessions.view',
         ]);
 
         $response = $this->actingAs($user)
