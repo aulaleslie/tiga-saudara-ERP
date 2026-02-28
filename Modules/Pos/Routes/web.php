@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Pos\Http\Controllers\PosSessionController;
 use Modules\Pos\Http\Controllers\PosSellController;
 use Modules\Pos\Http\Controllers\PosTerminalController;
+use Modules\Pos\Http\Controllers\PosReportController;
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sessions.open']], function () {
     Route::get('/pos/sessions/open', [PosSessionController::class, 'create'])->name('pos.sessions.create');
@@ -17,6 +18,15 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.monitor.access']], function () {
     Route::get('/pos/monitor', [PosSessionController::class, 'monitor'])->name('pos.monitor.index');
     Route::get('/pos/monitor/sessions', [PosSessionController::class, 'monitorApi'])->name('pos.monitor.sessions');
+});
+
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.reports.access']], function () {
+    Route::get('/pos/reports', [PosReportController::class, 'index'])->name('pos.reports.index');
+    Route::get('/pos/reports/daily-sales', [PosReportController::class, 'dailySales'])->name('pos.reports.daily-sales');
+    Route::get('/pos/reports/cashier-summary', [PosReportController::class, 'cashierSummary'])->name('pos.reports.cashier-summary');
+    Route::get('/pos/reports/payment-methods', [PosReportController::class, 'paymentMethodSummary'])->name('pos.reports.payment-methods');
+    Route::get('/pos/reports/item-sales', [PosReportController::class, 'itemSales'])->name('pos.reports.item-sales');
+    Route::get('/pos/reports/supervisor-approvals', [PosReportController::class, 'supervisorApprovals'])->name('pos.reports.supervisor-approvals');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.safeDrops.create']], function () {

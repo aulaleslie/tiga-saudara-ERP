@@ -12,9 +12,9 @@ Primary docs:
 
 - Overall status: `in-progress`
 - Current milestone: `Milestone 5 - Supervisor Monitoring, Reports, and Reconciliation`
-- Current task: `POS-MVP-022 (done)`
+- Current task: `POS-MVP-023 (done)`
 - Completed cross-cutting: `POS-MVP-015 (done)`, `POS-MVP-016 (done)`
-- Next proposed task: `POS-MVP-023`
+- Next proposed task: `POS-MVP-024`
 - Last updated: 2026-02-28 15:33 WITA
 
 ## Milestone Tracker
@@ -798,3 +798,26 @@ Primary docs:
 - Risks / follow-ups:
   - Monitor is heavily scoped to `setting_id`, avoiding cross-tenant leaks natively.
 - Next proposed task: `POS-MVP-023`
+
+### 2026-02-28 - POS-MVP-023 - Status: done
+
+- Milestone: `Milestone 5 - Supervisor Monitoring, Reports, and Reconciliation`
+- Acceptance criteria summary:
+  - Created `PosReportingService` to aggregate Daily Sales, Cashier Summary, Payment Method, Item Sales, and Supervisor Approvals.
+  - Implemented `PosReportController` with JSON API endpoints for reports and a Blade view for the dashboard.
+  - Wired routes under the `pos.reports.access` permission.
+  - Display uses an AJAX-powered tabbed interface with date filters.
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSReportingPackTest.php`
+  - result: pass (9 tests, 67 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (133 tests)
+- Changed files:
+  - `Modules/Pos/Http/Controllers/PosReportController.php`
+  - `Modules/Pos/Routes/web.php`
+  - `Modules/Pos/Services/PosReportingService.php`
+  - `Modules/Pos/Resources/views/reports/index.blade.php`
+  - `Modules/Pos/Tests/Feature/POSReportingPackTest.php`
+- Risks / follow-ups:
+  - Report calculations depend on the current `PosCheckout` ledger.
+- Next proposed task: `POS-MVP-024`
