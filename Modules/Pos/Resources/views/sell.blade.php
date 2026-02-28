@@ -16,10 +16,7 @@
                             - {{ $activeSession->terminal->code }} ({{ $activeSession->terminal->name }})
                         @endif
                     </p>
-                    <p class="mb-0 text-muted small">
-                        Lokasi:
-                        {{ $activeSession->terminal?->location?->name ?? '-' }}
-                    </p>
+                    <p class="mb-0 text-muted small">Cakupan stok: semua lokasi penjualan terkonfigurasi.</p>
                 </div>
                 <div class="text-md-end mt-2 mt-md-0">
                     <span class="badge badge-success">{{ $activeSession->status }}</span>

@@ -36,8 +36,7 @@ class PosSellController extends Controller
         }
 
         $activeSession->loadMissing([
-            'terminal:id,code,name,location_id',
-            'terminal.location:id,name',
+            'terminal:id,code,name',
         ]);
 
         return view('pos::sell', [

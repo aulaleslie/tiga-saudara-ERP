@@ -3,6 +3,7 @@
 namespace Modules\Pos\Entities;
 
 use App\Models\BaseModel;
+use App\Support\SalesLocationResolver;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Setting\Entities\Location;
@@ -16,7 +17,6 @@ class PosTerminal extends BaseModel
         'setting_id',
         'code',
         'name',
-        'location_id',
         'is_active',
         'metadata',
     ];
@@ -34,6 +34,18 @@ class PosTerminal extends BaseModel
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class);
+    }
+
+    public function getLocationIdAttribute($value): ?int
+    {
+        $resolved = (int) ($value ?? 0);
+        if ($resolved > 0) {
+            return $resolved;
+        }
+
+        $fallback = SalesLocationResolver::resolveId((int) $this->setting_id);
+
+        return $fallback !== null ? (int) $fallback : null;
     }
 
     public function policy(): HasOne

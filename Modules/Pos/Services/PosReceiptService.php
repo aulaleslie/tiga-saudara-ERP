@@ -15,7 +15,7 @@ class PosReceiptService
     {
         $checkout->loadMissing([
             'setting.currency',
-            'terminal.location',
+            'terminal',
             'cashier',
             'sale.saleDetails',
         ]);

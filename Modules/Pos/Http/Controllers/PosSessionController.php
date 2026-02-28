@@ -26,15 +26,18 @@ class PosSessionController extends Controller
     {
         $settingId = $this->currentSettingId();
 
-        $allowedLocationIds = SettingSaleLocation::query()
+        $hasConfiguredSaleLocations = SettingSaleLocation::query()
             ->where('setting_id', $settingId)
-            ->pluck('location_id');
+            ->exists();
+
+        if (! $hasConfiguredSaleLocations) {
+            abort(422, 'Configure at least one sales location before opening a POS session.');
+        }
 
         $terminals = PosTerminal::query()
-            ->with(['location:id,name', 'policy'])
+            ->with('policy')
             ->where('setting_id', $settingId)
             ->where('is_active', true)
-            ->whereIn('location_id', $allowedLocationIds)
             ->orderBy('code')
             ->get();
 
@@ -207,6 +210,10 @@ class PosSessionController extends Controller
         }
 
         if (str_contains($normalized, 'terminal')) {
+            return 'terminal_id';
+        }
+
+        if (str_contains($normalized, 'sales location') || str_contains($normalized, 'location')) {
             return 'terminal_id';
         }
 

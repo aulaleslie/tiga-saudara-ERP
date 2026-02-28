@@ -21,9 +21,6 @@
                                     @foreach($terminals as $terminal)
                                         <option value="{{ $terminal->id }}" @selected((string) old('terminal_id') === (string) $terminal->id)>
                                             {{ $terminal->code }} - {{ $terminal->name }}
-                                            @if($terminal->location)
-                                                ({{ $terminal->location->name }})
-                                            @endif
                                         </option>
                                     @endforeach
                                 </select>

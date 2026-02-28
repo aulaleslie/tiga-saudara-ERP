@@ -5,7 +5,6 @@ namespace Modules\Pos\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
-use Modules\Setting\Entities\SettingSaleLocation;
 
 class UpdatePosTerminalRequest extends FormRequest
 {
@@ -30,21 +29,6 @@ class UpdatePosTerminalRequest extends FormRequest
                     ->where(static fn ($query) => $query->where('setting_id', $settingId)),
             ],
             'name' => ['required', 'string', 'max:100'],
-            'location_id' => [
-                'required',
-                'integer',
-                'exists:locations,id',
-                function ($attribute, $value, $fail) use ($settingId) {
-                    $allowed = SettingSaleLocation::query()
-                        ->where('setting_id', $settingId)
-                        ->where('location_id', (int) $value)
-                        ->exists();
-
-                    if (! $allowed) {
-                        $fail('The selected location is not configured for this business.');
-                    }
-                },
-            ],
             'is_active' => ['nullable', 'boolean'],
             'require_session_open' => ['nullable', 'boolean'],
             'require_opening_float' => ['nullable', 'boolean'],

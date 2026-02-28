@@ -5,6 +5,7 @@ namespace Modules\Pos\Services;
 use DomainException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Services\PosCashDrawerService;
@@ -37,6 +38,14 @@ class PosSessionLifecycleService
             $notes,
             $metadata
         ) {
+            $hasConfiguredSaleLocations = SettingSaleLocation::query()
+                ->where('setting_id', $settingId)
+                ->exists();
+
+            if (! $hasConfiguredSaleLocations) {
+                throw new DomainException('Configure at least one sales location before opening a POS session.');
+            }
+
             $terminal = $this->terminalResolver->resolveForSessionOpen($settingId, $terminalId);
 
             $openingTotal = round($openingFloatTotal, 2);

@@ -8,9 +8,7 @@ use Modules\Currency\Entities\Currency;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Pos\Services\PosTerminalRuntimeResolver;
-use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
-use Modules\Setting\Entities\SettingSaleLocation;
 use Tests\TestCase;
 
 /**
@@ -37,16 +35,11 @@ class PosTerminalRuntimeResolverTest extends TestCase
     public function test_resolve_for_session_open_returns_active_terminal_with_policy(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $location = Location::create([
-            'name' => 'LOC-A',
-            'setting_id' => $setting->id,
-        ]);
 
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'COUNTER-01',
             'name' => 'Kasir Utama',
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 
@@ -75,16 +68,11 @@ class PosTerminalRuntimeResolverTest extends TestCase
     public function test_resolve_for_session_open_throws_for_inactive_terminal(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $location = Location::create([
-            'name' => 'LOC-A',
-            'setting_id' => $setting->id,
-        ]);
 
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'COUNTER-01',
             'name' => 'Kasir Utama',
-            'location_id' => $location->id,
             'is_active' => false,
         ]);
 
@@ -104,36 +92,42 @@ class PosTerminalRuntimeResolverTest extends TestCase
             ->resolveForSessionOpen($setting->id, $terminal->id);
     }
 
-    public function test_assert_location_allowed_for_setting_throws_when_not_allowed(): void
+    public function test_resolve_for_session_open_throws_when_terminal_not_in_setting_scope(): void
     {
         $settingA = $this->createSetting('BIZ A');
         $settingB = $this->createSetting('BIZ B');
 
-        $locationB = Location::create([
-            'name' => 'LOC-B',
+        $terminal = PosTerminal::create([
             'setting_id' => $settingB->id,
+            'code' => 'COUNTER-B',
+            'name' => 'Kasir B',
+            'is_active' => true,
+        ]);
+
+        PosTerminalPolicy::create([
+            'terminal_id' => $terminal->id,
+            'require_session_open' => true,
+            'require_opening_float' => true,
+            'allow_total_only_float_input' => true,
+            'close_variance_approval_threshold' => 0,
+            'require_pickup_supervisor_approval' => true,
         ]);
 
         $this->expectException(DomainException::class);
-        $this->expectExceptionMessage('not allowed');
+        $this->expectExceptionMessage('not found');
 
         app(PosTerminalRuntimeResolver::class)
-            ->assertLocationAllowedForSetting($settingA->id, $locationB->id);
+            ->resolveForSessionOpen($settingA->id, $terminal->id);
     }
 
     public function test_resolve_policy_returns_policy_for_terminal_in_setting_scope(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $location = Location::create([
-            'name' => 'LOC-A',
-            'setting_id' => $setting->id,
-        ]);
 
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'COUNTER-01',
             'name' => 'Kasir Utama',
-            'location_id' => $location->id,
             'is_active' => false,
         ]);
 

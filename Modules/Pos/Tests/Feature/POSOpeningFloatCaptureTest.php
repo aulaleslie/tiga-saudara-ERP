@@ -188,6 +188,10 @@ class POSOpeningFloatCaptureTest extends TestCase
     public function test_open_session_routes_require_pos_sessions_open_permission(): void
     {
         $setting = $this->createSetting('BIZ A');
+        Location::create([
+            'name' => 'SESSION OPEN LOC ' . $setting->id,
+            'setting_id' => $setting->id,
+        ]);
         $userWithoutPermission = $this->createUserForSetting($setting, ['pos.access', 'pos.sell']);
 
         $this->actingAs($userWithoutPermission)
@@ -245,7 +249,6 @@ class POSOpeningFloatCaptureTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'OPEN-' . $setting->id . '-' . ($allowTotalOnly ? 'Y' : 'N'),
             'name' => 'Open Terminal ' . ($allowTotalOnly ? 'YES' : 'NO'),
-            'location_id' => $location->id,
             'is_active' => true,
         ]);
 

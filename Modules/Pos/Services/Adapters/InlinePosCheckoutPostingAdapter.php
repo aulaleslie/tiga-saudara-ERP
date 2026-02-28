@@ -26,7 +26,6 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $settingId = (int) ($context['setting_id'] ?? 0);
         $cashierUserId = (int) ($context['cashier_user_id'] ?? 0);
         $customerId = (int) ($context['customer_id'] ?? 0);
-        $sourceLocationId = (int) ($context['source_location_id'] ?? 0);
         $checkoutId = (int) ($context['checkout_id'] ?? 0);
         $payment = is_array($context['payment'] ?? null) ? $context['payment'] : [];
         $cartSnapshot = is_array($context['cart_snapshot'] ?? null) ? $context['cart_snapshot'] : [];
@@ -34,7 +33,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $lines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
         $totals = is_array($cartSnapshot['totals'] ?? null) ? $cartSnapshot['totals'] : [];
 
-        if ($settingId <= 0 || $cashierUserId <= 0 || $customerId <= 0 || $sourceLocationId <= 0) {
+        if ($settingId <= 0 || $cashierUserId <= 0 || $customerId <= 0) {
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Checkout posting context is not valid.');
         }
 
@@ -164,13 +163,14 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 }
                 $lineAllocations = array_values($grouped);
             } else {
-                $lineAllocations = $allocations[$index] ?? [
-                    [
-                        'source_location_id' => $sourceLocationId,
-                        'source_setting_id' => $settingId,
-                        'allocated_qty' => $qty,
-                    ]
-                ];
+                $lineAllocations = $allocations[$index] ?? [];
+
+                if ($lineAllocations === []) {
+                    throw new PosCheckoutValidationException(
+                        'STOCK_UNAVAILABLE',
+                        'Stock allocation for checkout line is missing.'
+                    );
+                }
 
                 $totalAllocated = array_sum(array_column($lineAllocations, 'allocated_qty'));
                 if ((int) $totalAllocated !== $qty) {

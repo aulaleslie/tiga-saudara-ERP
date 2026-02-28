@@ -285,7 +285,7 @@ Items still marked `TBD` require business-specific values (pilot store, go-live 
 ### 3.6 Inventory and Location Rules (Critical)
 
 - `POS stock source:` configured sale locations (borrowed allowed)
-- `Default POS location selection:` terminal-bound fixed location
+- `Default POS location selection:` sales-location configuration priority (terminal has no fixed location binding)
 - `Can one transaction pull stock from multiple locations:` Yes
 - `If stock unavailable at default location:` allow fallback to next configured location
 - `Should backend auto-separate sales by deducted source location:` Yes
@@ -434,7 +434,7 @@ Notes:
 #### FR-2 Inventory and Location Routing
 
 - POS shall source stock from configured sales locations for the active business, including borrowed locations where configuration permits.
-- POS shall support `terminal-bound fixed location context` as the default POS operating location.
+- POS terminal shall represent cashier station identity only (code/name/policy), without fixed stock location binding.
 - POS backend shall auto-route stock by configured location priority and current availability.
 - POS shall allow a single checkout to deduct stock from multiple source locations when required by availability.
 - POS shall attempt fallback to the next configured allowed location when stock is unavailable at the preferred location.

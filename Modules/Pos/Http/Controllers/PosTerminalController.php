@@ -8,8 +8,6 @@ use Illuminate\Routing\Controller;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Http\Requests\StorePosTerminalRequest;
 use Modules\Pos\Http\Requests\UpdatePosTerminalRequest;
-use Modules\Setting\Entities\Location;
-use Modules\Setting\Entities\SettingSaleLocation;
 
 class PosTerminalController extends Controller
 {
@@ -18,7 +16,7 @@ class PosTerminalController extends Controller
         $settingId = $this->currentSettingId();
 
         $terminals = PosTerminal::query()
-            ->with(['location:id,name,setting_id', 'policy'])
+            ->with('policy')
             ->where('setting_id', $settingId)
             ->orderBy('code')
             ->get();
@@ -28,10 +26,7 @@ class PosTerminalController extends Controller
 
     public function create(): Renderable
     {
-        $settingId = $this->currentSettingId();
-        $availableLocations = $this->availableLocationsForSetting($settingId);
-
-        return view('pos::terminals.create', compact('availableLocations'));
+        return view('pos::terminals.create');
     }
 
     public function store(StorePosTerminalRequest $request): RedirectResponse
@@ -42,7 +37,6 @@ class PosTerminalController extends Controller
             'setting_id' => $settingId,
             'code' => $request->string('code')->value(),
             'name' => $request->string('name')->value(),
-            'location_id' => (int) $request->input('location_id'),
             'is_active' => $request->boolean('is_active', true),
             'metadata' => $request->input('metadata'),
         ]);
@@ -58,9 +52,8 @@ class PosTerminalController extends Controller
     {
         $settingId = $this->currentSettingId();
         $terminal = $this->terminalForSettingOrFail($settingId, $terminal);
-        $availableLocations = $this->availableLocationsForSetting($settingId);
 
-        return view('pos::terminals.edit', compact('terminal', 'availableLocations'));
+        return view('pos::terminals.edit', compact('terminal'));
     }
 
     public function update(UpdatePosTerminalRequest $request, int $terminal): RedirectResponse
@@ -71,7 +64,6 @@ class PosTerminalController extends Controller
         $terminal->update([
             'code' => $request->string('code')->value(),
             'name' => $request->string('name')->value(),
-            'location_id' => (int) $request->input('location_id'),
             'is_active' => $request->boolean('is_active'),
             'metadata' => $request->input('metadata'),
         ]);
@@ -119,19 +111,6 @@ class PosTerminalController extends Controller
             ->with('policy')
             ->where('setting_id', $settingId)
             ->findOrFail($terminalId);
-    }
-
-    private function availableLocationsForSetting(int $settingId)
-    {
-        $locationIds = SettingSaleLocation::query()
-            ->where('setting_id', $settingId)
-            ->orderBy('position')
-            ->pluck('location_id');
-
-        return Location::query()
-            ->whereIn('id', $locationIds)
-            ->orderBy('name')
-            ->get();
     }
 
     private function policyPayload(StorePosTerminalRequest|UpdatePosTerminalRequest $request): array

@@ -5,9 +5,9 @@ namespace Modules\Pos\Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Currency\Entities\Currency;
-use Modules\Setting\Entities\Location;
+use Modules\Pos\Entities\PosTerminal;
+use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Setting\Entities\Setting;
-use Modules\Setting\Entities\SettingSaleLocation;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -38,13 +38,9 @@ class POSTerminalRegistryPolicyTest extends TestCase
         Permission::findOrCreate('pos.terminals.edit', 'web');
     }
 
-    public function test_it_creates_terminal_and_policy_for_allowed_location(): void
+    public function test_it_creates_terminal_and_policy_without_location_configuration(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $location = Location::create([
-            'name' => 'COUNTER A',
-            'setting_id' => $setting->id,
-        ]);
 
         $user = $this->createSettingsUser($setting, true);
 
@@ -53,7 +49,6 @@ class POSTerminalRegistryPolicyTest extends TestCase
             ->post(route('pos.terminals.store'), [
                 'code' => 'COUNTER-01',
                 'name' => 'Kasir Utama',
-                'location_id' => $location->id,
                 'is_active' => '1',
                 'require_session_open' => '1',
                 'require_opening_float' => '1',
@@ -73,7 +68,6 @@ class POSTerminalRegistryPolicyTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'COUNTER-01',
             'name' => 'KASIR UTAMA',
-            'location_id' => $location->id,
             'is_active' => 1,
         ]);
 
@@ -92,50 +86,23 @@ class POSTerminalRegistryPolicyTest extends TestCase
         ]);
     }
 
-    public function test_it_rejects_terminal_creation_when_location_not_in_setting_sale_locations(): void
+    public function test_create_form_does_not_render_location_selector(): void
     {
-        $settingA = $this->createSetting('BIZ A');
-        $settingB = $this->createSetting('BIZ B');
-
-        $foreignLocation = Location::create([
-            'name' => 'BIZ-B-LOC',
-            'setting_id' => $settingB->id,
-        ]);
-
-        $user = $this->createSettingsUser($settingA, true);
+        $setting = $this->createSetting('BIZ A');
+        $user = $this->createSettingsUser($setting, true);
 
         $response = $this->actingAs($user)
-            ->withSession(['setting_id' => $settingA->id])
-            ->from(route('pos.terminals.create'))
-            ->post(route('pos.terminals.store'), [
-                'code' => 'COUNTER-02',
-                'name' => 'Kasir 2',
-                'location_id' => $foreignLocation->id,
-            ]);
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.terminals.create'));
 
-        $response->assertRedirect(route('pos.terminals.create'));
-        $response->assertSessionHasErrors(['location_id']);
-
-        $this->assertDatabaseMissing('pos_terminals', [
-            'setting_id' => $settingA->id,
-            'code' => 'COUNTER-02',
-        ]);
+        $response->assertOk();
+        $response->assertDontSee('name="location_id"', false);
     }
 
     public function test_it_enforces_code_uniqueness_per_setting_and_allows_same_code_other_setting(): void
     {
         $settingA = $this->createSetting('BIZ A');
         $settingB = $this->createSetting('BIZ B');
-
-        $locationA = Location::create([
-            'name' => 'A-LOC',
-            'setting_id' => $settingA->id,
-        ]);
-
-        $locationB = Location::create([
-            'name' => 'B-LOC',
-            'setting_id' => $settingB->id,
-        ]);
 
         $userA = $this->createSettingsUser($settingA, true);
 
@@ -144,7 +111,6 @@ class POSTerminalRegistryPolicyTest extends TestCase
             ->post(route('pos.terminals.store'), [
                 'code' => 'COUNTER-01',
                 'name' => 'A Terminal',
-                'location_id' => $locationA->id,
             ])
             ->assertRedirect(route('pos.terminals.index'));
 
@@ -154,7 +120,6 @@ class POSTerminalRegistryPolicyTest extends TestCase
             ->post(route('pos.terminals.store'), [
                 'code' => 'COUNTER-01',
                 'name' => 'A Terminal 2',
-                'location_id' => $locationA->id,
             ])
             ->assertRedirect(route('pos.terminals.create'))
             ->assertSessionHasErrors(['code']);
@@ -166,7 +131,6 @@ class POSTerminalRegistryPolicyTest extends TestCase
             ->post(route('pos.terminals.store'), [
                 'code' => 'COUNTER-01',
                 'name' => 'B Terminal',
-                'location_id' => $locationB->id,
             ])
             ->assertRedirect(route('pos.terminals.index'));
 
@@ -178,23 +142,15 @@ class POSTerminalRegistryPolicyTest extends TestCase
         $settingA = $this->createSetting('BIZ A');
         $settingB = $this->createSetting('BIZ B');
 
-        $locationB = Location::create([
-            'name' => 'B-LOC',
-            'setting_id' => $settingB->id,
-        ]);
-
-        $terminalId = \DB::table('pos_terminals')->insertGetId([
+        $terminal = PosTerminal::create([
             'setting_id' => $settingB->id,
             'code' => 'COUNTER-B',
             'name' => 'B TERMINAL',
-            'location_id' => $locationB->id,
             'is_active' => 1,
-            'created_at' => now(),
-            'updated_at' => now(),
         ]);
 
-        \DB::table('pos_terminal_policies')->insert([
-            'terminal_id' => $terminalId,
+        PosTerminalPolicy::create([
+            'terminal_id' => $terminal->id,
             'require_session_open' => 1,
             'require_opening_float' => 1,
             'allow_total_only_float_input' => 1,
@@ -205,39 +161,28 @@ class POSTerminalRegistryPolicyTest extends TestCase
             'auto_open_drawer_on_pickup' => 0,
             'auto_open_drawer_on_close' => 0,
             'require_pickup_supervisor_approval' => 1,
-            'metadata' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
         ]);
 
         $userA = $this->createSettingsUser($settingA, true);
 
         $this->actingAs($userA)
             ->withSession(['setting_id' => $settingA->id])
-            ->get(route('pos.terminals.edit', $terminalId))
+            ->get(route('pos.terminals.edit', $terminal->id))
             ->assertNotFound();
     }
 
     public function test_destroy_deactivates_terminal_without_deleting_row(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $location = Location::create([
-            'name' => 'A-LOC',
-            'setting_id' => $setting->id,
-        ]);
-
-        $terminalId = \DB::table('pos_terminals')->insertGetId([
+        $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
             'code' => 'COUNTER-01',
             'name' => 'A TERMINAL',
-            'location_id' => $location->id,
             'is_active' => 1,
-            'created_at' => now(),
-            'updated_at' => now(),
         ]);
 
-        \DB::table('pos_terminal_policies')->insert([
-            'terminal_id' => $terminalId,
+        PosTerminalPolicy::create([
+            'terminal_id' => $terminal->id,
             'require_session_open' => 1,
             'require_opening_float' => 1,
             'allow_total_only_float_input' => 1,
@@ -248,25 +193,22 @@ class POSTerminalRegistryPolicyTest extends TestCase
             'auto_open_drawer_on_pickup' => 0,
             'auto_open_drawer_on_close' => 0,
             'require_pickup_supervisor_approval' => 1,
-            'metadata' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
         ]);
 
         $user = $this->createSettingsUser($setting, true);
 
         $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
-            ->delete(route('pos.terminals.destroy', $terminalId))
+            ->delete(route('pos.terminals.destroy', $terminal->id))
             ->assertRedirect(route('pos.terminals.index'));
 
         $this->assertDatabaseHas('pos_terminals', [
-            'id' => $terminalId,
+            'id' => $terminal->id,
             'is_active' => 0,
         ]);
 
         $this->assertDatabaseHas('pos_terminal_policies', [
-            'terminal_id' => $terminalId,
+            'terminal_id' => $terminal->id,
         ]);
     }
 

@@ -17,7 +17,6 @@
                         <tr>
                             <th>Kode</th>
                             <th>Nama</th>
-                            <th>Lokasi</th>
                             <th>Status</th>
                             <th>Kebijakan</th>
                             <th class="text-end">Aksi</th>
@@ -28,7 +27,6 @@
                             <tr>
                                 <td>{{ $terminal->code }}</td>
                                 <td>{{ $terminal->name }}</td>
-                                <td>{{ optional($terminal->location)->name ?? '-' }}</td>
                                 <td>
                                     @if($terminal->is_active)
                                         <span class="badge bg-success">Aktif</span>
@@ -58,7 +56,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="text-center py-4">Belum ada terminal yang dikonfigurasi.</td>
+                                <td colspan="5" class="text-center py-4">Belum ada terminal yang dikonfigurasi.</td>
                             </tr>
                         @endforelse
                     </tbody>

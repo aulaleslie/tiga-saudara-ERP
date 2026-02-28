@@ -586,8 +586,8 @@ Primary docs:
   - `Modules/Pos/Tests/Feature/POSCheckoutFinalizeIdempotencyTest.php`
   - `docs/pos/pos-mvp-execution-status.md`
 - Risks / follow-ups:
-  - `POSTED` idempotency replay is key-first (returns stored payload) to preserve deterministic retry semantics after cart clear; payload-mismatch checks remain enforced for non-posted states
-  - stock source remains terminal-location only by design; multi-location fallback/split remains deferred to `POS-MVP-014`
+- `POSTED` idempotency replay is key-first (returns stored payload) to preserve deterministic retry semantics after cart clear; payload-mismatch checks remain enforced for non-posted states
+  - stock source is resolved from configured sales locations (priority/fallback), independent of terminal identity
   - serial assignment orchestration remains intentionally rejected in finalize path (`SERIAL_NOT_SUPPORTED`) until `POS-MVP-018`
 - Next proposed task: `POS-MVP-017`
 
@@ -907,4 +907,53 @@ Primary docs:
   - `docs/pos/pos-mvp-execution-status.md`
 - Risks / follow-ups:
   - Readiness for parallel run is now dependent on operational team executing the checklist per business.
+- Next proposed task: `MVP Complete`
+
+### 2026-02-28 - Post-MVP Terminal Scope Alignment - Status: done
+
+- Scope summary:
+  - Remove terminal-level location configuration from POS terminal management.
+  - Keep stock sourcing fully driven by `sales-location-configurations` priority.
+  - Treat terminal as cashier-station identity (`setting_id`, `code`, `name`, policy, active flag).
+- Acceptance criteria summary:
+  - terminal create/edit no longer requires or renders `location_id`
+  - runtime resolver no longer validates terminal-bound location membership
+  - checkout posting no longer depends on terminal-derived source location
+  - POS session open is blocked when no sales location is configured for the active setting
+  - requirements/design docs updated to match terminal-as-station model
+- Tests run:
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSTerminalRegistryPolicyTest.php`
+  - result: pass (5 tests, 20 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Unit/PosTerminalRuntimeResolverTest.php`
+  - result: pass (4 tests, 9 assertions)
+  - command: `php artisan test Modules/Pos/Tests/Feature/POSOpeningFloatCaptureTest.php`
+  - result: pass (6 tests, 26 assertions)
+  - command: `php artisan test --testsuite=Pos`
+  - result: pass (148 tests, 717 assertions)
+- Changed files:
+  - `Modules/Pos/Database/Migrations/2026_03_26_100000_create_pos_terminals_table.php`
+  - `Modules/Pos/Database/Migrations/2026_08_14_000200_drop_location_id_from_pos_terminals_table.php` (new)
+  - `Modules/Pos/Entities/PosTerminal.php`
+  - `Modules/Pos/Http/Controllers/PosTerminalController.php`
+  - `Modules/Pos/Http/Controllers/PosSessionController.php`
+  - `Modules/Pos/Http/Controllers/PosSellController.php`
+  - `Modules/Pos/Http/Requests/StorePosTerminalRequest.php`
+  - `Modules/Pos/Http/Requests/UpdatePosTerminalRequest.php`
+  - `Modules/Pos/Resources/views/terminals/_form.blade.php`
+  - `Modules/Pos/Resources/views/terminals/index.blade.php`
+  - `Modules/Pos/Resources/views/session/open.blade.php`
+  - `Modules/Pos/Resources/views/sell.blade.php`
+  - `Modules/Pos/Services/PosTerminalRuntimeResolver.php`
+  - `Modules/Pos/Services/PosSessionLifecycleService.php`
+  - `Modules/Pos/Services/FinalizePosCheckoutService.php`
+  - `Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php`
+  - `Modules/Pos/Services/PosReceiptService.php`
+  - `Modules/Pos/Tests/Feature/POSTerminalRegistryPolicyTest.php`
+  - `Modules/Pos/Tests/Feature/POSOpeningFloatCaptureTest.php`
+  - `Modules/Pos/Tests/Unit/PosTerminalRuntimeResolverTest.php`
+  - `docs/pos/pos-requirements-discovery.md`
+  - `docs/pos/pos-hybrid-technical-design.md`
+  - `docs/pos/pos-mvp-execution-status.md`
+- Risks / follow-ups:
+  - SQLite test runtime keeps legacy nullable `location_id` column for migration compatibility; production MySQL removes the column via forward migration.
 - Next proposed task: `MVP Complete`

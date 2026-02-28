@@ -35,20 +35,6 @@
 
 <div class="row">
     <div class="col-md-6">
-        <div class="mb-3">
-            <label for="location_id" class="form-label">Lokasi</label>
-            <select name="location_id" id="location_id" class="form-select @error('location_id') is-invalid @enderror" required>
-                <option value="">-- Pilih Lokasi --</option>
-                @foreach($availableLocations as $location)
-                    <option value="{{ $location->id }}" @selected((string) old('location_id', $terminal?->location_id) === (string) $location->id)>
-                        {{ $location->name }}
-                    </option>
-                @endforeach
-            </select>
-            @error('location_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
-        </div>
-    </div>
-    <div class="col-md-6">
         <div class="form-check mt-4">
             <input type="checkbox" class="form-check-input" id="is_active" name="is_active" value="1"
                    @checked(old('is_active', $terminal?->is_active ?? true))>

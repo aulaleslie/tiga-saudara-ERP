@@ -443,14 +443,6 @@ class FinalizePosCheckoutService
                     ->lockForUpdate()
                     ->first();
 
-                $sourceLocationId = (int) ($terminal?->location_id ?? 0);
-                if ($sourceLocationId <= 0) {
-                    throw new PosCheckoutValidationException(
-                        'PAYMENT_INVALID',
-                        'POS terminal source location is not configured.'
-                    );
-                }
-
                 /** @var array<int, array{product_id: int, qty: int, tax_id: int|null}> $lines */
                 $lines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
 
@@ -490,7 +482,6 @@ class FinalizePosCheckoutService
                     'terminal_id' => (int) $session->terminal_id,
                     'cashier_user_id' => $cashierUserId,
                     'customer_id' => $customerId,
-                    'source_location_id' => $sourceLocationId,
                     'payment' => $payment,
                     'cart_snapshot' => $cartSnapshot,
                     'allocations' => $resolution['allocations'],

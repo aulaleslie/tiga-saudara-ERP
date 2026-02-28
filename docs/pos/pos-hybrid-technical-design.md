@@ -128,7 +128,7 @@ Notes:
 
 Purpose:
 
-- Register POS terminals per business/location context.
+- Register POS terminals per business/cashier-station context.
 
 Proposed fields:
 
@@ -136,7 +136,6 @@ Proposed fields:
 - `setting_id` (business scope; required)
 - `code` (unique per business; e.g., `COUNTER-01`)
 - `name`
-- `location_id` (terminal operating context)
 - `is_active` (bool)
 - `printer_driver` (nullable; e.g., `network_thermal`)
 - `printer_host` (nullable)
@@ -151,7 +150,6 @@ Indexes / constraints:
 
 - unique (`setting_id`, `code`)
 - index (`setting_id`, `is_active`)
-- index (`location_id`)
 
 ### 5.2 `pos_terminal_policies` (optional separate table; may be merged into `pos_terminals`)
 

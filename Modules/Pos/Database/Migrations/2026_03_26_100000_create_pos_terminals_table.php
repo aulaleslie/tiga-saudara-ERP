@@ -13,7 +13,7 @@ return new class extends Migration
             $table->unsignedBigInteger('setting_id');
             $table->string('code', 50);
             $table->string('name', 100);
-            $table->unsignedBigInteger('location_id');
+            $table->unsignedBigInteger('location_id')->nullable();
             $table->boolean('is_active')->default(true);
             $table->json('metadata')->nullable();
             $table->timestamps();
