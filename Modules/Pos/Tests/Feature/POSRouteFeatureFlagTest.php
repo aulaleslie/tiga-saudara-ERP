@@ -74,7 +74,7 @@ class POSRouteFeatureFlagTest extends TestCase
             ->get('/pos/sell');
 
         $response->assertOk();
-        $response->assertSee('POS Sell Screen');
+        $response->assertSee('Layar Kasir POS');
     }
 
     public function test_it_applies_flag_per_setting_when_switching_context(): void

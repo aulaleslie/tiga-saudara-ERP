@@ -138,6 +138,89 @@
     </li>
 @endcan
 
+@php
+    $currentSetting = settings();
+    $posEnabledForCurrentSetting = (bool) ($currentSetting->pos_enabled ?? false);
+    $canAccessPosOperations = $posEnabledForCurrentSetting
+        && auth()->user()->can('pos.access')
+        && auth()->user()->canAny(['pos.sell', 'pos.sessions.open', 'pos.monitor.access', 'pos.reports.access', 'pos.reconciliation.access']);
+    $canAccessPosTerminals = auth()->user()->can('pos.terminals.access');
+@endphp
+
+@if($canAccessPosOperations || $canAccessPosTerminals)
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('pos.*') ? 'c-show' : '' }}">
+        <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
+            <i class="c-sidebar-nav-icon bi bi-upc-scan" style="line-height: 1;"></i> POS
+        </a>
+
+        @if($posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.sell'))
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.sell') || request()->routeIs('pos.sell.*') ? 'c-active' : '' }}"
+                       href="{{ route('pos.sell') }}">
+                        <i class="c-sidebar-nav-icon bi bi-cash-stack" style="line-height: 1;"></i> POS Kasir
+                    </a>
+                </li>
+            </ul>
+        @endif
+
+        @if($posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.sessions.open'))
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.sessions.create') ? 'c-active' : '' }}"
+                       href="{{ route('pos.sessions.create') }}">
+                        <i class="c-sidebar-nav-icon bi bi-door-open" style="line-height: 1;"></i> Sesi POS
+                    </a>
+                </li>
+            </ul>
+        @endif
+
+        @if($posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.monitor.access'))
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.monitor.*') ? 'c-active' : '' }}"
+                       href="{{ route('pos.monitor.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-display" style="line-height: 1;"></i> Monitor POS
+                    </a>
+                </li>
+            </ul>
+        @endif
+
+        @if($posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.reports.access'))
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.reports.*') ? 'c-active' : '' }}"
+                       href="{{ route('pos.reports.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-clipboard-data" style="line-height: 1;"></i> Laporan POS
+                    </a>
+                </li>
+            </ul>
+        @endif
+
+        @if($posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.reconciliation.access'))
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.reconciliation.*') ? 'c-active' : '' }}"
+                       href="{{ route('pos.reconciliation.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-wallet2" style="line-height: 1;"></i> Rekonsiliasi POS
+                    </a>
+                </li>
+            </ul>
+        @endif
+
+        @if($canAccessPosTerminals)
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.terminals.*') ? 'c-active' : '' }}"
+                       href="{{ route('pos.terminals.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-pc-display" style="line-height: 1;"></i> Terminal POS
+                    </a>
+                </li>
+            </ul>
+        @endif
+    </li>
+@endif
+
 @canany(['sales.access', 'saleReturns.access'])
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('sales.*') || request()->routeIs('sale-payments*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">

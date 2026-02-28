@@ -103,11 +103,11 @@ class POSShellSessionGuardTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->get(route('pos.sell'))
             ->assertOk()
-            ->assertSee('POS Sell Screen')
-            ->assertSee('Session #' . $activeSession->id)
-            ->assertSee('Product Search / Scan')
-            ->assertSee('Cart')
-            ->assertSee('Payment Shortcuts')
+            ->assertSee('Layar Kasir POS')
+            ->assertSee('Sesi #' . $activeSession->id)
+            ->assertSee('Pencarian / Pindai Produk')
+            ->assertSee('Keranjang')
+            ->assertSee('Pintasan Pembayaran')
             ->assertSee('pos-shell-posting-note');
 
         $this->assertSame($cashEventCountBefore, DB::table('pos_session_cash_events')->count());

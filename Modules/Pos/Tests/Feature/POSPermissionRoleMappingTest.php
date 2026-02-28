@@ -122,7 +122,8 @@ class POSPermissionRoleMappingTest extends TestCase
         $this->actingAs($readOnly)
             ->withSession(['setting_id' => $setting->id])
             ->get(route('pos.terminals.index'))
-            ->assertOk();
+            ->assertOk()
+            ->assertSee('Terminal POS');
 
         $noTerminalAccess = $this->createUserForSetting($setting, 'No Terminal Access', []);
         $this->actingAs($noTerminalAccess)
@@ -139,7 +140,8 @@ class POSPermissionRoleMappingTest extends TestCase
         $this->actingAs($editor)
             ->withSession(['setting_id' => $setting->id])
             ->get(route('pos.terminals.create'))
-            ->assertOk();
+            ->assertOk()
+            ->assertSee('Buat Terminal POS');
 
         $this->actingAs($editor)
             ->withSession(['setting_id' => $setting->id])

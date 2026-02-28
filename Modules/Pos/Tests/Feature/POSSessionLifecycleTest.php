@@ -175,7 +175,7 @@ class POSSessionLifecycleTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->get(route('pos.sell'))
             ->assertOk()
-            ->assertSee('POS Sell Screen');
+            ->assertSee('Layar Kasir POS');
     }
 
     private function createSetting(string $name): Setting

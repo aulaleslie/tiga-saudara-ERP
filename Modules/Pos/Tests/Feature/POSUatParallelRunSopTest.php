@@ -141,7 +141,7 @@ class POSUatParallelRunSopTest extends TestCase
         // Scenario 1: POS is enabled (Parallel Run active)
         $response = $this->actingAs($user)->withSession(['setting_id' => $setting->id])->get(route('pos.sell'));
         $response->assertOk();
-        $response->assertSee('POS Sell Screen');
+        $response->assertSee('Layar Kasir POS');
 
         // Scenario 2: Rollback executed (POS feature flag toggled off)
         $setting->update(['pos_enabled' => false]);

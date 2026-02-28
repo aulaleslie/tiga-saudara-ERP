@@ -59,7 +59,7 @@ class POSReconciliationViewTest extends TestCase
             ->get(route('pos.reconciliation.index'));
 
         $response->assertOk();
-        $response->assertSee('POS Reconciliation');
+        $response->assertSee('Rekonsiliasi POS');
     }
 
     public function test_reconciliation_page_blocked_without_permission(): void

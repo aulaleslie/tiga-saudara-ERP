@@ -200,7 +200,8 @@ class POSOpeningFloatCaptureTest extends TestCase
         $this->actingAs($userWithPermission)
             ->withSession(['setting_id' => $setting->id])
             ->get(route('pos.sessions.create'))
-            ->assertOk();
+            ->assertOk()
+            ->assertSee('Buka Sesi POS');
     }
 
     private function createSetting(string $name): Setting

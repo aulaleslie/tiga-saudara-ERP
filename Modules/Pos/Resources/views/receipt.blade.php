@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -45,7 +45,7 @@
 <body onload="/** window.print(); **/">
     
     <div class="no-print" style="margin-bottom: 20px; text-align: center;">
-        <button onclick="window.print()" style="padding: 10px 20px; font-size: 14px; cursor: pointer;">Print Struk</button>
+        <button onclick="window.print()" style="padding: 10px 20px; font-size: 14px; cursor: pointer;">Cetak Struk</button>
     </div>
 
     <div class="header">
@@ -92,7 +92,7 @@
             @if($line['discount'] > 0)
             <tr>
                 <td></td>
-                <td class="text-left" style="font-size: 10px;">Disc.</td>
+                <td class="text-left" style="font-size: 10px;">Disk.</td>
                 <td class="item-price" style="font-size: 10px;">-{{ format_currency($line['discount']) }}</td>
             </tr>
             @endif

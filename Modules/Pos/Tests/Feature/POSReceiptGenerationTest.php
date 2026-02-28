@@ -145,6 +145,7 @@ class POSReceiptGenerationTest extends TestCase
             ->get("/pos/sell/checkout/{$checkoutId}/receipt")
             ->assertStatus(200)
             ->assertSee($receiptNumber)
+            ->assertSee('Cetak Struk')
             ->assertSee('PROD-003');
             
         // Assert log was created

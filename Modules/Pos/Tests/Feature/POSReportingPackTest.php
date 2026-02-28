@@ -62,7 +62,7 @@ class POSReportingPackTest extends TestCase
             ->get(route('pos.reports.index'));
 
         $response->assertOk();
-        $response->assertSee('POS Reports');
+        $response->assertSee('Laporan POS');
     }
 
     public function test_reports_page_blocked_for_unauthorized_user(): void

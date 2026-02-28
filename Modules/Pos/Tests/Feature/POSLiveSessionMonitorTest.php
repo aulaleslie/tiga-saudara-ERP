@@ -64,7 +64,7 @@ class POSLiveSessionMonitorTest extends TestCase
             ->get(route('pos.monitor.index'));
 
         $response->assertOk();
-        $response->assertSee('Live POS Sessions Monitor'); // Expected title or marker in the view
+        $response->assertSee('Monitor Sesi POS Aktif');
     }
 
     public function test_monitor_page_blocked_for_unauthorized_user(): void

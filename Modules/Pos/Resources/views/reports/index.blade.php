@@ -1,20 +1,20 @@
 @extends('layouts.app')
 
-@section('title', 'POS Reports')
+@section('title', 'Laporan POS')
 
 @section('content')
     <div class="container-fluid">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h1 class="h3 mb-0 text-gray-800">POS Reports</h1>
+            <h1 class="h3 mb-0 text-gray-800">Laporan POS</h1>
             <div class="d-flex align-items-center">
                 <div class="input-group input-group-sm me-2">
-                    <span class="input-group-text">From</span>
+                    <span class="input-group-text">Dari</span>
                     <input type="date" id="date-from" class="form-control" value="{{ now()->format('Y-m-d') }}">
-                    <span class="input-group-text">To</span>
+                    <span class="input-group-text">Sampai</span>
                     <input type="date" id="date-to" class="form-control" value="{{ now()->format('Y-m-d') }}">
                 </div>
                 <button id="report-refresh-btn" class="btn btn-sm btn-outline-primary whitespace-nowrap">
-                    <i class="fas fa-sync-alt"></i> Load
+                    <i class="fas fa-sync-alt"></i> Muat
                 </button>
             </div>
         </div>
@@ -23,19 +23,19 @@
             <div class="card-header border-bottom-0">
                 <ul class="nav nav-tabs card-header-tabs" id="reportTabs" role="tablist">
                     <li class="nav-item">
-                        <button class="nav-link active" id="tab-daily-sales" data-bs-toggle="tab" data-bs-target="#content-daily-sales" type="button" role="tab">Daily Sales</button>
+                        <button class="nav-link active" id="tab-daily-sales" data-bs-toggle="tab" data-bs-target="#content-daily-sales" type="button" role="tab">Penjualan Harian</button>
                     </li>
                     <li class="nav-item">
-                        <button class="nav-link" id="tab-cashiers" data-bs-toggle="tab" data-bs-target="#content-cashiers" type="button" role="tab">Cashier Summary</button>
+                        <button class="nav-link" id="tab-cashiers" data-bs-toggle="tab" data-bs-target="#content-cashiers" type="button" role="tab">Ringkasan Kasir</button>
                     </li>
                     <li class="nav-item">
-                        <button class="nav-link" id="tab-payments" data-bs-toggle="tab" data-bs-target="#content-payments" type="button" role="tab">Payment Methods</button>
+                        <button class="nav-link" id="tab-payments" data-bs-toggle="tab" data-bs-target="#content-payments" type="button" role="tab">Metode Pembayaran</button>
                     </li>
                     <li class="nav-item">
-                        <button class="nav-link" id="tab-items" data-bs-toggle="tab" data-bs-target="#content-items" type="button" role="tab">Item Sales</button>
+                        <button class="nav-link" id="tab-items" data-bs-toggle="tab" data-bs-target="#content-items" type="button" role="tab">Penjualan Produk</button>
                     </li>
                     <li class="nav-item">
-                        <button class="nav-link" id="tab-approvals" data-bs-toggle="tab" data-bs-target="#content-approvals" type="button" role="tab">Supervisor Approvals</button>
+                        <button class="nav-link" id="tab-approvals" data-bs-toggle="tab" data-bs-target="#content-approvals" type="button" role="tab">Persetujuan Supervisor</button>
                     </li>
                 </ul>
             </div>
@@ -47,18 +47,18 @@
                             <table class="table table-hover table-striped mb-0">
                                 <thead class="table-light">
                                     <tr>
-                                        <th>Date</th>
-                                        <th class="text-center">Transactions</th>
+                                        <th>Tanggal</th>
+                                        <th class="text-center">Transaksi</th>
                                         <th class="text-end">Subtotal</th>
-                                        <th class="text-end">Discount</th>
-                                        <th class="text-end">Tax</th>
-                                        <th class="text-end">Grand Total</th>
-                                        <th class="text-end">Cash</th>
-                                        <th class="text-end">Non-Cash</th>
+                                        <th class="text-end">Diskon</th>
+                                        <th class="text-end">Pajak</th>
+                                        <th class="text-end">Total Akhir</th>
+                                        <th class="text-end">Tunai</th>
+                                        <th class="text-end">Non-Tunai</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-daily-sales">
-                                    <tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr>
+                                    <tr><td colspan="8" class="text-center text-muted py-4">Memuat...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -70,16 +70,16 @@
                             <table class="table table-hover table-striped mb-0">
                                 <thead class="table-light">
                                     <tr>
-                                        <th>Cashier</th>
-                                        <th class="text-center">Transactions</th>
-                                        <th class="text-end">Grand Total</th>
-                                        <th class="text-end">Cash</th>
-                                        <th class="text-end">Non-Cash</th>
-                                        <th class="text-end">Avg Basket</th>
+                                        <th>Kasir</th>
+                                        <th class="text-center">Transaksi</th>
+                                        <th class="text-end">Total Akhir</th>
+                                        <th class="text-end">Tunai</th>
+                                        <th class="text-end">Non-Tunai</th>
+                                        <th class="text-end">Rata-rata Keranjang</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-cashiers">
-                                    <tr><td colspan="6" class="text-center text-muted py-4">Loading...</td></tr>
+                                    <tr><td colspan="6" class="text-center text-muted py-4">Memuat...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -91,13 +91,13 @@
                             <table class="table table-hover table-striped mb-0">
                                 <thead class="table-light">
                                     <tr>
-                                        <th>Method Code</th>
-                                        <th class="text-center">Transactions</th>
-                                        <th class="text-end">Grand Total</th>
+                                        <th>Kode Metode</th>
+                                        <th class="text-center">Transaksi</th>
+                                        <th class="text-end">Total Akhir</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-payments">
-                                    <tr><td colspan="3" class="text-center text-muted py-4">Loading...</td></tr>
+                                    <tr><td colspan="3" class="text-center text-muted py-4">Memuat...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -109,14 +109,14 @@
                             <table class="table table-hover table-striped mb-0">
                                 <thead class="table-light">
                                     <tr>
-                                        <th>Product Code</th>
-                                        <th>Product Name</th>
-                                        <th class="text-center">Qty Sold</th>
-                                        <th class="text-end">Gross Revenue</th>
+                                        <th>Kode Produk</th>
+                                        <th>Nama Produk</th>
+                                        <th class="text-center">Qty Terjual</th>
+                                        <th class="text-end">Pendapatan Kotor</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-items">
-                                    <tr><td colspan="4" class="text-center text-muted py-4">Loading...</td></tr>
+                                    <tr><td colspan="4" class="text-center text-muted py-4">Memuat...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -128,16 +128,16 @@
                             <table class="table table-hover table-striped mb-0">
                                 <thead class="table-light">
                                     <tr>
-                                        <th>Time</th>
-                                        <th>Action</th>
-                                        <th>Result</th>
-                                        <th>Requester</th>
-                                        <th>Approver</th>
-                                        <th>Reason/Note</th>
+                                        <th>Waktu</th>
+                                        <th>Aksi</th>
+                                        <th>Hasil</th>
+                                        <th>Peminta</th>
+                                        <th>Penyetuju</th>
+                                        <th>Alasan/Catatan</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-approvals">
-                                    <tr><td colspan="6" class="text-center text-muted py-4">Loading...</td></tr>
+                                    <tr><td colspan="6" class="text-center text-muted py-4">Memuat...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -176,7 +176,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const renderers = {
         'daily-sales': (data, tbody) => {
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No data found in date range.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">Tidak ada data pada rentang tanggal.</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(row => `
@@ -194,7 +194,7 @@ document.addEventListener('DOMContentLoaded', function () {
         },
         'cashiers': (data, tbody) => {
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No data found in date range.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Tidak ada data pada rentang tanggal.</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(row => `
@@ -210,7 +210,7 @@ document.addEventListener('DOMContentLoaded', function () {
         },
         'payments': (data, tbody) => {
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">No data found in date range.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">Tidak ada data pada rentang tanggal.</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(row => `
@@ -223,7 +223,7 @@ document.addEventListener('DOMContentLoaded', function () {
         },
         'items': (data, tbody) => {
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">No data found in date range.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">Tidak ada data pada rentang tanggal.</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(row => `
@@ -237,7 +237,7 @@ document.addEventListener('DOMContentLoaded', function () {
         },
         'approvals': (data, tbody) => {
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No data found in date range.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Tidak ada data pada rentang tanggal.</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(row => {
@@ -255,7 +255,14 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     };
 
-    let activeTabId = 'daily-sales'; // Default
+    let activeTabId = 'daily-sales';
+    const tabLabelMap = {
+        'daily-sales': 'penjualan harian',
+        'cashiers': 'ringkasan kasir',
+        'payments': 'metode pembayaran',
+        'items': 'penjualan produk',
+        'approvals': 'persetujuan supervisor',
+    };
 
     const loadDataForTab = (tabId) => {
         const url = new URL(endpoints[tabId]);
@@ -263,7 +270,7 @@ document.addEventListener('DOMContentLoaded', function () {
         url.searchParams.append('date_to', inputTo.value);
 
         const tbody = document.getElementById(`tbody-${tabId}`);
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin me-2"></i> Loading ${tabId.replace('-', ' ')}...</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin me-2"></i> Memuat ${tabLabelMap[tabId] || tabId}...</td></tr>`;
         btnRefresh.disabled = true;
 
         fetch(url, {
@@ -273,7 +280,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         })
         .then(res => {
-            if (!res.ok) throw new Error('API request failed');
+            if (!res.ok) throw new Error('Permintaan API gagal');
             return res.json();
         })
         .then(data => {
@@ -281,14 +288,13 @@ document.addEventListener('DOMContentLoaded', function () {
             btnRefresh.disabled = false;
         })
         .catch(err => {
-            console.error('Fetch error:', err);
-            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger py-4">Error loading data. Try again.</td></tr>';
+            console.error('Gagal mengambil data:', err);
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger py-4">Gagal memuat data. Coba lagi.</td></tr>';
             btnRefresh.disabled = false;
         });
     };
 
     const loadAllTabs = () => {
-        // Load the currently visible tab first, then the others in the background
         const tabs = Object.keys(endpoints);
         loadDataForTab(activeTabId);
 
@@ -299,20 +305,16 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     };
 
-    // Bind events
     btnRefresh.addEventListener('click', loadAllTabs);
 
-    // Bootstrap tab change events
     const tabEls = document.querySelectorAll('button[data-bs-toggle="tab"]');
     tabEls.forEach(tabEl => {
         tabEl.addEventListener('shown.bs.tab', event => {
             const targetId = event.target.getAttribute('data-bs-target').replace('#content-', '');
             activeTabId = targetId;
-            // Optionally reload on tab switch, or assume already loaded by loadAllTabs
         });
     });
 
-    // Initial load
     loadAllTabs();
 });
 </script>

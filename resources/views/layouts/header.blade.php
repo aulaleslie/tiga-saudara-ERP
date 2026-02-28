@@ -7,6 +7,31 @@
 <ul class="c-header-nav ml-auto">
 </ul>
 <ul class="c-header-nav ml-auto mr-4">
+    @php
+        $currentSetting = settings();
+        $posEnabledForCurrentSetting = (bool) ($currentSetting->pos_enabled ?? false);
+        $canQuickOpenPosSell = $posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.sell');
+        $canQuickOpenPosSession = $posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.sessions.open');
+        $canQuickOpenPosTerminals = auth()->user()->can('pos.terminals.access');
+
+        $posQuickLink = null;
+        if ($canQuickOpenPosSell) {
+            $posQuickLink = route('pos.sell');
+        } elseif ($canQuickOpenPosSession) {
+            $posQuickLink = route('pos.sessions.create');
+        } elseif ($canQuickOpenPosTerminals) {
+            $posQuickLink = route('pos.terminals.index');
+        }
+    @endphp
+
+    @if($posQuickLink)
+        <li class="c-header-nav-item mr-2">
+            <a class="btn btn-success btn-pill" href="{{ $posQuickLink }}">
+                <i class="bi bi-upc-scan mr-1"></i> Buka POS
+            </a>
+        </li>
+    @endif
+
     @can('pricePoints.access')
         <li class="c-header-nav-item mr-2">
             <a class="btn btn-primary btn-pill" href="{{ route('price-points.index') }}" target="_blank">

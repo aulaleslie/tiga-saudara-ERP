@@ -1,13 +1,13 @@
 @extends('layouts.app')
 
-@section('title', 'Open POS Session')
+@section('title', 'Buka Sesi POS')
 
 @section('content')
     <div class="container-fluid">
         @include('utils.alerts')
 
         <div class="card">
-            <div class="card-header">Open POS Session</div>
+            <div class="card-header">Buka Sesi POS</div>
             <div class="card-body">
                 <form method="POST" action="{{ route('pos.sessions.store') }}">
                     @csrf
@@ -17,7 +17,7 @@
                             <div class="mb-3">
                                 <label for="terminal_id" class="form-label">Terminal</label>
                                 <select name="terminal_id" id="terminal_id" class="form-select @error('terminal_id') is-invalid @enderror" required>
-                                    <option value="">-- Select Terminal --</option>
+                                    <option value="">-- Pilih Terminal --</option>
                                     @foreach($terminals as $terminal)
                                         <option value="{{ $terminal->id }}" @selected((string) old('terminal_id') === (string) $terminal->id)>
                                             {{ $terminal->code }} - {{ $terminal->name }}
@@ -32,7 +32,7 @@
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label for="opening_float_total" class="form-label">Opening Float Total</label>
+                                <label for="opening_float_total" class="form-label">Total Saldo Awal</label>
                                 <input type="number" min="0.01" step="0.01" name="opening_float_total" id="opening_float_total"
                                        class="form-control @error('opening_float_total') is-invalid @enderror"
                                        value="{{ old('opening_float_total') }}" required>
@@ -46,7 +46,7 @@
                     @endphp
 
                     <div class="mb-3">
-                        <label class="form-label d-block">Opening Denominations (Optional if terminal allows total-only)</label>
+                        <label class="form-label d-block">Pecahan Saldo Awal (Opsional jika terminal mengizinkan total saja)</label>
                         <div class="row">
                             @foreach($denominations as $denomination)
                                 <div class="col-6 col-md-4 col-lg-3 mb-2">
@@ -63,14 +63,14 @@
                     </div>
 
                     <div class="mb-3">
-                        <label for="notes" class="form-label">Notes</label>
+                        <label for="notes" class="form-label">Catatan</label>
                         <textarea name="notes" id="notes" rows="2" class="form-control @error('notes') is-invalid @enderror">{{ old('notes') }}</textarea>
                         @error('notes')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
 
                     <div class="mt-3">
-                        <button type="submit" class="btn btn-primary">Open Session</button>
-                        <a href="{{ route('pos.sell') }}" class="btn btn-secondary">Back</a>
+                        <button type="submit" class="btn btn-primary">Buka Sesi</button>
+                        <a href="{{ route('pos.sell') }}" class="btn btn-secondary">Kembali</a>
                     </div>
                 </form>
             </div>
