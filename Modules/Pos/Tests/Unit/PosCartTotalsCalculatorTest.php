@@ -5,6 +5,9 @@ namespace Modules\Pos\Tests\Unit;
 use Modules\Pos\Services\PosCartTotalsCalculator;
 use Tests\TestCase;
 
+/**
+ * @group pos-critical-path
+ */
 class PosCartTotalsCalculatorTest extends TestCase
 {
     public function test_line_discount_percentage_and_fixed_are_capped(): void

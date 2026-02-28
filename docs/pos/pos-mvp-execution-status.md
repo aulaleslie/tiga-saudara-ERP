@@ -11,10 +11,10 @@ Primary docs:
 ## Summary
 
 - Overall status: `in-progress`
-- Current milestone: `Milestone 5 - Supervisor Monitoring, Reports, and Reconciliation`
-- Current task: `POS-MVP-023 (done)`
+- Current milestone: `Milestone 6 - Hardening, UAT, and Controlled Enablement`
+- Current task: `POS-MVP-027 (done)`
 - Completed cross-cutting: `POS-MVP-015 (done)`, `POS-MVP-016 (done)`
-- Next proposed task: `POS-MVP-025`
+- Next proposed task: `All POS MVP Tasks Complete`
 - Last updated: 2026-02-28 15:33 WITA
 
 ## Milestone Tracker
@@ -27,7 +27,7 @@ Primary docs:
 | 3 - Hybrid Posting and Immediate Stock Deduction | done | proceed to `POS-MVP-019` |
 | 4 - Payments, Receipt, and Cashier Finish Flow | done | `POS-MVP-019`, `POS-MVP-020`, `POS-MVP-021` done |
 | 5 - Supervisor Monitoring, Reports, and Reconciliation | in-progress | `POS-MVP-022` done |
-| 6 - Hardening, UAT, and Controlled Enablement | pending | |
+| 6 - Hardening, UAT, and Controlled Enablement | done | `POS-MVP-025`, `POS-MVP-026`, `POS-MVP-027` done |
 
 ## Active Task Plan
 
@@ -844,3 +844,67 @@ Primary docs:
 - Risks / follow-ups:
   - Mismatch resolution process currently requires manual intervention via database or other tools.
 - Next proposed task: `POS-MVP-025`
+
+### 2026-02-28 - POS-MVP-025 - Status: done
+
+- Milestone: `Milestone 6 - Hardening, UAT, and Controlled Enablement`
+- Acceptance criteria summary:
+  - Curate and enforce a POS MVP regression suite.
+  - Assert that all critical scenarios exist and are tagged with `@group pos-critical-path`.
+  - Provide a single CI-friendly running command.
+  - Document coverage mapping between test matrix (POS-TM-*) and automated test code.
+- Tests run:
+  - command: `php artisan test --testsuite=Pos --group=pos-critical-path`
+  - result: pass (140 tests, 666 assertions)
+- Changed files:
+  - `docs/pos/pos-mvp-test-coverage-map.md` (new)
+  - `Modules/Pos/Tests/Feature/POSCriticalPathCrossReferenceTest.php` (new)
+  - `Modules/Pos/Tests/*/*.php` (added `@group pos-critical-path`)
+- Risks / follow-ups:
+  - UAT/manual scenarios outlined in the matrix are still pending real-world validation.
+- Next proposed task: `POS-MVP-026`
+
+### 2026-02-28 - POS-MVP-026 - Status: done
+
+- Milestone: `Milestone 6 - Hardening, UAT, and Controlled Enablement`
+- Acceptance criteria summary:
+  - Created structured UAT script covering 9 crucial manual retail scenarios (hardware/ops/fallback).
+  - Drafted Parallel-Run SOP detailing duplicate transaction prevention and rollback procedures.
+  - Added feature test to validate existence and keyword coverage of both documents.
+  - Verified POS enable/disable fallback mechanism programmatically in test.
+- Tests run:
+  - command: `vendor/bin/phpunit Modules/Pos/Tests/Feature/POSUatParallelRunSopTest.php`
+  - result: pass (3 tests, 22 assertions)
+  - command: `vendor/bin/phpunit --testsuite=Pos`
+  - result: pass (143 tests, 688 assertions)
+- Changed files:
+  - `docs/pos/pos-mvp-uat-script.md` (new)
+  - `docs/pos/pos-mvp-parallel-run-sop.md` (new)
+  - `Modules/Pos/Tests/Feature/POSUatParallelRunSopTest.php` (new)
+  - `docs/pos/pos-mvp-execution-status.md`
+- Risks / follow-ups:
+  - UAT/manual scenarios outlined in the matrix are still pending real-world validation by store team.
+  - Parallel-run SOP requires manager training before parallel enablement begins.
+- Next proposed task: `POS-MVP-027`
+
+### 2026-02-28 - POS-MVP-027 - Status: done
+
+- Milestone: `Milestone 6 - Hardening, UAT, and Controlled Enablement`
+- Acceptance criteria summary:
+  - Created repeatable per-business activation checklist (`pos-mvp-activation-checklist.md`).
+  - Created operational support and escalation runbook (`pos-mvp-support-runbook.md`).
+  - Implemented progressive enablement feature test (`POSProgressiveEnablementTest.php`) verifying cross-business isolation and fallback routing.
+  - Test suite passes full POS critical path (146 tests, 708 assertions).
+- Tests run:
+  - command: `vendor/bin/phpunit Modules/Pos/Tests/Feature/POSProgressiveEnablementTest.php`
+  - result: pass (3 tests, 20 assertions)
+  - command: `php artisan test --testsuite=Pos --group=pos-critical-path`
+  - result: pass (146 tests, 708 assertions)
+- Changed files:
+  - `docs/pos/pos-mvp-activation-checklist.md` (new)
+  - `docs/pos/pos-mvp-support-runbook.md` (new)
+  - `Modules/Pos/Tests/Feature/POSProgressiveEnablementTest.php` (new)
+  - `docs/pos/pos-mvp-execution-status.md`
+- Risks / follow-ups:
+  - Readiness for parallel run is now dependent on operational team executing the checklist per business.
+- Next proposed task: `MVP Complete`

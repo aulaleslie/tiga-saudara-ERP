@@ -26,6 +26,9 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
+/**
+ * @group pos-critical-path
+ */
 class POSReceiptGenerationTest extends TestCase
 {
     use RefreshDatabase;

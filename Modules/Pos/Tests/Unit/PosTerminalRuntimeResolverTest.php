@@ -13,6 +13,9 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\SettingSaleLocation;
 use Tests\TestCase;
 
+/**
+ * @group pos-critical-path
+ */
 class PosTerminalRuntimeResolverTest extends TestCase
 {
     use RefreshDatabase;

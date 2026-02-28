@@ -15,6 +15,9 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
+/**
+ * @group pos-critical-path
+ */
 class POSPermissionRoleMappingTest extends TestCase
 {
     use RefreshDatabase;

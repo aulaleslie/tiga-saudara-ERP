@@ -29,6 +29,9 @@ use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 use Throwable;
 
+/**
+ * @group pos-critical-path
+ */
 class POSCheckoutFinalizeIdempotencyTest extends TestCase
 {
     use RefreshDatabase;
