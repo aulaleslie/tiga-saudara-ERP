@@ -55,7 +55,7 @@ class POSLiveSessionMonitorTest extends TestCase
 
     public function test_monitor_page_loads_for_authorized_user(): void
     {
-        [$setting, , $session] = $this->createOpenSession(cashThreshold: 500000, openingFloat: 100000);
+        [$setting, , $session] = $this->createOpenSession(cashThreshold: 50000, openingFloat: 100000);
         
         $monitor = $this->createUserForSetting($setting, 'POS_MONITOR_ROLE', ['pos.access', 'pos.monitor.access']);
 
@@ -69,7 +69,7 @@ class POSLiveSessionMonitorTest extends TestCase
 
     public function test_monitor_page_blocked_for_unauthorized_user(): void
     {
-        [$setting, , $session] = $this->createOpenSession(cashThreshold: 500000, openingFloat: 100000);
+        [$setting, , $session] = $this->createOpenSession(cashThreshold: 50000, openingFloat: 100000);
         
         $cashier = $this->createUserForSetting($setting, 'POS_CASHIER_ROLE', ['pos.access', 'pos.sell']);
 
@@ -82,8 +82,8 @@ class POSLiveSessionMonitorTest extends TestCase
 
     public function test_monitor_api_returns_active_sessions_with_expected_fields(): void
     {
-        [$setting, $cashier1, $session1] = $this->createOpenSession(cashThreshold: 1000000, openingFloat: 100000, terminalName: 'Terminal 1');
-        [, $cashier2, $session2] = $this->createOpenSession(cashThreshold: 500000, openingFloat: 50000, terminalName: 'Terminal 2', setting: $setting);
+        [$setting, $cashier1, $session1] = $this->createOpenSession(cashThreshold: 50000, openingFloat: 100000, terminalName: 'Terminal 1');
+        [, $cashier2, $session2] = $this->createOpenSession(cashThreshold: 40000, openingFloat: 50000, terminalName: 'Terminal 2', setting: $setting);
         
         $monitor = $this->createUserForSetting($setting, 'POS_MONITOR_ROLE', ['pos.access', 'pos.monitor.access']);
 
@@ -99,7 +99,7 @@ class POSLiveSessionMonitorTest extends TestCase
                 'cashier_name' => strtoupper($cashier1->name),
                 'terminal_name' => strtoupper('Terminal 1'),
                 'expected_cash_total' => 100000,
-                'is_threshold_breached' => false,
+                'is_threshold_breached' => true,
             ])
             ->assertJsonFragment([
                 'session_id' => $session2->id,
@@ -107,13 +107,13 @@ class POSLiveSessionMonitorTest extends TestCase
                 'cashier_name' => strtoupper($cashier2->name),
                 'terminal_name' => strtoupper('Terminal 2'),
                 'expected_cash_total' => 50000,
-                'is_threshold_breached' => false,
+                'is_threshold_breached' => true,
             ]);
     }
 
     public function test_threshold_breached_session_is_flagged_in_api_response(): void
     {
-        [$setting, $cashier, $session] = $this->createOpenSession(cashThreshold: 500000, openingFloat: 100000);
+        [$setting, $cashier, $session] = $this->createOpenSession(cashThreshold: 50000, openingFloat: 100000);
         
         $this->recordCashEvent($session, $cashier->id, 'CASH_SALE_IN', PosSessionCashEvent::DIRECTION_IN, 450000);
         app(PosSessionExpectedCashCalculator::class)->calculate($session->id);
@@ -128,14 +128,14 @@ class POSLiveSessionMonitorTest extends TestCase
             ->assertJsonFragment([
                 'session_id' => $session->id,
                 'expected_cash_total' => 550000,
-                'threshold_value' => 500000,
+                'threshold_value' => 50000,
                 'is_threshold_breached' => true,
             ]);
     }
 
     public function test_closed_sessions_are_excluded_from_monitor(): void
     {
-        [$setting, $cashier, $session] = $this->createOpenSession(cashThreshold: 500000, openingFloat: 100000);
+        [$setting, $cashier, $session] = $this->createOpenSession(cashThreshold: 50000, openingFloat: 100000);
         
         $session->update([
             'status' => PosSession::STATUS_CLOSED,
@@ -156,7 +156,7 @@ class POSLiveSessionMonitorTest extends TestCase
     public function test_safe_drops_and_last_activity_fields(): void
     {
         Carbon::setTestNow(now()->subMinutes(10));
-        [$setting, $cashier, $session] = $this->createOpenSession(cashThreshold: 500000, openingFloat: 100000);
+        [$setting, $cashier, $session] = $this->createOpenSession(cashThreshold: 50000, openingFloat: 100000);
         $time1 = now()->addMinutes(2);
         
         $this->recordCashEvent($session, $cashier->id, 'CASH_SALE_IN', PosSessionCashEvent::DIRECTION_IN, 250000, $time1->toDateTimeString());

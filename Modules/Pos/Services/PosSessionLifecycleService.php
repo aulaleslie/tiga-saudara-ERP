@@ -48,28 +48,18 @@ class PosSessionLifecycleService
 
             $terminal = $this->terminalResolver->resolveForSessionOpen($settingId, $terminalId);
 
+            if ($terminal->policy->cash_threshold === null) {
+                throw new DomainException('Terminal policy not configured: cash_threshold is missing.');
+            }
+
             $openingTotal = round($openingFloatTotal, 2);
 
-            $requireOpeningFloat = (bool) $terminal->policy->require_opening_float;
-
-            if ($requireOpeningFloat && $openingTotal <= 0) {
+            if ($openingTotal <= 0) {
                 throw new DomainException('Opening float total must be greater than zero.');
             }
 
-            $normalizedDenominations = $this->normalizeDenominations($openingDenominations);
-
-            $allowTotalOnly = (bool) $terminal->policy->allow_total_only_float_input;
-
-            if ($requireOpeningFloat && ! $allowTotalOnly && empty($normalizedDenominations)) {
-                throw new DomainException('Opening denominations are required for this terminal.');
-            }
-
-            if (! empty($normalizedDenominations)) {
-                $denominationTotal = $this->calculateDenominationTotal($normalizedDenominations);
-
-                if (abs($denominationTotal - $openingTotal) > 0.0001) {
-                    throw new DomainException('Opening denomination total must match opening float total.');
-                }
+            if ($openingTotal <= (float) $terminal->policy->cash_threshold) {
+                throw new DomainException('Opening float total must be greater than terminal cash threshold.');
             }
 
             $existingSession = PosSession::query()
@@ -105,7 +95,7 @@ class PosSessionLifecycleService
                     'event_type' => PosSessionCashEvent::EVENT_OPEN_FLOAT,
                     'direction' => PosSessionCashEvent::DIRECTION_IN,
                     'amount' => $openingTotal,
-                    'denominations' => empty($normalizedDenominations) ? null : $normalizedDenominations,
+                    'denominations' => null,
                     'performed_by' => $openedByUserId,
                     'notes' => $notes,
                     'metadata' => null,
@@ -223,46 +213,5 @@ class PosSessionLifecycleService
             || str_contains($message, 'duplicate');
     }
 
-    private function normalizeDenominations(?array $openingDenominations): array
-    {
-        if (! is_array($openingDenominations) || empty($openingDenominations)) {
-            return [];
-        }
 
-        $normalized = [];
-
-        foreach ($openingDenominations as $denomination => $quantity) {
-            if (! is_numeric($denomination)) {
-                continue;
-            }
-
-            if (! is_numeric($quantity)) {
-                continue;
-            }
-
-            $denominationValue = (int) $denomination;
-            $quantityValue = (int) $quantity;
-
-            if ($denominationValue <= 0 || $quantityValue <= 0) {
-                continue;
-            }
-
-            $normalized[(string) $denominationValue] = $quantityValue;
-        }
-
-        krsort($normalized, SORT_NUMERIC);
-
-        return $normalized;
-    }
-
-    private function calculateDenominationTotal(array $normalizedDenominations): float
-    {
-        $total = 0.0;
-
-        foreach ($normalizedDenominations as $denomination => $quantity) {
-            $total += ((float) $denomination) * ((int) $quantity);
-        }
-
-        return round($total, 2);
-    }
 }

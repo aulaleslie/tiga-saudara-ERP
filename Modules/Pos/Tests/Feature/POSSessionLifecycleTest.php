@@ -81,12 +81,12 @@ class POSSessionLifecycleTest extends TestCase
 
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
-        $service->openSession($setting->id, $terminal->id, $user->id, 50000, ['50000' => 1], $user->id);
+        $service->openSession($setting->id, $terminal->id, $user->id, 100000, ['100000' => 1], $user->id);
 
         $this->expectException(DomainException::class);
         $this->expectExceptionMessage('active POS session');
 
-        $service->openSession($setting->id, $terminal->id, $user->id, 50000, ['50000' => 1], $user->id);
+        $service->openSession($setting->id, $terminal->id, $user->id, 100000, ['100000' => 1], $user->id);
     }
 
     public function test_session_lifecycle_allows_open_to_closing_to_closed_only(): void
@@ -169,7 +169,7 @@ class POSSessionLifecycleTest extends TestCase
 
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
-        $service->openSession($setting->id, $terminal->id, $user->id, 50000, ['50000' => 1], $user->id);
+        $service->openSession($setting->id, $terminal->id, $user->id, 100000, ['100000' => 1], $user->id);
 
         $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -230,6 +230,7 @@ class POSSessionLifecycleTest extends TestCase
             'require_opening_float' => true,
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
+            'cash_threshold' => 50000,
             'require_pickup_supervisor_approval' => true,
         ]);
 

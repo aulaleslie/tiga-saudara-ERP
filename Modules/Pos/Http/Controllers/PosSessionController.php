@@ -231,6 +231,10 @@ class PosSessionController extends Controller
     {
         $normalized = strtolower($message);
 
+        if (str_contains($normalized, 'opening float total')) {
+            return 'opening_float_total';
+        }
+
         if (str_contains($normalized, 'denomination')) {
             return 'opening_denominations';
         }

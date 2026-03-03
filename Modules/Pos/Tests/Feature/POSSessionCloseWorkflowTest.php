@@ -420,7 +420,7 @@ class POSSessionCloseWorkflowTest extends TestCase
             'require_opening_float' => true,
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => $varianceThreshold,
-            'cash_threshold' => 100000,
+            'cash_threshold' => 50000,
             'require_pickup_supervisor_approval' => true,
         ]);
 

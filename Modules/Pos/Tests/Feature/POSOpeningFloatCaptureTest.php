@@ -87,6 +87,7 @@ class POSOpeningFloatCaptureTest extends TestCase
             'amount' => 150000,
             'performed_by' => $user->id,
             'notes' => 'SHIFT PAGI',
+            'denominations' => null,
         ]);
     }
 
@@ -118,11 +119,11 @@ class POSOpeningFloatCaptureTest extends TestCase
         ]);
     }
 
-    public function test_it_rejects_total_only_when_terminal_policy_disallows_it(): void
+    public function test_it_rejects_when_opening_float_total_is_less_than_or_equal_to_cash_threshold(): void
     {
         $setting = $this->createSetting('BIZ A');
         $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: false);
+        $terminal = $this->createTerminalForSetting($setting, true, 150000);
 
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -130,20 +131,19 @@ class POSOpeningFloatCaptureTest extends TestCase
             ->post(route('pos.sessions.store'), [
                 'terminal_id' => $terminal->id,
                 'opening_float_total' => '100000',
-                'opening_denominations' => [],
             ]);
 
         $response->assertRedirect(route('pos.sessions.create'));
-        $response->assertSessionHasErrors(['opening_denominations']);
+        $response->assertSessionHasErrors(['opening_float_total']);
 
         $this->assertDatabaseCount('pos_sessions', 0);
     }
 
-    public function test_it_rejects_when_denomination_sum_does_not_match_total(): void
+    public function test_it_rejects_when_cash_threshold_is_null(): void
     {
         $setting = $this->createSetting('BIZ A');
         $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: true);
+        $terminal = $this->createTerminalForSetting($setting, true, null);
 
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -151,13 +151,10 @@ class POSOpeningFloatCaptureTest extends TestCase
             ->post(route('pos.sessions.store'), [
                 'terminal_id' => $terminal->id,
                 'opening_float_total' => '100000',
-                'opening_denominations' => [
-                    '50000' => 1,
-                ],
             ]);
 
         $response->assertRedirect(route('pos.sessions.create'));
-        $response->assertSessionHasErrors(['opening_denominations']);
+        $response->assertSessionHasErrors(['terminal_id']);
 
         $this->assertDatabaseCount('pos_sessions', 0);
     }
@@ -238,7 +235,7 @@ class POSOpeningFloatCaptureTest extends TestCase
         return $user;
     }
 
-    private function createTerminalForSetting(Setting $setting, bool $allowTotalOnly): PosTerminal
+    private function createTerminalForSetting(Setting $setting, bool $allowTotalOnly = true, ?float $cashThreshold = 50000): PosTerminal
     {
         $location = Location::create([
             'name' => 'COUNTER OPEN ' . $setting->id . '-' . ($allowTotalOnly ? 'Y' : 'N'),
@@ -258,6 +255,7 @@ class POSOpeningFloatCaptureTest extends TestCase
             'require_opening_float' => true,
             'allow_total_only_float_input' => $allowTotalOnly,
             'close_variance_approval_threshold' => 0,
+            'cash_threshold' => $cashThreshold,
             'require_pickup_supervisor_approval' => true,
         ]);
 
