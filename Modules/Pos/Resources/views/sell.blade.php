@@ -716,16 +716,18 @@
                         </div>
                         <div class="card-body">
                             <div class="pos-customer-shell">
-                                <label for="pos-customer-search" class="small font-weight-bold mb-1">Pelanggan (Opsional)</label>
+                                <label for="pos-customer-search" class="small font-weight-bold mb-1">Pelanggan <span class="text-danger">*</span></label>
                                 <div class="pos-customer-search-anchor">
                                     <input id="pos-customer-search" type="text" class="form-control"
                                            placeholder="Cari nama / telepon pelanggan">
                                     <div id="pos-customer-search-results" class="list-group"></div>
                                 </div>
-                                <button id="pos-customer-clear" class="btn btn-sm btn-outline-secondary mt-1" type="button">
-                                    Gunakan Pelanggan Walk-in Default
-                                </button>
-                                <p id="pos-customer-resolution" class="small text-muted mt-1 mb-0"></p>
+                                <div class="d-flex mt-1" style="gap: 0.25rem;">
+                                    <button id="pos-customer-create-btn" class="btn btn-sm btn-outline-primary btn-block" type="button">
+                                        Tambah Baru
+                                    </button>
+                                </div>
+                                <p id="pos-customer-resolution" class="small text-muted mt-2 mb-0"></p>
                                 <p id="pos-customer-action-status" class="small text-muted mt-1 mb-0"></p>
                             </div>
                         </div>
@@ -744,8 +746,8 @@
                                     <div id="pos-payment-summary-total" class="pos-total-value">Rp0</div>
                                 </div>
                                 <div class="d-flex" style="gap: 0.5rem;">
-                                    <button id="pos-save-draft" class="btn btn-outline-secondary btn-lg" type="button">
-                                        Simpan Draft
+                                    <button id="pos-save-draft" class="btn btn-outline-primary btn-lg" type="button">
+                                        Simpan dan Buka Baru
                                     </button>
                                     <button id="pos-checkout-final" class="btn btn-primary btn-lg flex-grow-1" type="button" disabled>
                                         Pilih Pembayaran
@@ -877,6 +879,52 @@
         </div>
     </div>
 
+    <!-- Modal Tambah Pelanggan Baru -->
+    <div class="modal fade" id="pos-customer-create-modal" tabindex="-1" role="dialog" aria-labelledby="pos-customer-create-modal-label" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <form id="pos-customer-create-form">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="pos-customer-create-modal-label">Tambah Pelanggan Baru</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Tutup">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="pos-customer-create-error" class="alert alert-danger d-none small"></div>
+                        
+                        <div class="form-group mb-3">
+                            <label for="pos-new-customer-name" class="font-weight-bold">Nama Pelanggan <span class="text-danger">*</span></label>
+                            <input type="text" id="pos-new-customer-name" class="form-control" placeholder="Masukkan nama pelanggan" required>
+                        </div>
+                        
+                        <div class="form-group mb-3">
+                            <label for="pos-new-customer-phone" class="font-weight-bold">No. Telepon <span class="text-muted font-weight-normal">(Opsional)</span></label>
+                            <input type="text" id="pos-new-customer-phone" class="form-control" placeholder="Masukkan nomor telepon">
+                        </div>
+
+                        <div class="form-group mb-0">
+                            <label for="pos-new-customer-tier" class="font-weight-bold">Tier Pelanggan <span class="text-muted font-weight-normal">(Opsional)</span></label>
+                            <select id="pos-new-customer-tier" class="form-control">
+                                <!-- Options populated from Constants -->
+                                @foreach(\App\Constants\CustomerTier::options() as $val => $label)
+                                    <option value="{{ $val }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light p-3">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                        <button type="submit" id="pos-customer-create-submit" class="btn btn-primary d-inline-flex align-items-center">
+                            <span class="spinner-border spinner-border-sm mr-2 d-none" role="status" aria-hidden="true" id="pos-customer-create-spinner"></span>
+                            Simpan Pelanggan
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');
@@ -894,8 +942,18 @@
             const customerSearchInput = document.getElementById('pos-customer-search');
             const customerResultListElement = document.getElementById('pos-customer-search-results');
             const customerClearButton = document.getElementById('pos-customer-clear');
+            const customerCreateButton = document.getElementById('pos-customer-create-btn');
             const customerResolutionElement = document.getElementById('pos-customer-resolution');
             const customerStatusElement = document.getElementById('pos-customer-action-status');
+
+            const customerCreateModal = document.getElementById('pos-customer-create-modal');
+            const customerCreateForm = document.getElementById('pos-customer-create-form');
+            const customerCreateError = document.getElementById('pos-customer-create-error');
+            const customerCreateSubmit = document.getElementById('pos-customer-create-submit');
+            const customerCreateSpinner = document.getElementById('pos-customer-create-spinner');
+            const newCustomerName = document.getElementById('pos-new-customer-name');
+            const newCustomerPhone = document.getElementById('pos-new-customer-phone');
+            const newCustomerTier = document.getElementById('pos-new-customer-tier');
 
             const btnCheckout = document.getElementById('pos-checkout-final');
 
@@ -926,6 +984,7 @@
             const cartStoreLineEndpoint = @json(route('pos.sell.cart.lines.store'));
             const cartClearEndpoint = @json(route('pos.sell.cart.clear'));
             const cartCustomerEndpoint = @json(route('pos.sell.cart.customer.update'));
+            const customerStoreEndpoint = @json(route('pos.sell.customers.store'));
             const finalizeEndpoint = @json(route('pos.sell.checkout.finalize'));
             const cartLinesBaseUrl = @json(url('/pos/sell/cart/lines'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
@@ -1093,21 +1152,9 @@
                     return;
                 }
 
-                if (resolutionSource === 'default') {
-                    customerResolutionElement.textContent = defaultName
-                        ? 'Walk-in default: ' + defaultName + (defaultPhone ? ' (' + defaultPhone + ')' : '')
-                        : 'Walk-in default digunakan.';
-                    customerResolutionElement.classList.remove('text-danger');
-                    customerResolutionElement.classList.add('text-muted');
-                    return;
-                }
-
-                const errorMessage = resolutionError && resolutionError.message
-                    ? String(resolutionError.message)
-                    : 'Pelanggan walk-in default belum dikonfigurasi.';
-                customerResolutionElement.textContent = errorMessage;
-                customerResolutionElement.classList.remove('text-muted');
-                customerResolutionElement.classList.add('text-danger');
+                customerResolutionElement.textContent = 'Belum ada pelanggan dipilih.';
+                customerResolutionElement.classList.remove('text-danger');
+                customerResolutionElement.classList.add('text-muted');
             }
 
             async function updateCustomerSelection(customerId) {
@@ -1262,7 +1309,9 @@
 
                 const grandTotal = snapshot && snapshot.totals ? Number(snapshot.totals.grand_total || 0) : 0;
                 const hasItems = snapshot && Array.isArray(snapshot.lines) && snapshot.lines.length > 0;
-                const canCheckout = hasItems && grandTotal > 0;
+                const customer = snapshot && snapshot.customer ? snapshot.customer : {};
+                const hasCustomer = customer.resolution_source === 'selected' || customer.resolution_source === 'default';
+                const canCheckout = hasItems && grandTotal > 0 && hasCustomer;
 
                 if (btnCheckout) {
                     btnCheckout.disabled = !canCheckout;
@@ -1454,17 +1503,59 @@
                 });
             }
 
-            if (customerClearButton) {
-                customerClearButton.addEventListener('click', async function () {
-                    try {
-                        await updateCustomerSelection(null);
-                        clearCustomerResults();
-                        if (customerSearchInput) {
-                            customerSearchInput.value = '';
+            if (customerCreateButton) {
+                customerCreateButton.addEventListener('click', function () {
+                    if (customerCreateError) customerCreateError.classList.add('d-none');
+                    if (newCustomerName) newCustomerName.value = '';
+                    if (newCustomerPhone) newCustomerPhone.value = '';
+                    if (newCustomerTier) newCustomerTier.selectedIndex = 0;
+                    $(customerCreateModal).modal('show');
+                });
+            }
+
+            if (customerCreateForm) {
+                customerCreateForm.addEventListener('submit', async function (e) {
+                    e.preventDefault();
+
+                    const name = (newCustomerName ? newCustomerName.value : '').trim();
+                    if (!name) {
+                        if (customerCreateError) {
+                            customerCreateError.textContent = 'Nama pelanggan wajib diisi.';
+                            customerCreateError.classList.remove('d-none');
                         }
-                        setCustomerStatus('Menggunakan pelanggan walk-in default.', 'text-success');
+                        return;
+                    }
+
+                    if (customerCreateSubmit) customerCreateSubmit.disabled = true;
+                    if (customerCreateSpinner) customerCreateSpinner.classList.remove('d-none');
+                    if (customerCreateError) customerCreateError.classList.add('d-none');
+
+                    try {
+                        const payload = {
+                            customer_name: name,
+                            customer_phone: newCustomerPhone ? newCustomerPhone.value.trim() || null : null,
+                            tier: newCustomerTier ? newCustomerTier.value || null : null
+                        };
+
+                        const response = await jsonRequest(customerStoreEndpoint, 'POST', payload);
+                        if (!response) return;
+
+                        const newId = response && response.id ? response.id : null;
+                        if (newId) {
+                            await updateCustomerSelection(newId);
+                            if (customerSearchInput) customerSearchInput.value = response.display_name || name;
+                            setCustomerStatus('Pelanggan baru berhasil ditambahkan dan dipilih.', 'text-success');
+                        }
+
+                        $(customerCreateModal).modal('hide');
                     } catch (error) {
-                        setCustomerStatus(error.message || 'Gagal mengubah pelanggan.', 'text-danger');
+                        if (customerCreateError) {
+                            customerCreateError.textContent = error.message || 'Gagal menyimpan pelanggan.';
+                            customerCreateError.classList.remove('d-none');
+                        }
+                    } finally {
+                        if (customerCreateSubmit) customerCreateSubmit.disabled = false;
+                        if (customerCreateSpinner) customerCreateSpinner.classList.add('d-none');
                     }
                 });
             }

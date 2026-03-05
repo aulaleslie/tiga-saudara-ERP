@@ -23,6 +23,7 @@ use Modules\Pos\Services\Exceptions\PosCheckoutConflictException;
 use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
 use Modules\Pos\Services\PosReceiptService;
+use Modules\People\Entities\Customer;
 
 class PosSellController extends Controller
 {
@@ -78,6 +79,46 @@ class PosSellController extends Controller
         );
 
         return response()->json($payload);
+    }
+
+    public function customerStore(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'customer_name' => ['required', 'string', 'max:255'],
+            'customer_phone' => ['nullable', 'string', 'max:20'],
+            'tier' => ['nullable', 'in:WHOLESALER,RESELLER'],
+        ]);
+
+        $settingId = $this->currentSettingId();
+        
+        $uniqId = uniqid();
+        $email = "noemail-{$uniqId}@placeholder.local";
+        $phone = !empty($validated['customer_phone']) ? $validated['customer_phone'] : "nophone-{$uniqId}";
+
+        $customer = Customer::create([
+            'setting_id' => $settingId,
+            'customer_name' => $validated['customer_name'],
+            'contact_name' => '',
+            'customer_email' => $email,
+            'customer_phone' => $phone,
+            'address' => '',
+            'city' => '',
+            'country' => '',
+            'payment_term_id' => null,
+            'tier' => $validated['tier'] ?? null,
+        ]);
+
+        $displayName = $customer->contact_name
+            ? $customer->contact_name . ' - ' . $customer->customer_name
+            : $customer->customer_name;
+
+        return response()->json([
+            'id' => (int) $customer->id,
+            'customer_name' => (string) $customer->customer_name,
+            'contact_name' => $customer->contact_name !== '' ? (string) $customer->contact_name : null,
+            'customer_phone' => ($customer->customer_phone !== '' && strpos($customer->customer_phone, 'nophone-') !== 0) ? (string) $customer->customer_phone : null,
+            'display_name' => $displayName,
+        ]);
     }
 
     public function cartShow(Request $request, PosCartService $cartService): JsonResponse

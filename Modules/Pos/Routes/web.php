@@ -51,6 +51,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::get('/pos/sell', [PosSellController::class, 'index'])->name('pos.sell');
     Route::get('/pos/sell/products/search', [PosSellController::class, 'search'])->name('pos.sell.products.search');
     Route::get('/pos/sell/customers/search', [PosSellController::class, 'customerSearch'])->name('pos.sell.customers.search');
+    Route::post('/pos/sell/customers', [PosSellController::class, 'customerStore'])->name('pos.sell.customers.store');
 
     Route::get('/pos/sell/cart', [PosSellController::class, 'cartShow'])->name('pos.sell.cart.show');
     Route::post('/pos/sell/cart/lines', [PosSellController::class, 'cartStoreLine'])->name('pos.sell.cart.lines.store');
