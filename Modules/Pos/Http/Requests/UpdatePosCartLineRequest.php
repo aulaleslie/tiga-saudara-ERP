@@ -16,8 +16,8 @@ class UpdatePosCartLineRequest extends FormRequest
     {
         return [
             'qty' => ['nullable', 'integer', 'min:1', 'max:10000'],
-            'line_discount_type' => ['nullable', 'in:fixed,percentage'],
-            'line_discount_value' => ['nullable', 'numeric', 'min:0'],
+            'line_discount_type' => ['prohibited'],
+            'line_discount_value' => ['prohibited'],
         ];
     }
 }

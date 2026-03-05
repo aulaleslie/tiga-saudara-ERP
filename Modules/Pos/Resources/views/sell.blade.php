@@ -1,170 +1,766 @@
-@extends('layouts.app')
+@extends('layouts.pos')
 
 @section('title', 'Kasir POS')
 
+@push('page_css')
+<style>
+    html,
+    body {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .pos-shell {
+        height: 100dvh;
+        max-height: 100dvh;
+        background: #f2f4f8;
+        padding: 0.5rem;
+        overflow: hidden;
+    }
+
+    .pos-lock-screen {
+        display: none;
+    }
+
+    .pos-viewport {
+        height: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+        grid-template-rows: clamp(64px, 9dvh, 86px) clamp(104px, 16dvh, 150px) minmax(0, 1fr) clamp(132px, 22dvh, 184px);
+        grid-template-areas:
+            "info nav"
+            "search search"
+            "cart customer"
+            "cart payment";
+        gap: 0.5rem;
+        min-height: 0;
+    }
+
+    .pos-area {
+        min-height: 0;
+    }
+
+    .pos-area-nav {
+        position: relative;
+        z-index: 40;
+    }
+
+    .pos-area-search {
+        position: relative;
+        z-index: 30;
+    }
+
+    .pos-area-customer {
+        position: relative;
+        z-index: 25;
+    }
+
+    .pos-area-cart,
+    .pos-area-payment {
+        position: relative;
+        z-index: 10;
+    }
+
+    .pos-card {
+        border: 1px solid #dbe1ea;
+        border-radius: 0.5rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .pos-card .card-header {
+        flex: 0 0 auto;
+        padding: 0.36rem 0.68rem;
+    }
+
+    .pos-card .card-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        padding: 0.45rem 0.68rem;
+        overflow: hidden;
+    }
+
+    .pos-area-nav .card-body,
+    .pos-area-search .card-body,
+    .pos-area-customer .card-body {
+        overflow: visible;
+    }
+
+    .pos-section-title {
+        font-size: 0.84rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        margin: 0;
+        color: #1f2937;
+    }
+
+    .pos-area-info {
+        grid-area: info;
+    }
+
+    .pos-area-nav {
+        grid-area: nav;
+    }
+
+    .pos-area-search {
+        grid-area: search;
+    }
+
+    .pos-area-cart {
+        grid-area: cart;
+    }
+
+    .pos-area-customer {
+        grid-area: customer;
+    }
+
+    .pos-area-payment {
+        grid-area: payment;
+    }
+
+    .pos-thin-card .card-body {
+        padding-top: 0.34rem;
+        padding-bottom: 0.34rem;
+    }
+
+    .pos-info-strip {
+        height: 100%;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 0.6rem;
+        align-items: center;
+    }
+
+    .pos-info-title {
+        font-size: 0.8rem;
+        font-weight: 700;
+        white-space: nowrap;
+        color: #0f172a;
+    }
+
+    .pos-info-metrics {
+        display: flex;
+        align-items: center;
+        gap: 0.72rem;
+        overflow: hidden;
+        white-space: nowrap;
+        min-width: 0;
+    }
+
+    .pos-info-item {
+        font-size: 0.74rem;
+        color: #334155;
+        line-height: 1.1;
+        white-space: nowrap;
+    }
+
+    .pos-info-item strong {
+        color: #0f172a;
+        font-weight: 600;
+    }
+
+    .pos-nav-strip {
+        height: 100%;
+        display: grid;
+        grid-template-columns: auto auto minmax(0, 1fr);
+        align-items: center;
+        gap: 0.45rem;
+    }
+
+    .pos-nav-label {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #0f172a;
+        white-space: nowrap;
+    }
+
+    .pos-nav-strip .btn {
+        padding-top: 0.28rem;
+        padding-bottom: 0.28rem;
+        font-size: 0.74rem;
+    }
+
+    .pos-nav-strip .dropdown-menu {
+        max-height: 230px;
+        overflow-y: auto;
+        z-index: 1400;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+        border: 1px solid #dbe1ea;
+    }
+
+    .pos-nav-note {
+        justify-self: end;
+        font-size: 0.66rem;
+        color: #94a3b8;
+        line-height: 1;
+    }
+
+    #pos-shell-posting-note {
+        margin: 0;
+    }
+
+    .pos-search-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        min-height: 0;
+    }
+
+    .pos-search-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.45rem;
+        align-items: end;
+    }
+
+    .pos-search-main {
+        min-width: 0;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .pos-search-main label {
+        margin-bottom: 0;
+    }
+
+    #pos-shell-scan-feedback {
+        height: calc(1.5em + 0.75rem + 2px);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        white-space: nowrap;
+    }
+
+    #pos-shell-search-status {
+        min-height: 1rem;
+        line-height: 1.2;
+        margin: 0;
+    }
+
+    #pos-shell-search-results {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        max-height: clamp(180px, 31dvh, 290px);
+        overflow-y: auto;
+        z-index: 1300;
+        background: #fff;
+        border: 1px solid #dbe1ea;
+        border-radius: 0.45rem;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+    }
+
+    #pos-shell-search-results:empty {
+        display: none;
+    }
+
+    .pos-cart-shell {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .pos-cart-table-wrap {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.45rem;
+        background: #fff;
+    }
+
+    .pos-cart-table {
+        margin-bottom: 0;
+    }
+
+    .pos-cart-table td,
+    .pos-cart-table th {
+        vertical-align: middle;
+        padding: 0.31rem 0.4rem;
+        font-size: 0.77rem;
+    }
+
+    .pos-cart-product {
+        max-width: 320px;
+    }
+
+    .pos-cart-product .name {
+        font-weight: 700;
+        line-height: 1.2;
+    }
+
+    .pos-cart-product .meta {
+        font-size: 0.69rem;
+        color: #64748b;
+        line-height: 1.2;
+    }
+
+    .pos-cart-qty {
+        width: 70px;
+        margin: 0 auto;
+    }
+
+    .pos-cart-actions {
+        text-align: center;
+    }
+
+    .pos-cart-actions .btn {
+        min-width: 60px;
+        font-size: 0.69rem;
+        padding-top: 0.18rem;
+        padding-bottom: 0.18rem;
+    }
+
+
+
+    .pos-customer-shell {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        position: relative;
+    }
+
+    .pos-customer-search-anchor {
+        position: relative;
+    }
+
+    #pos-customer-search-results {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        max-height: clamp(150px, 24dvh, 230px);
+        overflow-y: auto;
+        z-index: 1250;
+        background: #fff;
+        border: 1px solid #dbe1ea;
+        border-radius: 0.45rem;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+    }
+
+    #pos-customer-search-results:empty {
+        display: none;
+    }
+
+    .pos-payment-shell {
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 0.45rem;
+        height: 100%;
+    }
+
+    .pos-total-value {
+        font-size: clamp(1.25rem, 2.4vw, 1.82rem);
+        font-weight: 700;
+        line-height: 1.1;
+        margin-bottom: 0;
+    }
+
+    .pos-payment-shell .btn {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+        font-size: 0.92rem;
+    }
+
+    #pos-shell-search-results .list-group-item,
+    #pos-customer-search-results .list-group-item {
+        padding: 0.45rem 0.55rem;
+        line-height: 1.35;
+        font-size: 0.79rem;
+        border-left: 0;
+        border-right: 0;
+    }
+
+    #pos-shell-search-results .list-group-item:first-child,
+    #pos-customer-search-results .list-group-item:first-child {
+        border-top: 0;
+    }
+
+    #pos-shell-search-results .list-group-item:last-child,
+    #pos-customer-search-results .list-group-item:last-child {
+        border-bottom: 0;
+    }
+
+    .modal-dialog {
+        margin: 0.75rem auto;
+    }
+
+    @media (max-height: 780px) {
+        .pos-shell {
+            padding: 0.4rem;
+        }
+
+        .pos-viewport {
+            gap: 0.4rem;
+            grid-template-rows: clamp(58px, 8dvh, 76px) clamp(92px, 14dvh, 126px) minmax(0, 1fr) clamp(118px, 21dvh, 164px);
+        }
+
+        .pos-card .card-header {
+            padding: 0.28rem 0.58rem;
+        }
+
+        .pos-card .card-body {
+            padding: 0.34rem 0.58rem;
+        }
+
+        .pos-section-title {
+            font-size: 0.78rem;
+        }
+
+        .pos-info-title,
+        .pos-nav-label {
+            font-size: 0.74rem;
+        }
+
+        .pos-info-item {
+            font-size: 0.69rem;
+        }
+
+        .pos-nav-strip .btn {
+            font-size: 0.69rem;
+            padding-top: 0.22rem;
+            padding-bottom: 0.22rem;
+        }
+
+        .pos-cart-table td,
+        .pos-cart-table th {
+            font-size: 0.72rem;
+            padding: 0.24rem 0.32rem;
+        }
+
+        .pos-total-value {
+            font-size: clamp(1.1rem, 2.1vw, 1.55rem);
+        }
+
+        .pos-payment-shell .btn {
+            font-size: 0.82rem;
+            padding-top: 0.36rem;
+            padding-bottom: 0.36rem;
+        }
+    }
+
+    @media (max-width: 991.98px) {
+        .pos-viewport {
+            grid-template-columns: minmax(0, 6fr) minmax(0, 4fr);
+            grid-template-rows: clamp(64px, 10dvh, 88px) clamp(96px, 15dvh, 132px) minmax(0, 1fr) clamp(128px, 22dvh, 176px);
+        }
+    }
+
+    @media (max-width: 767.98px) and (orientation: landscape) {
+        .pos-viewport {
+            grid-template-columns: minmax(0, 58fr) minmax(0, 42fr);
+            grid-template-rows: clamp(60px, 12dvh, 76px) clamp(92px, 18dvh, 124px) minmax(0, 1fr) clamp(118px, 24dvh, 160px);
+            gap: 0.35rem;
+        }
+
+        .pos-shell {
+            padding: 0.32rem;
+        }
+
+        .pos-info-strip {
+            gap: 0.4rem;
+        }
+
+        .pos-info-metrics {
+            gap: 0.5rem;
+        }
+
+        .pos-info-item,
+        .pos-nav-label,
+        .pos-info-title {
+            font-size: 0.66rem;
+        }
+
+        .pos-nav-strip {
+            grid-template-columns: auto auto;
+        }
+
+        .pos-nav-note {
+            display: none;
+        }
+
+        .pos-nav-strip .btn {
+            font-size: 0.66rem;
+            padding-top: 0.18rem;
+            padding-bottom: 0.18rem;
+        }
+
+        #pos-shell-scan-feedback {
+            font-size: 0.68rem;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+
+        .pos-cart-table td,
+        .pos-cart-table th {
+            font-size: 0.68rem;
+        }
+
+        .pos-total-value {
+            font-size: 1.05rem;
+        }
+
+        .pos-payment-shell .btn {
+            font-size: 0.74rem;
+            padding-top: 0.32rem;
+            padding-bottom: 0.32rem;
+        }
+
+        #pos-shell-search-results,
+        #pos-customer-search-results {
+            max-height: 42dvh;
+        }
+    }
+
+    @media (max-width: 640px) and (orientation: portrait) {
+        .pos-shell {
+            display: none;
+        }
+
+        .pos-lock-screen {
+            display: flex;
+            height: 100dvh;
+            width: 100%;
+            padding: 1.1rem;
+            align-items: center;
+            justify-content: center;
+            background: #0f172a;
+            color: #e2e8f0;
+            text-align: center;
+        }
+
+        .pos-lock-card {
+            width: 100%;
+            max-width: 420px;
+            border-radius: 0.8rem;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            background: rgba(15, 23, 42, 0.76);
+            padding: 1.1rem;
+        }
+
+        .pos-lock-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 0.45rem;
+        }
+
+        .pos-lock-text {
+            font-size: 0.88rem;
+            margin-bottom: 0;
+            color: #cbd5e1;
+        }
+    }
+</style>
+@endpush
+
 @section('content')
-    <div class="container-fluid">
+    @php
+        $terminalLabelFull = $activeSession->terminal
+            ? ($activeSession->terminal->code . ' (' . $activeSession->terminal->name . ')')
+            : '-';
+        $terminalLabelShort = \Illuminate\Support\Str::limit($terminalLabelFull, 30);
+    @endphp
+
+    <div class="pos-lock-screen" aria-live="polite">
+        <div class="pos-lock-card">
+            <div class="pos-lock-title">Gunakan Mode Landscape</div>
+            <p class="pos-lock-text">
+                Putar perangkat ke posisi landscape untuk menggunakan POS kasir dengan nyaman.
+            </p>
+        </div>
+    </div>
+
+    <div class="pos-shell">
         @include('utils.alerts')
 
-        <div class="card mb-3 border-primary">
-            <div class="card-body d-flex flex-wrap justify-content-between align-items-start">
-                <div>
-                    <h4 class="mb-1">Layar Kasir POS</h4>
-                    <p class="mb-1 text-muted">
-                        Sesi #{{ $activeSession->id }}
-                        @if($activeSession->terminal)
-                            - {{ $activeSession->terminal->code }} ({{ $activeSession->terminal->name }})
-                        @endif
-                    </p>
-                    <p class="mb-0 text-muted small">Cakupan stok: semua lokasi penjualan terkonfigurasi.</p>
-                </div>
-                <div class="text-md-end mt-2 mt-md-0">
-                    <span class="badge badge-success">{{ $activeSession->status }}</span>
-                    <div class="small text-muted mt-2">
-                        Dibuka: {{ optional($activeSession->opened_at)->format('Y-m-d H:i') ?? '-' }}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="row">
-            <div class="col-lg-4 mb-3">
-                <div class="card h-100">
-                    <div class="card-header"><strong>Pencarian / Pindai Produk</strong></div>
-                    <div class="card-body">
-                        <div class="form-group mb-2">
-                            <label for="pos-shell-search">Cari berdasarkan barcode, SKU, atau nama</label>
-                            <input id="pos-shell-search" type="text" class="form-control"
-                                   placeholder="Pindai barcode atau ketik nama/SKU"
-                                   autocomplete="off">
-                        </div>
-                        <button class="btn btn-outline-primary btn-block mb-2" type="button" id="pos-shell-scan-feedback">
-                            Siap Pindai
-                        </button>
-                        <p id="pos-shell-search-status" class="mb-2 small text-muted"></p>
-                        <div id="pos-shell-search-results" class="list-group"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-5 mb-3">
-                <div class="card h-100">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <strong>Keranjang</strong>
-                        <span id="pos-cart-tax-badge" class="badge badge-secondary">Pajak: ESTIMASI (TERMASUK)</span>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-sm mb-0">
-                                <thead>
-                                <tr>
-                                    <th>Produk</th>
-                                    <th class="text-right">Qty</th>
-                                    <th class="text-right">Harga</th>
-                                    <th>Diskon Baris</th>
-                                    <th class="text-right">Porsi Nota</th>
-                                    <th class="text-right">Pajak</th>
-                                    <th class="text-right">Total</th>
-                                    <th class="text-right">Aksi</th>
-                                </tr>
-                                </thead>
-                                <tbody id="pos-shell-cart-body">
-                                <tr id="pos-shell-cart-empty-row">
-                                    <td colspan="8" class="text-muted text-center py-4">Keranjang kosong.</td>
-                                </tr>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <hr class="my-3">
-
-                        <div class="row">
-                            <div class="col-md-8 mb-2">
-                                <div class="input-group input-group-sm">
-                                    <div class="input-group-prepend">
-                                        <label class="input-group-text" for="pos-cart-bill-discount-type">Diskon Nota</label>
-                                    </div>
-                                    <select id="pos-cart-bill-discount-type" class="custom-select">
-                                        <option value="fixed">Nominal</option>
-                                        <option value="percentage">Persentase</option>
-                                    </select>
-                                    <input id="pos-cart-bill-discount-value" type="number" class="form-control"
-                                           min="0" step="0.01" value="0">
-                                    <div class="input-group-append">
-                                        <button id="pos-cart-bill-discount-apply" type="button" class="btn btn-outline-primary">
-                                            Terapkan
-                                        </button>
-                                    </div>
+        <div class="container-fluid px-0 h-100">
+            <div class="pos-viewport">
+                <div class="pos-area pos-area-info">
+                    <div class="card pos-card pos-thin-card">
+                        <div class="card-body">
+                            <span class="d-none">Layar Kasir POS</span>
+                            <span class="d-none">Sesi #{{ $activeSession->id }}</span>
+                            <div class="pos-info-strip">
+                                <div class="pos-info-title">Kasir Information</div>
+                                <div class="pos-info-metrics">
+                                    <span class="pos-info-item"><strong>Sesi:</strong> #{{ $activeSession->id }}</span>
+                                    <span class="pos-info-item" title="{{ $terminalLabelFull }}"><strong>Terminal:</strong> {{ $terminalLabelShort }}</span>
+                                    <span class="pos-info-item"><strong>Dibuka:</strong> {{ optional($activeSession->opened_at)->format('Y-m-d H:i') ?? '-' }}</span>
+                                    <span class="pos-info-item"><strong>Status:</strong> {{ strtoupper($activeSession->status) }}</span>
                                 </div>
                             </div>
-                            <div class="col-md-4 mb-2 text-md-right">
-                                <button id="pos-cart-clear" class="btn btn-sm btn-outline-danger" type="button">
-                                    Kosongkan Keranjang
-                                </button>
-                            </div>
                         </div>
-
-                        <div class="small mt-2">
-                            <div class="d-flex justify-content-between">
-                                <span>Subtotal</span>
-                                <strong id="pos-cart-total-subtotal">Rp0</strong>
-                            </div>
-                            <div class="d-flex justify-content-between">
-                                <span>Diskon</span>
-                                <strong id="pos-cart-total-discount">Rp0</strong>
-                            </div>
-                            <div class="d-flex justify-content-between">
-                                <span>Pajak (Estimasi)</span>
-                                <strong id="pos-cart-total-tax">Rp0</strong>
-                            </div>
-                            <div class="d-flex justify-content-between border-top pt-2 mt-2">
-                                <span>Total Akhir</span>
-                                <strong id="pos-cart-total-grand">Rp0</strong>
-                            </div>
-                        </div>
-
-                        <p id="pos-cart-action-status" class="mb-0 mt-2 small text-muted"></p>
                     </div>
                 </div>
-            </div>
 
-            <div class="col-lg-3 mb-3">
-                <div class="card h-100">
-                    <div class="card-header"><strong>Pintasan Pembayaran</strong></div>
-                    <div class="card-body">
-                        <div class="form-group mb-2">
-                            <label for="pos-customer-search" class="small font-weight-bold mb-1">Pelanggan (Opsional)</label>
-                            <input id="pos-customer-search" type="text" class="form-control form-control-sm"
-                                   placeholder="Cari nama / telepon pelanggan">
-                            <div id="pos-customer-search-results" class="list-group mt-1"></div>
-                            <button id="pos-customer-clear" class="btn btn-sm btn-outline-secondary btn-block mt-2" type="button">
-                                Gunakan Pelanggan Walk-in Default
+                <div class="pos-area pos-area-nav">
+                    <div class="card pos-card pos-thin-card">
+                        <div class="card-body">
+                            <div class="pos-nav-strip">
+                                <div class="pos-nav-label">Navigation</div>
+                                <a href="{{ route('home') }}" class="btn btn-outline-dark">Kembali</a>
+                                <div class="dropdown">
+                                    <button class="btn btn-secondary dropdown-toggle" type="button" id="pos-nav-menu-dropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                        Menu
+                                    </button>
+                                    <div class="dropdown-menu dropdown-menu-right" aria-labelledby="pos-nav-menu-dropdown">
+                                        <button type="button" id="pos-shortcut-reprint" class="dropdown-item" disabled>Reprint</button>
+
+                                        @can('pos.reports.access')
+                                            <a href="{{ route('pos.reports.index') }}" target="_blank" class="dropdown-item">Lap. Sales</a>
+                                        @endcan
+                                        @can('saleReturns.access')
+                                            <a href="{{ route('sale-returns.index') }}" target="_blank" class="dropdown-item">Retur</a>
+                                        @endcan
+
+                                        @if(auth()->user()->canAny(['pos.sessions.view', 'pos.monitor.access', 'pos.reconciliation.access', 'pos.terminals.access']))
+                                            <div class="dropdown-divider"></div>
+                                        @endif
+
+                                        @can('pos.sessions.view')
+                                            <a class="dropdown-item" href="{{ route('pos.sessions.index') }}" target="_blank">Sesi POS</a>
+                                        @endcan
+                                        @can('pos.monitor.access')
+                                            <a class="dropdown-item" href="{{ route('pos.monitor.index') }}" target="_blank">Monitor</a>
+                                        @endcan
+                                        @can('pos.reconciliation.access')
+                                            <a class="dropdown-item" href="{{ route('pos.reconciliation.index') }}" target="_blank">Rekonsiliasi</a>
+                                        @endcan
+                                        @can('pos.terminals.access')
+                                            <a class="dropdown-item" href="{{ route('pos.terminals.index') }}" target="_blank">Kelola Terminal</a>
+                                        @endcan
+                                    </div>
+                                </div>
+                                <span id="pos-shell-posting-note" class="pos-nav-note">pos-shell-posting-note</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pos-area pos-area-search">
+                    <div class="card pos-card">
+                        <div class="card-header bg-white">
+                            <h5 class="pos-section-title">Search</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="pos-search-grid">
+                                <div class="pos-search-head">
+                                    <div class="pos-search-main">
+                                        <label for="pos-shell-search" class="small font-weight-bold">Pencarian / Pindai Produk</label>
+                                        <input id="pos-shell-search" type="text" class="form-control"
+                                               placeholder="Pindai barcode atau ketik nama/SKU"
+                                               autocomplete="off">
+                                        <div id="pos-shell-search-results" class="list-group"></div>
+                                    </div>
+                                    <button class="btn btn-outline-primary" type="button" id="pos-shell-scan-feedback">
+                                        Siap Pindai
+                                    </button>
+                                </div>
+                                <p id="pos-shell-search-status" class="small text-muted"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pos-area pos-area-cart">
+                    <div class="card pos-card">
+                        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                            <h5 class="pos-section-title">Keranjang</h5>
+                            <button id="pos-cart-clear" class="btn btn-sm btn-outline-danger" type="button">
+                                Kosongkan Keranjang
                             </button>
-                            <p id="pos-customer-resolution" class="small text-muted mt-2 mb-0"></p>
-                            <p id="pos-customer-action-status" class="small text-muted mt-1 mb-2"></p>
                         </div>
-                        <hr class="my-2">
-                        <button id="pos-payment-cash" class="btn btn-success btn-block mb-2" type="button">Tunai</button>
-                        <button id="pos-payment-transfer" class="btn btn-info btn-block mb-2" type="button">Transfer</button>
-                        <button id="pos-payment-qris" class="btn btn-dark btn-block mb-2" type="button">QRIS</button>
-                        <button id="pos-checkout-final" class="btn btn-primary btn-block" type="button">Selesaikan</button>
+                        <div class="card-body">
+                            <div class="pos-cart-shell">
+                                <div class="pos-cart-table-wrap">
+                                    <table class="table table-sm pos-cart-table">
+                                        <thead>
+                                        <tr>
+                                            <th>Produk</th>
+                                            <th class="text-right">Harga</th>
+                                            <th class="text-center">Qty</th>
+                                            <th class="text-right">Sub Total</th>
+                                        </tr>
+                                        </thead>
+                                        <tbody id="pos-shell-cart-body">
+                                        <tr id="pos-shell-cart-empty-row">
+                                            <td colspan="4" class="text-muted text-center py-4">Keranjang kosong.</td>
+                                        </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div id="pos-cart-action-alert" class="alert alert-danger p-2 mb-0 mt-2 small d-none font-weight-bold" role="alert">
+                                    <!-- Error message goes here -->
+                                </div>
+                                <p id="pos-cart-action-status" class="mb-0 mt-1 small text-muted"></p>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <div class="card">
-            <div class="card-body py-2">
-                <p id="pos-shell-posting-note" class="mb-0 text-muted small">
-                    Semua transaksi diposting ke buku besar bisnis yang dipilih.
-                </p>
+                <div class="pos-area pos-area-customer">
+                    <div class="card pos-card">
+                        <div class="card-header bg-white">
+                            <h5 class="pos-section-title">Pelanggan</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="pos-customer-shell">
+                                <label for="pos-customer-search" class="small font-weight-bold mb-1">Pelanggan (Opsional)</label>
+                                <div class="pos-customer-search-anchor">
+                                    <input id="pos-customer-search" type="text" class="form-control"
+                                           placeholder="Cari nama / telepon pelanggan">
+                                    <div id="pos-customer-search-results" class="list-group"></div>
+                                </div>
+                                <button id="pos-customer-clear" class="btn btn-sm btn-outline-secondary mt-1" type="button">
+                                    Gunakan Pelanggan Walk-in Default
+                                </button>
+                                <p id="pos-customer-resolution" class="small text-muted mt-1 mb-0"></p>
+                                <p id="pos-customer-action-status" class="small text-muted mt-1 mb-0"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pos-area pos-area-payment">
+                    <div class="card pos-card">
+                        <div class="card-header bg-white">
+                            <h5 class="pos-section-title">Pembayaran</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="pos-payment-shell">
+                                <div>
+                                    <div class="small text-muted">Total Akhir</div>
+                                    <div id="pos-payment-summary-total" class="pos-total-value">Rp0</div>
+                                </div>
+                                <div class="d-flex" style="gap: 0.5rem;">
+                                    <button id="pos-save-draft" class="btn btn-outline-secondary btn-lg" type="button">
+                                        Simpan Draft
+                                    </button>
+                                    <button id="pos-checkout-final" class="btn btn-primary btn-lg flex-grow-1" type="button" disabled>
+                                        Pilih Pembayaran
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Modal Pembayaran -->
     <div class="modal fade" id="pos-checkout-modal" tabindex="-1" role="dialog" aria-labelledby="pos-checkout-modal-label" aria-hidden="true" data-backdrop="static">
-        <div class="modal-dialog" role="document">
+        <div class="modal-dialog modal-xl modal-dialog-centered" role="document">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="pos-checkout-modal-label">Pembayaran</h5>
@@ -172,55 +768,97 @@
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
-                <div class="modal-body">
-                    <div id="pos-checkout-error" class="alert alert-danger d-none"></div>
-                    
-                    <div class="form-group row mb-2">
-                        <label class="col-sm-4 col-form-label font-weight-bold">Metode</label>
-                        <div class="col-sm-8">
-                            <input type="text" id="pos-checkout-method-label" class="form-control-plaintext font-weight-bold text-uppercase" readonly value="TUNAI">
-                            <input type="hidden" id="pos-checkout-method-code" value="cash">
-                        </div>
-                    </div>
-                    
-                    <div class="form-group row mb-2">
-                        <label class="col-sm-4 col-form-label font-weight-bold">Total Akhir</label>
-                        <div class="col-sm-8">
-                            <input type="text" id="pos-checkout-total-label" class="form-control-plaintext font-weight-bold h5 mb-0" readonly value="Rp0">
-                        </div>
-                    </div>
-
-                    <div class="form-group mb-2">
-                        <label for="pos-checkout-amount-paid" class="font-weight-bold">Jumlah Bayar</label>
-                        <div class="input-group">
-                            <div class="input-group-prepend">
-                                <span class="input-group-text">Rp</span>
+                <div class="modal-body p-0">
+                    <div class="row no-gutters">
+                        <div class="col-lg-7 border-right bg-light p-4 d-none d-lg-block">
+                            <h5 class="mb-3 text-muted">Ringkasan Pesanan</h5>
+                            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                <table class="table table-sm">
+                                    <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th class="text-right">Qty</th>
+                                        <th class="text-right">Harga</th>
+                                        <th class="text-right">Total</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="pos-checkout-receipt-lines"></tbody>
+                                </table>
                             </div>
-                            <input type="number" id="pos-checkout-amount-paid" class="form-control form-control-lg" step="0.01" min="0">
+                            <hr>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Total Akhir</span>
+                                <strong id="pos-checkout-receipt-total">Rp0</strong>
+                            </div>
                         </div>
-                    </div>
 
-                    <div id="pos-checkout-change-wrapper" class="form-group row mb-2">
-                        <label class="col-sm-4 col-form-label font-weight-bold">Kembalian</label>
-                        <div class="col-sm-8">
-                            <input type="text" id="pos-checkout-change-label" class="form-control-plaintext font-weight-bold text-success h5 mb-0" readonly value="Rp0">
+                        <div class="col-lg-5 p-4">
+                            <div id="pos-checkout-error" class="alert alert-danger d-none"></div>
+
+                            <div class="form-group mb-3">
+                                <label class="font-weight-bold d-block mb-2">Metode Pembayaran</label>
+                                <div class="btn-group btn-group-sm d-flex" role="group" aria-label="Payment method" id="pos-checkout-method-selector">
+                                    <button type="button" class="btn btn-outline-success js-payment-method active" data-method="cash">Tunai</button>
+                                    <button type="button" class="btn btn-outline-info js-payment-method" data-method="transfer">Transfer</button>
+                                    <button type="button" class="btn btn-outline-dark js-payment-method" data-method="qris">QRIS</button>
+                                </div>
+                                <input type="hidden" id="pos-checkout-method-code" value="cash">
+                                <input type="text" id="pos-checkout-method-label" class="form-control-plaintext font-weight-bold text-uppercase mt-1" readonly value="TUNAI">
+                            </div>
+
+                            <div class="form-group row mb-2">
+                                <label class="col-sm-4 col-form-label font-weight-bold">Total Akhir</label>
+                                <div class="col-sm-8">
+                                    <input type="text" id="pos-checkout-total-label" class="form-control-plaintext font-weight-bold h4 mb-0 text-primary" readonly value="Rp0">
+                                </div>
+                            </div>
+
+                            <hr class="my-3">
+
+                            <div class="form-group mb-3">
+                                <label for="pos-checkout-amount-paid" class="font-weight-bold">Jumlah Bayar</label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text font-weight-bold bg-white h5 mb-0">Rp</span>
+                                    </div>
+                                    <input type="number" id="pos-checkout-amount-paid" class="form-control form-control-lg font-weight-bold text-right" step="0.01" min="0" style="font-size: 1.4rem;">
+                                </div>
+                            </div>
+
+                            <div id="pos-checkout-presets-wrapper" class="mb-3">
+                                <div class="d-flex flex-wrap" style="gap: 8px;">
+                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="uang-pas">Uang Pas</button>
+                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="50000">50.000</button>
+                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="100000">100.000</button>
+                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="150000">150.000</button>
+                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="200000">200.000</button>
+                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="250000">250.000</button>
+                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="500000">500.000</button>
+                                </div>
+                            </div>
+
+                            <div id="pos-checkout-change-wrapper" class="form-group row mb-2 bg-light p-2 rounded">
+                                <label class="col-sm-4 col-form-label font-weight-bold">Kembalian</label>
+                                <div class="col-sm-8">
+                                    <input type="text" id="pos-checkout-change-label" class="form-control-plaintext font-weight-bold text-success h4 mb-0 text-right" readonly value="Rp0">
+                                </div>
+                            </div>
+
+                            <div id="pos-checkout-reference-wrapper" class="form-group d-none">
+                                <label for="pos-checkout-reference" class="font-weight-bold">Referensi / No. Transaksi</label>
+                                <input type="text" id="pos-checkout-reference" class="form-control form-control-lg" placeholder="Masukkan referensi pembayaran">
+                            </div>
                         </div>
-                    </div>
-
-                    <div id="pos-checkout-reference-wrapper" class="form-group d-none">
-                        <label for="pos-checkout-reference" class="font-weight-bold">Referensi / No. Transaksi</label>
-                        <input type="text" id="pos-checkout-reference" class="form-control" placeholder="Masukkan referensi pembayaran">
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
-                    <button type="button" id="pos-checkout-submit" class="btn btn-primary btn-lg">Konfirmasi Pembayaran</button>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary btn-lg" data-dismiss="modal">Batal</button>
+                    <button type="button" id="pos-checkout-submit" class="btn btn-primary btn-lg px-5">Konfirmasi Pembayaran</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Modal Sukses -->
     <div class="modal fade" id="pos-success-modal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
         <div class="modal-dialog modal-sm" role="document">
             <div class="modal-content text-center py-4">
@@ -246,48 +884,46 @@
             const resultListElement = document.getElementById('pos-shell-search-results');
             const scanFeedbackButton = document.getElementById('pos-shell-scan-feedback');
             const cartBody = document.getElementById('pos-shell-cart-body');
-            const cartEmptyRow = document.getElementById('pos-shell-cart-empty-row');
             const cartStatusElement = document.getElementById('pos-cart-action-status');
-            const billDiscountTypeElement = document.getElementById('pos-cart-bill-discount-type');
-            const billDiscountValueElement = document.getElementById('pos-cart-bill-discount-value');
-            const applyBillDiscountButton = document.getElementById('pos-cart-bill-discount-apply');
+            const cartActionAlert = document.getElementById('pos-cart-action-alert');
             const clearCartButton = document.getElementById('pos-cart-clear');
-            const taxBadge = document.getElementById('pos-cart-tax-badge');
             const subtotalElement = document.getElementById('pos-cart-total-subtotal');
-            const discountElement = document.getElementById('pos-cart-total-discount');
-            const taxElement = document.getElementById('pos-cart-total-tax');
             const grandElement = document.getElementById('pos-cart-total-grand');
+            const paymentSummaryTotal = document.getElementById('pos-payment-summary-total');
+
             const customerSearchInput = document.getElementById('pos-customer-search');
             const customerResultListElement = document.getElementById('pos-customer-search-results');
             const customerClearButton = document.getElementById('pos-customer-clear');
             const customerResolutionElement = document.getElementById('pos-customer-resolution');
             const customerStatusElement = document.getElementById('pos-customer-action-status');
 
-            const btnCash = document.getElementById('pos-payment-cash');
-            const btnTransfer = document.getElementById('pos-payment-transfer');
-            const btnQRIS = document.getElementById('pos-payment-qris');
             const btnCheckout = document.getElementById('pos-checkout-final');
 
             const checkoutModalElement = document.getElementById('pos-checkout-modal');
             const checkoutMethodLabel = document.getElementById('pos-checkout-method-label');
             const checkoutMethodCode = document.getElementById('pos-checkout-method-code');
+            const checkoutMethodButtons = Array.from(document.querySelectorAll('.js-payment-method'));
             const checkoutTotalLabel = document.getElementById('pos-checkout-total-label');
             const checkoutAmountPaid = document.getElementById('pos-checkout-amount-paid');
             const checkoutChangeLabel = document.getElementById('pos-checkout-change-label');
             const checkoutChangeWrapper = document.getElementById('pos-checkout-change-wrapper');
             const checkoutReference = document.getElementById('pos-checkout-reference');
             const checkoutReferenceWrapper = document.getElementById('pos-checkout-reference-wrapper');
+            const checkoutPresetsWrapper = document.getElementById('pos-checkout-presets-wrapper');
             const checkoutSubmit = document.getElementById('pos-checkout-submit');
             const checkoutError = document.getElementById('pos-checkout-error');
 
+            const checkoutReceiptLines = document.getElementById('pos-checkout-receipt-lines');
+            const checkoutReceiptTotal = document.getElementById('pos-checkout-receipt-total');
+
             const successReceiptElement = document.getElementById('pos-success-receipt');
             const successChangeElement = document.getElementById('pos-success-change');
+            const shortcutReprintBtn = document.getElementById('pos-shortcut-reprint');
 
             const searchEndpoint = @json(route('pos.sell.products.search'));
             const customerSearchEndpoint = @json(route('pos.sell.customers.search'));
             const cartShowEndpoint = @json(route('pos.sell.cart.show'));
             const cartStoreLineEndpoint = @json(route('pos.sell.cart.lines.store'));
-            const cartDiscountEndpoint = @json(route('pos.sell.cart.discount.update'));
             const cartClearEndpoint = @json(route('pos.sell.cart.clear'));
             const cartCustomerEndpoint = @json(route('pos.sell.cart.customer.update'));
             const finalizeEndpoint = @json(route('pos.sell.checkout.finalize'));
@@ -316,7 +952,26 @@
                 statusElement.classList.add(tone || 'text-muted');
             }
 
-            function setCartStatus(message, tone) {
+            function setCartStatus(message, tone, showAsAlert = false) {
+                if (cartActionAlert) {
+                    if (showAsAlert && tone === 'text-danger') {
+                        cartActionAlert.textContent = message || '';
+                        cartActionAlert.classList.remove('d-none');
+                        // Optional: auto-hide the alert after 4 seconds
+                        setTimeout(() => {
+                            if (cartActionAlert.textContent === message) {
+                                cartActionAlert.classList.add('d-none');
+                            }
+                        }, 4000);
+                        
+                        // Clear the muted status if showing alert
+                        if (cartStatusElement) cartStatusElement.textContent = '';
+                        return;
+                    } else {
+                        cartActionAlert.classList.add('d-none');
+                    }
+                }
+
                 if (!cartStatusElement) {
                     return;
                 }
@@ -404,42 +1059,14 @@
                 return cartLinesBaseUrl + '/' + lineId;
             }
 
-            function getPriceOverrideEndpoint(lineId) {
-                return cartLinesBaseUrl + '/' + lineId + '/price-override';
-            }
-
             function renderTotals(snapshot) {
                 const totals = snapshot && snapshot.totals ? snapshot.totals : {};
+                const subtotal = Number(totals.subtotal || 0);
+                const grandTotal = Number(totals.grand_total || 0);
 
-                if (subtotalElement) subtotalElement.textContent = formatPrice(totals.subtotal || 0);
-                if (discountElement) discountElement.textContent = formatPrice(totals.discount_total || 0);
-                if (taxElement) taxElement.textContent = formatPrice(totals.tax_total || 0);
-                if (grandElement) grandElement.textContent = formatPrice(totals.grand_total || 0);
-            }
-
-            function renderMeta(snapshot) {
-                const meta = snapshot && snapshot.meta ? snapshot.meta : {};
-
-                if (taxBadge) {
-                    const displayModeRaw = String(meta.tax_display_mode || 'ESTIMATED').toUpperCase();
-                    const taxModeRaw = String(meta.tax_mode || 'INCLUDED').toUpperCase();
-                    const displayMode = displayModeRaw === 'ESTIMATED' ? 'ESTIMASI' : displayModeRaw;
-                    const taxMode = taxModeRaw === 'INCLUDED' ? 'TERMASUK' : (taxModeRaw === 'EXCLUDED' ? 'TERPISAH' : taxModeRaw);
-                    taxBadge.textContent = 'Pajak: ' + displayMode + ' (' + taxMode + ')';
-                }
-            }
-
-            function renderBillDiscount(snapshot) {
-                if (!billDiscountTypeElement || !billDiscountValueElement) {
-                    return;
-                }
-
-                const billDiscount = snapshot && snapshot.bill_discount ? snapshot.bill_discount : {};
-                const discountType = billDiscount.type || 'fixed';
-                const discountValue = Number(billDiscount.value || 0);
-
-                billDiscountTypeElement.value = discountType === 'percentage' ? 'percentage' : 'fixed';
-                billDiscountValueElement.value = String(Number.isFinite(discountValue) ? discountValue : 0);
+                if (subtotalElement) subtotalElement.textContent = formatPrice(subtotal);
+                if (grandElement) grandElement.textContent = formatPrice(grandTotal);
+                if (paymentSummaryTotal) paymentSummaryTotal.textContent = formatPrice(grandTotal);
             }
 
             function renderCustomer(snapshot) {
@@ -593,50 +1220,24 @@
                 const productName = escapeHtml(line.product_name || '-');
                 const productCode = escapeHtml(line.product_code || '-');
                 const barcode = escapeHtml(line.barcode || '-');
-                const taxName = line.tax_name ? escapeHtml(line.tax_name) : '-';
-                const discountType = line.line_discount_type === 'percentage' ? 'percentage' : 'fixed';
-                const discountValue = Number(line.line_discount_value || 0);
                 const qty = Number(line.qty || 0);
                 const availableQty = Number(line.available_qty || 0);
                 const lineId = Number(line.line_id || 0);
 
                 return `
                     <tr data-line-id="${lineId}">
-                        <td>
-                            <div class="font-weight-bold">${productName}${serialBadge}</div>
-                            <div class="small text-muted">${productCode} | ${barcode}</div>
-                            <div class="small text-muted">Stok: ${availableQty}</div>
+                        <td class="pos-cart-product align-middle">
+                            <div class="name">${productName}${serialBadge}</div>
+                            <div class="meta">${productCode} | ${barcode}</div>
+                            <div class="meta">Stok: ${availableQty}</div>
+                        </td>
+                        <td class="text-right align-middle">${formatPrice(line.unit_price || 0)}</td>
+                        <td class="text-center align-middle">
+                            <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty" type="number" min="1" value="${qty}" data-prev-qty="${qty}">
                         </td>
                         <td class="text-right align-middle">
-                            <input class="form-control form-control-sm text-right js-line-qty" type="number" min="1" value="${qty}">
-                        </td>
-                        <td class="text-right align-middle">
-                            <div class="small">${formatPrice(line.unit_price || 0)}</div>
-                        </td>
-                        <td class="align-middle">
-                            <div class="input-group input-group-sm">
-                                <select class="custom-select js-line-discount-type">
-                                    <option value="fixed" ${discountType === 'fixed' ? 'selected' : ''}>Nominal</option>
-                                    <option value="percentage" ${discountType === 'percentage' ? 'selected' : ''}>%</option>
-                                </select>
-                                <input class="form-control js-line-discount-value text-right" type="number" min="0" step="0.01" value="${discountValue}">
-                                <div class="input-group-append">
-                                    <button type="button" class="btn btn-outline-primary js-line-discount-save">Simpan</button>
-                                </div>
-                            </div>
-                        </td>
-                        <td class="text-right align-middle">${formatPrice(line.bill_discount_amount || 0)}</td>
-                        <td class="text-right align-middle">
-                            <div>${formatPrice(line.line_tax_total || 0)}</div>
-                            <div class="small text-muted">${taxName}</div>
-                        </td>
-                        <td class="text-right align-middle">${formatPrice(line.line_total || 0)}</td>
-                        <td class="text-right align-middle">
-                            <div class="btn-group btn-group-sm">
-                                <button type="button" class="btn btn-outline-secondary js-line-qty-save">Qty</button>
-                                <button type="button" class="btn btn-outline-warning js-line-price-override">Harga</button>
-                                <button type="button" class="btn btn-outline-danger js-line-remove">Hapus</button>
-                            </div>
+                            <div class="font-weight-bold mb-1">${formatPrice(line.line_total || 0)}</div>
+                            <button type="button" class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;">Hapus</button>
                         </td>
                     </tr>
                 `;
@@ -649,7 +1250,7 @@
                 if (lines.length === 0) {
                     cartBody.innerHTML = `
                         <tr id="pos-shell-cart-empty-row">
-                            <td colspan="8" class="text-muted text-center py-4">Keranjang kosong.</td>
+                            <td colspan="4" class="text-muted text-center py-4">Keranjang kosong.</td>
                         </tr>
                     `;
                 } else {
@@ -657,17 +1258,15 @@
                 }
 
                 renderTotals(snapshot);
-                renderMeta(snapshot);
-                renderBillDiscount(snapshot);
                 renderCustomer(snapshot);
 
                 const grandTotal = snapshot && snapshot.totals ? Number(snapshot.totals.grand_total || 0) : 0;
                 const hasItems = snapshot && Array.isArray(snapshot.lines) && snapshot.lines.length > 0;
                 const canCheckout = hasItems && grandTotal > 0;
 
-                [btnCash, btnTransfer, btnQRIS, btnCheckout].forEach(btn => {
-                    if (btn) btn.disabled = !canCheckout;
-                });
+                if (btnCheckout) {
+                    btnCheckout.disabled = !canCheckout;
+                }
             }
 
             async function refreshCart() {
@@ -684,6 +1283,12 @@
             }
 
             async function addProductToCart(product, source) {
+                latestRequestId += 1;
+                clearResults();
+                if (searchInput) {
+                    searchInput.value = '';
+                }
+
                 try {
                     const response = await jsonRequest(cartStoreLineEndpoint, 'POST', {
                         product_id: Number(product.id),
@@ -696,6 +1301,9 @@
 
                     renderCart(response.cart_snapshot || null);
                     clearResults();
+                    if (searchInput) {
+                        searchInput.focus();
+                    }
 
                     if (source === 'auto') {
                         setSearchStatus('Produk ditambahkan otomatis dari barcode.', 'text-success');
@@ -868,34 +1476,6 @@
                 });
             }
 
-            if (applyBillDiscountButton && billDiscountTypeElement && billDiscountValueElement) {
-                applyBillDiscountButton.addEventListener('click', async function () {
-                    const discountType = billDiscountTypeElement.value === 'percentage' ? 'percentage' : 'fixed';
-                    const discountValue = Number(billDiscountValueElement.value || 0);
-
-                    if (!Number.isFinite(discountValue) || discountValue < 0) {
-                        setCartStatus('Nilai diskon nota tidak valid.', 'text-danger');
-                        return;
-                    }
-
-                    try {
-                        const response = await jsonRequest(cartDiscountEndpoint, 'PATCH', {
-                            bill_discount_type: discountType,
-                            bill_discount_value: discountValue,
-                        });
-
-                        if (!response) {
-                            return;
-                        }
-
-                        renderCart(response.cart_snapshot || null);
-                        setCartStatus('Diskon nota berhasil diterapkan.', 'text-success');
-                    } catch (error) {
-                        setCartStatus(error.message || 'Gagal menerapkan diskon nota.', 'text-danger');
-                    }
-                });
-            }
-
             if (clearCartButton) {
                 clearCartButton.addEventListener('click', async function () {
                     try {
@@ -913,6 +1493,52 @@
                 });
             }
 
+            cartBody.addEventListener('change', async function (event) {
+                const qtyInput = event.target.closest('.js-line-qty');
+                if (!qtyInput) return;
+
+                const row = qtyInput.closest('tr[data-line-id]');
+                if (!row) return;
+
+                const lineId = Number(row.getAttribute('data-line-id'));
+                const newQty = Number(qtyInput.value || 0);
+                const prevQty = Number(qtyInput.getAttribute('data-prev-qty') || 0);
+
+                if (!Number.isFinite(newQty) || newQty < 1) {
+                    qtyInput.value = prevQty;
+                    setCartStatus('Qty harus minimal 1.', 'text-danger', true);
+                    return;
+                }
+
+                if (newQty < prevQty) {
+                    qtyInput.value = prevQty;
+                    setCartStatus('Jumlah qty tidak dapat dikurangi.', 'text-danger', true);
+                    return;
+                }
+
+                if (newQty === prevQty) {
+                    return;
+                }
+
+                qtyInput.setAttribute('data-prev-qty', newQty);
+
+                try {
+                    const response = await jsonRequest(getLineEndpoint(lineId), 'PATCH', { qty: newQty });
+                    if (!response) {
+                        qtyInput.value = prevQty;
+                        qtyInput.setAttribute('data-prev-qty', prevQty);
+                        return;
+                    }
+
+                    renderCart(response.cart_snapshot || null);
+                    setCartStatus('Qty berhasil diperbarui.', 'text-success');
+                } catch (error) {
+                    qtyInput.value = prevQty;
+                    qtyInput.setAttribute('data-prev-qty', prevQty);
+                    setCartStatus(error.message || 'Gagal memperbarui qty.', 'text-danger');
+                }
+            });
+
             cartBody.addEventListener('click', async function (event) {
                 const button = event.target.closest('button');
                 const row = event.target.closest('tr[data-line-id]');
@@ -924,108 +1550,6 @@
                 const lineId = Number(row.getAttribute('data-line-id'));
                 if (!Number.isFinite(lineId) || lineId <= 0) {
                     setCartStatus('Baris keranjang tidak valid.', 'text-danger');
-                    return;
-                }
-
-                if (button.classList.contains('js-line-qty-save')) {
-                    const qtyInput = row.querySelector('.js-line-qty');
-                    const qty = Number(qtyInput ? qtyInput.value : 0);
-
-                    if (!Number.isFinite(qty) || qty < 1) {
-                        setCartStatus('Qty harus minimal 1.', 'text-danger');
-                        return;
-                    }
-
-                    try {
-                        const response = await jsonRequest(getLineEndpoint(lineId), 'PATCH', { qty: qty });
-                        if (!response) {
-                            return;
-                        }
-
-                        renderCart(response.cart_snapshot || null);
-                        setCartStatus('Qty berhasil diperbarui.', 'text-success');
-                    } catch (error) {
-                        setCartStatus(error.message || 'Gagal memperbarui qty.', 'text-danger');
-                    }
-
-                    return;
-                }
-
-                if (button.classList.contains('js-line-discount-save')) {
-                    const discountTypeElement = row.querySelector('.js-line-discount-type');
-                    const discountValueElement = row.querySelector('.js-line-discount-value');
-                    const discountType = discountTypeElement && discountTypeElement.value === 'percentage' ? 'percentage' : 'fixed';
-                    const discountValue = Number(discountValueElement ? discountValueElement.value : 0);
-
-                    if (!Number.isFinite(discountValue) || discountValue < 0) {
-                        setCartStatus('Nilai diskon baris tidak valid.', 'text-danger');
-                        return;
-                    }
-
-                    try {
-                        const response = await jsonRequest(getLineEndpoint(lineId), 'PATCH', {
-                            line_discount_type: discountType,
-                            line_discount_value: discountValue,
-                        });
-                        if (!response) {
-                            return;
-                        }
-
-                        renderCart(response.cart_snapshot || null);
-                        setCartStatus('Diskon baris berhasil diperbarui.', 'text-success');
-                    } catch (error) {
-                        setCartStatus(error.message || 'Gagal memperbarui diskon baris.', 'text-danger');
-                    }
-
-                    return;
-                }
-
-                if (button.classList.contains('js-line-price-override')) {
-                    const selectedLine = currentSnapshot && Array.isArray(currentSnapshot.lines)
-                        ? currentSnapshot.lines.find((item) => Number(item.line_id) === lineId)
-                        : null;
-                    const currentPrice = selectedLine ? Number(selectedLine.unit_price || 0) : 0;
-                    const pricePrompt = window.prompt('Harga baru untuk baris ini:', String(currentPrice));
-
-                    if (pricePrompt === null) {
-                        return;
-                    }
-
-                    const newPrice = Number(pricePrompt);
-                    if (!Number.isFinite(newPrice) || newPrice <= 0) {
-                        setCartStatus('Harga override tidak valid.', 'text-danger');
-                        return;
-                    }
-
-                    const supervisorIdentifier = window.prompt('Email supervisor:');
-                    if (!supervisorIdentifier) {
-                        setCartStatus('Email supervisor wajib diisi.', 'text-danger');
-                        return;
-                    }
-
-                    const supervisorPin = window.prompt('PIN supervisor:');
-                    if (!supervisorPin) {
-                        setCartStatus('PIN supervisor wajib diisi.', 'text-danger');
-                        return;
-                    }
-
-                    try {
-                        const response = await jsonRequest(getPriceOverrideEndpoint(lineId), 'POST', {
-                            unit_price: newPrice,
-                            supervisor_identifier: supervisorIdentifier,
-                            supervisor_pin: supervisorPin,
-                        });
-
-                        if (!response) {
-                            return;
-                        }
-
-                        renderCart(response.cart_snapshot || null);
-                        setCartStatus('Override harga berhasil diterapkan.', 'text-success');
-                    } catch (error) {
-                        setCartStatus(error.message || 'Override harga gagal.', 'text-danger');
-                    }
-
                     return;
                 }
 
@@ -1048,39 +1572,108 @@
                 return 'pos-' + Date.now() + '-' + Math.random().toString(36).substring(2, 15);
             }
 
-            function openPaymentModal(method) {
-                if (!currentSnapshot || !currentSnapshot.totals) return;
-                
-                const grandTotal = Number(currentSnapshot.totals.grand_total || 0);
-                if (grandTotal <= 0) return;
+            function renderReceiptPreview(snapshot) {
+                if (!checkoutReceiptLines) return;
 
-                checkoutMethodCode.value = method;
+                const lines = snapshot && Array.isArray(snapshot.lines) ? snapshot.lines : [];
+
+                if (lines.length === 0) {
+                    checkoutReceiptLines.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Keranjang kosong.</td></tr>';
+                } else {
+                    checkoutReceiptLines.innerHTML = lines.map(line => {
+                        const productName = escapeHtml(line.product_name || '-');
+                        const qty = Number(line.qty || 0);
+                        const unitPrice = formatPrice(line.unit_price || 0);
+                        const total = formatPrice(line.line_total || 0);
+
+                        return `
+                            <tr>
+                                <td>
+                                    <div class="text-truncate" style="max-width: 15rem;" title="${productName}">${productName}</div>
+                                </td>
+                                <td class="text-right">${qty}</td>
+                                <td class="text-right">${unitPrice}</td>
+                                <td class="text-right font-weight-bold">${total}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+
+                const totals = snapshot && snapshot.totals ? snapshot.totals : {};
+                if (checkoutReceiptTotal) {
+                    checkoutReceiptTotal.textContent = formatPrice(totals.grand_total || 0);
+                }
+            }
+
+            function setPaymentMethod(method) {
+                const normalizedMethod = ['cash', 'transfer', 'qris'].includes(method) ? method : 'cash';
+                const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
                 const methodLabelMap = {
                     cash: 'TUNAI',
                     transfer: 'TRANSFER',
                     qris: 'QRIS',
                 };
-                checkoutMethodLabel.value = methodLabelMap[method] || String(method || '').toUpperCase();
-                checkoutTotalLabel.value = formatPrice(grandTotal);
-                checkoutAmountPaid.value = grandTotal.toFixed(2);
-                checkoutReference.value = '';
-                checkoutError.classList.add('d-none');
-                checkoutError.textContent = '';
-                
-                if (method === 'cash') {
+
+                checkoutMethodCode.value = normalizedMethod;
+                checkoutMethodLabel.value = methodLabelMap[normalizedMethod] || normalizedMethod.toUpperCase();
+
+                checkoutMethodButtons.forEach((button) => {
+                    const buttonMethod = button.getAttribute('data-method');
+                    const isActive = buttonMethod === normalizedMethod;
+                    button.classList.toggle('active', isActive);
+                    if (isActive) {
+                        button.classList.remove('btn-outline-success', 'btn-outline-info', 'btn-outline-dark');
+                        if (buttonMethod === 'cash') {
+                            button.classList.add('btn-success');
+                        } else if (buttonMethod === 'transfer') {
+                            button.classList.add('btn-info');
+                        } else {
+                            button.classList.add('btn-dark');
+                        }
+                    } else {
+                        button.classList.remove('btn-success', 'btn-info', 'btn-dark');
+                        if (buttonMethod === 'cash') {
+                            button.classList.add('btn-outline-success');
+                        } else if (buttonMethod === 'transfer') {
+                            button.classList.add('btn-outline-info');
+                        } else {
+                            button.classList.add('btn-outline-dark');
+                        }
+                    }
+                });
+
+                if (normalizedMethod === 'cash') {
                     checkoutAmountPaid.readOnly = false;
                     checkoutChangeWrapper.classList.remove('d-none');
                     checkoutReferenceWrapper.classList.add('d-none');
+                    if (checkoutPresetsWrapper) checkoutPresetsWrapper.classList.remove('d-none');
+                    checkoutAmountPaid.value = grandTotal.toFixed(2);
                     updateChange(grandTotal, grandTotal);
                 } else {
                     checkoutAmountPaid.readOnly = true;
                     checkoutChangeWrapper.classList.add('d-none');
                     checkoutReferenceWrapper.classList.remove('d-none');
+                    if (checkoutPresetsWrapper) checkoutPresetsWrapper.classList.add('d-none');
+                    checkoutAmountPaid.value = grandTotal.toFixed(2);
                 }
+            }
+
+            function openPaymentModal() {
+                if (!currentSnapshot || !currentSnapshot.totals) return;
+
+                const grandTotal = Number(currentSnapshot.totals.grand_total || 0);
+                if (grandTotal <= 0) return;
+
+                checkoutTotalLabel.value = formatPrice(grandTotal);
+                checkoutReference.value = '';
+                checkoutError.classList.add('d-none');
+                checkoutError.textContent = '';
+
+                renderReceiptPreview(currentSnapshot);
+                setPaymentMethod('cash');
 
                 $(checkoutModalElement).modal('show');
-                
-                setTimeout(() => checkoutAmountPaid.focus(), 500);
+                setTimeout(() => checkoutAmountPaid.focus(), 200);
             }
 
             function updateChange(amountPaid, grandTotal) {
@@ -1088,29 +1681,58 @@
                 checkoutChangeLabel.value = formatPrice(change);
             }
 
+            if (checkoutMethodButtons.length > 0) {
+                checkoutMethodButtons.forEach((button) => {
+                    button.addEventListener('click', function () {
+                        const method = String(this.getAttribute('data-method') || 'cash');
+                        setPaymentMethod(method);
+                    });
+                });
+            }
+
+            if (checkoutPresetsWrapper) {
+                checkoutPresetsWrapper.addEventListener('click', function (event) {
+                    const target = event.target.closest('.js-preset-amount');
+                    if (!target) {
+                        return;
+                    }
+
+                    const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
+                    const dataAmount = target.getAttribute('data-amount');
+
+                    let amountToFill = 0;
+                    if (dataAmount === 'uang-pas') {
+                        amountToFill = grandTotal;
+                    } else {
+                        amountToFill = Number(dataAmount);
+                    }
+
+                    checkoutAmountPaid.value = amountToFill.toFixed(2);
+                    updateChange(amountToFill, grandTotal);
+                });
+            }
+
             if (checkoutAmountPaid) {
-                checkoutAmountPaid.addEventListener('input', function() {
+                checkoutAmountPaid.addEventListener('input', function () {
                     const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
                     const amountPaid = Number(this.value || 0);
                     updateChange(amountPaid, grandTotal);
                 });
             }
 
-            [btnCash, btnTransfer, btnQRIS, btnCheckout].forEach(btn => {
-                if (!btn) return;
-                btn.addEventListener('click', function() {
-                    const method = this.id.replace('pos-payment-', '').replace('pos-checkout-final', 'cash');
-                    openPaymentModal(method);
+            if (btnCheckout) {
+                btnCheckout.addEventListener('click', function () {
+                    openPaymentModal();
                 });
-            });
+            }
 
             if (checkoutSubmit) {
-                checkoutSubmit.addEventListener('click', async function() {
+                checkoutSubmit.addEventListener('click', async function () {
                     const method = checkoutMethodCode.value;
                     const amountPaid = Number(checkoutAmountPaid.value || 0);
                     const reference = checkoutReference.value.trim();
                     const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
-                    
+
                     if (amountPaid < grandTotal && method === 'cash') {
                         checkoutError.textContent = 'Pembayaran tunai harus mencukupi total belanja.';
                         checkoutError.classList.remove('d-none');
@@ -1145,20 +1767,20 @@
                         }
 
                         $(checkoutModalElement).modal('hide');
-                        
+
                         if (successReceiptElement) successReceiptElement.textContent = 'No. Struk: ' + (response.receipt_number || '-');
                         if (successChangeElement) {
                             const change = Number(response.change_total || 0);
                             successChangeElement.textContent = change > 0 ? 'Kembalian: ' + formatPrice(change) : '';
                         }
-                        
+
                         window.lastCheckoutId = response.pos_checkout_id;
-                        
+                        if (shortcutReprintBtn) shortcutReprintBtn.disabled = false;
+
                         $('#pos-success-modal').modal('show');
-                        
+
                         renderCart(null);
                         setCartStatus('Transaksi berhasil diselesaikan.', 'text-success');
-
                     } catch (error) {
                         checkoutError.textContent = error.message || 'Gagal memproses pembayaran.';
                         checkoutError.classList.remove('d-none');
@@ -1169,12 +1791,21 @@
                 });
             }
 
-            window.printReceipt = function() {
+            window.printReceipt = function () {
                 if (window.lastCheckoutId) {
                     const url = `{{ url('/pos/sell/checkout') }}/${window.lastCheckoutId}/receipt`;
                     window.open(url, '_blank');
                 }
             };
+
+            if (shortcutReprintBtn) {
+                shortcutReprintBtn.addEventListener('click', function () {
+                    if (window.lastCheckoutId) {
+                        const url = `{{ url('/pos/sell/checkout') }}/${window.lastCheckoutId}/receipt/reprint`;
+                        window.open(url, '_blank');
+                    }
+                });
+            }
 
             refreshCart();
         })();

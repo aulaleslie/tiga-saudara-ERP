@@ -108,56 +108,39 @@ class POSCartTotalsDisplayTest extends TestCase
             ->assertJsonPath('cart_snapshot.totals.grand_total', 30000);
     }
 
-    public function test_line_and_bill_discount_recalculate_totals_deterministically(): void
+    public function test_discount_payloads_are_rejected_for_cashier_pos_flow(): void
     {
-        $setting = $this->createSetting('BIZ POS CART STACK', true);
-        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'POS CART STACK');
-        $tax = $this->createTax('PPN 11% STACK', 11);
-        $productA = $this->createStockedProduct($setting, $location, 'SKU-A', 'Produk A', 10000, $tax->id, $cashier->id);
-        $productB = $this->createStockedProduct($setting, $location, 'SKU-B', 'Produk B', 20000, $tax->id, $cashier->id);
+        $setting = $this->createSetting('BIZ POS CART NO DISC', true);
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'POS CART NO DISC');
+        $tax = $this->createTax('PPN 11% NO DISC', 11);
+        $product = $this->createStockedProduct($setting, $location, 'SKU-NO-DISC', 'Produk No Diskon', 10000, $tax->id, $cashier->id);
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $productA->id, 'qty' => 1])
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
             ->assertOk();
 
-        $this->actingAs($cashier)
+        $lineDiscountResponse = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $productB->id, 'qty' => 1])
-            ->assertOk();
-
-        $this->actingAs($cashier)
-            ->withSession(['setting_id' => $setting->id])
-            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $productA->id]), [
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $product->id]), [
                 'line_discount_type' => 'percentage',
                 'line_discount_value' => 10,
-            ])
-            ->assertOk();
+            ]);
 
-        $this->actingAs($cashier)
-            ->withSession(['setting_id' => $setting->id])
-            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $productB->id]), [
-                'line_discount_type' => 'fixed',
-                'line_discount_value' => 2000,
-            ])
-            ->assertOk();
+        $lineDiscountResponse
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['line_discount_type', 'line_discount_value']);
 
-        $response = $this->actingAs($cashier)
+        $billDiscountResponse = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->patchJson(route('pos.sell.cart.discount.update'), [
                 'bill_discount_type' => 'percentage',
                 'bill_discount_value' => 10,
             ]);
 
-        $response->assertOk()
-            ->assertJsonPath('cart_snapshot.totals.subtotal', 24300)
-            ->assertJsonPath('cart_snapshot.totals.discount_total', 5700)
-            ->assertJsonPath('cart_snapshot.totals.tax_total', 2408)
-            ->assertJsonPath('cart_snapshot.totals.grand_total', 24300)
-            ->assertJsonPath('cart_snapshot.lines.0.bill_discount_amount', 900)
-            ->assertJsonPath('cart_snapshot.lines.1.bill_discount_amount', 1800)
-            ->assertJsonPath('cart_snapshot.meta.tax_display_mode', 'ESTIMATED')
-            ->assertJsonPath('cart_snapshot.meta.tax_mode', 'INCLUDED');
+        $billDiscountResponse
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Diskon tidak tersedia di POS kasir.');
     }
 
     public function test_price_override_rejected_with_invalid_supervisor_pin(): void
@@ -264,9 +247,8 @@ class POSCartTotalsDisplayTest extends TestCase
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->patchJson(route('pos.sell.cart.discount.update'), [
-                'bill_discount_type' => 'fixed',
-                'bill_discount_value' => 5000,
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $product->id]), [
+                'qty' => 1,
             ])
             ->assertOk();
 

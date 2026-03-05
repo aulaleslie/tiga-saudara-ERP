@@ -14,7 +14,6 @@ use Modules\Pos\Http\Requests\StorePosCartPriceOverrideRequest;
 use Modules\Pos\Http\Requests\StorePosCheckoutFinalizeRequest;
 use Modules\Pos\Http\Requests\StorePosCartSerialAssignmentRequest;
 use Modules\Pos\Http\Requests\UpdatePosCartCustomerRequest;
-use Modules\Pos\Http\Requests\UpdatePosCartDiscountRequest;
 use Modules\Pos\Http\Requests\UpdatePosCartLineRequest;
 use Modules\Pos\Services\FinalizePosCheckoutService;
 use Modules\Pos\Services\PosCartService;
@@ -157,27 +156,11 @@ class PosSellController extends Controller
         return response()->json(['cart_snapshot' => $snapshot]);
     }
 
-    public function cartUpdateDiscount(
-        UpdatePosCartDiscountRequest $request,
-        PosCartService $cartService
-    ): JsonResponse {
-        $settingId = $this->currentSettingId();
-        $sessionId = $this->activeSessionId($request);
-
-        try {
-            $snapshot = $cartService->updateBillDiscount(
-                $settingId,
-                $sessionId,
-                (string) $request->input('bill_discount_type'),
-                (float) $request->input('bill_discount_value')
-            );
-        } catch (DomainException $exception) {
-            return response()->json([
-                'message' => $exception->getMessage(),
-            ], 422);
-        }
-
-        return response()->json(['cart_snapshot' => $snapshot]);
+    public function cartUpdateDiscount(Request $request): JsonResponse
+    {
+        return response()->json([
+            'message' => 'Diskon tidak tersedia di POS kasir.',
+        ], 422);
     }
 
     public function cartOverridePrice(
