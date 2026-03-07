@@ -52,6 +52,7 @@ class PosSessionController extends Controller
 
         $hasConfiguredSaleLocations = SettingSaleLocation::query()
             ->where('setting_id', $settingId)
+            ->where('is_enabled', true)
             ->exists();
 
         if (! $hasConfiguredSaleLocations) {

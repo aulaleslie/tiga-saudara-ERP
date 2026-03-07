@@ -75,7 +75,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $cashier = $this->createUserForSetting($borrowerSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $this->assignDefaultWalkInCustomer($borrowerSetting);
         $this->seedPaymentMethods($borrowerSetting);
-        $this->assignSaleLocation($borrowerSetting, $sourceLocation, 1);
+        $this->assignSaleLocation($borrowerSetting, $sourceLocation);
 
         // 3. Create Product with 10% Tax
         $tax = Tax::create(['name' => 'VAT 10%', 'value' => 10]);
@@ -135,7 +135,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $cashier = $this->createUserForSetting($borrowerSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $this->assignDefaultWalkInCustomer($borrowerSetting);
         $this->seedPaymentMethods($borrowerSetting);
-        $this->assignSaleLocation($borrowerSetting, $sourceLocation, 1);
+        $this->assignSaleLocation($borrowerSetting, $sourceLocation);
 
         // 3. Create Product with 10% Tax
         $tax = Tax::create(['name' => 'VAT 10%', 'value' => 10]);
@@ -188,8 +188,8 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $bizPKP = $this->createSetting('BIZ-PKP', true);
         $bizNonPKP = $this->createSetting('BIZ-NON-PKP', false);
         
-        $locPKP = $this->createLocation($bizPKP, 'LOC-PKP');
-        $locNonPKP = $this->createLocation($bizNonPKP, 'LOC-NON-PKP');
+        $locPKP = $this->createLocation($bizPKP, 'A-LOC-PKP');
+        $locNonPKP = $this->createLocation($bizNonPKP, 'B-LOC-NON-PKP');
 
         // 2. Setup Terminal Business (PKP)
         $terminalSetting = $this->createSetting('TERMINAL-BIZ', true);
@@ -199,8 +199,8 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $this->seedPaymentMethods($terminalSetting);
         
         // Priority 1: PKP Location, Priority 2: Non-PKP Location
-        $this->assignSaleLocation($terminalSetting, $locPKP, 1);
-        $this->assignSaleLocation($terminalSetting, $locNonPKP, 2);
+        $this->assignSaleLocation($terminalSetting, $locPKP);
+        $this->assignSaleLocation($terminalSetting, $locNonPKP);
 
         // 3. Create Product with 10% Tax
         $tax = Tax::create(['name' => 'VAT 10%', 'value' => 10]);
@@ -274,7 +274,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $cashier = $this->createUserForSetting($setting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $this->assignDefaultWalkInCustomer($setting);
         $this->seedPaymentMethods($setting);
-        $this->assignSaleLocation($setting, $location, 1);
+        $this->assignSaleLocation($setting, $location);
 
         $tax = Tax::create(['name' => 'VAT 10%', 'value' => 10]);
         $product = $this->createStockedProduct($setting, $location, 'PROD-S-001', 100000);
@@ -360,6 +360,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
             'require_opening_float' => true,
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
+            'cash_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
         ]);
 
@@ -384,14 +385,11 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $setting->update(['pos_walk_in_customer_id' => $customer->id]);
     }
 
-    private function assignSaleLocation(Setting $setting, Location $location, int $position): void
+    private function assignSaleLocation(Setting $setting, Location $location): void
     {
         SettingSaleLocation::updateOrCreate(
-            ['location_id' => $location->id],
-            [
-                'setting_id' => $setting->id,
-                'position' => $position,
-            ]
+            ['setting_id' => $setting->id, 'location_id' => $location->id],
+            ['is_enabled' => true]
         );
     }
 

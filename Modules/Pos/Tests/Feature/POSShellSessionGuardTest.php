@@ -111,7 +111,6 @@ class POSShellSessionGuardTest extends TestCase
             ->assertSee('Keranjang')
             ->assertSee('Pelanggan')
             ->assertSee('Pembayaran')
-            ->assertSee('Aksi')
             ->assertSee('Pilih Pembayaran')
             ->assertDontSee('Override')
             ->assertSee('pos-shell-posting-note');

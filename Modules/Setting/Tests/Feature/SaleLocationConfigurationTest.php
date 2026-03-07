@@ -74,19 +74,23 @@ class SaleLocationConfigurationTest extends TestCase
             'setting_id' => $settingB->id,
         ]);
 
+        // Manually create pivot entries to simulate Phase 1 backfill
+        SettingSaleLocation::create(['setting_id' => $settingA->id, 'location_id' => $ownedLocation->id, 'is_enabled' => true]);
+        SettingSaleLocation::create(['setting_id' => $settingA->id, 'location_id' => $borrowable->id, 'is_enabled' => false]);
+
         $response = $this->get(route('sales-location-configurations.index'));
 
         $response->assertOk();
         $response->assertSee('CVTN 1');
         $response->assertSee('TIT 1');
         $response->assertSee('Konfigurasi Lokasi Penjualan POS');
-        $response->assertDontSee('Jadikan POS');
-        $response->assertDontSee('Nonaktifkan POS');
-        $this->assertTrue(SettingSaleLocation::where('location_id', $ownedLocation->id)->where('setting_id', $settingA->id)->where('is_enabled', true)->exists());
-        $this->assertTrue(SettingSaleLocation::where('location_id', $borrowable->id)->where('setting_id', $settingB->id)->where('is_enabled', true)->exists());
+        $response->assertDontSee('Tambah Lokasi Penjualan POS');
+        $response->assertDontSee('Tambahkan Lokasi');
+        $response->assertSee('Milik Bisnis');
+        $response->assertSee('Disabled');
     }
 
-    public function test_can_attach_location_from_other_setting(): void
+    public function test_default_enabled_state_on_toggle(): void
     {
         $settingA = $this->createSetting('CV Tiga Nusa');
         $settingB = $this->createSetting('Top IT');
@@ -98,19 +102,48 @@ class SaleLocationConfigurationTest extends TestCase
             'setting_id' => $settingB->id,
         ]);
 
-        $response = $this->post(route('sales-location-configurations.store'), [
-            'location_id' => $borrowable->id,
+        // Enable it
+        $response = $this->patch(route('sales-location-configurations.toggle', $borrowable->id), [
+            'is_enabled' => 1,
         ]);
 
         $response->assertRedirect(route('sales-location-configurations.index'));
-        $this->assertTrue(SettingSaleLocation::where('location_id', $borrowable->id)->where('setting_id', $settingA->id)->where('is_enabled', true)->exists());
+        $this->assertTrue(SettingSaleLocation::where('location_id', $borrowable->id)
+            ->where('setting_id', $settingA->id)
+            ->where('is_enabled', true)
+            ->exists());
     }
 
-    public function test_can_attach_location_already_borrowed(): void
+    public function test_disable_owned_location_is_blocked(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+
+        $this->actingAsSuperAdminForSetting($settingA);
+
+        $ownedLocation = Location::create([
+            'name'       => 'CVTN 1',
+            'setting_id' => $settingA->id,
+        ]);
+        
+        SettingSaleLocation::create(['setting_id' => $settingA->id, 'location_id' => $ownedLocation->id, 'is_enabled' => true]);
+
+        $response = $this->patch(route('sales-location-configurations.toggle', $ownedLocation->id), [
+            'is_enabled' => 0,
+        ]);
+
+        $response->assertRedirect(route('sales-location-configurations.index'));
+        
+        // Ensure it is still enabled
+        $this->assertTrue(SettingSaleLocation::where('location_id', $ownedLocation->id)
+            ->where('setting_id', $settingA->id)
+            ->where('is_enabled', true)
+            ->exists());
+    }
+
+    public function test_disable_and_reenable_borrowed_location(): void
     {
         $settingA = $this->createSetting('CV Tiga Nusa');
         $settingB = $this->createSetting('Top IT');
-        $settingC = $this->createSetting('CV Gabungan');
 
         $this->actingAsSuperAdminForSetting($settingA);
 
@@ -119,77 +152,26 @@ class SaleLocationConfigurationTest extends TestCase
             'setting_id' => $settingB->id,
         ]);
 
-        SettingSaleLocation::updateOrCreate(
-            ['location_id' => $location->id, 'setting_id' => $settingC->id],
-            ['is_enabled' => true]
-        );
-
-        $response = $this->post(route('sales-location-configurations.store'), [
-            'location_id' => $location->id,
+        SettingSaleLocation::create([
+            'location_id' => $location->id, 
+            'setting_id' => $settingA->id,
+            'is_enabled' => true,
         ]);
 
-        $response->assertRedirect(route('sales-location-configurations.index'));
-        $this->assertTrue(SettingSaleLocation::where('location_id', $location->id)->where('setting_id', $settingC->id)->where('is_enabled', true)->exists());
-        $this->assertTrue(SettingSaleLocation::where('location_id', $location->id)->where('setting_id', $settingA->id)->where('is_enabled', true)->exists());
-    }
-
-    public function test_destroy_disables_location(): void
-    {
-        $settingA = $this->createSetting('CV Tiga Nusa');
-        $settingB = $this->createSetting('Top IT');
-
-        $this->actingAsSuperAdminForSetting($settingA);
-
-        $location = Location::create([
-            'name'       => 'TIT 1',
-            'setting_id' => $settingB->id,
+        // Disable
+        $response = $this->patch(route('sales-location-configurations.toggle', $location->id), [
+            'is_enabled' => 0,
         ]);
-
-        SettingSaleLocation::updateOrCreate(
-            ['location_id' => $location->id, 'setting_id' => $settingA->id],
-            ['is_enabled' => true]
-        );
-
-        $response = $this->delete(route('sales-location-configurations.destroy', $location->id));
 
         $response->assertRedirect(route('sales-location-configurations.index'));
         $this->assertFalse(SettingSaleLocation::where('location_id', $location->id)->where('setting_id', $settingA->id)->value('is_enabled'));
-    }
 
-
-
-    public function test_latest_borrowed_location_is_enabled(): void
-    {
-        $settingA = $this->createSetting('CV Tiga Nusa');
-        $settingB = $this->createSetting('Top IT');
-
-        $this->actingAsSuperAdminForSetting($settingA);
-
-        $firstLocation = Location::create([
-            'name'       => 'TIT 1',
-            'setting_id' => $settingB->id,
+        // Re-enable
+        $response = $this->patch(route('sales-location-configurations.toggle', $location->id), [
+            'is_enabled' => 1,
         ]);
 
-        $secondLocation = Location::create([
-            'name'       => 'TIT 2',
-            'setting_id' => $settingB->id,
-        ]);
-
-        $this->post(route('sales-location-configurations.store'), [
-            'location_id' => $firstLocation->id,
-        ])->assertRedirect(route('sales-location-configurations.index'));
-
-        $this->post(route('sales-location-configurations.store'), [
-            'location_id' => $secondLocation->id,
-        ])->assertRedirect(route('sales-location-configurations.index'));
-
-        $enabledLocations = SettingSaleLocation::query()
-            ->where('setting_id', $settingA->id)
-            ->where('is_enabled', true)
-            ->pluck('location_id')
-            ->all();
-
-        $this->assertContains($firstLocation->id, $enabledLocations);
-        $this->assertContains($secondLocation->id, $enabledLocations);
+        $response->assertRedirect(route('sales-location-configurations.index'));
+        $this->assertTrue(SettingSaleLocation::where('location_id', $location->id)->where('setting_id', $settingA->id)->value('is_enabled'));
     }
 }

@@ -82,11 +82,10 @@ class StandardSaleLocationScopeRegressionTest extends TestCase
         // Must delete default assignment first due to unique constraint
         SettingSaleLocation::where('location_id', $borrowedLocation->id)->delete();
         
-        SettingSaleLocation::create([
-            'setting_id' => $ownerSetting->id,
-            'location_id' => $borrowedLocation->id,
-            'position' => 1
-        ]);
+        SettingSaleLocation::updateOrCreate(
+            ['setting_id' => $ownerSetting->id, 'location_id' => $borrowedLocation->id],
+            ['is_enabled' => true]
+        );
 
         // 4. Create User and Permissions
         Permission::firstOrCreate(['name' => 'sales.dispatch']);
@@ -156,11 +155,10 @@ class StandardSaleLocationScopeRegressionTest extends TestCase
         // 3. Assign borrowedLocation to ownerSetting (Simulate POS sharing)
         SettingSaleLocation::where('location_id', $borrowedLocation->id)->delete();
 
-        SettingSaleLocation::create([
-            'setting_id' => $ownerSetting->id,
-            'location_id' => $borrowedLocation->id,
-            'position' => 1
-        ]);
+        SettingSaleLocation::updateOrCreate(
+            ['setting_id' => $ownerSetting->id, 'location_id' => $borrowedLocation->id],
+            ['is_enabled' => true]
+        );
         
         
         $product = Product::create([
@@ -255,11 +253,10 @@ class StandardSaleLocationScopeRegressionTest extends TestCase
         ]);
 
         SettingSaleLocation::where('location_id', $borrowedLocation->id)->delete();
-        SettingSaleLocation::create([
-            'setting_id' => $ownerSetting->id,
-            'location_id' => $borrowedLocation->id,
-            'position' => 1,
-        ]);
+        SettingSaleLocation::updateOrCreate(
+            ['setting_id' => $ownerSetting->id, 'location_id' => $borrowedLocation->id],
+            ['is_enabled' => true]
+        );
 
         $product = Product::create([
             'product_name' => 'Serial Product',
@@ -319,11 +316,10 @@ class StandardSaleLocationScopeRegressionTest extends TestCase
         ]);
 
         SettingSaleLocation::where('location_id', $borrowedLocation->id)->delete();
-        SettingSaleLocation::create([
-            'setting_id' => $ownerSetting->id,
-            'location_id' => $borrowedLocation->id,
-            'position' => 1,
-        ]);
+        SettingSaleLocation::updateOrCreate(
+            ['setting_id' => $ownerSetting->id, 'location_id' => $borrowedLocation->id],
+            ['is_enabled' => true]
+        );
 
         $product = Product::create([
             'product_name' => 'Serial Product',
