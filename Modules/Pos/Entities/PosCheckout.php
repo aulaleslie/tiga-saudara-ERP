@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\People\Entities\Customer;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 
 class PosCheckout extends BaseModel
@@ -38,6 +39,7 @@ class PosCheckout extends BaseModel
         'paid_total',
         'change_total',
         'payment_method_code',
+        'payment_method_id',
         'payment_reference',
         'receipt_number',
         'sale_id',
@@ -96,6 +98,11 @@ class PosCheckout extends BaseModel
     public function salePayment(): BelongsTo
     {
         return $this->belongsTo(SalePayment::class, 'sale_payment_id');
+    }
+
+    public function paymentMethod(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethod::class, 'payment_method_id');
     }
 
     public function printLogs()

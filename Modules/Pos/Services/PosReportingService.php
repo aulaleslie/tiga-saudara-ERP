@@ -14,21 +14,22 @@ class PosReportingService
     public function getDailySalesSummary(int $settingId, string $dateFrom, string $dateTo): array
     {
         $query = PosCheckout::query()
+            ->leftJoin('payment_methods', 'pos_checkouts.payment_method_id', '=', 'payment_methods.id')
             ->select([
                 DB::raw('DATE(finalized_at) as date'),
-                DB::raw('COUNT(id) as transactions_count'),
+                DB::raw('COUNT(pos_checkouts.id) as transactions_count'),
                 DB::raw('SUM(subtotal) as subtotal'),
                 DB::raw('SUM(discount_total) as discount_total'),
                 DB::raw('SUM(tax_total) as tax_total'),
                 DB::raw('SUM(grand_total) as grand_total'),
-                DB::raw("SUM(CASE WHEN payment_method_code = 'cash' THEN grand_total ELSE 0 END) as cash_total"),
-                DB::raw("SUM(CASE WHEN payment_method_code != 'cash' THEN grand_total ELSE 0 END) as non_cash_total"),
+                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 1 THEN grand_total WHEN payment_methods.id IS NULL AND pos_checkouts.payment_method_code = 'cash' THEN grand_total ELSE 0 END) as cash_total"),
+                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 0 THEN grand_total WHEN payment_methods.id IS NULL AND pos_checkouts.payment_method_code != 'cash' THEN grand_total ELSE 0 END) as non_cash_total"),
             ])
-            ->where('setting_id', $settingId)
-            ->where('status', PosCheckout::STATUS_POSTED)
-            ->whereDate('finalized_at', '>=', $dateFrom)
-            ->whereDate('finalized_at', '<=', $dateTo)
-            ->groupBy(DB::raw('DATE(finalized_at)'))
+            ->where('pos_checkouts.setting_id', $settingId)
+            ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)
+            ->whereDate('pos_checkouts.finalized_at', '>=', $dateFrom)
+            ->whereDate('pos_checkouts.finalized_at', '<=', $dateTo)
+            ->groupBy(DB::raw('DATE(pos_checkouts.finalized_at)'))
             ->orderBy('date', 'desc')
             ->get();
 
@@ -53,18 +54,19 @@ class PosReportingService
     {
         $query = PosCheckout::query()
             ->with('cashier:id,name')
+            ->leftJoin('payment_methods', 'pos_checkouts.payment_method_id', '=', 'payment_methods.id')
             ->select([
-                'cashier_user_id',
-                DB::raw('COUNT(id) as transactions_count'),
-                DB::raw('SUM(grand_total) as grand_total'),
-                DB::raw("SUM(CASE WHEN payment_method_code = 'cash' THEN grand_total ELSE 0 END) as cash_total"),
-                DB::raw("SUM(CASE WHEN payment_method_code != 'cash' THEN grand_total ELSE 0 END) as non_cash_total"),
+                'pos_checkouts.cashier_user_id',
+                DB::raw('COUNT(pos_checkouts.id) as transactions_count'),
+                DB::raw('SUM(pos_checkouts.grand_total) as grand_total'),
+                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 1 THEN pos_checkouts.grand_total WHEN payment_methods.id IS NULL AND pos_checkouts.payment_method_code = 'cash' THEN pos_checkouts.grand_total ELSE 0 END) as cash_total"),
+                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 0 THEN pos_checkouts.grand_total WHEN payment_methods.id IS NULL AND pos_checkouts.payment_method_code != 'cash' THEN pos_checkouts.grand_total ELSE 0 END) as non_cash_total"),
             ])
-            ->where('setting_id', $settingId)
-            ->where('status', PosCheckout::STATUS_POSTED)
-            ->whereDate('finalized_at', '>=', $dateFrom)
-            ->whereDate('finalized_at', '<=', $dateTo)
-            ->groupBy('cashier_user_id')
+            ->where('pos_checkouts.setting_id', $settingId)
+            ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)
+            ->whereDate('pos_checkouts.finalized_at', '>=', $dateFrom)
+            ->whereDate('pos_checkouts.finalized_at', '<=', $dateTo)
+            ->groupBy('pos_checkouts.cashier_user_id')
             ->orderBy('grand_total', 'desc')
             ->get();
 
@@ -88,22 +90,25 @@ class PosReportingService
     public function getPaymentMethodSummary(int $settingId, string $dateFrom, string $dateTo): array
     {
         $query = PosCheckout::query()
+            ->leftJoin('payment_methods', 'pos_checkouts.payment_method_id', '=', 'payment_methods.id')
             ->select([
-                'payment_method_code',
-                DB::raw('COUNT(id) as transactions_count'),
-                DB::raw('SUM(grand_total) as grand_total'),
+                DB::raw("COALESCE(payment_methods.name, pos_checkouts.payment_method_code) as payment_method_label"),
+                'pos_checkouts.payment_method_code',
+                DB::raw('COUNT(pos_checkouts.id) as transactions_count'),
+                DB::raw('SUM(pos_checkouts.grand_total) as grand_total'),
             ])
-            ->where('setting_id', $settingId)
-            ->where('status', PosCheckout::STATUS_POSTED)
-            ->whereDate('finalized_at', '>=', $dateFrom)
-            ->whereDate('finalized_at', '<=', $dateTo)
-            ->groupBy('payment_method_code')
+            ->where('pos_checkouts.setting_id', $settingId)
+            ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)
+            ->whereDate('pos_checkouts.finalized_at', '>=', $dateFrom)
+            ->whereDate('pos_checkouts.finalized_at', '<=', $dateTo)
+            ->groupBy(DB::raw("COALESCE(payment_methods.name, pos_checkouts.payment_method_code)"), 'pos_checkouts.payment_method_code')
             ->orderBy('grand_total', 'desc')
             ->get();
 
         return $query->map(function ($row) {
             return [
                 'payment_method_code' => $row->payment_method_code,
+                'payment_method_label' => $row->payment_method_label,
                 'transactions_count' => (int) $row->transactions_count,
                 'grand_total' => round((float) $row->grand_total, 2),
             ];

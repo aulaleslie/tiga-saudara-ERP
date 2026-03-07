@@ -23,6 +23,7 @@ use Modules\Pos\Services\Exceptions\PosCheckoutConflictException;
 use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
 use Modules\Pos\Services\PosReceiptService;
+use Modules\Pos\Services\PosPaymentMethodSearchService;
 use Modules\People\Entities\Customer;
 
 class PosSellController extends Controller
@@ -118,6 +119,24 @@ class PosSellController extends Controller
             'contact_name' => $customer->contact_name !== '' ? (string) $customer->contact_name : null,
             'customer_phone' => ($customer->customer_phone !== '' && strpos($customer->customer_phone, 'nophone-') !== 0) ? (string) $customer->customer_phone : null,
             'display_name' => $displayName,
+        ]);
+    }
+
+    public function paymentMethodSearch(Request $request, PosPaymentMethodSearchService $searchService): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $settingId = $this->currentSettingId();
+
+        $methods = $searchService->search(
+            $settingId,
+            ($validated['q'] ?? null)
+        );
+
+        return response()->json([
+            'methods' => $methods,
         ]);
     }
 
@@ -310,6 +329,75 @@ class PosSellController extends Controller
         );
 
         return response()->json(['serials' => $serials]);
+    }
+
+    public function cartAppendSerial(
+        int $lineId,
+        Request $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $validated = $request->validate([
+            'serial_number' => ['required', 'string', 'max:255'],
+        ]);
+
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+
+        try {
+            $snapshot = $cartService->appendSerial(
+                $settingId,
+                $sessionId,
+                $lineId,
+                (string) $validated['serial_number']
+            );
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function cartRemoveSerial(
+        int $lineId,
+        string $serial,
+        Request $request,
+        PosCartService $cartService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $sessionId = $this->activeSessionId($request);
+
+        try {
+            $snapshot = $cartService->removeSerial(
+                $settingId,
+                $sessionId,
+                $lineId,
+                $serial
+            );
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json(['cart_snapshot' => $snapshot]);
+    }
+
+    public function scanResolve(Request $request, \Modules\Pos\Services\PosScanResolverService $scanService): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => ['required', 'string', 'max:255'],
+        ]);
+
+        $settingId = $this->currentSettingId();
+
+        $result = $scanService->resolve(
+            $settingId,
+            (string) $validated['q']
+        );
+
+        return response()->json($result);
     }
 
     public function checkoutFinalize(

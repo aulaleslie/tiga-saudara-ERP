@@ -30,15 +30,16 @@ class PosReconciliationService
 
         // 1. Get POS Checkout Totals
         $checkoutTotals = PosCheckout::query()
+            ->leftJoin('payment_methods', 'pos_checkouts.payment_method_id', '=', 'payment_methods.id')
             ->select([
-                'pos_session_id',
-                DB::raw('SUM(grand_total) as pos_checkout_total'),
-                DB::raw("SUM(CASE WHEN payment_method_code = 'cash' THEN grand_total ELSE 0 END) as pos_cash_sales_total"),
-                DB::raw("SUM(CASE WHEN payment_method_code != 'cash' THEN grand_total ELSE 0 END) as pos_non_cash_sales_total")
+                'pos_checkouts.pos_session_id',
+                DB::raw('SUM(pos_checkouts.grand_total) as pos_checkout_total'),
+                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 1 THEN pos_checkouts.grand_total WHEN payment_methods.id IS NULL AND pos_checkouts.payment_method_code = 'cash' THEN pos_checkouts.grand_total ELSE 0 END) as pos_cash_sales_total"),
+                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 0 THEN pos_checkouts.grand_total WHEN payment_methods.id IS NULL AND pos_checkouts.payment_method_code != 'cash' THEN pos_checkouts.grand_total ELSE 0 END) as pos_non_cash_sales_total")
             ])
-            ->whereIn('pos_session_id', $sessionIds)
-            ->where('status', PosCheckout::STATUS_POSTED)
-            ->groupBy('pos_session_id')
+            ->whereIn('pos_checkouts.pos_session_id', $sessionIds)
+            ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)
+            ->groupBy('pos_checkouts.pos_session_id')
             ->get()
             ->keyBy('pos_session_id');
 

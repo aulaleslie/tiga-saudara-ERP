@@ -110,7 +110,15 @@ class PosCartTotalsCalculator
                 $line['_line_net_before_bill_minor']
             );
 
-            return $line;
+            // Add serial_status field
+            $isSerialRequired = (bool) ($line['serial_number_required'] ?? false);
+            $assignedCount = count((array) ($line['assigned_serials'] ?? []));
+            $qty = (int) ($line['qty'] ?? 0);
+            $serialStatus = ! $isSerialRequired ? 'ok' : ($assignedCount === $qty ? 'ok' : 'incomplete');
+
+            return array_merge($line, [
+                'serial_status' => $serialStatus,
+            ]);
         }, $resultLines);
 
         return [

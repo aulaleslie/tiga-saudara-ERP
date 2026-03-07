@@ -14,6 +14,7 @@ use Modules\Pos\Services\PosCashDrawerService;
 use Modules\Pos\Services\Exceptions\PosCheckoutConflictException;
 use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
+use Modules\Setting\Entities\PaymentMethod;
 use Throwable;
 
 class FinalizePosCheckoutService
@@ -102,7 +103,7 @@ class FinalizePosCheckoutService
 
         $paidTotal = $payment['amount_paid'];
         $grandTotal = $totals['grand_total'];
-        $changeTotal = $payment['method_code'] === 'cash'
+        $changeTotal = $payment['is_cash']
             ? round(max(0, $paidTotal - $grandTotal), 2)
             : 0.0;
 
@@ -159,7 +160,7 @@ class FinalizePosCheckoutService
 
     /**
      * @param  array<string, mixed>  $cartSnapshot
-     * @param  array{method_code:string,amount_paid:float,reference:string|null}  $payment
+     * @param  array{method_code:?string,payment_method_id:?int,amount_paid:float,reference:?string}  $payment
      * @return array{subtotal:float,discount_total:float,tax_total:float,grand_total:float}
      */
     private function validateCartAndPayment(
@@ -195,24 +196,27 @@ class FinalizePosCheckoutService
         }
 
         $amountPaid = $payment['amount_paid'];
-        $methodCode = $payment['method_code'];
+        $isCash = $payment['is_cash'];
+        $requiresReference = $payment['requires_reference'];
 
-        if ($methodCode === 'cash' && $amountPaid + 0.0001 < $totals['grand_total']) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Cash payment must be fully paid.');
+        if (! $isCash && $amountPaid + 0.0001 < $totals['grand_total']) {
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment must be fully paid.');
         }
 
-        if (in_array($methodCode, ['transfer', 'qris'], true)) {
+        if (! $isCash) {
             if (abs($amountPaid - $totals['grand_total']) > 0.0001) {
                 throw new PosCheckoutValidationException(
                     'PAYMENT_INVALID',
-                    'Transfer and QRIS payments must match the grand total exactly.'
+                    'Non-cash payments must match the grand total exactly.'
                 );
             }
+        }
 
-            if ($payment['reference'] === null) {
+        if ($requiresReference) {
+            if ($payment['reference'] === null || $payment['reference'] === '') {
                 throw new PosCheckoutValidationException(
                     'PAYMENT_INVALID',
-                    'Payment reference is required for non-cash payments.'
+                    'This payment method requires a reference number.'
                 );
             }
         }
@@ -222,24 +226,57 @@ class FinalizePosCheckoutService
 
     /**
      * @param  array<string, mixed>  $paymentPayload
-     * @return array{method_code:string,amount_paid:float,reference:string|null}
+     * @return array{method_code:string,payment_method_id:?int,amount_paid:float,reference:?string,is_cash:bool,requires_reference:bool}
      */
     private function normalizePayment(array $paymentPayload): array
     {
-        $methodCode = strtolower(trim((string) ($paymentPayload['method_code'] ?? '')));
+        $paymentMethodId = isset($paymentPayload['payment_method_id']) ? (int) $paymentPayload['payment_method_id'] : null;
+        $methodCode = isset($paymentPayload['method_code']) ? strtolower(trim((string) $paymentPayload['method_code'])) : null;
         $amountPaid = round((float) ($paymentPayload['amount_paid'] ?? 0), 2);
         $reference = isset($paymentPayload['reference']) ? trim((string) $paymentPayload['reference']) : null;
         $reference = $reference !== '' ? $reference : null;
 
-        if (! in_array($methodCode, ['cash', 'transfer', 'qris'], true) || $amountPaid <= 0) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment payload is not valid.');
+        if ($amountPaid <= 0) {
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment amount must be greater than zero.');
         }
 
-        return [
-            'method_code' => $methodCode,
-            'amount_paid' => $amountPaid,
-            'reference' => $reference,
-        ];
+        // Path 1: payment_method_id provided - load from database
+        if ($paymentMethodId && $paymentMethodId > 0) {
+            $paymentMethod = PaymentMethod::query()->find($paymentMethodId);
+            if (! $paymentMethod) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method not found.');
+            }
+
+            return [
+                'method_code' => $methodCode ?? 'custom',  // Legacy fallback for receipts
+                'payment_method_id' => $paymentMethodId,
+                'amount_paid' => $amountPaid,
+                'reference' => $reference,
+                'is_cash' => (bool) $paymentMethod->is_cash,
+                'requires_reference' => (bool) $paymentMethod->requires_reference,
+            ];
+        }
+
+        // Path 2: method_code provided (legacy) - resolve payment_method_id
+        if ($methodCode) {
+            if (! in_array($methodCode, ['cash', 'transfer', 'qris'], true)) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method code is not valid.');
+            }
+
+            $resolvedPaymentMethodId = $this->resolvePaymentMethodId($methodCode);
+            $paymentMethod = $resolvedPaymentMethodId ? PaymentMethod::query()->find($resolvedPaymentMethodId) : null;
+
+            return [
+                'method_code' => $methodCode,
+                'payment_method_id' => $resolvedPaymentMethodId,
+                'amount_paid' => $amountPaid,
+                'reference' => $reference,
+                'is_cash' => $paymentMethod?->is_cash ?? ($methodCode === 'cash'),
+                'requires_reference' => $paymentMethod?->requires_reference ?? in_array($methodCode, ['transfer', 'qris'], true),
+            ];
+        }
+
+        throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method is required.');
     }
 
     private function normalizeIdempotencyKey(string $key): string
@@ -315,6 +352,7 @@ class FinalizePosCheckoutService
                         'paid_total' => $paidTotal,
                         'change_total' => $changeTotal,
                         'payment_method_code' => $payment['method_code'],
+                        'payment_method_id' => $payment['payment_method_id'],
                         'payment_reference' => $payment['reference'],
                         'metadata' => [
                             'client_context' => $clientContext,
@@ -494,7 +532,7 @@ class FinalizePosCheckoutService
 
                 $actualTaxTotal = (float) ($postingResult['actual_tax_total'] ?? $lockedCheckout->tax_total);
                 $actualGrandTotal = (float) ($postingResult['actual_grand_total'] ?? $lockedCheckout->grand_total);
-                $actualChangeTotal = $payment['method_code'] === 'cash'
+                $actualChangeTotal = $payment['is_cash']
                     ? round(max(0, $paidTotal - $actualGrandTotal), 2)
                     : 0.0;
 
@@ -512,7 +550,7 @@ class FinalizePosCheckoutService
                     'idempotent_replay' => false,
                 ];
 
-                if ($payment['method_code'] === 'cash') {
+                if ($payment['is_cash']) {
                     $cashEvent = PosSessionCashEvent::query()->create([
                         'setting_id' => $settingId,
                         'pos_session_id' => $sessionId,
@@ -819,5 +857,53 @@ class FinalizePosCheckoutService
         return in_array($sqlState, ['23000', '23505'], true)
             || str_contains($message, 'unique')
             || str_contains($message, 'duplicate');
+    }
+
+    /**
+     * Resolve payment method ID from code using same logic as posting adapter.
+     */
+    private function resolvePaymentMethodId(string $methodCode): ?int
+    {
+        if ($methodCode === 'cash') {
+            // Primary: exact match via is_cash flag
+            $cashMethodId = PaymentMethod::query()
+                ->where('is_cash', true)
+                ->orderBy('id')
+                ->value('id');
+            if ($cashMethodId) {
+                return (int) $cashMethodId;
+            }
+
+            // Secondary: name contains 'cash'
+            $fallbackCashId = PaymentMethod::query()
+                ->whereRaw('LOWER(name) LIKE ?', ['%cash%'])
+                ->orderBy('id')
+                ->value('id');
+            if ($fallbackCashId) {
+                return (int) $fallbackCashId;
+            }
+        }
+
+        if ($methodCode === 'transfer') {
+            $transferMethodId = PaymentMethod::query()
+                ->whereRaw('LOWER(name) LIKE ?', ['%transfer%'])
+                ->orderBy('id')
+                ->value('id');
+            if ($transferMethodId) {
+                return (int) $transferMethodId;
+            }
+        }
+
+        if ($methodCode === 'qris') {
+            $qrisMethodId = PaymentMethod::query()
+                ->whereRaw('LOWER(name) LIKE ?', ['%qris%'])
+                ->orderBy('id')
+                ->value('id');
+            if ($qrisMethodId) {
+                return (int) $qrisMethodId;
+            }
+        }
+
+        return null;
     }
 }

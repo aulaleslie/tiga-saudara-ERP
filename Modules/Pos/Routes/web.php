@@ -52,6 +52,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::get('/pos/sell/products/search', [PosSellController::class, 'search'])->name('pos.sell.products.search');
     Route::get('/pos/sell/customers/search', [PosSellController::class, 'customerSearch'])->name('pos.sell.customers.search');
     Route::post('/pos/sell/customers', [PosSellController::class, 'customerStore'])->name('pos.sell.customers.store');
+    Route::get('/pos/sell/payment-methods/search', [PosSellController::class, 'paymentMethodSearch'])->name('pos.sell.payment-methods.search');
 
     Route::get('/pos/sell/cart', [PosSellController::class, 'cartShow'])->name('pos.sell.cart.show');
     Route::post('/pos/sell/cart/lines', [PosSellController::class, 'cartStoreLine'])->name('pos.sell.cart.lines.store');
@@ -79,6 +80,13 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::post('/pos/sell/cart/lines/{lineId}/serials', [PosSellController::class, 'cartAssignSerials'])
         ->whereNumber('lineId')
         ->name('pos.sell.cart.lines.serials.store');
+    Route::post('/pos/sell/cart/lines/{lineId}/serials/append', [PosSellController::class, 'cartAppendSerial'])
+        ->whereNumber('lineId')
+        ->name('pos.sell.cart.lines.serials.append');
+    Route::delete('/pos/sell/cart/lines/{lineId}/serials/{serial}', [PosSellController::class, 'cartRemoveSerial'])
+        ->whereNumber('lineId')
+        ->name('pos.sell.cart.lines.serials.remove');
+    Route::get('/pos/sell/search/resolve', [PosSellController::class, 'scanResolve'])->name('pos.sell.search.resolve');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.terminals.access']], function () {

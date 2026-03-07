@@ -49,7 +49,12 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $methodCode = strtolower((string) ($payment['method_code'] ?? ''));
         $paymentReference = isset($payment['reference']) ? trim((string) $payment['reference']) : null;
         $paymentReference = $paymentReference !== '' ? $paymentReference : null;
-        $paymentMethodId = $this->resolvePaymentMethodId($methodCode);
+        
+        // Resolve payment method ID - use provided value if available, otherwise resolve from method code
+        $paymentMethodId = (int) ($payment['payment_method_id'] ?? 0);
+        if ($paymentMethodId <= 0) {
+            $paymentMethodId = $this->resolvePaymentMethodId($methodCode);
+        }
 
         $grandTotal = round((float) ($totals['grand_total'] ?? 0), 2);
         $discountTotal = round((float) ($totals['discount_total'] ?? 0), 2);
@@ -359,6 +364,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
     private function resolvePaymentMethodId(string $methodCode): int
     {
+        // This fallback should rarely be called since payment_method_id is now always resolved upstream.
+        // Only attempt resolution for known legacy method codes.
         if ($methodCode === 'cash') {
             $cashMethodId = PaymentMethod::query()
                 ->where('is_cash', true)
@@ -368,19 +375,12 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             if ($cashMethodId) {
                 return (int) $cashMethodId;
             }
-
-            $fallbackCashId = PaymentMethod::query()
-                ->whereRaw('LOWER(name) LIKE ?', ['%cash%'])
-                ->orderBy('id')
-                ->value('id');
-
-            if ($fallbackCashId) {
-                return (int) $fallbackCashId;
-            }
         }
 
         if ($methodCode === 'transfer') {
+            // For non-cash methods, must be explicitly configured in payment_methods table
             $transferMethodId = PaymentMethod::query()
+                ->where('is_available_in_pos', true)
                 ->whereRaw('LOWER(name) LIKE ?', ['%transfer%'])
                 ->orderBy('id')
                 ->value('id');
@@ -392,6 +392,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
         if ($methodCode === 'qris') {
             $qrisMethodId = PaymentMethod::query()
+                ->where('is_available_in_pos', true)
                 ->whereRaw('LOWER(name) LIKE ?', ['%qris%'])
                 ->orderBy('id')
                 ->value('id');
@@ -401,7 +402,10 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             }
         }
 
-        throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method is not configured for POS.');
+        throw new PosCheckoutValidationException(
+            'PAYMENT_INVALID',
+            'Payment method is not configured for POS. Ensure payment method is marked as available in POS settings.'
+        );
     }
 
     /**
