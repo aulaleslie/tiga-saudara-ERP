@@ -25,19 +25,26 @@ class Setting extends BaseModel
     protected static function booted(): void
     {
         static::created(function (Setting $setting) {
-            $locations = Location::query()->pluck('id');
+            $locations = Location::query()
+                ->orderByRaw('CASE WHEN setting_id = ? THEN 0 ELSE 1 END', [$setting->id])
+                ->orderBy('name')
+                ->orderBy('id')
+                ->pluck('id');
+
             $now = now();
-            
+            $globalIndex = 1;
+
             $chunks = $locations->chunk(500);
             foreach ($chunks as $chunk) {
                 $payload = $chunk->map(fn ($locationId) => [
                     'setting_id'  => $setting->id,
                     'location_id' => $locationId,
                     'is_enabled'  => true,
+                    'position'    => $globalIndex++,
                     'created_at'  => $now,
                     'updated_at'  => $now,
                 ])->all();
-                
+
                 SettingSaleLocation::insertOrIgnore($payload);
             }
         });

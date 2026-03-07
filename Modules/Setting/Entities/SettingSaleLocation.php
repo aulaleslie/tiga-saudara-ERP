@@ -14,10 +14,12 @@ class SettingSaleLocation extends BaseModel
         'setting_id',
         'location_id',
         'is_enabled',
+        'position',
     ];
 
     protected $casts = [
         'is_enabled' => 'boolean',
+        'position' => 'integer',
     ];
 
     protected $table = 'setting_sale_locations';
@@ -32,7 +34,8 @@ class SettingSaleLocation extends BaseModel
             if (
                 $assignment->wasChanged('setting_id') ||
                 $assignment->wasChanged('location_id') ||
-                $assignment->wasChanged('is_enabled')
+                $assignment->wasChanged('is_enabled') ||
+                $assignment->wasChanged('position')
             ) {
                 $settingIds = collect([
                     $assignment->setting_id,

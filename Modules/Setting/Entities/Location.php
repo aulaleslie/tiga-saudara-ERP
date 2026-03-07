@@ -28,17 +28,23 @@ class Location extends BaseModel
         static::created(function (Location $location) {
             $settings = Setting::query()->pluck('id');
             $now = now();
-            
+
+            $maxPositions = SettingSaleLocation::query()
+                ->selectRaw('setting_id, MAX(position) as max_pos')
+                ->groupBy('setting_id')
+                ->pluck('max_pos', 'setting_id');
+
             $chunks = $settings->chunk(500);
             foreach ($chunks as $chunk) {
                 $payload = $chunk->map(fn ($settingId) => [
                     'setting_id'  => $settingId,
                     'location_id' => $location->id,
                     'is_enabled'  => true,
+                    'position'    => ($maxPositions[$settingId] ?? 0) + 1,
                     'created_at'  => $now,
                     'updated_at'  => $now,
                 ])->all();
-                
+
                 SettingSaleLocation::insertOrIgnore($payload);
             }
 
