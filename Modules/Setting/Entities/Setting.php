@@ -22,6 +22,27 @@ class Setting extends BaseModel
         return \Database\Factories\SettingFactory::new();
     }
     
+    protected static function booted(): void
+    {
+        static::created(function (Setting $setting) {
+            $locations = Location::query()->pluck('id');
+            $now = now();
+            
+            $chunks = $locations->chunk(500);
+            foreach ($chunks as $chunk) {
+                $payload = $chunk->map(fn ($locationId) => [
+                    'setting_id'  => $setting->id,
+                    'location_id' => $locationId,
+                    'is_enabled'  => true,
+                    'created_at'  => $now,
+                    'updated_at'  => $now,
+                ])->all();
+                
+                SettingSaleLocation::insertOrIgnore($payload);
+            }
+        });
+    }
+
     protected $guarded = [];
 
     protected $casts = [
@@ -47,8 +68,8 @@ class Setting extends BaseModel
     {
         return $this->belongsToMany(Location::class, 'setting_sale_locations')
             ->withTimestamps()
-            ->withPivot('position')
-            ->orderByPivot('position');
+            ->withPivot('is_enabled')
+            ->wherePivot('is_enabled', true);
     }
 
     public function saleLocationAssignments(): HasMany

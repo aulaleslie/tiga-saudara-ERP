@@ -7,8 +7,8 @@ use App\Support\SalesLocationResolver;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Setting\Entities\SettingSaleLocation;
+use Modules\Setting\Entities\Setting; // Added this import for Setting::query()
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -26,32 +26,36 @@ class Location extends BaseModel
     protected static function booted(): void
     {
         static::created(function (Location $location) {
-            $location->saleAssignment()->updateOrCreate(
-                ['location_id' => $location->id],
-                ['setting_id' => $location->setting_id]
-            );
+            $settings = Setting::query()->pluck('id');
+            $now = now();
+            
+            $chunks = $settings->chunk(500);
+            foreach ($chunks as $chunk) {
+                $payload = $chunk->map(fn ($settingId) => [
+                    'setting_id'  => $settingId,
+                    'location_id' => $location->id,
+                    'is_enabled'  => true,
+                    'created_at'  => $now,
+                    'updated_at'  => $now,
+                ])->all();
+                
+                SettingSaleLocation::insertOrIgnore($payload);
+            }
 
-            SalesLocationResolver::forget($location->setting_id);
+            SalesLocationResolver::forget();
         });
 
         static::updated(function (Location $location) {
             if ($location->wasChanged('setting_id')) {
                 $originalSettingId = $location->getOriginal('setting_id');
-                $nextPosition = (int) SettingSaleLocation::query()
-                    ->where('setting_id', $location->setting_id)
-                    ->max('position');
 
-                $location->saleAssignment()->updateOrCreate(
-                    ['location_id' => $location->id],
-                    [
-                        'setting_id' => $location->setting_id,
-                        'position'   => ($nextPosition ?: 0) + 1,
-                    ]
+                $location->saleAssignments()->updateOrCreate(
+                    ['setting_id' => $location->setting_id],
+                    ['is_enabled' => true]
                 );
 
                 SalesLocationResolver::forget($location->setting_id, $originalSettingId);
             }
-
         });
     }
 
@@ -66,17 +70,12 @@ class Location extends BaseModel
     public function tenants(): BelongsToMany
     {
         return $this->belongsToMany(Setting::class, 'setting_sale_locations')
-            ->withPivot(['position'])
+            ->withPivot(['is_enabled'])
             ->withTimestamps();
     }
 
     public function saleAssignments(): HasMany
     {
         return $this->hasMany(SettingSaleLocation::class);
-    }
-
-    public function saleAssignment(): HasOne
-    {
-        return $this->hasOne(SettingSaleLocation::class);
     }
 }

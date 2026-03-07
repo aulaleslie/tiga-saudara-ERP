@@ -20,10 +20,13 @@ class SalesLocationResolver
 
         return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($settingId) {
             return SettingSaleLocation::query()
-                ->where('setting_id', $settingId)
-                ->orderBy('position')
-                ->orderBy('location_id')
-                ->pluck('location_id')
+                ->join('locations', 'setting_sale_locations.location_id', '=', 'locations.id')
+                ->where('setting_sale_locations.setting_id', $settingId)
+                ->where('setting_sale_locations.is_enabled', true)
+                ->orderByRaw('CASE WHEN locations.setting_id = setting_sale_locations.setting_id THEN 0 ELSE 1 END')
+                ->orderBy('locations.name')
+                ->orderBy('locations.id')
+                ->pluck('setting_sale_locations.location_id')
                 ->map(static fn ($locationId) => (int) $locationId)
                 ->values();
         });
@@ -46,7 +49,7 @@ class SalesLocationResolver
         return SettingSaleLocation::query()
             ->with('setting:id,company_name')
             ->forLocation($locationId)
-            ->orderBy('position')
+            ->orderBy('is_enabled', 'desc')
             ->orderBy('id')
             ->get();
     }

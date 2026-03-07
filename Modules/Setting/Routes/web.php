@@ -31,10 +31,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/update-active-business', [BusinessController::class, 'updateActiveBusiness'])->name('update.active.business');
     // Locations
     Route::resource('locations', 'LocationController')->except('show');
-    Route::put('sales-location-configurations/order', [SaleLocationConfigurationController::class, 'order'])
-        ->name('sales-location-configurations.order');
-    Route::resource('sales-location-configurations', SaleLocationConfigurationController::class)
-        ->only(['index', 'store', 'destroy']);
+    Route::get('sales-location-configurations', [SaleLocationConfigurationController::class, 'index'])
+        ->name('sales-location-configurations.index');
+    Route::patch('sales-location-configurations/{location}/toggle', [SaleLocationConfigurationController::class, 'toggle'])
+        ->name('sales-location-configurations.toggle');
     // Taxes
     Route::resource('taxes', 'TaxController')->except('show');
     // PaymentTerms

@@ -21,7 +21,7 @@ class LocationController extends Controller
     {
         abort_if(Gate::denies('locations.access'), 403);
         $currentSettingId = session('setting_id');
-        $locations = Location::with(['setting:id,company_name', 'saleAssignment'])
+        $locations = Location::with(['setting:id,company_name'])
             ->where('setting_id', $currentSettingId)
             ->get();
 

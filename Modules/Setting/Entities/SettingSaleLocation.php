@@ -13,38 +13,17 @@ class SettingSaleLocation extends BaseModel
     protected $fillable = [
         'setting_id',
         'location_id',
-        'position',
+        'is_enabled',
     ];
 
     protected $casts = [
-
-        'position' => 'int',
+        'is_enabled' => 'boolean',
     ];
 
     protected $table = 'setting_sale_locations';
 
     protected static function booted(): void
     {
-        static::creating(function (SettingSaleLocation $assignment) {
-            if (!is_null($assignment->position)) {
-                return;
-            }
-
-            $settingId = $assignment->setting_id;
-
-            if (!$settingId) {
-                $assignment->position = 1;
-
-                return;
-            }
-
-            $maxPosition = static::query()
-                ->where('setting_id', $settingId)
-                ->max('position');
-
-            $assignment->position = ($maxPosition ?? 0) + 1;
-        });
-
         static::created(function (SettingSaleLocation $assignment) {
             SalesLocationResolver::forget($assignment->setting_id);
         });
@@ -53,8 +32,7 @@ class SettingSaleLocation extends BaseModel
             if (
                 $assignment->wasChanged('setting_id') ||
                 $assignment->wasChanged('location_id') ||
-
-                $assignment->wasChanged('position')
+                $assignment->wasChanged('is_enabled')
             ) {
                 $settingIds = collect([
                     $assignment->setting_id,

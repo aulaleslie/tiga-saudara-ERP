@@ -58,7 +58,7 @@ class POSStockAllocationResolverTest extends TestCase
     {
         $setting = $this->createSetting('BIZ-L1');
         $location = $this->createLocation($setting, 'LOC-A');
-        $this->assignSaleLocation($setting, $location, 1);
+        $this->assignSaleLocation($setting, $location);
 
         $product = $this->createProduct($setting, 'PROD-001', 10000);
         $this->seedStock($product, $location, 10);
@@ -79,8 +79,8 @@ class POSStockAllocationResolverTest extends TestCase
         $loc1 = $this->createLocation($setting, 'LOC-1');
         $loc2 = $this->createLocation($setting, 'LOC-2');
         
-        $this->assignSaleLocation($setting, $loc1, 1);
-        $this->assignSaleLocation($setting, $loc2, 2);
+        $this->assignSaleLocation($setting, $loc1);
+        $this->assignSaleLocation($setting, $loc2);
 
         $product = $this->createProduct($setting, 'PROD-002', 15000);
         $this->seedStock($product, $loc1, 0); 
@@ -102,8 +102,8 @@ class POSStockAllocationResolverTest extends TestCase
         $loc1 = $this->createLocation($setting, 'LOC-A');
         $loc2 = $this->createLocation($setting, 'LOC-B');
         
-        $this->assignSaleLocation($setting, $loc1, 1);
-        $this->assignSaleLocation($setting, $loc2, 2);
+        $this->assignSaleLocation($setting, $loc1);
+        $this->assignSaleLocation($setting, $loc2);
 
         $product = $this->createProduct($setting, 'PROD-003', 20000);
         $this->seedStock($product, $loc1, 3);
@@ -126,7 +126,7 @@ class POSStockAllocationResolverTest extends TestCase
         $borrowerBusiness = $this->createSetting('BORROWER-BIZ');
         $borrowedLoc = $this->createLocation($ownerBusiness, 'BORROWED-LOC');
         
-        $this->assignSaleLocation($borrowerBusiness, $borrowedLoc, 1);
+        $this->assignSaleLocation($borrowerBusiness, $borrowedLoc);
 
         $product = $this->createProduct($borrowerBusiness, 'PROD-004', 25000);
         $this->seedStock($product, $borrowedLoc, 10);
@@ -145,7 +145,7 @@ class POSStockAllocationResolverTest extends TestCase
     {
         $setting = $this->createSetting('BIZ-EMPTY');
         $loc1 = $this->createLocation($setting, 'LOC-1');
-        $this->assignSaleLocation($setting, $loc1, 1);
+        $this->assignSaleLocation($setting, $loc1);
 
         $product = $this->createProduct($setting, 'PROD-005', 30000);
         $this->seedStock($product, $loc1, 2);
@@ -186,15 +186,13 @@ class POSStockAllocationResolverTest extends TestCase
         ]));
     }
 
-    private function assignSaleLocation(Setting $setting, Location $location, int $position): void
+    private function assignSaleLocation(Setting $setting, Location $location): void
     {
-        SettingSaleLocation::withoutEvents(function() use ($setting, $location, $position) {
-            SettingSaleLocation::where('location_id', $location->id)->delete();
-            SettingSaleLocation::create([
-                'setting_id' => $setting->id,
-                'location_id' => $location->id,
-                'position' => $position,
-            ]);
+        SettingSaleLocation::withoutEvents(function() use ($setting, $location) {
+            SettingSaleLocation::updateOrCreate(
+                ['setting_id' => $setting->id, 'location_id' => $location->id],
+                ['is_enabled' => true]
+            );
         });
     }
 

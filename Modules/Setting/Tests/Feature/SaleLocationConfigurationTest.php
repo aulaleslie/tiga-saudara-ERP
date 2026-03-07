@@ -82,8 +82,8 @@ class SaleLocationConfigurationTest extends TestCase
         $response->assertSee('Konfigurasi Lokasi Penjualan POS');
         $response->assertDontSee('Jadikan POS');
         $response->assertDontSee('Nonaktifkan POS');
-        $this->assertEquals($settingA->id, $ownedLocation->saleAssignment->setting_id);
-        $this->assertEquals($settingB->id, $borrowable->saleAssignment->setting_id);
+        $this->assertTrue(SettingSaleLocation::where('location_id', $ownedLocation->id)->where('setting_id', $settingA->id)->where('is_enabled', true)->exists());
+        $this->assertTrue(SettingSaleLocation::where('location_id', $borrowable->id)->where('setting_id', $settingB->id)->where('is_enabled', true)->exists());
     }
 
     public function test_can_attach_location_from_other_setting(): void
@@ -103,11 +103,10 @@ class SaleLocationConfigurationTest extends TestCase
         ]);
 
         $response->assertRedirect(route('sales-location-configurations.index'));
-        $this->assertEquals($settingA->id, $borrowable->fresh()->saleAssignment->setting_id);
-
+        $this->assertTrue(SettingSaleLocation::where('location_id', $borrowable->id)->where('setting_id', $settingA->id)->where('is_enabled', true)->exists());
     }
 
-    public function test_cannot_attach_location_already_borrowed(): void
+    public function test_can_attach_location_already_borrowed(): void
     {
         $settingA = $this->createSetting('CV Tiga Nusa');
         $settingB = $this->createSetting('Top IT');
@@ -120,17 +119,21 @@ class SaleLocationConfigurationTest extends TestCase
             'setting_id' => $settingB->id,
         ]);
 
-        SettingSaleLocation::where('location_id', $location->id)->update(['setting_id' => $settingC->id]);
+        SettingSaleLocation::updateOrCreate(
+            ['location_id' => $location->id, 'setting_id' => $settingC->id],
+            ['is_enabled' => true]
+        );
 
         $response = $this->post(route('sales-location-configurations.store'), [
             'location_id' => $location->id,
         ]);
 
         $response->assertRedirect(route('sales-location-configurations.index'));
-        $this->assertEquals($settingC->id, $location->fresh()->saleAssignment->setting_id);
+        $this->assertTrue(SettingSaleLocation::where('location_id', $location->id)->where('setting_id', $settingC->id)->where('is_enabled', true)->exists());
+        $this->assertTrue(SettingSaleLocation::where('location_id', $location->id)->where('setting_id', $settingA->id)->where('is_enabled', true)->exists());
     }
 
-    public function test_destroy_returns_location_to_owner(): void
+    public function test_destroy_disables_location(): void
     {
         $settingA = $this->createSetting('CV Tiga Nusa');
         $settingB = $this->createSetting('Top IT');
@@ -142,45 +145,20 @@ class SaleLocationConfigurationTest extends TestCase
             'setting_id' => $settingB->id,
         ]);
 
-        $location->saleAssignment()->update(['setting_id' => $settingA->id]);
+        SettingSaleLocation::updateOrCreate(
+            ['location_id' => $location->id, 'setting_id' => $settingA->id],
+            ['is_enabled' => true]
+        );
 
         $response = $this->delete(route('sales-location-configurations.destroy', $location->id));
 
         $response->assertRedirect(route('sales-location-configurations.index'));
-        $this->assertEquals($settingB->id, $location->fresh()->saleAssignment->setting_id);
-
+        $this->assertFalse(SettingSaleLocation::where('location_id', $location->id)->where('setting_id', $settingA->id)->value('is_enabled'));
     }
 
 
 
-    public function test_can_reorder_locations(): void
-    {
-        $setting = $this->createSetting('CV Tiga Nusa');
-
-        $this->actingAsSuperAdminForSetting($setting);
-
-        $locations = collect([
-            Location::create(['name' => 'Gudang 1', 'setting_id' => $setting->id]),
-            Location::create(['name' => 'Gudang 2', 'setting_id' => $setting->id]),
-            Location::create(['name' => 'Gudang 3', 'setting_id' => $setting->id]),
-        ]);
-
-        $desiredOrder = [$locations[2]->id, $locations[0]->id, $locations[1]->id];
-
-        $this->put(route('sales-location-configurations.order'), [
-            'order' => $desiredOrder,
-        ])->assertRedirect(route('sales-location-configurations.index'));
-
-        $positions = SettingSaleLocation::query()
-            ->where('setting_id', $setting->id)
-            ->orderBy('position')
-            ->pluck('location_id')
-            ->all();
-
-        $this->assertSame($desiredOrder, $positions);
-    }
-
-    public function test_latest_borrowed_location_is_appended(): void
+    public function test_latest_borrowed_location_is_enabled(): void
     {
         $settingA = $this->createSetting('CV Tiga Nusa');
         $settingB = $this->createSetting('Top IT');
@@ -205,15 +183,13 @@ class SaleLocationConfigurationTest extends TestCase
             'location_id' => $secondLocation->id,
         ])->assertRedirect(route('sales-location-configurations.index'));
 
-        $positions = SettingSaleLocation::query()
+        $enabledLocations = SettingSaleLocation::query()
             ->where('setting_id', $settingA->id)
-            ->orderBy('position')
+            ->where('is_enabled', true)
             ->pluck('location_id')
             ->all();
 
-        $this->assertSame([
-            $firstLocation->id,
-            $secondLocation->id,
-        ], $positions);
+        $this->assertContains($firstLocation->id, $enabledLocations);
+        $this->assertContains($secondLocation->id, $enabledLocations);
     }
 }

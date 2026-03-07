@@ -22,163 +22,69 @@ class SaleLocationConfigurationController extends Controller
         abort_if(Gate::denies('saleLocations.access'), 403);
 
         $currentSettingId = (int) session('setting_id');
-        $setting = Setting::with(['saleLocations.setting:id,company_name'])
-            ->findOrFail($currentSettingId);
+        $setting = Setting::findOrFail($currentSettingId);
 
-        $assignedLocations = $setting->saleLocations
-            ->load('saleAssignment')
-            ->values();
-
-        $availableLocations = Location::query()
-            ->with(['setting:id,company_name', 'saleAssignment'])
-            ->where('setting_id', '!=', $currentSettingId)
-            ->where(function ($query) {
-                $query->whereDoesntHave('saleAssignment')
-                    ->orWhereHas('saleAssignment', function ($q) {
-                        $q->whereColumn('setting_sale_locations.setting_id', 'locations.setting_id');
-                    });
+        // Load all locations, join with their enable/disable status for the current setting
+        $locations = Location::query()
+            ->with(['setting:id,company_name'])
+            ->leftJoin('setting_sale_locations', function ($join) use ($currentSettingId) {
+                $join->on('locations.id', '=', 'setting_sale_locations.location_id')
+                    ->where('setting_sale_locations.setting_id', '=', $currentSettingId);
             })
-            ->orderBy('name')
-            ->get();
+            ->select([
+                'locations.*',
+                'setting_sale_locations.is_enabled'
+            ])
+            ->orderByRaw('CASE WHEN locations.setting_id = ? THEN 0 ELSE 1 END', [$currentSettingId])
+            ->orderBy('locations.name')
+            ->orderBy('locations.id')
+            ->get()
+            ->map(function ($location) use ($currentSettingId) {
+                $location->is_owned = $location->setting_id === $currentSettingId;
+                // If it's an owned location, it's always enabled. Otherwise use the pivot table value, or false if not yet backed.
+                if ($location->is_owned) {
+                    $location->is_enabled = true;
+                } else {
+                    $location->is_enabled = (bool) $location->is_enabled;
+                }
+                return $location;
+            });
 
         return view('setting::sale-locations.index', [
-            'setting'            => $setting,
-            'assignedLocations'  => $assignedLocations,
-            'availableLocations' => $availableLocations,
+            'setting'   => $setting,
+            'locations' => $locations,
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function toggle(Request $request, int $locationId): RedirectResponse
     {
         abort_if(Gate::denies('saleLocations.edit'), 403);
 
         $validated = $request->validate([
-            'location_id' => 'required|exists:locations,id',
+            'is_enabled' => 'required|boolean',
         ]);
 
         $currentSettingId = (int) session('setting_id');
-        $location = Location::with(['setting', 'saleAssignment'])
-            ->findOrFail($validated['location_id']);
+        
+        $location = Location::findOrFail($locationId);
 
-        $assignment = $location->saleAssignment;
-
-        if ($assignment && $assignment->setting_id === $currentSettingId) {
-            toast('Lokasi sudah dikonfigurasi untuk bisnis ini.', 'info');
+        if ($location->setting_id === $currentSettingId && !$validated['is_enabled']) {
+            toast('Lokasi milik bisnis tidak dapat dinonaktifkan.', 'warning');
             return redirect()->route('sales-location-configurations.index');
         }
 
-        if ($assignment && $assignment->setting_id !== $location->setting_id) {
-            toast('Lokasi sedang digunakan oleh konfigurasi bisnis lain.', 'error');
-            return redirect()->route('sales-location-configurations.index');
-        }
-
-        $previousSettingId = $assignment?->setting_id;
-
-        $nextPosition = (int) SettingSaleLocation::query()
-            ->where('setting_id', $currentSettingId)
-            ->max('position');
-
-        $location->saleAssignment()->updateOrCreate(
-            ['location_id' => $location->id],
+        SettingSaleLocation::updateOrCreate(
             [
                 'setting_id' => $currentSettingId,
-                'position'   => ($nextPosition ?: 0) + 1,
+                'location_id' => $locationId,
+            ],
+            [
+                'is_enabled' => $validated['is_enabled'],
             ]
         );
 
-        SalesLocationResolver::forget($currentSettingId, $previousSettingId, $location->setting_id);
-
-        toast('Lokasi berhasil ditambahkan ke konfigurasi penjualan.', 'success');
-
-        return redirect()->route('sales-location-configurations.index');
-    }
-
-    public function order(Request $request): RedirectResponse
-    {
-        abort_if(Gate::denies('saleLocations.edit'), 403);
-
-        $validated = $request->validate([
-            'order'   => ['required', 'array'],
-            'order.*' => ['integer', 'distinct', 'exists:locations,id'],
-        ]);
-
-        $currentSettingId = (int) session('setting_id');
-
-        $orderedIds = array_map('intval', $validated['order']);
-
-        $assignedIds = SettingSaleLocation::query()
-            ->where('setting_id', $currentSettingId)
-            ->orderBy('position')
-            ->pluck('location_id')
-            ->map(static fn ($id) => (int) $id)
-            ->all();
-
-        sort($assignedIds);
-        $orderedIdsSorted = $orderedIds;
-        sort($orderedIdsSorted);
-
-        if ($assignedIds !== $orderedIdsSorted) {
-            return redirect()
-                ->route('sales-location-configurations.index')
-                ->withErrors(['order' => 'Urutan lokasi tidak valid.']);
-        }
-
-        DB::transaction(function () use ($orderedIds, $currentSettingId) {
-            foreach ($orderedIds as $index => $locationId) {
-                SettingSaleLocation::query()
-                    ->where('setting_id', $currentSettingId)
-                    ->where('location_id', $locationId)
-                    ->update([
-                        'position'   => $index + 1,
-                        'updated_at' => now(),
-                    ]);
-            }
-        });
-
-        SalesLocationResolver::forget($currentSettingId);
-
-        toast('Urutan lokasi berhasil diperbarui.', 'success');
-
-        return redirect()->route('sales-location-configurations.index');
-    }
-
-
-
-    public function destroy(int $locationId): RedirectResponse
-    {
-        abort_if(Gate::denies('saleLocations.edit'), 403);
-
-        $currentSettingId = (int) session('setting_id');
-
-        $assignment = SettingSaleLocation::with('location.setting')
-            ->where('setting_id', $currentSettingId)
-            ->where('location_id', $locationId)
-            ->firstOrFail();
-
-        $location = $assignment->location;
-        $ownerId = $location?->setting_id;
-
-        if (!$location || !$ownerId) {
-            toast('Lokasi tidak valid.', 'error');
-            return redirect()->route('sales-location-configurations.index');
-        }
-
-        if ($ownerId === $currentSettingId) {
-            toast('Lokasi bawaan bisnis tidak dapat dihapus.', 'warning');
-            return redirect()->route('sales-location-configurations.index');
-        }
-
-        $nextPosition = (int) SettingSaleLocation::query()
-            ->where('setting_id', $ownerId)
-            ->max('position');
-
-        $assignment->update([
-            'setting_id' => $ownerId,
-            'position'   => ($nextPosition ?: 0) + 1,
-        ]);
-
-        SalesLocationResolver::forget($currentSettingId, $ownerId);
-        toast('Lokasi dikembalikan ke bisnis asal.', 'success');
+        $statusMsg = $validated['is_enabled'] ? 'diaktifkan' : 'dinonaktifkan';
+        toast("Lokasi berhasil $statusMsg.", 'success');
 
         return redirect()->route('sales-location-configurations.index');
     }
