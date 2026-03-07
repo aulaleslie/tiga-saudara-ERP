@@ -174,4 +174,28 @@ class SaleLocationConfigurationTest extends TestCase
         $response->assertRedirect(route('sales-location-configurations.index'));
         $this->assertTrue(SettingSaleLocation::where('location_id', $location->id)->where('setting_id', $settingA->id)->value('is_enabled'));
     }
+
+    public function test_reorder_locations(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $settingB = $this->createSetting('Top IT');
+
+        $this->actingAsSuperAdminForSetting($settingA);
+
+        $loc1 = Location::create(['name' => 'Loc 1', 'setting_id' => $settingB->id]);
+        $loc2 = Location::create(['name' => 'Loc 2', 'setting_id' => $settingB->id]);
+        
+        SettingSaleLocation::create(['setting_id' => $settingA->id, 'location_id' => $loc1->id, 'position' => 1]);
+        SettingSaleLocation::create(['setting_id' => $settingA->id, 'location_id' => $loc2->id, 'position' => 2]);
+
+        // Swap order
+        $response = $this->put(route('sales-location-configurations.order'), [
+            'location_ids' => [$loc2->id, $loc1->id],
+        ]);
+
+        $response->assertRedirect(route('sales-location-configurations.index'));
+        
+        $this->assertEquals(1, SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $loc2->id)->value('position'));
+        $this->assertEquals(2, SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $loc1->id)->value('position'));
+    }
 }

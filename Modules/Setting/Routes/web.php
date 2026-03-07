@@ -35,6 +35,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('sales-location-configurations.index');
     Route::patch('sales-location-configurations/{location}/toggle', [SaleLocationConfigurationController::class, 'toggle'])
         ->name('sales-location-configurations.toggle');
+    Route::put('sales-location-configurations/order', [SaleLocationConfigurationController::class, 'order'])
+        ->name('sales-location-configurations.order');
     // Taxes
     Route::resource('taxes', 'TaxController')->except('show');
     // PaymentTerms

@@ -26,7 +26,7 @@ class PosTerminalController extends Controller
             ->with('location')
             ->where('setting_id', $settingId)
             ->where('is_enabled', true)
-            ->orderBy('location_id')
+            ->orderBy('position')
             ->get();
 
         return view('pos::terminals.index', compact('terminals', 'setting', 'saleLocations'));

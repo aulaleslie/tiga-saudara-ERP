@@ -33,8 +33,10 @@ class SaleLocationConfigurationController extends Controller
             })
             ->select([
                 'locations.*',
-                'setting_sale_locations.is_enabled'
+                'setting_sale_locations.is_enabled',
+                'setting_sale_locations.position'
             ])
+            ->orderBy('setting_sale_locations.position')
             ->orderByRaw('CASE WHEN locations.setting_id = ? THEN 0 ELSE 1 END', [$currentSettingId])
             ->orderBy('locations.name')
             ->orderBy('locations.id')
@@ -85,6 +87,43 @@ class SaleLocationConfigurationController extends Controller
 
         $statusMsg = $validated['is_enabled'] ? 'diaktifkan' : 'dinonaktifkan';
         toast("Lokasi berhasil $statusMsg.", 'success');
+
+        return redirect()->route('sales-location-configurations.index');
+    }
+
+    public function order(Request $request): RedirectResponse
+    {
+        abort_if(Gate::denies('saleLocations.edit'), 403);
+
+        $validated = $request->validate([
+            'location_ids' => 'required|array',
+            'location_ids.*' => 'integer',
+        ]);
+
+        $currentSettingId = (int) session('setting_id');
+        $locationIds = $validated['location_ids'];
+
+        // Verify that the submitted location IDs match the ones currently assigned to this setting
+        $existingIds = SettingSaleLocation::where('setting_id', $currentSettingId)
+            ->pluck('location_id')
+            ->toArray();
+
+        if (count($locationIds) !== count($existingIds) || count(array_diff($locationIds, $existingIds)) > 0) {
+            toast('Urutan lokasi tidak valid atau tidak lengkap.', 'error');
+            return redirect()->route('sales-location-configurations.index');
+        }
+
+        DB::transaction(function () use ($currentSettingId, $locationIds) {
+            foreach ($locationIds as $index => $locationId) {
+                SettingSaleLocation::where('setting_id', $currentSettingId)
+                    ->where('location_id', $locationId)
+                    ->update(['position' => $index + 1]);
+            }
+        });
+
+        SalesLocationResolver::forget($currentSettingId);
+
+        toast('Urutan prioritas lokasi berhasil disimpan.', 'success');
 
         return redirect()->route('sales-location-configurations.index');
     }
