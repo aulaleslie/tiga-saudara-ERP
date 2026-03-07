@@ -192,6 +192,32 @@ class POSProductSearchScanTest extends TestCase
         $nameResponse->assertJsonPath('results.0.matched_by', 'name_partial');
     }
 
+    public function test_search_supports_fuzzy_multi_term_typo_tolerance(): void
+    {
+        $setting = $this->createSetting('BIZ SEARCH FUZZY');
+        [$cashier, $allowedLocation] = $this->createCashierAndOpenSession($setting, 'POS SEARCH FUZZY');
+
+        $alpha = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'SKU-IND-01',
+            name: 'Indomie Soto Ayam Special',
+            barcode: 'B-IND-01',
+            availableQty: 5,
+            salePrice: 3500,
+            serialRequired: false,
+            createdBy: $cashier->id
+        );
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.products.search', ['q' => 'indo ayam special']));
+
+        $response->assertOk();
+        $response->assertJsonPath('meta.result_count', 1);
+        $response->assertJsonPath('results.0.id', $alpha->id);
+    }
+
     public function test_search_filters_out_products_stocked_only_in_disallowed_locations(): void
     {
         $setting = $this->createSetting('BIZ SEARCH SCOPE');

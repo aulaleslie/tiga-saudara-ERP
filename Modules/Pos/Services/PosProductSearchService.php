@@ -26,6 +26,7 @@ class PosProductSearchService
             return $this->emptyPayload($query, $safeLimit);
         }
 
+        $terms = array_values(array_filter(explode(' ', $normalizedQuery)));
         $likeQuery = '%' . $normalizedQuery . '%';
         $availableQtyExpression = $this->availableQtyExpression($allowedLocationIds);
 
@@ -56,13 +57,23 @@ class PosProductSearchService
                 $skuPartialExpr,
                 $namePartialExpr,
                 $normalizedQuery,
-                $likeQuery
+                $terms
             ) {
-                $query->whereRaw($barcodeExactExpr, [$normalizedQuery, $normalizedQuery])
-                    ->orWhereRaw($skuExactExpr, [$normalizedQuery])
-                    ->orWhereRaw($barcodePartialExpr, [$likeQuery, $likeQuery])
-                    ->orWhereRaw($skuPartialExpr, [$likeQuery])
-                    ->orWhereRaw($namePartialExpr, [$likeQuery]);
+                $query->where(function ($q) use ($barcodeExactExpr, $skuExactExpr, $normalizedQuery) {
+                    $q->whereRaw($barcodeExactExpr, [$normalizedQuery, $normalizedQuery])
+                      ->orWhereRaw($skuExactExpr, [$normalizedQuery]);
+                });
+
+                $query->orWhere(function ($multiTermQuery) use ($terms, $barcodePartialExpr, $skuPartialExpr, $namePartialExpr) {
+                    foreach ($terms as $term) {
+                        $termLike = '%' . $term . '%';
+                        $multiTermQuery->where(function ($q) use ($termLike, $barcodePartialExpr, $skuPartialExpr, $namePartialExpr) {
+                            $q->whereRaw($barcodePartialExpr, [$termLike, $termLike])
+                              ->orWhereRaw($skuPartialExpr, [$termLike])
+                              ->orWhereRaw($namePartialExpr, [$termLike]);
+                        });
+                    }
+                });
             })
             ->select([
                 'p.id',
