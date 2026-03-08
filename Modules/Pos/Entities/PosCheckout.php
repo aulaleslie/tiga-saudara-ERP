@@ -38,7 +38,6 @@ class PosCheckout extends BaseModel
         'grand_total',
         'paid_total',
         'change_total',
-        'payment_method_code',
         'payment_method_id',
         'payment_reference',
         'receipt_number',

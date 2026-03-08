@@ -46,14 +46,17 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             throw new PosCheckoutValidationException('CUSTOMER_UNRESOLVED', 'Customer could not be resolved for checkout.');
         }
 
-        $methodCode = strtolower((string) ($payment['method_code'] ?? ''));
         $paymentReference = isset($payment['reference']) ? trim((string) $payment['reference']) : null;
         $paymentReference = $paymentReference !== '' ? $paymentReference : null;
         
-        // Resolve payment method ID - use provided value if available, otherwise resolve from method code
         $paymentMethodId = (int) ($payment['payment_method_id'] ?? 0);
         if ($paymentMethodId <= 0) {
-            $paymentMethodId = $this->resolvePaymentMethodId($methodCode);
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method is required.');
+        }
+        
+        $paymentMethod = PaymentMethod::query()->find($paymentMethodId);
+        if (! $paymentMethod) {
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method not found.');
         }
 
         $grandTotal = round((float) ($totals['grand_total'] ?? 0), 2);
@@ -81,7 +84,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'note' => 'POS checkout #' . $checkoutId,
             'setting_id' => $settingId,
             'is_tax_included' => false,
-            'payment_method' => strtoupper($methodCode),
+            'payment_method' => strtoupper($paymentMethod->name ?? 'CUSTOM'),
             'tax_ref_no' => null,
         ]);
 
@@ -347,7 +350,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'amount' => $totalPostedGrandTotal,
             'date' => now()->toDateString(),
             'reference' => $sale->reference,
-            'payment_method' => strtoupper($methodCode),
+            'payment_method' => strtoupper($paymentMethod->name ?? 'CUSTOM'),
             'note' => $paymentReference,
             'payment_method_id' => $paymentMethodId,
         ]);
@@ -362,51 +365,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         ];
     }
 
-    private function resolvePaymentMethodId(string $methodCode): int
-    {
-        // This fallback should rarely be called since payment_method_id is now always resolved upstream.
-        // Only attempt resolution for known legacy method codes.
-        if ($methodCode === 'cash') {
-            $cashMethodId = PaymentMethod::query()
-                ->where('is_cash', true)
-                ->orderBy('id')
-                ->value('id');
 
-            if ($cashMethodId) {
-                return (int) $cashMethodId;
-            }
-        }
-
-        if ($methodCode === 'transfer') {
-            // For non-cash methods, must be explicitly configured in payment_methods table
-            $transferMethodId = PaymentMethod::query()
-                ->where('is_available_in_pos', true)
-                ->whereRaw('LOWER(name) LIKE ?', ['%transfer%'])
-                ->orderBy('id')
-                ->value('id');
-
-            if ($transferMethodId) {
-                return (int) $transferMethodId;
-            }
-        }
-
-        if ($methodCode === 'qris') {
-            $qrisMethodId = PaymentMethod::query()
-                ->where('is_available_in_pos', true)
-                ->whereRaw('LOWER(name) LIKE ?', ['%qris%'])
-                ->orderBy('id')
-                ->value('id');
-
-            if ($qrisMethodId) {
-                return (int) $qrisMethodId;
-            }
-        }
-
-        throw new PosCheckoutValidationException(
-            'PAYMENT_INVALID',
-            'Payment method is not configured for POS. Ensure payment method is marked as available in POS settings.'
-        );
-    }
 
     /**
      * @param array<int, array<string, mixed>> $allocations

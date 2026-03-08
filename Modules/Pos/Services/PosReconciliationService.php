@@ -34,8 +34,8 @@ class PosReconciliationService
             ->select([
                 'pos_checkouts.pos_session_id',
                 DB::raw('SUM(pos_checkouts.grand_total) as pos_checkout_total'),
-                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 1 THEN pos_checkouts.grand_total WHEN payment_methods.id IS NULL AND pos_checkouts.payment_method_code = 'cash' THEN pos_checkouts.grand_total ELSE 0 END) as pos_cash_sales_total"),
-                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 0 THEN pos_checkouts.grand_total WHEN payment_methods.id IS NULL AND pos_checkouts.payment_method_code != 'cash' THEN pos_checkouts.grand_total ELSE 0 END) as pos_non_cash_sales_total")
+                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 1 THEN pos_checkouts.grand_total ELSE 0 END) as pos_cash_sales_total"),
+                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 0 THEN pos_checkouts.grand_total ELSE 0 END) as pos_non_cash_sales_total")
             ])
             ->whereIn('pos_checkouts.pos_session_id', $sessionIds)
             ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)

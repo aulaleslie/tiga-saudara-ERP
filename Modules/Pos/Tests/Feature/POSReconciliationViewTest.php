@@ -11,6 +11,7 @@ use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
@@ -316,6 +317,22 @@ class POSReconciliationViewTest extends TestCase
 
     private function createCheckout(int $settingId, int $sessionId, int $terminalId, int $cashierId, string $date, float $amount, string $paymentMethod, int $saleId, int $salePaymentId): PosCheckout
     {
+        // Get or create payment method based on code
+        $methodName = match(strtolower($paymentMethod)) {
+            'cash' => 'CASH',
+            'transfer' => 'TRANSFER',
+            'qris' => 'QRIS',
+            default => strtoupper($paymentMethod),
+        };
+
+        $paymentMethodRecord = PaymentMethod::firstOrCreate(
+            ['name' => $methodName],
+            [
+                'name' => $methodName,
+                'is_cash' => strtolower($paymentMethod) === 'cash',
+            ]
+        );
+
         return PosCheckout::create([
             'setting_id' => $settingId,
             'pos_session_id' => $sessionId,
@@ -330,7 +347,7 @@ class POSReconciliationViewTest extends TestCase
             'grand_total' => $amount,
             'paid_total' => $amount,
             'change_total' => 0,
-            'payment_method_code' => $paymentMethod,
+            'payment_method_id' => $paymentMethodRecord->id,
             'sale_id' => $saleId,
             'sale_payment_id' => $salePaymentId,
             'finalized_at' => Carbon::parse($date),

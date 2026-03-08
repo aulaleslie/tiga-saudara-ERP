@@ -804,7 +804,6 @@
                                          style="top: 100%; left: 0; right: 0; z-index: 1000; max-height: 200px; overflow-y: auto; display: none;"></div>
                                 </div>
                                 <input type="hidden" id="pos-checkout-method-id" value="">
-                                <input type="hidden" id="pos-checkout-method-code" value="cash">
                                 <input type="text" id="pos-checkout-method-label" class="form-control-plaintext font-weight-bold text-uppercase mt-2" readonly value="(Pilih Metode)">
                             </div>
 
@@ -959,7 +958,6 @@
 
             const checkoutModalElement = document.getElementById('pos-checkout-modal');
             const checkoutMethodLabel = document.getElementById('pos-checkout-method-label');
-            const checkoutMethodCode = document.getElementById('pos-checkout-method-code');
             const checkoutMethodId = document.getElementById('pos-checkout-method-id');
             const checkoutMethodSearch = document.getElementById('pos-checkout-method-search');
             const checkoutMethodResults = document.getElementById('pos-checkout-method-results');
@@ -1940,7 +1938,6 @@
             function selectPaymentMethod(method) {
                 selectedPaymentMethod = method;
                 checkoutMethodId.value = method.id || '';
-                checkoutMethodCode.value = method.code || '';
                 checkoutMethodLabel.value = escapeHtml(method.name || 'Unknown');
                 checkoutMethodSearch.value = '';
                 
@@ -1968,59 +1965,6 @@
                     } else {
                         checkoutReferenceWrapper.classList.add('d-none');
                     }
-                    if (checkoutPresetsWrapper) checkoutPresetsWrapper.classList.add('d-none');
-                    checkoutAmountPaid.value = grandTotal.toFixed(2);
-                }
-            }
-
-            function setPaymentMethod(method) {
-                const normalizedMethod = ['cash', 'transfer', 'qris'].includes(method) ? method : 'cash';
-                const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
-                const methodLabelMap = {
-                    cash: 'TUNAI',
-                    transfer: 'TRANSFER',
-                    qris: 'QRIS',
-                };
-
-                checkoutMethodCode.value = normalizedMethod;
-                checkoutMethodLabel.value = methodLabelMap[normalizedMethod] || normalizedMethod.toUpperCase();
-
-                checkoutMethodButtons.forEach((button) => {
-                    const buttonMethod = button.getAttribute('data-method');
-                    const isActive = buttonMethod === normalizedMethod;
-                    button.classList.toggle('active', isActive);
-                    if (isActive) {
-                        button.classList.remove('btn-outline-success', 'btn-outline-info', 'btn-outline-dark');
-                        if (buttonMethod === 'cash') {
-                            button.classList.add('btn-success');
-                        } else if (buttonMethod === 'transfer') {
-                            button.classList.add('btn-info');
-                        } else {
-                            button.classList.add('btn-dark');
-                        }
-                    } else {
-                        button.classList.remove('btn-success', 'btn-info', 'btn-dark');
-                        if (buttonMethod === 'cash') {
-                            button.classList.add('btn-outline-success');
-                        } else if (buttonMethod === 'transfer') {
-                            button.classList.add('btn-outline-info');
-                        } else {
-                            button.classList.add('btn-outline-dark');
-                        }
-                    }
-                });
-
-                if (normalizedMethod === 'cash') {
-                    checkoutAmountPaid.readOnly = false;
-                    checkoutChangeWrapper.classList.remove('d-none');
-                    checkoutReferenceWrapper.classList.add('d-none');
-                    if (checkoutPresetsWrapper) checkoutPresetsWrapper.classList.remove('d-none');
-                    checkoutAmountPaid.value = grandTotal.toFixed(2);
-                    updateChange(grandTotal, grandTotal);
-                } else {
-                    checkoutAmountPaid.readOnly = true;
-                    checkoutChangeWrapper.classList.add('d-none');
-                    checkoutReferenceWrapper.classList.remove('d-none');
                     if (checkoutPresetsWrapper) checkoutPresetsWrapper.classList.add('d-none');
                     checkoutAmountPaid.value = grandTotal.toFixed(2);
                 }
@@ -2179,12 +2123,11 @@
                     checkoutError.classList.add('d-none');
 
                     try {
-                        // Phase 3D: Send payment_method_id in payload (keep method_code as fallback)
+                        // Phase 5a: Send only payment_method_id in request
                         const payload = {
                             idempotency_key: generateIdempotencyKey(),
                             payment: {
-                                payment_method_id: method.id || undefined,
-                                method_code: method.code || undefined,
+                                payment_method_id: method.id,
                                 amount_paid: amountPaid,
                                 reference: reference || null
                             }

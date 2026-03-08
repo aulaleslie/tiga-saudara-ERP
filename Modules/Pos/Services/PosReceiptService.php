@@ -54,7 +54,7 @@ class PosReceiptService
             'discount' => $checkout->discount_total,
             'tax' => $checkout->tax_total,
             'grand_total' => $checkout->grand_total,
-            'payment_method' => $checkout->paymentMethod?->name ?? strtoupper($checkout->payment_method_code),
+            'payment_method' => $checkout->paymentMethod?->name ?? '-',
             'amount_paid' => $checkout->paid_total,
             'change' => $checkout->change_total,
             'footer_text' => $setting->footer_text ?? 'Terima Kasih',

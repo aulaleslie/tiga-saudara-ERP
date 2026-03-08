@@ -12,6 +12,7 @@ use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Pos\Entities\PosSupervisorApproval;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
@@ -392,6 +393,22 @@ class POSReportingPackTest extends TestCase
             'opened_at' => now(), 'closed_at' => now()
         ]);
 
+        // Get or create payment method based on code
+        $methodName = match(strtolower($paymentMethod)) {
+            'cash' => 'CASH',
+            'transfer' => 'TRANSFER',
+            'qris' => 'QRIS',
+            default => strtoupper($paymentMethod),
+        };
+
+        $paymentMethodRecord = PaymentMethod::firstOrCreate(
+            ['name' => $methodName],
+            [
+                'name' => $methodName,
+                'is_cash' => strtolower($paymentMethod) === 'cash',
+            ]
+        );
+
         return PosCheckout::create([
             'setting_id' => $settingId,
             'pos_session_id' => $session->id,
@@ -406,7 +423,7 @@ class POSReportingPackTest extends TestCase
             'grand_total' => $amount,
             'paid_total' => $amount,
             'change_total' => 0,
-            'payment_method_code' => $paymentMethod,
+            'payment_method_id' => $paymentMethodRecord->id,
             'sale_id' => $saleId,
             'finalized_at' => Carbon::parse($date),
         ]);

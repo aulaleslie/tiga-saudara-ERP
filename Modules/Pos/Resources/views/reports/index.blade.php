@@ -91,7 +91,7 @@
                             <table class="table table-hover table-striped mb-0">
                                 <thead class="table-light">
                                     <tr>
-                                        <th>Kode Metode</th>
+                                        <th>Metode Pembayaran</th>
                                         <th class="text-center">Transaksi</th>
                                         <th class="text-end">Total Akhir</th>
                                     </tr>
@@ -215,7 +215,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             tbody.innerHTML = data.map(row => `
                 <tr>
-                    <td><span class="badge bg-secondary text-uppercase">${row.payment_method_code}</span></td>
+                    <td><strong>${row.payment_method_label}</strong></td>
                     <td class="text-center">${formatNumber(row.transactions_count)}</td>
                     <td class="text-end fw-bold">${formatCurrency(row.grand_total)}</td>
                 </tr>
