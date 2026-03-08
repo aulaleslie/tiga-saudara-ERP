@@ -141,7 +141,7 @@ class POSProductSearchScanTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('meta.auto_select_product_id', $product->id);
         $response->assertJsonPath('results.0.id', $product->id);
-        $response->assertJsonPath('results.0.matched_by', 'barcode_exact');
+        $response->assertJsonPath('results.0.matched_by', 'conversion_barcode_exact');
     }
 
     public function test_search_supports_sku_and_name_queries_with_deterministic_order_and_limit(): void

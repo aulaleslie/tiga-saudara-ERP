@@ -13,6 +13,7 @@ use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
@@ -142,6 +143,74 @@ class POSScanResolveEndpointTest extends TestCase
             ->postJson(route('pos.sell.search.resolve', ['q' => 'test']));
 
         $response->assertStatus(405);
+    }
+
+    public function test_conversion_barcode_returns_product_exact(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE CONVERSION BARCODE');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE CONVERSION BARCODE');
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-CONV-001', 'Produk Konversi', 50000, $cashier->id);
+
+        // Create a unit conversion with a barcode
+        $unit = Unit::firstOrCreate([
+            'name' => 'Pack',
+            'short_name' => 'PKG',
+        ]);
+
+        $conversionBarcode = 'CONV-BC-' . uniqid();
+        ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $product->base_unit_id,
+            'conversion_factor' => 12,
+            'barcode' => $conversionBarcode,
+        ]);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => $conversionBarcode]));
+
+        $response->assertOk()
+            ->assertJsonPath('type', 'product_exact')
+            ->assertJsonPath('product.id', $product->id)
+            ->assertJsonPath('product.product_name', 'Produk Konversi');
+    }
+
+    /**
+     * Regression test for Phase 1: conversion barcode scan should not throw SQL 42S22
+     * (Unknown column 'setting_id' in 'where clause'). This guards against
+     * the bug where ProductUnitConversion query incorrectly applied setting_id filter.
+     */
+    public function test_conversion_barcode_scan_does_not_error_on_setting_id(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE CONVERSION NO ERROR');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE CONVERSION NO ERROR');
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-CONV-002', 'Produk Scan Conversion', 75000, $cashier->id);
+
+        $unit = Unit::firstOrCreate([
+            'name' => 'Carton',
+            'short_name' => 'CTN',
+        ]);
+
+        $conversionBarcode = 'CONV-BC-' . uniqid();
+        ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $product->base_unit_id,
+            'conversion_factor' => 24,
+            'barcode' => $conversionBarcode,
+        ]);
+
+        // Scan should return 200 (not 500 SQL error before the fix)
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => $conversionBarcode]));
+
+        $response->assertOk();
+        // Verify response structure is valid (not an error payload)
+        $this->assertIsString($response->json('type'));
     }
 
     // --- Helpers ---

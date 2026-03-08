@@ -170,7 +170,8 @@ class PosSellController extends Controller
                 $settingId,
                 $sessionId,
                 (int) $request->input('product_id'),
-                (int) ($request->input('qty', 1))
+                (int) ($request->input('qty', 1)),
+                $request->input('conversion_id') !== null ? (int) $request->input('conversion_id') : null
             );
         } catch (DomainException $exception) {
             return response()->json([

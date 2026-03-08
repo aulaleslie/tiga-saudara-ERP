@@ -43,11 +43,10 @@ class PosProductSearchService
         $namePartialExpr = 'LOWER(COALESCE(p.product_name, \'\')) LIKE ?';
 
         $rows = DB::table('products as p')
-            ->leftJoin('product_prices as pp', function ($join) use ($settingId) {
+            ->join('product_prices as pp', function ($join) use ($settingId) {
                 $join->on('pp.product_id', '=', 'p.id')
                     ->where('pp.setting_id', '=', $settingId);
             })
-            ->where('p.setting_id', $settingId)
             ->where('p.stock_managed', true)
             ->whereRaw($availableQtyExpression . ' > 0')
             ->where(function ($query) use (
@@ -123,10 +122,55 @@ class PosProductSearchService
                 'serial_number_required' => (bool) $row->serial_number_required,
                 'matched_by' => $matchedBy,
                 'is_bundle_parent' => (bool) $row->is_bundle_parent,
+                'conversion' => null,
             ];
         })->values();
 
+        // Post-process: for barcode_exact matches, check if matched via conversion barcode
+        $results = $results->map(function ($result) use ($normalizedQuery, $settingId) {
+            if ($result['matched_by'] !== 'barcode_exact') {
+                return $result;
+            }
+
+            // If product's own barcode matches the query, it's not a conversion match
+            if ($result['barcode'] && strtolower($result['barcode']) === $normalizedQuery) {
+                return $result;
+            }
+
+            // Must be a conversion barcode match - look it up
+            $conversion = DB::table('product_unit_conversions as puc')
+                ->leftJoin('units as u', 'u.id', '=', 'puc.unit_id')
+                ->where('puc.product_id', $result['id'])
+                ->whereRaw('LOWER(COALESCE(puc.barcode, \'\')) = ?', [$normalizedQuery])
+                ->select(['puc.id', 'puc.conversion_factor', 'u.name as unit_name'])
+                ->first();
+
+            if ($conversion) {
+                // Look up the conversion price for this setting
+                $conversionPrice = DB::table('product_unit_conversion_prices')
+                    ->where('product_unit_conversion_id', $conversion->id)
+                    ->where('setting_id', $settingId)
+                    ->value('price');
+
+                $priceForResult = $conversionPrice !== null ? (float) $conversionPrice : $result['sale_price'];
+
+                $result['conversion'] = [
+                    'id' => (int) $conversion->id,
+                    'conversion_factor' => (float) $conversion->conversion_factor,
+                    'unit_name' => $conversion->unit_name ?? 'Unit',
+                    'price_for_setting' => round($priceForResult, 2),
+                ];
+                $result['sale_price'] = round($priceForResult, 2);
+                $result['matched_by'] = 'conversion_barcode_exact';
+            }
+
+            return $result;
+        })->values();
+
         $autoSelectMatch = $results->firstWhere('matched_by', 'barcode_exact');
+        if (!$autoSelectMatch) {
+            $autoSelectMatch = $results->firstWhere('matched_by', 'conversion_barcode_exact');
+        }
         $autoSelectProductId = null;
 
         if (is_array($autoSelectMatch)) {

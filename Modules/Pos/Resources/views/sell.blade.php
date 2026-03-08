@@ -924,6 +924,26 @@
         </div>
     </div>
 
+    <!-- Search Results Modal (Phase 1) -->
+    <div class="modal fade" id="pos-search-results-modal" tabindex="-1" role="dialog" aria-labelledby="pos-search-results-modal-label" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="pos-search-results-modal-label">Hasil Pencarian Produk</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Tutup">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body p-0">
+                    <div id="pos-search-modal-results" class="list-group"></div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');
@@ -978,6 +998,10 @@
             const successReceiptElement = document.getElementById('pos-success-receipt');
             const successChangeElement = document.getElementById('pos-success-change');
             const shortcutReprintBtn = document.getElementById('pos-shortcut-reprint');
+
+            // Phase 1: Search results modal elements
+            const searchResultsModalElement = document.getElementById('pos-search-results-modal');
+            const searchResultsModalContainer = document.getElementById('pos-search-modal-results');
 
             const searchEndpoint = @json(route('pos.sell.products.search'));
             const scanResolveEndpoint = @json(url('/pos/sell/search/resolve'));
@@ -1464,10 +1488,17 @@
                 }
 
                 try {
-                    const response = await jsonRequest(cartStoreLineEndpoint, 'POST', {
+                    const payload = {
                         product_id: Number(product.id),
                         qty: 1,
-                    });
+                    };
+
+                    // If product was resolved via conversion barcode, include conversion_id
+                    if (product.conversion && product.conversion.id) {
+                        payload.conversion_id = Number(product.conversion.id);
+                    }
+
+                    const response = await jsonRequest(cartStoreLineEndpoint, 'POST', payload);
 
                     if (!response) {
                         return;
@@ -1481,6 +1512,8 @@
 
                     if (source === 'auto') {
                         setSearchStatus('Produk ditambahkan otomatis dari barcode.', 'text-success');
+                    } else if (source === 'scan') {
+                        setSearchStatus('Produk ditambahkan dari pindai.', 'text-success');
                     } else {
                         setSearchStatus('Produk ditambahkan ke keranjang.', 'text-success');
                     }
@@ -1543,6 +1576,75 @@
                 });
             }
 
+            // Phase 1: Render search results in modal
+            function renderSearchResultsModal(data) {
+                if (!searchResultsModalContainer) {
+                    return;
+                }
+
+                searchResultsModalContainer.innerHTML = '';
+
+                const results = Array.isArray(data.results) ? data.results : [];
+                const autoSelectId = data.meta && data.meta.auto_select_product_id ? Number(data.meta.auto_select_product_id) : null;
+
+                // Auto-select if exact barcode match from search endpoint
+                if (autoSelectId) {
+                    const autoSelected = results.find((item) => Number(item.id) === autoSelectId);
+                    if (autoSelected) {
+                        addProductToCart(autoSelected, 'auto');
+                        return;
+                    }
+                }
+
+                // Show "not found" message if no results
+                if (results.length === 0) {
+                    const notFoundDiv = document.createElement('div');
+                    notFoundDiv.className = 'list-group-item text-muted text-center py-5';
+                    notFoundDiv.textContent = 'Produk tidak ditemukan.';
+                    searchResultsModalContainer.appendChild(notFoundDiv);
+                    return;
+                }
+
+                // Render each result as a button item
+                results.forEach((product) => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'list-group-item list-group-item-action text-left';
+
+                    const productName = escapeHtml(product.product_name);
+                    const productCode = escapeHtml(product.product_code || '-');
+                    const barcode = escapeHtml(product.barcode || '-');
+                    const availableQty = escapeHtml(product.available_qty);
+
+                    button.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div style="flex: 1;">
+                                <div class="font-weight-bold">${productName}</div>
+                                <div class="small text-muted">${productCode} | ${barcode}</div>
+                            </div>
+                            <div class="text-right ml-3">
+                                <div class="small text-muted">Stok: ${availableQty}</div>
+                                <div class="small">${formatPrice(product.sale_price)}</div>
+                            </div>
+                        </div>
+                    `;
+                    button.addEventListener('click', async function () {
+                        // Close modal and let addProductToCart handle cleanup
+                        if (searchResultsModalElement) {
+                            $(searchResultsModalElement).modal('hide');
+                        }
+                        await addProductToCart(product, 'manual');
+                    });
+
+                    searchResultsModalContainer.appendChild(button);
+                });
+
+                // Show the modal
+                if (searchResultsModalElement) {
+                    $(searchResultsModalElement).modal('show');
+                }
+            }
+
             async function executeSearch(query) {
                 latestRequestId += 1;
                 const requestId = latestRequestId;
@@ -1586,6 +1688,95 @@
                     clearResults();
                     setSearchStatus('Pencarian gagal. Coba lagi.', 'text-danger');
                 }
+            }
+
+            // Phase 1: Execute search and show results in modal
+            async function executeSearchModal(query) {
+                latestRequestId += 1;
+                const requestId = latestRequestId;
+
+                setSearchStatus('Mencari produk...', 'text-muted');
+
+                const url = new URL(searchEndpoint, window.location.origin);
+                url.searchParams.set('q', query);
+                url.searchParams.set('limit', '10');
+
+                try {
+                    const response = await fetch(url.toString(), {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    });
+
+                    if (response.redirected) {
+                        window.location.href = response.url;
+                        return;
+                    }
+
+                    if (!response.ok) {
+                        throw new Error('Permintaan pencarian gagal.');
+                    }
+
+                    const data = await response.json();
+
+                    if (requestId !== latestRequestId) {
+                        return;
+                    }
+
+                    renderSearchResultsModal(data);
+                    setSearchStatus('', 'text-muted');
+                } catch (error) {
+                    if (requestId !== latestRequestId) {
+                        return;
+                    }
+
+                    clearResults();
+                    setSearchStatus('Pencarian gagal: ' + (error.message || 'Server error'), 'text-danger');
+                }
+            }
+
+            // Phase 1: Setup keyboard navigation for search results modal
+            function setupSearchResultsModalKeyboard() {
+                const items = searchResultsModalContainer ? Array.from(searchResultsModalContainer.querySelectorAll('button.list-group-item')) : [];
+                if (items.length === 0) {
+                    return;
+                }
+
+                let currentFocusIndex = 0;
+
+                // Focus first item on setup
+                items[0].focus();
+
+                // Key navigation handler
+                function handleKeyNav(event) {
+                    if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        currentFocusIndex = (currentFocusIndex + 1) % items.length;
+                        items[currentFocusIndex].focus();
+                    } else if (event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        currentFocusIndex = (currentFocusIndex - 1 + items.length) % items.length;
+                        items[currentFocusIndex].focus();
+                    } else if (event.key === 'Enter') {
+                        event.preventDefault();
+                        items[currentFocusIndex].click();
+                    }
+                }
+
+                // Add keydown listeners to all items
+                items.forEach((item, index) => {
+                    item.addEventListener('keydown', handleKeyNav);
+                    item.addEventListener('focus', () => {
+                        currentFocusIndex = index;
+                    });
+                });
+            }
+
+            // Phase 1: Wire up modal keyboard navigation
+            if (searchResultsModalElement) {
+                $(searchResultsModalElement).on('shown.bs.modal', setupSearchResultsModalKeyboard);
             }
 
             searchInput.addEventListener('input', function (event) {
@@ -1638,9 +1829,8 @@
                         searchInput.value = '';
                         setSearchStatus('Serial berhasil ditambahkan.', 'text-success');
                     } else {
-                        // No exact match: fallback to search suggestion list (scan-first/search-fallback)
-                        executeSearch(query);
-                        setSearchStatus('Pilih produk dari daftar.', 'text-muted');
+                        // Phase 1: No exact match - show results in modal
+                        await executeSearchModal(query);
                     }
                 } catch (error) {
                     setSearchStatus('Pindai gagal: ' + (error.message || 'Server error'), 'text-danger');

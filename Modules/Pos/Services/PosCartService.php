@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\DB;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Product\Entities\ProductUnitConversionPrice;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 
@@ -34,7 +36,7 @@ class PosCartService
     /**
      * @return array<string, mixed>
      */
-    public function addLine(int $settingId, int $sessionId, int $productId, int $qty = 1): array
+    public function addLine(int $settingId, int $sessionId, int $productId, int $qty = 1, ?int $conversionId = null): array
     {
         if ($qty < 1) {
             throw new DomainException('Quantity must be at least 1.');
@@ -43,17 +45,74 @@ class PosCartService
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
         [$product, $availableQty] = $this->resolveCartProduct($settingId, $productId);
 
-        $priceRow = ProductPrice::query()
-            ->forProduct($product->id)
-            ->forSetting($settingId)
-            ->first();
+        // Resolve conversion if provided
+        $conversion = null;
+        if ($conversionId !== null && $conversionId > 0) {
+            $conversion = ProductUnitConversion::query()
+                ->where('id', $conversionId)
+                ->where('product_id', $productId)
+                ->with('unit')
+                ->first();
 
-        $saleTaxId = (int) ($priceRow?->sale_tax_id ?? 0);
-        $tax = $saleTaxId > 0 ? Tax::query()->find($saleTaxId) : null;
-        $unitPrice = (float) ($priceRow?->sale_price ?? $product->product_price ?? 0);
+            if (! $conversion) {
+                throw new DomainException('Conversion unit not found for this product.');
+            }
+        }
+
+        // Resolve pricing: conversion price (if provided) or base product price
+        $unitPrice = 0.0;
+        $priceSource = 'BASE';
+        $taxId = null;
+        $taxName = null;
+        $taxRate = 0.0;
+        $conversionUnitName = null;
+
+        if ($conversion !== null) {
+            // Use conversion-specific pricing
+            $conversionPrice = ProductUnitConversionPrice::query()
+                ->where('product_unit_conversion_id', $conversion->id)
+                ->where('setting_id', $settingId)
+                ->first();
+
+            if ($conversionPrice) {
+                $unitPrice = (float) $conversionPrice->price;
+                $priceSource = 'CONVERSION';
+            } else {
+                // Fallback to base product price if conversion price not found
+                $unitPrice = (float) ($product->product_price ?? 0);
+                $priceSource = 'CONVERSION_FALLBACK';
+            }
+
+            $conversionUnitName = $conversion->unit ? (string) $conversion->unit->name : 'Unit';
+
+            // For conversion lines, use base product tax (conversions don't have separate tax)
+            $priceRow = ProductPrice::query()
+                ->forProduct($product->id)
+                ->forSetting($settingId)
+                ->first();
+            $saleTaxId = (int) ($priceRow?->sale_tax_id ?? 0);
+            $tax = $saleTaxId > 0 ? Tax::query()->find($saleTaxId) : null;
+            $taxId = $tax ? (int) $tax->id : null;
+            $taxName = $tax ? (string) $tax->name : null;
+            $taxRate = $tax ? (float) $tax->value : 0.0;
+        } else {
+            // Use base product pricing
+            $priceRow = ProductPrice::query()
+                ->forProduct($product->id)
+                ->forSetting($settingId)
+                ->first();
+
+            $saleTaxId = (int) ($priceRow?->sale_tax_id ?? 0);
+            $tax = $saleTaxId > 0 ? Tax::query()->find($saleTaxId) : null;
+            $unitPrice = (float) ($priceRow?->sale_price ?? $product->product_price ?? 0);
+            $taxId = $tax ? (int) $tax->id : null;
+            $taxName = $tax ? (string) $tax->name : null;
+            $taxRate = $tax ? (float) $tax->value : 0.0;
+        }
 
         // Build merge key to determine if we should merge with existing line
-        $mergeKey = $this->buildMergeKey($product->id, $unitPrice, $tax?->id);
+        // Include conversion_id in key so base and conversion lines don't merge
+        $mergeKey = $this->buildMergeKey($product->id, $unitPrice, $taxId, $conversionId);
 
         // Look for existing line with matching merge key (handles backwards compat + new format)
         $existingLineId = null;
@@ -100,13 +159,15 @@ class PosCartService
                 'unit_price' => round($unitPrice, 2),
                 'line_discount_type' => 'fixed',
                 'line_discount_value' => 0.0,
-                'tax_id' => $tax ? (int) $tax->id : null,
-                'tax_name' => $tax ? (string) $tax->name : null,
-                'tax_rate' => $tax ? (float) $tax->value : 0.0,
+                'tax_id' => $taxId,
+                'tax_name' => $taxName,
+                'tax_rate' => $taxRate,
                 'merge_key' => $mergeKey,
-                'price_source' => 'BASE',
+                'price_source' => $priceSource,
                 'price_valid' => true,
                 'price_error' => null,
+                'conversion_id' => $conversionId,
+                'conversion_unit_name' => $conversionUnitName,
             ];
         }
 
@@ -280,7 +341,8 @@ class PosCartService
             // Update line with new price and tax info
             $newUnitPrice = (float) ($priceResolution['unit_price'] ?? 0);
             $newTaxId = $priceResolution['tax_id'];
-            $newMergeKey = $this->buildMergeKey($productId, $newUnitPrice, $newTaxId);
+            $conversionIdForKey = (int) ($line['conversion_id'] ?? 0) > 0 ? (int) $line['conversion_id'] : null;
+            $newMergeKey = $this->buildMergeKey($productId, $newUnitPrice, $newTaxId, $conversionIdForKey);
 
             $line['unit_price'] = round($newUnitPrice, 2);
             $line['tax_id'] = $newTaxId;
@@ -559,12 +621,21 @@ class PosCartService
     {
         $product = Product::query()
             ->where('id', $productId)
-            ->where('setting_id', $settingId)
             ->where('stock_managed', true)
             ->first();
 
         if (! $product) {
-            throw new DomainException('Product was not found for active setting.');
+            throw new DomainException('Product was not found.');
+        }
+
+        // Guard: product must have a price row for the active setting
+        $hasPriceRow = ProductPrice::query()
+            ->forProduct($productId)
+            ->forSetting($settingId)
+            ->exists();
+
+        if (! $hasPriceRow) {
+            throw new DomainException('Product does not have a price configured for the active setting.');
         }
 
         $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)
@@ -805,11 +876,12 @@ class PosCartService
      * @param  int  $productId
      * @param  float  $unitPrice
      * @param  int|null  $taxId
+     * @param  int|null  $conversionId  Optional conversion ID to include in key
      * @return string
      */
-    private function buildMergeKey(int $productId, float $unitPrice, ?int $taxId): string
+    private function buildMergeKey(int $productId, float $unitPrice, ?int $taxId, ?int $conversionId = null): string
     {
-        return "{$productId}:" . round($unitPrice, 2) . ":{$taxId}";
+        return "{$productId}:" . round($unitPrice, 2) . ":{$taxId}:{$conversionId}";
     }
 }
 
