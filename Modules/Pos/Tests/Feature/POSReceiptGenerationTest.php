@@ -64,6 +64,7 @@ class POSReceiptGenerationTest extends TestCase
     public function test_receipt_number_follows_business_config(): void
     {
         $context = $this->createCheckoutContext('POS DEFAULT RCP');
+        $methods = $this->seedPaymentMethods($context['setting']);
         $setting = $context['setting'];
         
         // No prefix set, should default to RCP
@@ -76,7 +77,7 @@ class POSReceiptGenerationTest extends TestCase
         $payload = [
             'idempotency_key' => 'receipt-k-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 50000,
             ],
         ];
@@ -100,6 +101,7 @@ class POSReceiptGenerationTest extends TestCase
     public function test_receipt_number_uses_custom_prefix(): void
     {
         $context = $this->createCheckoutContext('POS CUSTOM PREFIX');
+        $methods = $this->seedPaymentMethods($context['setting']);
         $setting = $context['setting'];
         $setting->update(['pos_receipt_prefix' => 'POSX']);
         
@@ -110,7 +112,7 @@ class POSReceiptGenerationTest extends TestCase
         $payload = [
             'idempotency_key' => 'receipt-k-002',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 100000,
             ],
         ];
@@ -125,6 +127,7 @@ class POSReceiptGenerationTest extends TestCase
     public function test_receipt_view_creates_print_log(): void
     {
         $context = $this->createCheckoutContext('POS PRINT VIEW');
+        $methods = $this->seedPaymentMethods($context['setting']);
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-003', 25000, false);
         
@@ -132,7 +135,7 @@ class POSReceiptGenerationTest extends TestCase
         $payload = [
             'idempotency_key' => 'receipt-k-003',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 25000,
             ],
         ];
@@ -163,6 +166,7 @@ class POSReceiptGenerationTest extends TestCase
     public function test_receipt_reprint_creates_separate_log(): void
     {
         $context = $this->createCheckoutContext('POS REPRINT VIEW');
+        $methods = $this->seedPaymentMethods($context['setting']);
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-004', 30000, false);
         
@@ -170,7 +174,7 @@ class POSReceiptGenerationTest extends TestCase
         $payload = [
             'idempotency_key' => 'receipt-k-004',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 30000,
             ],
         ];
@@ -194,6 +198,7 @@ class POSReceiptGenerationTest extends TestCase
     public function test_cross_setting_receipt_access_is_forbidden(): void
     {
         $context1 = $this->createCheckoutContext('POS STORE 1');
+        $methods = $this->seedPaymentMethods($context1['setting']);
         $context2 = $this->createCheckoutContext('POS STORE 2');
         
         $customer = $this->assignDefaultWalkInCustomer($context1['setting']);
@@ -202,7 +207,7 @@ class POSReceiptGenerationTest extends TestCase
         $payload = [
             'idempotency_key' => 'receipt-k-forbid',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 10000,
             ],
         ];
@@ -237,8 +242,6 @@ class POSReceiptGenerationTest extends TestCase
             ['100000' => 1],
             $cashier->id
         );
-
-        $this->seedPaymentMethods($setting);
 
         return compact('setting', 'location', 'cashier', 'terminal', 'session');
     }
@@ -307,6 +310,7 @@ class POSReceiptGenerationTest extends TestCase
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         return $terminal;
@@ -391,54 +395,30 @@ class POSReceiptGenerationTest extends TestCase
         return $product;
     }
 
-    private function seedPaymentMethods(Setting $setting): void
+    private function seedPaymentMethods(Setting $setting): object
     {
-        $index = $this->sequence++;
+        $methods = [];
+        
+        foreach (['CASH' => true, 'TRANSFER' => false, 'QRIS' => false] as $name => $isCash) {
+            $coaId = DB::table('chart_of_accounts')->insertGetId([
+                'name' => "COA $name " . $this->sequence,
+                'account_number' => "ACC-$name-" . $this->sequence++,
+                'category' => 'Kas & Bank',
+                'setting_id' => $setting->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
 
-        $cashCoaId = DB::table('chart_of_accounts')->insertGetId([
-            'name' => 'POS COA CASH ' . $index,
-            'account_number' => 'POS-CASH-' . $index,
-            'category' => 'Kas & Bank',
-            'setting_id' => $setting->id,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+            $methods[strtolower($name)] = PaymentMethod::create([
+                'name' => "$name POS",
+                'coa_id' => $coaId,
+                'is_cash' => $isCash,
+                'is_available_in_pos' => true,
+                'requires_reference' => !$isCash,
+            ]);
+        }
 
-        $transferCoaId = DB::table('chart_of_accounts')->insertGetId([
-            'name' => 'POS COA TRANSFER ' . $index,
-            'account_number' => 'POS-TRF-' . $index,
-            'category' => 'Kas & Bank',
-            'setting_id' => $setting->id,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        $qrisCoaId = DB::table('chart_of_accounts')->insertGetId([
-            'name' => 'POS COA QRIS ' . $index,
-            'account_number' => 'POS-QRIS-' . $index,
-            'category' => 'Kas & Bank',
-            'setting_id' => $setting->id,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        PaymentMethod::query()->create([
-            'name' => 'CASH POS ' . $index,
-            'coa_id' => $cashCoaId,
-            'is_cash' => true,
-        ]);
-
-        PaymentMethod::query()->create([
-            'name' => 'TRANSFER POS ' . $index,
-            'coa_id' => $transferCoaId,
-            'is_cash' => false,
-        ]);
-
-        PaymentMethod::query()->create([
-            'name' => 'QRIS POS ' . $index,
-            'coa_id' => $qrisCoaId,
-            'is_cash' => false,
-        ]);
+        return (object) $methods;
     }
 
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void

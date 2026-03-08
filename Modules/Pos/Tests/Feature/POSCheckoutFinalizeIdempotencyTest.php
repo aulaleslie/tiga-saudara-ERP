@@ -67,7 +67,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_successful_finalize_posts_once_and_replays_same_idempotency_key(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT REPLAY');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-REPLAY-001', 50000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -75,7 +75,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $payload = [
             'idempotency_key' => 'K-REPLAY-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 50000,
             ],
         ];
@@ -107,7 +107,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_duplicate_with_finalizing_status_returns_conflict(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT FINALIZING');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-FINALIZING-001', 30000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -115,7 +115,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $payload = [
             'idempotency_key' => 'K-FINALIZING-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 30000,
             ],
         ];
@@ -146,7 +146,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             'grand_total' => $snapshot['totals']['grand_total'],
             'paid_total' => 30000,
             'change_total' => 0,
-            'payment_method_code' => 'cash',
+            'payment_method_id' => $methods->cash->id,
             'payment_reference' => null,
             'metadata' => null,
         ]);
@@ -159,7 +159,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_duplicate_after_failed_attempt_returns_conflict(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT FAILED');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-FAILED-001', 40000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -167,7 +167,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $payload = [
             'idempotency_key' => 'K-FAILED-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 40000,
             ],
         ];
@@ -198,7 +198,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             'grand_total' => $snapshot['totals']['grand_total'],
             'paid_total' => 40000,
             'change_total' => 0,
-            'payment_method_code' => 'cash',
+            'payment_method_id' => $methods->cash->id,
             'payment_reference' => null,
             'failure_code' => 'POSTING_FAILURE',
             'failure_message' => 'Injected failure',
@@ -213,7 +213,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_posting_failure_rolls_back_partial_records_and_marks_checkout_failed(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT ROLLBACK');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-ROLLBACK-001', 25000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -251,7 +251,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-ROLLBACK-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 25000,
             ],
         ]);
@@ -277,7 +277,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
 
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 10000,
             ],
         ]);
@@ -289,14 +289,14 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_unresolved_customer_returns_domain_validation_error(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT UNRESOLVED');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-UNRESOLVED-001', 15000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
 
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-UNRESOLVED-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 15000,
             ],
         ]);
@@ -308,7 +308,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_non_cash_requires_reference(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT NON CASH');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-NON-CASH-001', 20000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -316,7 +316,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-NON-CASH-001',
             'payment' => [
-                'method_code' => 'transfer',
+                'payment_method_id' => $methods->transfer->id,
                 'amount_paid' => 20000,
             ],
         ]);
@@ -325,30 +325,32 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             ->assertJsonValidationErrors(['payment.reference']);
     }
 
-    public function test_serial_tracked_line_is_rejected_for_phase_one(): void
+    public function test_serial_tracked_line_with_incomplete_assignment_is_rejected(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT SERIAL');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-SERIAL-001', 23000, true);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
 
+        // Without serial assignment: qty=1 but no serials assigned => rejected
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-SERIAL-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 23000,
             ],
         ]);
 
         $response->assertStatus(422)
-            ->assertJsonPath('code', 'SERIAL_INVALID');
+            ->assertJsonPath('code', 'SERIAL_INVALID')
+            ->assertJsonPath('message', 'Serial validation failed');
     }
 
     public function test_cash_overpay_computes_change_and_updates_expected_cash_by_grand_total(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT OVERPAY');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-OVERPAY-001', 10000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -356,7 +358,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-OVERPAY-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 12000,
             ],
         ]);
@@ -464,6 +466,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         return $terminal;
@@ -548,9 +551,13 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         return $product;
     }
 
-    private function seedPaymentMethods(Setting $setting): void
+    /**
+     * @return object{cash: PaymentMethod, transfer: PaymentMethod, qris: PaymentMethod}
+     */
+    private function seedPaymentMethods(Setting $setting): object
     {
         $index = $this->sequence++;
+        $methods = [];
 
         $cashCoaId = DB::table('chart_of_accounts')->insertGetId([
             'name' => 'POS COA CASH ' . $index,
@@ -579,23 +586,31 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        PaymentMethod::query()->create([
+        $methods['cash'] = PaymentMethod::query()->create([
             'name' => 'CASH POS ' . $index,
             'coa_id' => $cashCoaId,
             'is_cash' => true,
+            'is_available_in_pos' => true,
+            'requires_reference' => false,
         ]);
 
-        PaymentMethod::query()->create([
+        $methods['transfer'] = PaymentMethod::query()->create([
             'name' => 'TRANSFER POS ' . $index,
             'coa_id' => $transferCoaId,
             'is_cash' => false,
+            'is_available_in_pos' => true,
+            'requires_reference' => true,
         ]);
 
-        PaymentMethod::query()->create([
+        $methods['qris'] = PaymentMethod::query()->create([
             'name' => 'QRIS POS ' . $index,
             'coa_id' => $qrisCoaId,
             'is_cash' => false,
+            'is_available_in_pos' => true,
+            'requires_reference' => true,
         ]);
+
+        return (object) $methods;
     }
 
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
@@ -656,7 +671,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
                 'bill_discount' => $snapshot['bill_discount'] ?? [],
             ],
             'payment' => [
-                'method_code' => strtolower((string) ($payment['method_code'] ?? '')),
+                'payment_method_id' => (int) ($payment['payment_method_id'] ?? 0),
                 'amount_paid' => round((float) ($payment['amount_paid'] ?? 0), 2),
                 'reference' => $payment['reference'] ?? null,
             ],

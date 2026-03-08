@@ -123,7 +123,7 @@ class POSSerialValidationCheckoutTest extends TestCase
     public function test_finalize_without_serial_assignment_fails(): void
     {
         $context = $this->createCheckoutContext('POS SERIAL MISSING');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-MISSING', 100000, true);
         
@@ -132,7 +132,7 @@ class POSSerialValidationCheckoutTest extends TestCase
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-SERIAL-MISSING-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 100000,
             ],
         ]);
@@ -145,7 +145,7 @@ class POSSerialValidationCheckoutTest extends TestCase
     public function test_successful_serial_checkout_updates_lifecycle(): void
     {
         $context = $this->createCheckoutContext('POS SERIAL SUCCESS');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-OK', 100000, true);
         $sn = $this->createSerialNumber($product, $context['location'], 'SN-SUCCESS-001');
@@ -166,7 +166,7 @@ class POSSerialValidationCheckoutTest extends TestCase
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-SERIAL-OK-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 100000,
             ],
         ]);
@@ -333,6 +333,7 @@ class POSSerialValidationCheckoutTest extends TestCase
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         return $terminal;
@@ -428,24 +429,30 @@ class POSSerialValidationCheckoutTest extends TestCase
         ]);
     }
 
-    private function seedPaymentMethods(Setting $setting): void
+    private function seedPaymentMethods(Setting $setting): object
     {
-        $index = $this->sequence++;
+        $methods = [];
+        
+        foreach (['CASH' => true, 'TRANSFER' => false, 'QRIS' => false] as $name => $isCash) {
+            $coaId = DB::table('chart_of_accounts')->insertGetId([
+                'name' => "COA $name " . $this->sequence,
+                'account_number' => "ACC-$name-" . $this->sequence++,
+                'category' => 'Kas & Bank',
+                'setting_id' => $setting->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
 
-        $cashCoaId = DB::table('chart_of_accounts')->insertGetId([
-            'name' => 'POS COA CASH SER ' . $index,
-            'account_number' => 'POS-CASH-SER-' . $index,
-            'category' => 'Kas & Bank',
-            'setting_id' => $setting->id,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+            $methods[strtolower($name)] = PaymentMethod::create([
+                'name' => "$name POS",
+                'coa_id' => $coaId,
+                'is_cash' => $isCash,
+                'is_available_in_pos' => true,
+                'requires_reference' => !$isCash,
+            ]);
+        }
 
-        PaymentMethod::query()->create([
-            'name' => 'CASH POS SER ' . $index,
-            'coa_id' => $cashCoaId,
-            'is_cash' => true,
-        ]);
+        return (object) $methods;
     }
 
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void

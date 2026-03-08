@@ -422,6 +422,7 @@ class POSSessionCloseWorkflowTest extends TestCase
             'close_variance_approval_threshold' => $varianceThreshold,
             'cash_threshold' => 50000,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         return $terminal;

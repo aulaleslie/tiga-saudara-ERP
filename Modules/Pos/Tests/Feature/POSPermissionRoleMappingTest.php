@@ -110,6 +110,7 @@ class POSPermissionRoleMappingTest extends TestCase
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         $readOnly = $this->createUserForSetting($setting, 'Read Only', ['pos.terminals.access']);
@@ -172,6 +173,7 @@ class POSPermissionRoleMappingTest extends TestCase
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         $adminConfig = $this->createUserForSetting($settingA, 'Admin Config', ['pos.terminals.access', 'pos.terminals.edit']);
@@ -233,6 +235,7 @@ class POSPermissionRoleMappingTest extends TestCase
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         PosSession::create([

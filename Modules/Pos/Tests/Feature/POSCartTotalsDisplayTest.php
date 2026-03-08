@@ -362,6 +362,7 @@ class POSCartTotalsDisplayTest extends TestCase
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         return $terminal;

@@ -64,7 +64,7 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_cash_exact_payment_posts_successfully(): void
     {
         $context = $this->createCheckoutContext('CASH-EXACT');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-CASH-1', 50000);
@@ -73,7 +73,7 @@ class POSPaymentValidationRulesTest extends TestCase
         $payload = [
             'idempotency_key' => 'K-CASH-EXACT-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 50000,
             ],
         ];
@@ -88,7 +88,7 @@ class POSPaymentValidationRulesTest extends TestCase
         $this->assertDatabaseHas('pos_checkouts', [
             'idempotency_key' => 'k-cash-exact-001',
             'status' => 'POSTED',
-            'payment_method_code' => 'cash'
+            'payment_method_id' => $methods['cash']->id,
         ]);
 
         // Verify session cash event
@@ -107,7 +107,7 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_cash_overpay_computes_change_correctly(): void
     {
         $context = $this->createCheckoutContext('CASH-OVERPAY');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-CASH-2', 75000);
@@ -116,7 +116,7 @@ class POSPaymentValidationRulesTest extends TestCase
         $payload = [
             'idempotency_key' => 'K-CASH-OVERPAY-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 100000,
             ],
         ];
@@ -143,7 +143,7 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_transfer_requires_reference(): void
     {
         $context = $this->createCheckoutContext('TRF-REF');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-TRF-1', 100000);
@@ -153,7 +153,7 @@ class POSPaymentValidationRulesTest extends TestCase
         $payloadNoRef = [
             'idempotency_key' => 'K-TRF-NO-REF',
             'payment' => [
-                'method_code' => 'transfer',
+                'payment_method_id' => $methods['transfer']->id,
                 'amount_paid' => 100000,
             ],
         ];
@@ -165,7 +165,7 @@ class POSPaymentValidationRulesTest extends TestCase
         $payloadWithRef = [
             'idempotency_key' => 'K-TRF-WITH-REF',
             'payment' => [
-                'method_code' => 'transfer',
+                'payment_method_id' => $methods['transfer']->id,
                 'amount_paid' => 100000,
                 'reference' => 'REF-12345',
             ],
@@ -176,7 +176,8 @@ class POSPaymentValidationRulesTest extends TestCase
             
         $this->assertDatabaseHas('pos_checkouts', [
             'idempotency_key' => 'k-trf-with-ref',
-            'payment_reference' => 'REF-12345'
+            'payment_reference' => 'REF-12345',
+            'payment_method_id' => $methods['transfer']->id,
         ]);
     }
 
@@ -186,7 +187,7 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_qris_requires_reference(): void
     {
         $context = $this->createCheckoutContext('QRIS-REF');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-QRIS-1', 35000);
@@ -195,7 +196,7 @@ class POSPaymentValidationRulesTest extends TestCase
         $payloadNoRef = [
             'idempotency_key' => 'K-QRIS-NO-REF',
             'payment' => [
-                'method_code' => 'qris',
+                'payment_method_id' => $methods['qris']->id,
                 'amount_paid' => 35000,
             ],
         ];
@@ -206,7 +207,7 @@ class POSPaymentValidationRulesTest extends TestCase
         $payloadWithRef = [
             'idempotency_key' => 'K-QRIS-WITH-REF',
             'payment' => [
-                'method_code' => 'qris',
+                'payment_method_id' => $methods['qris']->id,
                 'amount_paid' => 35000,
                 'reference' => 'QR-TRAN-888',
             ],
@@ -221,7 +222,7 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_partial_cash_payment_rejected(): void
     {
         $context = $this->createCheckoutContext('CASH-PARTIAL');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-CASH-P', 50000);
@@ -230,7 +231,7 @@ class POSPaymentValidationRulesTest extends TestCase
         $payload = [
             'idempotency_key' => 'K-CASH-PARTIAL',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 45000, // Less than 50000
             ],
         ];
@@ -250,7 +251,7 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_transfer_must_match_exact_total(): void
     {
         $context = $this->createCheckoutContext('TRF-EXACT');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-TRF-E', 50000);
@@ -259,13 +260,13 @@ class POSPaymentValidationRulesTest extends TestCase
         // 1. Reject underpay
         $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-TRF-UNDER',
-            'payment' => ['method_code' => 'transfer', 'amount_paid' => 49000, 'reference' => 'R1'],
+            'payment' => ['payment_method_id' => $methods['transfer']->id, 'amount_paid' => 49000, 'reference' => 'R1'],
         ])->assertStatus(422)->assertJsonPath('code', 'PAYMENT_INVALID');
 
         // 2. Reject overpay (non-cash doesn't handle change)
         $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-TRF-OVER',
-            'payment' => ['method_code' => 'transfer', 'amount_paid' => 51000, 'reference' => 'R2'],
+            'payment' => ['payment_method_id' => $methods['transfer']->id, 'amount_paid' => 51000, 'reference' => 'R2'],
         ])->assertStatus(422)->assertJsonPath('code', 'PAYMENT_INVALID');
     }
 
@@ -275,7 +276,7 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_non_cash_does_not_create_cash_event(): void
     {
         $context = $this->createCheckoutContext('NON-CASH-EVENT');
-        $this->seedPaymentMethods($context['setting']);
+        $methods = $this->seedPaymentMethods($context['setting']);
         $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-NCE', 10000);
@@ -283,7 +284,7 @@ class POSPaymentValidationRulesTest extends TestCase
 
         $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-NCE-1',
-            'payment' => ['method_code' => 'transfer', 'amount_paid' => 10000, 'reference' => 'REF-NCE'],
+            'payment' => ['payment_method_id' => $methods['transfer']->id, 'amount_paid' => 10000, 'reference' => 'REF-NCE'],
         ])->assertStatus(201);
 
         $this->assertDatabaseMissing('pos_session_cash_events', [
@@ -296,7 +297,35 @@ class POSPaymentValidationRulesTest extends TestCase
         $this->assertEquals(100000.0, $expectedCash);
     }
 
-    // --- Helpers (copied/adapted from POSCheckoutFinalizeIdempotencyTest) ---
+    /**
+     * Transitional compatibility: legacy method_code payload still accepted
+     */
+    public function test_legacy_method_code_payload_accepted(): void
+    {
+        $context = $this->createCheckoutContext('LEGACY-METHOD-CODE');
+        $this->seedPaymentMethods($context['setting']);
+        $this->assignDefaultWalkInCustomer($context['setting']);
+        
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-LEGACY', 30000);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+
+        // Old payload format with method_code
+        $payload = [
+            'idempotency_key' => 'K-LEGACY-001',
+            'payment' => [
+                'method_code' => 'cash',
+                'amount_paid' => 30000,
+            ],
+        ];
+
+        $response = $this->finalize($context['cashier'], $context['setting'], $payload);
+        
+        // Should still work
+        $response->assertStatus(201)
+            ->assertJsonPath('status', 'POSTED');
+    }
+
+    // --- Helpers ---
 
     private function createCheckoutContext(string $name): array
     {
@@ -342,6 +371,8 @@ class POSPaymentValidationRulesTest extends TestCase
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
+            'cash_threshold' => 50000,
         ]);
 
         /** @var PosSessionLifecycleService $sessionLifecycle */
@@ -423,9 +454,16 @@ class POSPaymentValidationRulesTest extends TestCase
         $setting->update(['pos_walk_in_customer_id' => $customer->id]);
     }
 
-    private function seedPaymentMethods(Setting $setting): void
+    /**
+     * Seed payment methods with new V2 attributes
+     *
+     * @return object{cash: PaymentMethod, transfer: PaymentMethod, qris: PaymentMethod}
+     */
+    private function seedPaymentMethods(Setting $setting): object
     {
-        foreach (['CASH', 'TRANSFER', 'QRIS'] as $name) {
+        $methods = [];
+        
+        foreach (['CASH' => true, 'TRANSFER' => false, 'QRIS' => false] as $name => $isCash) {
             $coaId = DB::table('chart_of_accounts')->insertGetId([
                 'name' => "COA $name " . $this->sequence,
                 'account_number' => "ACC-$name-" . $this->sequence++,
@@ -435,12 +473,16 @@ class POSPaymentValidationRulesTest extends TestCase
                 'updated_at' => now(),
             ]);
 
-            PaymentMethod::create([
+            $methods[strtolower($name)] = PaymentMethod::create([
                 'name' => "$name POS",
                 'coa_id' => $coaId,
-                'is_cash' => ($name === 'CASH'),
+                'is_cash' => $isCash,
+                'is_available_in_pos' => true,
+                'requires_reference' => !$isCash, // cash doesn't need, transfer/qris do
             ]);
         }
+
+        return (object) $methods;
     }
 
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void

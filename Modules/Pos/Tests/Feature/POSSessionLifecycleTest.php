@@ -232,6 +232,7 @@ class POSSessionLifecycleTest extends TestCase
             'close_variance_approval_threshold' => 0,
             'cash_threshold' => 50000,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         return $terminal;

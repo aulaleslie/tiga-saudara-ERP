@@ -74,7 +74,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $terminal = $this->createTerminalForSetting($borrowerSetting, $sourceLocation->id);
         $cashier = $this->createUserForSetting($borrowerSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $this->assignDefaultWalkInCustomer($borrowerSetting);
-        $this->seedPaymentMethods($borrowerSetting);
+        $methods = $this->seedPaymentMethods($borrowerSetting);
         $this->assignSaleLocation($borrowerSetting, $sourceLocation);
 
         // 3. Create Product with 10% Tax
@@ -90,7 +90,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $response = $this->finalize($cashier, $borrowerSetting, [
             'idempotency_key' => 'K-TAX-PKP-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 100000, // Gross/final price
             ],
         ]);
@@ -134,7 +134,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $terminal = $this->createTerminalForSetting($borrowerSetting, $sourceLocation->id);
         $cashier = $this->createUserForSetting($borrowerSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $this->assignDefaultWalkInCustomer($borrowerSetting);
-        $this->seedPaymentMethods($borrowerSetting);
+        $methods = $this->seedPaymentMethods($borrowerSetting);
         $this->assignSaleLocation($borrowerSetting, $sourceLocation);
 
         // 3. Create Product with 10% Tax
@@ -150,7 +150,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $response = $this->finalize($cashier, $borrowerSetting, [
             'idempotency_key' => 'K-TAX-NON-PKP-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 100000, // Gross/final price
             ],
         ]);
@@ -196,7 +196,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $terminal = $this->createTerminalForSetting($terminalSetting, $locPKP->id);
         $cashier = $this->createUserForSetting($terminalSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $this->assignDefaultWalkInCustomer($terminalSetting);
-        $this->seedPaymentMethods($terminalSetting);
+        $methods = $this->seedPaymentMethods($terminalSetting);
         
         // Priority 1: PKP Location, Priority 2: Non-PKP Location
         $this->assignSaleLocation($terminalSetting, $locPKP);
@@ -223,7 +223,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $response = $this->finalize($cashier, $terminalSetting, [
             'idempotency_key' => 'K-TAX-MIXED-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 500000, // Gross/final price
             ],
         ]);
@@ -273,7 +273,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $terminal = $this->createTerminalForSetting($setting, $location->id);
         $cashier = $this->createUserForSetting($setting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $this->assignDefaultWalkInCustomer($setting);
-        $this->seedPaymentMethods($setting);
+        $methods = $this->seedPaymentMethods($setting);
         $this->assignSaleLocation($setting, $location);
 
         $tax = Tax::create(['name' => 'VAT 10%', 'value' => 10]);
@@ -287,7 +287,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $response = $this->finalize($cashier, $setting, [
             'idempotency_key' => 'K-STABILITY-001',
             'payment' => [
-                'method_code' => 'cash',
+                'payment_method_id' => $methods->cash->id,
                 'amount_paid' => 100000,
             ],
         ]);
@@ -362,6 +362,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
             'close_variance_approval_threshold' => 0,
             'cash_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         return $terminal;
@@ -476,21 +477,29 @@ class POSTaxBySourceSnapshotTest extends TestCase
             ->postJson(route('pos.sell.checkout.finalize'), $payload);
     }
 
-    private function seedPaymentMethods(Setting $setting): void
+    private function seedPaymentMethods(Setting $setting): object
     {
-        $coaId = DB::table('chart_of_accounts')->insertGetId([
-            'name' => 'POS COA ' . $this->sequence++,
-            'account_number' => 'ACC-' . $this->sequence,
-            'category' => 'Kas & Bank',
-            'setting_id' => $setting->id,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $methods = [];
+        
+        foreach (['CASH' => true, 'TRANSFER' => false, 'QRIS' => false] as $name => $isCash) {
+            $coaId = DB::table('chart_of_accounts')->insertGetId([
+                'name' => "COA $name " . $this->sequence,
+                'account_number' => "ACC-$name-" . $this->sequence++,
+                'category' => 'Kas & Bank',
+                'setting_id' => $setting->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
 
-        PaymentMethod::create([
-            'name' => 'CASH',
-            'coa_id' => $coaId,
-            'is_cash' => true,
-        ]);
+            $methods[strtolower($name)] = PaymentMethod::create([
+                'name' => "$name POS",
+                'coa_id' => $coaId,
+                'is_cash' => $isCash,
+                'is_available_in_pos' => true,
+                'requires_reference' => !$isCash,
+            ]);
+        }
+
+        return (object) $methods;
     }
 }

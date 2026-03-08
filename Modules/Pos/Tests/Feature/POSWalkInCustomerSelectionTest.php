@@ -104,15 +104,12 @@ class POSWalkInCustomerSelectionTest extends TestCase
             ->assertJsonPath('cart_snapshot.customer.resolution_source', 'selected');
     }
 
-    public function test_clearing_customer_selection_falls_back_to_default_walk_in_customer(): void
+    public function test_clearing_customer_selection_sets_customer_to_null(): void
     {
         $setting = $this->createSetting('BIZ POS CUSTOMER CLEAR');
         [$cashier] = $this->createCashierAndOpenSession($setting, 'POS CUSTOMER CLEAR');
 
-        $defaultCustomer = $this->createCustomer($setting, 'Walk In Default', '08120000001');
         $selectedCustomer = $this->createCustomer($setting, 'Pelanggan Tetap', '08120000002');
-
-        $setting->update(['pos_walk_in_customer_id' => $defaultCustomer->id]);
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -128,9 +125,8 @@ class POSWalkInCustomerSelectionTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('cart_snapshot.customer.selected_customer_id', null)
-            ->assertJsonPath('cart_snapshot.customer.default_customer_id', $defaultCustomer->id)
-            ->assertJsonPath('cart_snapshot.customer.resolved_customer_id', $defaultCustomer->id)
-            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'default');
+            ->assertJsonPath('cart_snapshot.customer.resolved_customer_id', null)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'none');
     }
 
     public function test_cross_setting_customer_selection_is_rejected(): void
@@ -150,29 +146,15 @@ class POSWalkInCustomerSelectionTest extends TestCase
             ->assertJsonValidationErrors(['customer_id']);
     }
 
-    public function test_snapshot_is_unresolved_when_default_walk_in_mapping_is_missing(): void
-    {
-        $setting = $this->createSetting('BIZ POS CUSTOMER UNRESOLVED');
-        [$cashier] = $this->createCashierAndOpenSession($setting, 'POS CUSTOMER UNRESOLVED');
-
-        $this->actingAs($cashier)
-            ->withSession(['setting_id' => $setting->id])
-            ->getJson(route('pos.sell.cart.show'))
-            ->assertOk()
-            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'unresolved')
-            ->assertJsonPath('cart_snapshot.customer.resolved_customer_id', null)
-            ->assertJsonPath('cart_snapshot.customer.resolution_error.code', 'WALK_IN_CUSTOMER_NOT_CONFIGURED');
-    }
-
-    public function test_customer_selection_changes_do_not_change_cart_totals(): void
+    public function test_customer_selection_changes_do_not_reprice_non_tier_products(): void
     {
         $setting = $this->createSetting('BIZ POS CUSTOMER TOTALS');
         [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'POS CUSTOMER TOTALS');
 
-        $defaultCustomer = $this->createCustomer($setting, 'Walk In Default', '08880000001');
-        $selectedCustomer = $this->createCustomer($setting, 'Pelanggan Loyal', '08880000002');
-        $setting->update(['pos_walk_in_customer_id' => $defaultCustomer->id]);
+        $customer1 = $this->createCustomer($setting, 'Pelanggan Satu', '08880000001');
+        $customer2 = $this->createCustomer($setting, 'Pelanggan Dua', '08880000002');
 
+        // Use non-tier product: pricing should remain stable across customer change
         $product = $this->createStockedProduct($setting, $location, 'SKU-CUST-001', 'Produk A', 12345, $cashier->id);
 
         $baseline = $this->actingAs($cashier)
@@ -187,21 +169,22 @@ class POSWalkInCustomerSelectionTest extends TestCase
         $afterSelect = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->patchJson(route('pos.sell.cart.customer.update'), [
-                'customer_id' => $selectedCustomer->id,
+                'customer_id' => $customer1->id,
             ])
             ->assertOk()
             ->json('cart_snapshot.totals.grand_total');
 
-        $afterClear = $this->actingAs($cashier)
+        $afterSwitch = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->patchJson(route('pos.sell.cart.customer.update'), [
-                'customer_id' => null,
+                'customer_id' => $customer2->id,
             ])
             ->assertOk()
             ->json('cart_snapshot.totals.grand_total');
 
+        // Non-tier customers: totals should remain unchanged (base price applies)
         $this->assertSame($baseline, $afterSelect);
-        $this->assertSame($baseline, $afterClear);
+        $this->assertSame($baseline, $afterSwitch);
     }
 
     private function createSetting(string $name): Setting
@@ -288,6 +271,7 @@ class POSWalkInCustomerSelectionTest extends TestCase
             'allow_total_only_float_input' => true,
             'close_variance_approval_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
+            'cash_threshold' => 50000,
         ]);
 
         return $terminal;
