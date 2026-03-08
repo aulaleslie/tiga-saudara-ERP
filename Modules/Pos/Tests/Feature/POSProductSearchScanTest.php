@@ -142,6 +142,9 @@ class POSProductSearchScanTest extends TestCase
         $response->assertJsonPath('meta.auto_select_product_id', $product->id);
         $response->assertJsonPath('results.0.id', $product->id);
         $response->assertJsonPath('results.0.matched_by', 'conversion_barcode_exact');
+        $response->assertJsonPath('results.0.conversion.id', fn ($id) => is_int($id) && $id > 0);
+        $response->assertJsonPath('results.0.conversion.conversion_factor', 1);
+        $response->assertJsonPath('results.0.conversion.unit_name', strtoupper('Box'));
     }
 
     public function test_search_supports_sku_and_name_queries_with_deterministic_order_and_limit(): void
@@ -190,6 +193,38 @@ class POSProductSearchScanTest extends TestCase
         $nameResponse->assertJsonPath('meta.result_count', 1);
         $nameResponse->assertJsonPath('results.0.id', $alpha->id);
         $nameResponse->assertJsonPath('results.0.matched_by', 'name_partial');
+    }
+
+    /**
+     * Phase 5: SKU exact match should NOT trigger auto-select.
+     * Only barcode/conversion barcode matches auto-select (direct add-to-cart on frontend).
+     * SKU matches require explicit click selection in modal (click-to-add contract).
+     */
+    public function test_sku_exact_match_does_not_trigger_auto_select(): void
+    {
+        $setting = $this->createSetting('BIZ SEARCH SKU NO AUTO');
+        [$cashier, $allowedLocation] = $this->createCashierAndOpenSession($setting, 'POS SEARCH SKU NO AUTO');
+
+        $product = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'SKU-UNIQUE-001',
+            name: 'Produk SKU Search',
+            barcode: 'BC-SKU-001',
+            availableQty: 10,
+            salePrice: 50000,
+            serialRequired: false,
+            createdBy: $cashier->id
+        );
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.products.search', ['q' => 'SKU-UNIQUE-001']));
+
+        $response->assertOk();
+        $response->assertJsonPath('results.0.id', $product->id);
+        $response->assertJsonPath('results.0.matched_by', 'sku_exact');
+        $response->assertJsonPath('meta.auto_select_product_id', null);
     }
 
     public function test_search_supports_fuzzy_multi_term_typo_tolerance(): void

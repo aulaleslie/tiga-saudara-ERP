@@ -12,6 +12,7 @@ use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Setting\Entities\Location;
@@ -79,10 +80,10 @@ class POSScanResolveEndpointTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('type', 'product_exact')
             ->assertJsonPath('product.id', $product->id)
-            ->assertJsonPath('product.product_name', 'Produk Scan');
+            ->assertJsonPath('product.product_name', strtoupper('Produk Scan'));
     }
 
-    public function test_exact_product_sku_returns_product_exact(): void
+    public function test_exact_product_sku_returns_none(): void
     {
         $setting = $this->createSetting('SCAN RESOLVE SKU');
         [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE SKU');
@@ -93,26 +94,9 @@ class POSScanResolveEndpointTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->getJson(route('pos.sell.search.resolve', ['q' => 'SKU-SCAN-002']));
 
+        // Phase 4: SKU scanning is no longer supported in scan resolver
         $response->assertOk()
-            ->assertJsonPath('type', 'product_exact')
-            ->assertJsonPath('product.product_code', 'SKU-SCAN-002');
-    }
-
-    public function test_ambiguous_query_returns_ambiguous(): void
-    {
-        $setting = $this->createSetting('SCAN RESOLVE AMBIG');
-        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE AMBIG');
-
-        $this->createStockedProduct($setting, $location, 'SKU-AMBIG-A', 'Kopi', 10000, $cashier->id);
-        $this->createStockedProduct($setting, $location, 'SKU-AMBIG-B', 'Kopi Hitam', 12000, $cashier->id);
-
-        $response = $this->actingAs($cashier)
-            ->withSession(['setting_id' => $setting->id])
-            ->getJson(route('pos.sell.search.resolve', ['q' => 'kopi']));
-
-        $response->assertOk()
-            ->assertJsonPath('type', 'ambiguous')
-            ->assertJsonPath('result_count', 2);
+            ->assertJsonPath('type', 'none');
     }
 
     public function test_no_match_returns_none(): void
@@ -174,7 +158,10 @@ class POSScanResolveEndpointTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('type', 'product_exact')
             ->assertJsonPath('product.id', $product->id)
-            ->assertJsonPath('product.product_name', 'Produk Konversi');
+            ->assertJsonPath('product.product_name', strtoupper('Produk Konversi'))
+            ->assertJsonPath('product.resolved_via', 'conversion_barcode')
+            ->assertJsonPath('product.conversion.conversion_factor', 12)
+            ->assertJsonPath('product.conversion.unit_name', strtoupper('Pack'));
     }
 
     /**
@@ -211,6 +198,214 @@ class POSScanResolveEndpointTest extends TestCase
         $response->assertOk();
         // Verify response structure is valid (not an error payload)
         $this->assertIsString($response->json('type'));
+    }
+
+    /**
+     * Phase 5: Serial number scan should return serial_exact type with serial metadata.
+     * This tests the third resolution branch in PosScanResolverService::resolve().
+     */
+    public function test_serial_number_scan_returns_serial_exact(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE SERIAL');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE SERIAL');
+
+        $product = $this->createStockedProduct(
+            $setting,
+            $location,
+            'SKU-SERIAL-001',
+            'Produk Serial',
+            100000,
+            $cashier->id
+        );
+
+        $serialNumber = 'SN-' . time() . '-' . rand(1000, 9999);
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => $serialNumber,
+            'status' => 'ACTIVE',
+            'location_id' => $location->id,
+            'tax_id' => null,
+        ]);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => $serialNumber]));
+
+        $response->assertOk()
+            ->assertJsonPath('type', 'serial_exact')
+            ->assertJsonPath('serial.serial_number', $serialNumber)
+            ->assertJsonPath('serial.product_id', $product->id)
+            ->assertJsonPath('serial.location_id', $location->id)
+            ->assertJsonPath('product.id', $product->id)
+            ->assertJsonPath('product.serial_number_required', false);
+    }
+
+    /**
+     * Phase 5: Barcode resolution should be case-insensitive.
+     * Service uses LOWER(barcode) for matching.
+     */
+    public function test_barcode_resolution_is_case_insensitive(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE CASE INSENSITIVE');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE CASE INSENSITIVE');
+
+        $product = $this->createStockedProduct(
+            $setting,
+            $location,
+            'SKU-CASE-001',
+            'Produk Case Test',
+            45000,
+            $cashier->id
+        );
+
+        // Barcode is ABC-123, scan with lowercase
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => strtolower($product->barcode)]));
+
+        $response->assertOk()
+            ->assertJsonPath('type', 'product_exact')
+            ->assertJsonPath('product.id', $product->id);
+    }
+
+    /**
+     * Phase 5: Product barcode response should include resolved_via=product_barcode
+     * and conversion=null.
+     */
+    public function test_product_barcode_response_includes_resolved_via_product_barcode(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE RESOLVED_VIA');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE RESOLVED_VIA');
+
+        $product = $this->createStockedProduct(
+            $setting,
+            $location,
+            'SKU-RESOLVED-001',
+            'Produk Resolved Via',
+            62000,
+            $cashier->id
+        );
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => $product->barcode]));
+
+        $response->assertOk()
+            ->assertJsonPath('type', 'product_exact')
+            ->assertJsonPath('product.resolved_via', 'product_barcode')
+            ->assertJsonPath('product.conversion', null);
+    }
+
+    /**
+     * Phase 5: Product without stock in allowed locations should return none.
+     * This tests the hasStockInAllowedLocations guard in PosScanResolverService.
+     */
+    public function test_product_without_stock_in_allowed_locations_returns_none(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE NO STOCK');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE NO STOCK');
+
+        // Create category and product manually without stock
+        $category = Category::firstOrCreate(
+            ['category_code' => 'SCAN-NO-STOCK-CAT'],
+            [
+                'category_name' => 'Scan No Stock Category',
+                'created_by' => $cashier->id,
+                'setting_id' => $setting->id,
+            ]
+        );
+
+        $unit = Unit::firstOrCreate(['name' => 'Piece', 'short_name' => 'PCS']);
+
+        $product = Product::create([
+            'setting_id' => $setting->id,
+            'category_id' => $category->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+            'product_name' => 'Produk No Stock',
+            'product_code' => 'SKU-NOSTOCK-001',
+            'barcode' => 'BC-NOSTOCK-' . uniqid(),
+            'product_quantity' => 0,
+            'product_cost' => 10000,
+            'product_price' => 50000,
+            'product_unit' => 'PCS',
+            'product_stock_alert' => 1,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+        ]);
+
+        // Create price but NO stock
+        ProductPrice::create([
+            'product_id' => $product->id,
+            'setting_id' => $setting->id,
+            'sale_price' => 50000,
+        ]);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => $product->barcode]));
+
+        $response->assertOk()
+            ->assertJsonPath('type', 'none');
+    }
+
+    /**
+     * Phase 5: Product without price for setting should return none.
+     * This tests the hasPriceForSetting guard in PosScanResolverService.
+     */
+    public function test_product_without_price_for_setting_returns_none(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE NO PRICE');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE NO PRICE');
+
+        // Create category and product
+        $category = Category::firstOrCreate(
+            ['category_code' => 'SCAN-NO-PRICE-CAT'],
+            [
+                'category_name' => 'Scan No Price Category',
+                'created_by' => $cashier->id,
+                'setting_id' => $setting->id,
+            ]
+        );
+
+        $unit = Unit::firstOrCreate(['name' => 'Piece', 'short_name' => 'PCS']);
+
+        $product = Product::create([
+            'setting_id' => $setting->id,
+            'category_id' => $category->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+            'product_name' => 'Produk No Price',
+            'product_code' => 'SKU-NOPRICE-001',
+            'barcode' => 'BC-NOPRICE-' . uniqid(),
+            'product_quantity' => 100,
+            'product_cost' => 15000,
+            'product_price' => 55000,
+            'product_unit' => 'PCS',
+            'product_stock_alert' => 1,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+        ]);
+
+        // Create stock but NO price row
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $location->id,
+            'quantity' => 100,
+            'quantity_non_tax' => 100,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'tax_id' => null,
+        ]);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.search.resolve', ['q' => $product->barcode]));
+
+        $response->assertOk()
+            ->assertJsonPath('type', 'none');
     }
 
     // --- Helpers ---

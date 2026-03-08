@@ -18,18 +18,15 @@ class PosScanResolverService
      * Resolution order:
      * 1. Exact barcode match on products
      * 2. Exact barcode match on product_unit_conversions
-     * 3. Exact SKU/product_code match
-     * 4. Exact serial number match
-     * 5. If multiple matches, return ambiguous
-     * 6. If no match, return none
+     * 3. Exact serial number match
+     * 4. If no match, return none
      *
      * @param  int  $settingId
      * @param  string  $query
      * @return array{
-     *     type: 'product_exact'|'serial_exact'|'ambiguous'|'none',
+     *     type: 'product_exact'|'serial_exact'|'none',
      *     product?: array{id: int, name: string, code: string, barcode: ?string, sale_price: float, serial_number_required: bool},
-     *     serial?: array{serial_number: string, product_id: int, tax_id: ?int, location_id: int},
-     *     results?: array<int, array<string, mixed>>
+     *     serial?: array{serial_number: string, product_id: int, tax_id: ?int, location_id: int}
      * }
      */
     public function resolve(int $settingId, string $query): array
@@ -67,17 +64,7 @@ class PosScanResolverService
             return $this->formatProductExact($unitConversionBarcode->product, $settingId, $unitConversionBarcode);
         }
 
-        // 3. Exact SKU/product_code match
-        $productByCode = Product::query()
-            ->where('stock_managed', true)
-            ->whereRaw('LOWER(product_code) = ?', [$queryLower])
-            ->first();
-
-        if ($productByCode && $this->hasStockInAllowedLocations($productByCode->id, $allowedLocationIds) && $this->hasPriceForSetting($productByCode->id, $settingId)) {
-            return $this->formatProductExact($productByCode, $settingId);
-        }
-
-        // 4. Exact serial number match
+        // 3. Exact serial number match
         $serialRecord = ProductSerialNumber::query()
             ->where('serial_number', $query)
             ->where('status', 'ACTIVE')
@@ -106,7 +93,7 @@ class PosScanResolverService
             ];
         }
 
-        // 5. If no exact matches, return none (ambiguous search not needed for scanner)
+        // 4. If no exact matches, return none
         return ['type' => 'none'];
     }
 

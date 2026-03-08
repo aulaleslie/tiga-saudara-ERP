@@ -242,23 +242,7 @@
         margin: 0;
     }
 
-    #pos-shell-search-results {
-        position: absolute;
-        top: calc(100% + 4px);
-        left: 0;
-        right: 0;
-        max-height: clamp(180px, 31dvh, 290px);
-        overflow-y: auto;
-        z-index: 1300;
-        background: #fff;
-        border: 1px solid #dbe1ea;
-        border-radius: 0.45rem;
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
-    }
 
-    #pos-shell-search-results:empty {
-        display: none;
-    }
 
     .pos-cart-shell {
         height: 100%;
@@ -372,7 +356,6 @@
         font-size: 0.92rem;
     }
 
-    #pos-shell-search-results .list-group-item,
     #pos-customer-search-results .list-group-item {
         padding: 0.45rem 0.55rem;
         line-height: 1.35;
@@ -381,12 +364,10 @@
         border-right: 0;
     }
 
-    #pos-shell-search-results .list-group-item:first-child,
     #pos-customer-search-results .list-group-item:first-child {
         border-top: 0;
     }
 
-    #pos-shell-search-results .list-group-item:last-child,
     #pos-customer-search-results .list-group-item:last-child {
         border-bottom: 0;
     }
@@ -516,10 +497,41 @@
             padding-bottom: 0.32rem;
         }
 
-        #pos-shell-search-results,
         #pos-customer-search-results {
             max-height: 42dvh;
         }
+    }
+
+    /* Phase 3: Search card grid layout */
+    .pos-search-card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 0.75rem;
+        padding: 1rem;
+    }
+
+    .pos-search-card {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 1rem;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 0.875rem;
+    }
+
+    .pos-search-card:hover {
+        border-color: #007bff;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        background-color: #f8f9ff;
+    }
+
+    .pos-search-card:focus {
+        outline: 2px solid #007bff;
+        outline-offset: -1px;
     }
 
     @media (max-width: 640px) and (orientation: portrait) {
@@ -650,18 +662,20 @@
                 <div class="pos-area pos-area-search">
                     <div class="card pos-card">
                         <div class="card-header bg-white">
-                            <h5 class="pos-section-title">Search</h5>
+                            <h5 class="pos-section-title">Pindai Produk</h5>
                         </div>
                         <div class="card-body">
                             <div class="pos-search-grid">
                                 <div class="pos-search-head">
                                     <div class="pos-search-main">
-                                        <label for="pos-shell-search" class="small font-weight-bold">Pencarian / Pindai Produk</label>
+                                        <label for="pos-shell-search" class="small font-weight-bold">Pindai Barcode / Serial</label>
                                         <input id="pos-shell-search" type="text" class="form-control"
-                                               placeholder="Pindai barcode atau ketik nama/SKU"
+                                               placeholder="Pindai barcode atau ketik nomor serial"
                                                autocomplete="off">
-                                        <div id="pos-shell-search-results" class="list-group"></div>
                                     </div>
+                                    <button id="pos-btn-cari-produk" type="button" class="btn btn-outline-primary">
+                                        Cari Produk
+                                    </button>
                                 </div>
                                 <p id="pos-shell-search-status" class="small text-muted"></p>
                             </div>
@@ -924,18 +938,30 @@
         </div>
     </div>
 
-    <!-- Search Results Modal (Phase 1) -->
+    <!-- Search Results Modal (Phase 1-3) -->
     <div class="modal fade" id="pos-search-results-modal" tabindex="-1" role="dialog" aria-labelledby="pos-search-results-modal-label" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="pos-search-results-modal-label">Hasil Pencarian Produk</h5>
+                    <h5 class="modal-title" id="pos-search-results-modal-label">Cari Produk</h5>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Tutup">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
-                <div class="modal-body p-0">
-                    <div id="pos-search-modal-results" class="list-group"></div>
+                <div class="modal-body d-flex flex-column" style="max-height: 70vh; padding: 0;">
+                    <!-- Phase 3: In-modal search input -->
+                    <div class="p-3 border-bottom flex-shrink-0">
+                        <div class="input-group">
+                            <input id="pos-modal-search-input" type="text" class="form-control" 
+                                   placeholder="Cari nama produk atau SKU..." 
+                                   autocomplete="off">
+                            <div class="input-group-append">
+                                <button id="pos-modal-search-btn" class="btn btn-primary" type="button">Cari</button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Phase 3: Card-grid results container -->
+                    <div id="pos-search-modal-results" class="pos-search-card-grid flex-grow-1 overflow-auto"></div>
                 </div>
                 <div class="modal-footer bg-light">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
@@ -948,7 +974,7 @@
         (function () {
             const searchInput = document.getElementById('pos-shell-search');
             const statusElement = document.getElementById('pos-shell-search-status');
-            const resultListElement = document.getElementById('pos-shell-search-results');
+            const cariProdukButton = document.getElementById('pos-btn-cari-produk');
             const scanFeedbackButton = document.getElementById('pos-shell-scan-feedback');
             const cartBody = document.getElementById('pos-shell-cart-body');
             const cartStatusElement = document.getElementById('pos-cart-action-status');
@@ -999,9 +1025,11 @@
             const successChangeElement = document.getElementById('pos-success-change');
             const shortcutReprintBtn = document.getElementById('pos-shortcut-reprint');
 
-            // Phase 1: Search results modal elements
+            // Phase 1-3: Search results modal elements
             const searchResultsModalElement = document.getElementById('pos-search-results-modal');
             const searchResultsModalContainer = document.getElementById('pos-search-modal-results');
+            const modalSearchInput = document.getElementById('pos-modal-search-input');
+            const modalSearchBtn = document.getElementById('pos-modal-search-btn');
 
             const searchEndpoint = @json(route('pos.sell.products.search'));
             const scanResolveEndpoint = @json(url('/pos/sell/search/resolve'));
@@ -1016,11 +1044,10 @@
             const cartLinesBaseUrl = @json(url('/pos/sell/cart/lines'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
-            if (!searchInput || !statusElement || !resultListElement || !cartBody || !searchEndpoint || !cartShowEndpoint) {
+            if (!searchInput || !statusElement || !cartBody || !searchEndpoint || !cartShowEndpoint) {
                 return;
             }
 
-            let debounceHandle = null;
             let latestRequestId = 0;
             let customerDebounceHandle = null;
             let latestCustomerRequestId = 0;
@@ -1080,7 +1107,7 @@
             }
 
             function clearResults() {
-                resultListElement.innerHTML = '';
+                // Inline results removed in Phase 1; this function is kept as a no-op for backward compatibility
             }
 
             function clearCustomerResults() {
@@ -1524,59 +1551,9 @@
                 }
             }
 
-            function renderSearchResults(data) {
-                clearResults();
 
-                const results = Array.isArray(data.results) ? data.results : [];
-                const autoSelectId = data.meta && data.meta.auto_select_product_id ? Number(data.meta.auto_select_product_id) : null;
 
-                if (autoSelectId) {
-                    const autoSelected = results.find((item) => Number(item.id) === autoSelectId);
-
-                    if (autoSelected) {
-                        addProductToCart(autoSelected, 'auto');
-                        return;
-                    }
-                }
-
-                if (results.length === 0) {
-                    setSearchStatus('Produk tidak ditemukan.', 'text-muted');
-                    return;
-                }
-
-                setSearchStatus('Pilih produk dari daftar.', 'text-muted');
-
-                results.forEach((product) => {
-                    const button = document.createElement('button');
-                    button.type = 'button';
-                    button.className = 'list-group-item list-group-item-action';
-
-                    const productName = escapeHtml(product.product_name);
-                    const productCode = escapeHtml(product.product_code || '-');
-                    const barcode = escapeHtml(product.barcode || '-');
-                    const availableQty = escapeHtml(product.available_qty);
-
-                    button.innerHTML = `
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <div class="font-weight-bold">${productName}</div>
-                                <div class="small text-muted">${productCode} | ${barcode}</div>
-                            </div>
-                            <div class="text-right">
-                                <div class="small text-muted">Stok: ${availableQty}</div>
-                                <div class="small">${formatPrice(product.sale_price)}</div>
-                            </div>
-                        </div>
-                    `;
-                    button.addEventListener('click', function () {
-                        addProductToCart(product, 'manual');
-                    });
-
-                    resultListElement.appendChild(button);
-                });
-            }
-
-            // Phase 1: Render search results in modal
+            // Phase 3: Render search results in card-grid layout
             function renderSearchResultsModal(data) {
                 if (!searchResultsModalContainer) {
                     return;
@@ -1599,96 +1576,78 @@
                 // Show "not found" message if no results
                 if (results.length === 0) {
                     const notFoundDiv = document.createElement('div');
-                    notFoundDiv.className = 'list-group-item text-muted text-center py-5';
+                    notFoundDiv.className = 'text-muted text-center py-5';
                     notFoundDiv.textContent = 'Produk tidak ditemukan.';
                     searchResultsModalContainer.appendChild(notFoundDiv);
                     return;
                 }
 
-                // Render each result as a button item
+                // Render each result as a card in the grid
                 results.forEach((product) => {
-                    const button = document.createElement('button');
-                    button.type = 'button';
-                    button.className = 'list-group-item list-group-item-action text-left';
+                    const card = document.createElement('button');
+                    card.type = 'button';
+                    card.className = 'pos-search-card';
+                    card.style.cssText = 'display: block; width: 100%; text-align: left; padding: 1rem; border: 1px solid #dee2e6; border-radius: 4px; background: white; cursor: pointer; transition: all 0.2s ease;';
 
                     const productName = escapeHtml(product.product_name);
                     const productCode = escapeHtml(product.product_code || '-');
                     const barcode = escapeHtml(product.barcode || '-');
                     const availableQty = escapeHtml(product.available_qty);
+                    const price = formatPrice(product.sale_price);
 
-                    button.innerHTML = `
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div style="flex: 1;">
-                                <div class="font-weight-bold">${productName}</div>
-                                <div class="small text-muted">${productCode} | ${barcode}</div>
-                            </div>
-                            <div class="text-right ml-3">
-                                <div class="small text-muted">Stok: ${availableQty}</div>
-                                <div class="small">${formatPrice(product.sale_price)}</div>
-                            </div>
+                    card.innerHTML = `
+                        <!-- Image placeholder for future use -->
+                        <div style="width: 100%; height: 80px; background-color: #f8f9fa; border-radius: 4px; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: center; color: #999;">
+                            <small>Gambar</small>
                         </div>
-                    `;
-                    button.addEventListener('click', async function () {
+                        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem;">${productName}</div>
+                        <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.75rem;">
+                            <div>SKU: ${productCode}</div>
+                            <div>Barcode: ${barcode}</div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-weight: 500; padding-top: 0.75rem; border-top: 1px solid #eee;">
+                            <div>
+                                <div style="font-size: 0.75rem; color: #999;\">Stok</div>\n                                <div style="font-size: 1rem; font-weight: 600;\">${availableQty}</div>\n                            </div>\n                            <div style=\"text-align: right;\">\n                                <div style=\"font-size: 0.75rem; color: #999;\">${price}</div>\n                            </div>\n                        </div>\n                    `;
+
+                    // Hover effect
+                    card.addEventListener('mouseenter', function () {
+                        this.style.borderColor = '#007bff';
+                        this.style.boxShadow = '0 0.125rem 0.25rem rgba(0,0,0,0.075)';
+                        this.style.backgroundColor = '#f8f9ff';
+                    });
+                    card.addEventListener('mouseleave', function () {
+                        this.style.borderColor = '#dee2e6';
+                        this.style.boxShadow = 'none';
+                        this.style.backgroundColor = 'white';
+                    });
+
+                    card.addEventListener('click', async function () {
                         // Close modal and let addProductToCart handle cleanup
                         if (searchResultsModalElement) {
-                            $(searchResultsModalElement).modal('hide');
+                            try {
+                                if (typeof jQuery !== 'undefined') {
+                                    jQuery(searchResultsModalElement).modal('hide');
+                                } else if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                                    const modal = bootstrap.Modal.getInstance(searchResultsModalElement);
+                                    if (modal) {
+                                        modal.hide();
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('Error closing modal:', e);
+                            }
                         }
                         await addProductToCart(product, 'manual');
                     });
 
-                    searchResultsModalContainer.appendChild(button);
+                    searchResultsModalContainer.appendChild(card);
                 });
 
-                // Show the modal
-                if (searchResultsModalElement) {
-                    $(searchResultsModalElement).modal('show');
-                }
+                // Setup keyboard navigation for the cards
+                setupSearchResultsModalKeyboard();
             }
 
-            async function executeSearch(query) {
-                latestRequestId += 1;
-                const requestId = latestRequestId;
 
-                setSearchStatus('Mencari produk...', 'text-muted');
-
-                const url = new URL(searchEndpoint, window.location.origin);
-                url.searchParams.set('q', query);
-                url.searchParams.set('limit', '10');
-
-                try {
-                    const response = await fetch(url.toString(), {
-                        method: 'GET',
-                        headers: {
-                            'Accept': 'application/json',
-                            'X-Requested-With': 'XMLHttpRequest',
-                        },
-                    });
-
-                    if (response.redirected) {
-                        window.location.href = response.url;
-                        return;
-                    }
-
-                    if (!response.ok) {
-                        throw new Error('Permintaan pencarian gagal.');
-                    }
-
-                    const data = await response.json();
-
-                    if (requestId !== latestRequestId) {
-                        return;
-                    }
-
-                    renderSearchResults(data);
-                } catch (error) {
-                    if (requestId !== latestRequestId) {
-                        return;
-                    }
-
-                    clearResults();
-                    setSearchStatus('Pencarian gagal. Coba lagi.', 'text-danger');
-                }
-            }
 
             // Phase 1: Execute search and show results in modal
             async function executeSearchModal(query) {
@@ -1737,9 +1696,9 @@
                 }
             }
 
-            // Phase 1: Setup keyboard navigation for search results modal
+            // Phase 3: Setup keyboard navigation for search results modal
             function setupSearchResultsModalKeyboard() {
-                const items = searchResultsModalContainer ? Array.from(searchResultsModalContainer.querySelectorAll('button.list-group-item')) : [];
+                const items = searchResultsModalContainer ? Array.from(searchResultsModalContainer.querySelectorAll('button.pos-search-card')) : [];
                 if (items.length === 0) {
                     return;
                 }
@@ -1774,31 +1733,12 @@
                 });
             }
 
-            // Phase 1: Wire up modal keyboard navigation
+            // Phase 3: Wire up modal keyboard navigation
             if (searchResultsModalElement) {
-                $(searchResultsModalElement).on('shown.bs.modal', setupSearchResultsModalKeyboard);
+                searchResultsModalElement.addEventListener('shown.bs.modal', setupSearchResultsModalKeyboard);
             }
 
-            searchInput.addEventListener('input', function (event) {
-                const query = (event.target.value || '').trim();
-
-                if (debounceHandle) {
-                    clearTimeout(debounceHandle);
-                }
-
-                if (query.length === 0) {
-                    latestRequestId += 1;
-                    clearResults();
-                    setSearchStatus('', 'text-muted');
-                    return;
-                }
-
-                debounceHandle = setTimeout(function () {
-                    executeSearch(query);
-                }, 250);
-            });
-
-            // Phase 3A: Add Enter key handler for scan resolver
+            // Phase 1: Enter key handler for scan resolver
             searchInput.addEventListener('keydown', async function (event) {
                 if (event.key !== 'Enter' && event.code !== 'Enter') {
                     return;
@@ -1829,13 +1769,90 @@
                         searchInput.value = '';
                         setSearchStatus('Serial berhasil ditambahkan.', 'text-success');
                     } else {
-                        // Phase 1: No exact match - show results in modal
-                        await executeSearchModal(query);
+                        setSearchStatus('Kode tidak ditemukan.', 'text-warning');
                     }
                 } catch (error) {
                     setSearchStatus('Pindai gagal: ' + (error.message || 'Server error'), 'text-danger');
                 }
             });
+
+            // Phase 3: Cari Produk button click handler
+            if (cariProdukButton) {
+                cariProdukButton.addEventListener('click', function () {
+                    // Clear modal search input and results
+                    if (modalSearchInput) {
+                        modalSearchInput.value = '';
+                    }
+                    if (searchResultsModalContainer) {
+                        searchResultsModalContainer.innerHTML = '';
+                        const placeholderDiv = document.createElement('div');
+                        placeholderDiv.className = 'text-muted text-center py-5';
+                        placeholderDiv.textContent = 'Ketik nama produk atau SKU lalu tekan Cari.';
+                        searchResultsModalContainer.appendChild(placeholderDiv);
+                    }
+                    
+                    if (searchResultsModalElement) {
+                        // Try jQuery first (most likely available)
+                        try {
+                            if (typeof jQuery !== 'undefined') {
+                                jQuery(searchResultsModalElement).modal('show');
+                                return;
+                            }
+                        } catch (e) {}
+                        
+                        // Fallback to Bootstrap 5
+                        try {
+                            if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                                const modal = new bootstrap.Modal(searchResultsModalElement);
+                                modal.show();
+                                return;
+                            }
+                        } catch (e) {}
+                    }
+                    
+                    // Refocus scanner field on modal close
+                    if (searchResultsModalElement) {
+                        searchResultsModalElement.addEventListener('hidden.bs.modal', function refocusScanner() {
+                            if (searchInput) {
+                                searchInput.focus();
+                            }
+                            searchResultsModalElement.removeEventListener('hidden.bs.modal', refocusScanner);
+                        }, { once: true });
+                    }
+                });
+                
+                // Phase 3: Auto-focus modal search input when modal opens
+                if (searchResultsModalElement) {
+                    searchResultsModalElement.addEventListener('shown.bs.modal', function () {
+                        if (modalSearchInput) {
+                            modalSearchInput.focus();
+                        }
+                    });
+                }
+            }
+
+            // Phase 3: Modal search input/button event handlers
+            function executeModalSearch() {
+                const query = (modalSearchInput ? modalSearchInput.value : '').trim();
+                if (!query) {
+                    setSearchStatus('Masukkan kode pencarian.', 'text-muted');
+                    return;
+                }
+                executeSearchModal(query);
+            }
+
+            if (modalSearchBtn) {
+                modalSearchBtn.addEventListener('click', executeModalSearch);
+            }
+
+            if (modalSearchInput) {
+                modalSearchInput.addEventListener('keydown', function (event) {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        executeModalSearch();
+                    }
+                });
+            }
 
             if (customerSearchInput) {
                 customerSearchInput.addEventListener('input', function (event) {
