@@ -145,8 +145,16 @@ class PosSellController extends Controller
         $settingId = $this->currentSettingId();
         $sessionId = $this->activeSessionId($request);
 
+        try {
+            $snapshot = $cartService->getSnapshot($settingId, $sessionId);
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
         return response()->json([
-            'cart_snapshot' => $cartService->getSnapshot($settingId, $sessionId),
+            'cart_snapshot' => $snapshot,
         ]);
     }
 
@@ -259,7 +267,14 @@ class PosSellController extends Controller
     {
         $settingId = $this->currentSettingId();
         $sessionId = $this->activeSessionId($request);
-        $snapshot = $cartService->clear($settingId, $sessionId);
+
+        try {
+            $snapshot = $cartService->clear($settingId, $sessionId);
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
 
         return response()->json(['cart_snapshot' => $snapshot]);
     }

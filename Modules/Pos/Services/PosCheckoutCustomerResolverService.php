@@ -15,13 +15,18 @@ class PosCheckoutCustomerResolverService
      *     resolution_source:string,
      *     resolution_error:array{code:string,message:string}|null
      * }
-     * @throws \DomainException if no customer is selected
      */
     public function resolve(int $settingId, ?int $selectedCustomerId): array
     {
-        // No walk-in fallback - customer MUST be explicitly selected
+        // No customer selected - return non-fatal unresolved payload
         if ($selectedCustomerId === null || $selectedCustomerId < 1) {
-            throw new \DomainException('CUSTOMER_NOT_SELECTED');
+            return [
+                'selected_customer_id' => null,
+                'selected_customer' => null,
+                'resolved_customer_id' => null,
+                'resolution_source' => 'none',
+                'resolution_error' => null,
+            ];
         }
 
         $selectedCustomer = Customer::query()

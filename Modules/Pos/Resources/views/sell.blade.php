@@ -1623,7 +1623,7 @@
                 setSearchStatus('Memindai...', 'text-muted');
 
                 try {
-                    const response = await jsonRequest(scanResolveEndpoint, 'POST', { q: query });
+                    const response = await jsonRequest(scanResolveEndpoint + '?q=' + encodeURIComponent(query), 'GET');
                     if (!response) {
                         setSearchStatus('Pindai gagal.', 'text-danger');
                         return;
@@ -1637,12 +1637,10 @@
                         await handleSerialScanResult(response);
                         searchInput.value = '';
                         setSearchStatus('Serial berhasil ditambahkan.', 'text-success');
-                    } else if (response.type === 'ambiguous') {
-                        // Run normal search to show suggestions
+                    } else {
+                        // No exact match: fallback to search suggestion list (scan-first/search-fallback)
                         executeSearch(query);
                         setSearchStatus('Pilih produk dari daftar.', 'text-muted');
-                    } else {
-                        setSearchStatus('Produk tidak ditemukan.', 'text-muted');
                     }
                 } catch (error) {
                     setSearchStatus('Pindai gagal: ' + (error.message || 'Server error'), 'text-danger');

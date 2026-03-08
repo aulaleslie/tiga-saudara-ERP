@@ -127,6 +127,23 @@ class POSScanResolveEndpointTest extends TestCase
             ->assertJsonPath('type', 'none');
     }
 
+    /**
+     * POS-003 Regression: POST /pos/sell/search/resolve should not be allowed (405).
+     * Frontend sends POST (HTTP method mismatch), but route is GET-only.
+     * This ensures the method guard is actively enforced.
+     */
+    public function test_post_to_scan_resolve_endpoint_is_not_allowed(): void
+    {
+        $setting = $this->createSetting('SCAN RESOLVE POST GUARD');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'SCAN RESOLVE POST GUARD');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.search.resolve', ['q' => 'test']));
+
+        $response->assertStatus(405);
+    }
+
     // --- Helpers ---
 
     private function createSetting(string $name): Setting
