@@ -662,9 +662,6 @@
                                                autocomplete="off">
                                         <div id="pos-shell-search-results" class="list-group"></div>
                                     </div>
-                                    <button class="btn btn-outline-primary" type="button" id="pos-shell-scan-feedback">
-                                        Siap Pindai
-                                    </button>
                                 </div>
                                 <p id="pos-shell-search-status" class="small text-muted"></p>
                             </div>
@@ -799,13 +796,16 @@
 
                             <div class="form-group mb-3">
                                 <label class="font-weight-bold d-block mb-2">Metode Pembayaran</label>
-                                <div class="btn-group btn-group-sm d-flex" role="group" aria-label="Payment method" id="pos-checkout-method-selector">
-                                    <button type="button" class="btn btn-outline-success js-payment-method active" data-method="cash">Tunai</button>
-                                    <button type="button" class="btn btn-outline-info js-payment-method" data-method="transfer">Transfer</button>
-                                    <button type="button" class="btn btn-outline-dark js-payment-method" data-method="qris">QRIS</button>
+                                <!-- Phase 3D: Searchable dropdown instead of static buttons -->
+                                <div class="position-relative">
+                                    <input type="text" id="pos-checkout-method-search" class="form-control" 
+                                           placeholder="Cari metode pembayaran..." autocomplete="off">
+                                    <div id="pos-checkout-method-results" class="list-group position-absolute w-100" 
+                                         style="top: 100%; left: 0; right: 0; z-index: 1000; max-height: 200px; overflow-y: auto; display: none;"></div>
                                 </div>
+                                <input type="hidden" id="pos-checkout-method-id" value="">
                                 <input type="hidden" id="pos-checkout-method-code" value="cash">
-                                <input type="text" id="pos-checkout-method-label" class="form-control-plaintext font-weight-bold text-uppercase mt-1" readonly value="TUNAI">
+                                <input type="text" id="pos-checkout-method-label" class="form-control-plaintext font-weight-bold text-uppercase mt-2" readonly value="(Pilih Metode)">
                             </div>
 
                             <div class="form-group row mb-2">
@@ -960,6 +960,9 @@
             const checkoutModalElement = document.getElementById('pos-checkout-modal');
             const checkoutMethodLabel = document.getElementById('pos-checkout-method-label');
             const checkoutMethodCode = document.getElementById('pos-checkout-method-code');
+            const checkoutMethodId = document.getElementById('pos-checkout-method-id');
+            const checkoutMethodSearch = document.getElementById('pos-checkout-method-search');
+            const checkoutMethodResults = document.getElementById('pos-checkout-method-results');
             const checkoutMethodButtons = Array.from(document.querySelectorAll('.js-payment-method'));
             const checkoutTotalLabel = document.getElementById('pos-checkout-total-label');
             const checkoutAmountPaid = document.getElementById('pos-checkout-amount-paid');
@@ -979,12 +982,14 @@
             const shortcutReprintBtn = document.getElementById('pos-shortcut-reprint');
 
             const searchEndpoint = @json(route('pos.sell.products.search'));
+            const scanResolveEndpoint = @json(url('/pos/sell/search/resolve'));
             const customerSearchEndpoint = @json(route('pos.sell.customers.search'));
             const cartShowEndpoint = @json(route('pos.sell.cart.show'));
             const cartStoreLineEndpoint = @json(route('pos.sell.cart.lines.store'));
             const cartClearEndpoint = @json(route('pos.sell.cart.clear'));
             const cartCustomerEndpoint = @json(route('pos.sell.cart.customer.update'));
             const customerStoreEndpoint = @json(route('pos.sell.customers.store'));
+            const paymentMethodSearchEndpoint = @json(url('/pos/sell/payment-methods/search'));
             const finalizeEndpoint = @json(route('pos.sell.checkout.finalize'));
             const cartLinesBaseUrl = @json(url('/pos/sell/cart/lines'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
@@ -998,6 +1003,8 @@
             let customerDebounceHandle = null;
             let latestCustomerRequestId = 0;
             let currentSnapshot = null;
+            let cachedPaymentMethods = [];
+            let selectedPaymentMethod = null;
 
             const idrFormatter = new Intl.NumberFormat('id-ID', {
                 style: 'currency',
@@ -1137,24 +1144,22 @@
                 const selected = customer.selected_customer || null;
                 const selectedName = selected && selected.display_name ? selected.display_name : null;
                 const selectedPhone = selected && selected.customer_phone ? selected.customer_phone : null;
-                const defaultCustomer = customer.default_customer || null;
-                const defaultName = defaultCustomer && defaultCustomer.display_name ? defaultCustomer.display_name : null;
-                const defaultPhone = defaultCustomer && defaultCustomer.customer_phone ? defaultCustomer.customer_phone : null;
+                const selectedTier = selected && selected.tier ? selected.tier : null;
                 const resolutionSource = customer.resolution_source || 'unresolved';
-                const resolutionError = customer.resolution_error || null;
 
                 if (resolutionSource === 'selected') {
-                    customerResolutionElement.textContent = selectedName
-                        ? 'Pelanggan terpilih: ' + selectedName + (selectedPhone ? ' (' + selectedPhone + ')' : '')
-                        : 'Pelanggan terpilih.';
-                    customerResolutionElement.classList.remove('text-danger');
-                    customerResolutionElement.classList.add('text-muted');
+                    // Phase 3C: Make selected customer display prominent
+                    const tierBadge = selectedTier ? `<span class="badge badge-primary ml-2">${escapeHtml(selectedTier)}</span>` : '';
+                    customerResolutionElement.innerHTML = `
+                        <div class="card p-2 bg-light border-primary">
+                            <div class="font-weight-bold" style="font-size: 1.1rem;">${escapeHtml(selectedName || 'Pelanggan terpilih')}${tierBadge}</div>
+                            ${selectedPhone ? '<div class="small text-muted">' + escapeHtml(selectedPhone) + '</div>' : ''}
+                        </div>
+                    `;
                     return;
                 }
 
-                customerResolutionElement.textContent = 'Belum ada pelanggan dipilih.';
-                customerResolutionElement.classList.remove('text-danger');
-                customerResolutionElement.classList.add('text-muted');
+                customerResolutionElement.innerHTML = '<div class="text-muted small">Belum ada pelanggan dipilih.</div>';
             }
 
             async function updateCustomerSelection(customerId) {
@@ -1186,15 +1191,18 @@
                 results.forEach((customer) => {
                     const button = document.createElement('button');
                     button.type = 'button';
-                    button.className = 'list-group-item list-group-item-action list-group-item-light py-1 px-2';
+                    // Phase 3C: Increase customer suggestion item size
+                    button.className = 'list-group-item list-group-item-action list-group-item-light py-2 px-3';
 
                     const displayName = escapeHtml(customer.display_name || customer.customer_name || '-');
                     const phone = escapeHtml(customer.customer_phone || '-');
 
                     button.innerHTML = `
                         <div class="d-flex justify-content-between align-items-center">
-                            <span class="small">${displayName}</span>
-                            <span class="small text-muted">${phone}</span>
+                            <div>
+                                <div class="font-weight-bold">${displayName}</div>
+                                <div class="small text-muted">${phone}</div>
+                            </div>
                         </div>
                     `;
 
@@ -1270,19 +1278,65 @@
                 const qty = Number(line.qty || 0);
                 const availableQty = Number(line.available_qty || 0);
                 const lineId = Number(line.line_id || 0);
+                const priceValid = line.price_valid !== false;
+                const priceError = escapeHtml(line.price_error || '');
+
+                // Phase 3B: Different rendering for serial vs non-serial lines
+                let qtyCell = '';
+                if (line.serial_number_required === true) {
+                    // Serial line: editable qty + serial management
+                    const assignedCount = Array.isArray(line.assigned_serials) ? line.assigned_serials.length : 0;
+                    const serialChips = (line.assigned_serials || []).map(serial => `
+                        <span class="badge badge-info mr-1" style="font-size: 0.75rem;">
+                            ${escapeHtml(serial)}
+                            <button type="button" class="btn btn-link p-0 ml-1 text-white js-serial-remove" 
+                                    data-serial="${escapeHtml(serial)}" 
+                                    style="font-size: 0.65rem; text-decoration: none; margin-left: 4px !important;">×</button>
+                        </span>
+                    `).join('');
+
+                    qtyCell = `
+                        <td class="pos-cart-serial-cell align-top" style="vertical-align: top; min-width: 200px;">
+                            <div class="mb-2">
+                                <div class="d-flex gap-1 align-items-center mb-2">
+                                    <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty" 
+                                           type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                           style="width: 60px;">
+                                    <button type="button" class="btn btn-sm btn-outline-info js-serial-add" data-line-id="${lineId}">
+                                        + Serial
+                                    </button>
+                                </div>
+                                <small class="text-muted">${assignedCount} / ${qty} serial</small>
+                            </div>
+                            <div>${serialChips}</div>
+                        </td>
+                    `;
+                } else {
+                    // Non-serial line: read-only qty as badge/text
+                    qtyCell = `
+                        <td class="text-center align-middle">
+                            <span class="badge badge-secondary" style="font-size: 0.9rem; padding: 0.4rem 0.6rem;">
+                                ${qty}
+                            </span>
+                        </td>
+                    `;
+                }
+
+                // Phase 3B: Price validity indicator
+                const priceWarning = !priceValid ? `<div class="text-warning small font-weight-bold mb-1">⚠ ${priceError}</div>` : '';
+                const rowClass = !priceValid ? 'bg-warning-light' : '';
 
                 return `
-                    <tr data-line-id="${lineId}">
+                    <tr data-line-id="${lineId}" class="${rowClass}">
                         <td class="pos-cart-product align-middle">
+                            ${priceWarning}
                             <div class="name">${productName}${serialBadge}</div>
                             <div class="meta">${productCode} | ${barcode}</div>
                             <div class="meta">Stok: ${availableQty}</div>
                         </td>
                         <td class="text-right align-middle">${formatPrice(line.unit_price || 0)}</td>
-                        <td class="text-center align-middle">
-                            <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty" type="number" min="1" value="${qty}" data-prev-qty="${qty}">
-                        </td>
-                        <td class="text-right align-middle">
+                        ${qtyCell}
+                        <td class="text-right align-middle" style="vertical-align: top;">
                             <div class="font-weight-bold mb-1">${formatPrice(line.line_total || 0)}</div>
                             <button type="button" class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;">Hapus</button>
                         </td>
@@ -1307,11 +1361,27 @@
                 renderTotals(snapshot);
                 renderCustomer(snapshot);
 
+                // Phase 3B: Enhanced checkout button guards
                 const grandTotal = snapshot && snapshot.totals ? Number(snapshot.totals.grand_total || 0) : 0;
                 const hasItems = snapshot && Array.isArray(snapshot.lines) && snapshot.lines.length > 0;
                 const customer = snapshot && snapshot.customer ? snapshot.customer : {};
                 const hasCustomer = customer.resolution_source === 'selected' || customer.resolution_source === 'default';
-                const canCheckout = hasItems && grandTotal > 0 && hasCustomer;
+                
+                // Check for price validity
+                const allPricesValid = !snapshot || !Array.isArray(snapshot.lines) || 
+                    snapshot.lines.every(line => line.price_valid !== false);
+                
+                // Check for serial count matching
+                const allSerialsValid = !snapshot || !Array.isArray(snapshot.lines) ||
+                    snapshot.lines.every(line => {
+                        if (line.serial_number_required !== true) {
+                            return true; // Non-serial lines are always valid
+                        }
+                        const assignedCount = Array.isArray(line.assigned_serials) ? line.assigned_serials.length : 0;
+                        return assignedCount === line.qty;
+                    });
+
+                const canCheckout = hasItems && grandTotal > 0 && hasCustomer && allPricesValid && allSerialsValid;
 
                 if (btnCheckout) {
                     btnCheckout.disabled = !canCheckout;
@@ -1328,6 +1398,63 @@
                     renderCart(response.cart_snapshot || null);
                 } catch (error) {
                     setCartStatus(error.message || 'Gagal memuat keranjang.', 'text-danger');
+                }
+            }
+
+            // Phase 3A: Handle serial scan result - append serial to cart line
+            async function handleSerialScanResult(result) {
+                const product = result.product;
+                const serial = result.serial;
+
+                if (!currentSnapshot || !Array.isArray(currentSnapshot.lines)) {
+                    // If no cart, add product first then append serial
+                    await addProductToCart(product, 'scan');
+                    // After product is added, the snapshot is updated, so find the new line
+                    if (currentSnapshot && Array.isArray(currentSnapshot.lines)) {
+                        const newLine = currentSnapshot.lines.find(line => line.product_id === product.id);
+                        if (newLine) {
+                            await appendSerialToLine(newLine.line_id, serial.serial_number);
+                        }
+                    }
+                    return;
+                }
+
+                // Try to find an existing line for this product with unfilled serial slots
+                let targetLine = null;
+                for (const line of currentSnapshot.lines) {
+                    if (line.product_id === product.id && 
+                        line.serial_number_required === true &&
+                        (line.assigned_serials.length < line.qty)) {
+                        targetLine = line;
+                        break;
+                    }
+                }
+
+                if (!targetLine) {
+                    // No existing line with unfilled slots, add product first
+                    await addProductToCart(product, 'scan');
+                    if (currentSnapshot && Array.isArray(currentSnapshot.lines)) {
+                        const newLine = currentSnapshot.lines.find(line => line.product_id === product.id);
+                        if (newLine) {
+                            await appendSerialToLine(newLine.line_id, serial.serial_number);
+                        }
+                    }
+                } else {
+                    // Found existing line with space, append serial to it
+                    await appendSerialToLine(targetLine.line_id, serial.serial_number);
+                }
+            }
+
+            // Phase 3A: Append serial to a cart line
+            async function appendSerialToLine(lineId, serialNumber) {
+                try {
+                    const url = cartLinesBaseUrl + '/' + lineId + '/serials/append';
+                    const response = await jsonRequest(url, 'POST', { serial_number: serialNumber });
+                    if (response && response.cart_snapshot) {
+                        renderCart(response.cart_snapshot);
+                    }
+                } catch (error) {
+                    setCartStatus('Gagal menambahkan serial: ' + (error.message || 'Server error'), 'text-danger', true);
                 }
             }
 
@@ -1482,6 +1609,48 @@
                 }, 250);
             });
 
+            // Phase 3A: Add Enter key handler for scan resolver
+            searchInput.addEventListener('keydown', async function (event) {
+                if (event.key !== 'Enter' && event.code !== 'Enter') {
+                    return;
+                }
+                event.preventDefault();
+                const query = (this.value || '').trim();
+                if (!query) {
+                    setSearchStatus('Masukkan kode produk atau nomor serial.', 'text-muted');
+                    return;
+                }
+
+                clearResults();
+                setSearchStatus('Memindai...', 'text-muted');
+
+                try {
+                    const response = await jsonRequest(scanResolveEndpoint, 'POST', { q: query });
+                    if (!response) {
+                        setSearchStatus('Pindai gagal.', 'text-danger');
+                        return;
+                    }
+
+                    if (response.type === 'product_exact') {
+                        await addProductToCart(response.product, 'scan');
+                        searchInput.value = '';
+                        setSearchStatus('Produk ditambahkan ke keranjang.', 'text-success');
+                    } else if (response.type === 'serial_exact') {
+                        await handleSerialScanResult(response);
+                        searchInput.value = '';
+                        setSearchStatus('Serial berhasil ditambahkan.', 'text-success');
+                    } else if (response.type === 'ambiguous') {
+                        // Run normal search to show suggestions
+                        executeSearch(query);
+                        setSearchStatus('Pilih produk dari daftar.', 'text-muted');
+                    } else {
+                        setSearchStatus('Produk tidak ditemukan.', 'text-muted');
+                    }
+                } catch (error) {
+                    setSearchStatus('Pindai gagal: ' + (error.message || 'Server error'), 'text-danger');
+                }
+            });
+
             if (customerSearchInput) {
                 customerSearchInput.addEventListener('input', function (event) {
                     const query = (event.target.value || '').trim();
@@ -1560,12 +1729,7 @@
                 });
             }
 
-            if (scanFeedbackButton) {
-                scanFeedbackButton.addEventListener('click', function () {
-                    searchInput.focus();
-                    setSearchStatus('Mode pindai aktif. Arahkan scanner ke kolom pencarian.', 'text-success');
-                });
-            }
+            // Siap Pindai button removed in Phase 3A - Enter key now handles scan resolution
 
             if (clearCartButton) {
                 clearCartButton.addEventListener('click', async function () {
@@ -1659,6 +1823,44 @@
                 }
             });
 
+            // Phase 3B: Add serial chip event handlers
+            cartBody.addEventListener('click', async function (event) {
+                // Handle + Serial button click
+                const addSerialBtn = event.target.closest('.js-serial-add');
+                if (addSerialBtn) {
+                    const lineId = Number(addSerialBtn.getAttribute('data-line-id'));
+                    const serialInput = prompt('Masukkan nomor serial:');
+                    if (serialInput && serialInput.trim()) {
+                        await appendSerialToLine(lineId, serialInput.trim());
+                    }
+                    return;
+                }
+
+                // Handle serial chip remove button click
+                const removeSerialBtn = event.target.closest('.js-serial-remove');
+                if (removeSerialBtn) {
+                    const row = event.target.closest('tr[data-line-id]');
+                    if (!row) return;
+                    
+                    const lineId = Number(row.getAttribute('data-line-id'));
+                    const serialNumber = removeSerialBtn.getAttribute('data-serial');
+                    
+                    if (lineId && serialNumber) {
+                        try {
+                            const url = cartLinesBaseUrl + '/' + lineId + '/serials/' + encodeURIComponent(serialNumber);
+                            const response = await jsonRequest(url, 'DELETE');
+                            if (response && response.cart_snapshot) {
+                                renderCart(response.cart_snapshot);
+                                setCartStatus('Serial berhasil dihapus.', 'text-success');
+                            }
+                        } catch (error) {
+                            setCartStatus('Gagal menghapus serial: ' + (error.message || 'Server error'), 'text-danger', true);
+                        }
+                    }
+                    return;
+                }
+            });
+
             function generateIdempotencyKey() {
                 return 'pos-' + Date.now() + '-' + Math.random().toString(36).substring(2, 15);
             }
@@ -1693,6 +1895,81 @@
                 const totals = snapshot && snapshot.totals ? snapshot.totals : {};
                 if (checkoutReceiptTotal) {
                     checkoutReceiptTotal.textContent = formatPrice(totals.grand_total || 0);
+                }
+            }
+
+            // Phase 3D: Load payment methods from API
+            async function loadPaymentMethods() {
+                try {
+                    const response = await jsonRequest(paymentMethodSearchEndpoint, 'GET');
+                    if (response && Array.isArray(response.methods)) {
+                        cachedPaymentMethods = response.methods;
+                        return true;
+                    }
+                } catch (error) {
+                    console.error('Failed to load payment methods:', error);
+                }
+                return false;
+            }
+
+            // Phase 3D: Render payment method search results
+            function renderPaymentMethodResults(results) {
+                if (!checkoutMethodResults) return;
+                
+                checkoutMethodResults.innerHTML = '';
+                if (results.length === 0) {
+                    checkoutMethodResults.style.display = 'none';
+                    return;
+                }
+
+                results.forEach(method => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'list-group-item list-group-item-action';
+                    button.innerHTML = `<div class="font-weight-bold">${escapeHtml(method.name)}</div>`;
+                    button.addEventListener('click', function () {
+                        selectPaymentMethod(method);
+                    });
+                    checkoutMethodResults.appendChild(button);
+                });
+
+                checkoutMethodResults.style.display = 'block';
+            }
+
+            // Phase 3D: Select a specific payment method
+            function selectPaymentMethod(method) {
+                selectedPaymentMethod = method;
+                checkoutMethodId.value = method.id || '';
+                checkoutMethodCode.value = method.code || '';
+                checkoutMethodLabel.value = escapeHtml(method.name || 'Unknown');
+                checkoutMethodSearch.value = '';
+                
+                if (checkoutMethodResults) {
+                    checkoutMethodResults.style.display = 'none';
+                }
+
+                // Use the method's is_cash flag to toggle UI
+                const isCash = method.is_cash === true;
+                const requiresReference = method.requires_reference === true;
+                const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
+
+                if (isCash) {
+                    checkoutAmountPaid.readOnly = false;
+                    checkoutChangeWrapper.classList.remove('d-none');
+                    checkoutReferenceWrapper.classList.add('d-none');
+                    if (checkoutPresetsWrapper) checkoutPresetsWrapper.classList.remove('d-none');
+                    checkoutAmountPaid.value = grandTotal.toFixed(2);
+                    updateChange(grandTotal, grandTotal);
+                } else {
+                    checkoutAmountPaid.readOnly = true;
+                    checkoutChangeWrapper.classList.add('d-none');
+                    if (requiresReference) {
+                        checkoutReferenceWrapper.classList.remove('d-none');
+                    } else {
+                        checkoutReferenceWrapper.classList.add('d-none');
+                    }
+                    if (checkoutPresetsWrapper) checkoutPresetsWrapper.classList.add('d-none');
+                    checkoutAmountPaid.value = grandTotal.toFixed(2);
                 }
             }
 
@@ -1761,10 +2038,21 @@
                 checkoutError.textContent = '';
 
                 renderReceiptPreview(currentSnapshot);
-                setPaymentMethod('cash');
+                
+                // Phase 3D: Load payment methods before showing modal
+                (async () => {
+                    const loaded = await loadPaymentMethods();
+                    if (loaded && cachedPaymentMethods.length > 0) {
+                        // Auto-select first method or first cash method
+                        const firstMethod = cachedPaymentMethods.find(m => m.is_cash === true) || cachedPaymentMethods[0];
+                        if (firstMethod) {
+                            selectPaymentMethod(firstMethod);
+                        }
+                    }
+                })();
 
                 $(checkoutModalElement).modal('show');
-                setTimeout(() => checkoutAmountPaid.focus(), 200);
+                setTimeout(() => checkoutMethodSearch.focus(), 200);
             }
 
             function updateChange(amountPaid, grandTotal) {
@@ -1772,13 +2060,54 @@
                 checkoutChangeLabel.value = formatPrice(change);
             }
 
-            if (checkoutMethodButtons.length > 0) {
-                checkoutMethodButtons.forEach((button) => {
-                    button.addEventListener('click', function () {
-                        const method = String(this.getAttribute('data-method') || 'cash');
-                        setPaymentMethod(method);
-                    });
+            // Phase 3D: Add payment method search input handler
+            if (checkoutMethodSearch) {
+                checkoutMethodSearch.addEventListener('input', function () {
+                    const query = (this.value || '').trim().toLowerCase();
+                    
+                    if (query.length === 0) {
+                        renderPaymentMethodResults(cachedPaymentMethods);
+                        return;
+                    }
+
+                    const filtered = cachedPaymentMethods.filter(method => 
+                        (method.name || '').toLowerCase().includes(query)
+                    );
+                    renderPaymentMethodResults(filtered);
                 });
+
+                checkoutMethodSearch.addEventListener('focus', function () {
+                    if (cachedPaymentMethods.length > 0) {
+                        renderPaymentMethodResults(cachedPaymentMethods);
+                    }
+                });
+            }
+
+            if (checkoutMethodResults) {
+                checkoutMethodResults.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+            }
+
+            // Close dropdown when clicking outside
+            document.addEventListener('click', function (e) {
+                if (checkoutMethodResults && 
+                    !checkoutMethodResults.contains(e.target) && 
+                    checkoutMethodSearch && 
+                    !checkoutMethodSearch.contains(e.target)) {
+                    checkoutMethodResults.style.display = 'none';
+                }
+            });
+
+            if (checkoutMethodButtons.length > 0) {
+                // Phase 3D: Old static button handlers removed - replaced with dynamic dropdown
+                // checkoutMethodButtons.forEach((button) => {
+                //     button.addEventListener('click', function () {
+                //         const method = String(this.getAttribute('data-method') || 'cash');
+                //         setPaymentMethod(method);
+                //     });
+                // });
             }
 
             if (checkoutPresetsWrapper) {
@@ -1819,19 +2148,28 @@
 
             if (checkoutSubmit) {
                 checkoutSubmit.addEventListener('click', async function () {
-                    const method = checkoutMethodCode.value;
-                    const amountPaid = Number(checkoutAmountPaid.value || 0);
-                    const reference = checkoutReference.value.trim();
-                    const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
-
-                    if (amountPaid < grandTotal && method === 'cash') {
-                        checkoutError.textContent = 'Pembayaran tunai harus mencukupi total belanja.';
+                    // Phase 3D: Use selectedPaymentMethod for validation and payload
+                    if (!selectedPaymentMethod) {
+                        checkoutError.textContent = 'Pilih metode pembayaran terlebih dahulu.';
                         checkoutError.classList.remove('d-none');
                         return;
                     }
 
-                    if (!reference && (method === 'transfer' || method === 'qris')) {
-                        checkoutError.textContent = 'Referensi pembayaran wajib diisi untuk non-tunai.';
+                    const method = selectedPaymentMethod;
+                    const amountPaid = Number(checkoutAmountPaid.value || 0);
+                    const reference = checkoutReference.value.trim();
+                    const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
+
+                    // Phase 3D: Validation using is_cash flag
+                    if (method.is_cash === true && amountPaid < grandTotal) {
+                        checkoutError.textContent = 'Pembayaran ' + escapeHtml(method.name) + ' harus mencukupi total belanja.';
+                        checkoutError.classList.remove('d-none');
+                        return;
+                    }
+
+                    // Phase 3D: Validation using requires_reference flag
+                    if (method.requires_reference === true && !reference) {
+                        checkoutError.textContent = 'Referensi pembayaran wajib diisi untuk ' + escapeHtml(method.name) + '.';
                         checkoutError.classList.remove('d-none');
                         return;
                     }
@@ -1841,10 +2179,12 @@
                     checkoutError.classList.add('d-none');
 
                     try {
+                        // Phase 3D: Send payment_method_id in payload (keep method_code as fallback)
                         const payload = {
                             idempotency_key: generateIdempotencyKey(),
                             payment: {
-                                method_code: method,
+                                payment_method_id: method.id || undefined,
+                                method_code: method.code || undefined,
                                 amount_paid: amountPaid,
                                 reference: reference || null
                             }
