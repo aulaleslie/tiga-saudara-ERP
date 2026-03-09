@@ -3,7 +3,6 @@
 namespace Modules\Pos\Services;
 
 use Modules\People\Entities\Customer;
-use Modules\Setting\Entities\Setting;
 
 class PosCheckoutCustomerResolverService
 {
@@ -30,12 +29,11 @@ class PosCheckoutCustomerResolverService
         }
 
         $selectedCustomer = Customer::query()
-            ->where('setting_id', $settingId)
             ->whereKey($selectedCustomerId)
             ->first(['id', 'customer_name', 'contact_name', 'customer_phone']);
 
         if (! $selectedCustomer) {
-            throw new \DomainException('Selected customer is not valid for active setting.');
+            throw new \DomainException('Selected customer is not valid.');
         }
 
         $mappedSelected = $this->mapCustomer($selectedCustomer);

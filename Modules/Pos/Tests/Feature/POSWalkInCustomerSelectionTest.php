@@ -53,7 +53,7 @@ class POSWalkInCustomerSelectionTest extends TestCase
         }
     }
 
-    public function test_customer_search_returns_only_active_setting_customers_and_supports_name_or_phone(): void
+    public function test_customer_search_is_global_and_supports_name_or_phone(): void
     {
         $setting = $this->createSetting('BIZ POS CUSTOMER SEARCH');
         $otherSetting = $this->createSetting('BIZ POS CUSTOMER OTHER');
@@ -61,15 +61,17 @@ class POSWalkInCustomerSelectionTest extends TestCase
 
         $allowedByName = $this->createCustomer($setting, 'Walk In Utama', '08123450001');
         $allowedByPhone = $this->createCustomer($setting, 'Pelanggan Lama', '08177771234');
-        $blocked = $this->createCustomer($otherSetting, 'Walk In Lintas', '08123450001');
+        $crossSetting = $this->createCustomer($otherSetting, 'Walk In Lintas', '08123450001');
 
         $nameResponse = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->getJson(route('pos.sell.customers.search', ['q' => 'walk in']));
 
-        $nameResponse->assertOk()
-            ->assertJsonPath('meta.result_count', 1)
-            ->assertJsonPath('results.0.id', $allowedByName->id);
+        $nameResponse->assertOk();
+
+        $nameResultIds = collect($nameResponse->json('results'))->pluck('id')->all();
+        $this->assertContains($allowedByName->id, $nameResultIds);
+        $this->assertContains($crossSetting->id, $nameResultIds);
 
         $phoneResponse = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -80,7 +82,7 @@ class POSWalkInCustomerSelectionTest extends TestCase
         $resultIds = collect($phoneResponse->json('results'))->pluck('id')->all();
         $this->assertContains($allowedByName->id, $resultIds);
         $this->assertContains($allowedByPhone->id, $resultIds);
-        $this->assertNotContains($blocked->id, $resultIds);
+        $this->assertContains($crossSetting->id, $resultIds);
     }
 
     public function test_selecting_valid_customer_sets_selected_resolution_source(): void
@@ -129,7 +131,7 @@ class POSWalkInCustomerSelectionTest extends TestCase
             ->assertJsonPath('cart_snapshot.customer.resolution_source', 'none');
     }
 
-    public function test_cross_setting_customer_selection_is_rejected(): void
+    public function test_cross_setting_customer_selection_is_allowed(): void
     {
         $setting = $this->createSetting('BIZ POS CUSTOMER STRICT');
         $otherSetting = $this->createSetting('BIZ POS CUSTOMER STRICT OTHER');
@@ -142,8 +144,10 @@ class POSWalkInCustomerSelectionTest extends TestCase
             ->patchJson(route('pos.sell.cart.customer.update'), [
                 'customer_id' => $otherCustomer->id,
             ])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['customer_id']);
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.customer.selected_customer_id', $otherCustomer->id)
+            ->assertJsonPath('cart_snapshot.customer.resolved_customer_id', $otherCustomer->id)
+            ->assertJsonPath('cart_snapshot.customer.resolution_source', 'selected');
     }
 
     public function test_customer_selection_changes_do_not_reprice_non_tier_products(): void

@@ -71,10 +71,7 @@ class PosSellController extends Controller
             'limit' => ['nullable', 'integer', 'min:1', 'max:20'],
         ]);
 
-        $settingId = $this->currentSettingId();
-
         $payload = $searchService->search(
-            $settingId,
             (string) $validated['q'],
             (int) ($validated['limit'] ?? 10)
         );

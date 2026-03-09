@@ -13,7 +13,7 @@ class PosCustomerSearchService
      *     meta:array{limit:int,result_count:int}
      * }
      */
-    public function search(int $settingId, string $query, int $limit = 10): array
+    public function search(string $query, int $limit = 10): array
     {
         $normalizedQuery = trim($query);
         $safeLimit = max(1, min(20, $limit));
@@ -30,7 +30,6 @@ class PosCustomerSearchService
         }
 
         $rows = Customer::query()
-            ->where('setting_id', $settingId)
             ->where(function ($queryBuilder) use ($normalizedQuery) {
                 $queryBuilder->where('customer_name', 'like', '%' . $normalizedQuery . '%')
                     ->orWhere('contact_name', 'like', '%' . $normalizedQuery . '%')

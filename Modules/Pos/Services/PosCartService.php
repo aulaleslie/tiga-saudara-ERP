@@ -310,12 +310,11 @@ class PosCartService
 
         if ($customerId !== null) {
             $isValidCustomer = Customer::query()
-                ->where('setting_id', $settingId)
                 ->whereKey($customerId)
                 ->exists();
 
             if (! $isValidCustomer) {
-                throw new DomainException('Selected customer is not valid for active setting.');
+                throw new DomainException('Selected customer is not valid.');
             }
         }
 
@@ -790,7 +789,7 @@ class PosCartService
     }
 
     /**
-     * Resolve line price based on customer tier with strict setting-based pricing.
+     * Resolve line price based on customer tier with setting-based product pricing.
      * Tier prices override sale_price when non-zero; fallback to sale_price if tier price is 0/null.
      *
      * @param  int  $settingId
@@ -822,7 +821,6 @@ class PosCartService
         $customerTier = null;
         if ($customerId !== null && $customerId > 0) {
             $customer = Customer::query()
-                ->where('setting_id', $settingId)
                 ->whereKey($customerId)
                 ->select(['id', 'tier'])
                 ->first();
@@ -872,4 +870,3 @@ class PosCartService
         return "{$productId}:" . round($unitPrice, 2) . ":{$taxId}:{$conversionId}";
     }
 }
-
