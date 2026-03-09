@@ -611,6 +611,16 @@
                 </li>
             @endcan
 
+            @can('paymentMethods.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos-payment-configurations*') ? 'c-active' : '' }}"
+                       href="{{ route('pos-payment-configurations.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-credit-card" style="line-height: 1;"></i>
+                        Konfigurasi Pembayaran POS
+                    </a>
+                </li>
+            @endcan
+
             @can('paymentTerms.access')
                 <li class="c-sidebar-nav-item">
                     <a class="c-sidebar-nav-link {{ request()->routeIs('payment-terms*') ? 'c-active' : '' }}"

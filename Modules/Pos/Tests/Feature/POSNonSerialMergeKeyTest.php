@@ -157,7 +157,7 @@ class POSNonSerialMergeKeyTest extends TestCase
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-MERGE-001',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 500000,
             ],
         ]);
@@ -317,7 +317,7 @@ class POSNonSerialMergeKeyTest extends TestCase
         return $product;
     }
 
-    private function seedPaymentMethods(Setting $setting): object
+    private function seedPaymentMethods(Setting $setting): array
     {
         $methods = [];
         
@@ -335,12 +335,21 @@ class POSNonSerialMergeKeyTest extends TestCase
                 'name' => "$name POS",
                 'coa_id' => $coaId,
                 'is_cash' => $isCash,
-                'is_available_in_pos' => true,
                 'requires_reference' => !$isCash,
             ]);
         }
 
-        return (object) $methods;
+        return $methods;
+    }
+
+        private function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
+    {
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
     }
 
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void

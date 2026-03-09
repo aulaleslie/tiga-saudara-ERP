@@ -73,7 +73,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $borrowerSetting = $this->createSetting('TERMINAL-NON-PKP-BIZ', false);
         $terminal = $this->createTerminalForSetting($borrowerSetting, $sourceLocation->id);
         $cashier = $this->createUserForSetting($borrowerSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $this->assignDefaultWalkInCustomer($borrowerSetting);
+        $customer = $this->assignDefaultWalkInCustomer($borrowerSetting);
         $methods = $this->seedPaymentMethods($borrowerSetting);
         $this->assignSaleLocation($borrowerSetting, $sourceLocation);
 
@@ -85,12 +85,13 @@ class POSTaxBySourceSnapshotTest extends TestCase
 
         // 4. Open Session and Finalize Checkout
         $session = $this->openSession($borrowerSetting, $terminal, $cashier);
+        $this->selectCustomerInCart($cashier, $borrowerSetting, $customer);
         $this->addCartLine($cashier, $borrowerSetting, $product->id, 1);
 
         $response = $this->finalize($cashier, $borrowerSetting, [
             'idempotency_key' => 'K-TAX-PKP-001',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 100000, // Gross/final price
             ],
         ]);
@@ -133,7 +134,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $borrowerSetting = $this->createSetting('TERMINAL-PKP-BIZ', true);
         $terminal = $this->createTerminalForSetting($borrowerSetting, $sourceLocation->id);
         $cashier = $this->createUserForSetting($borrowerSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $this->assignDefaultWalkInCustomer($borrowerSetting);
+        $customer = $this->assignDefaultWalkInCustomer($borrowerSetting);
         $methods = $this->seedPaymentMethods($borrowerSetting);
         $this->assignSaleLocation($borrowerSetting, $sourceLocation);
 
@@ -145,12 +146,13 @@ class POSTaxBySourceSnapshotTest extends TestCase
 
         // 4. Open Session and Finalize Checkout
         $session = $this->openSession($borrowerSetting, $terminal, $cashier);
+        $this->selectCustomerInCart($cashier, $borrowerSetting, $customer);
         $this->addCartLine($cashier, $borrowerSetting, $product->id, 1);
 
         $response = $this->finalize($cashier, $borrowerSetting, [
             'idempotency_key' => 'K-TAX-NON-PKP-001',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 100000, // Gross/final price
             ],
         ]);
@@ -195,7 +197,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $terminalSetting = $this->createSetting('TERMINAL-BIZ', true);
         $terminal = $this->createTerminalForSetting($terminalSetting, $locPKP->id);
         $cashier = $this->createUserForSetting($terminalSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $this->assignDefaultWalkInCustomer($terminalSetting);
+        $customer = $this->assignDefaultWalkInCustomer($terminalSetting);
         $methods = $this->seedPaymentMethods($terminalSetting);
         
         // Priority 1: PKP Location, Priority 2: Non-PKP Location
@@ -213,6 +215,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
 
         // 4. Finalize Checkout for 5 units
         $this->openSession($terminalSetting, $terminal, $cashier);
+        $this->selectCustomerInCart($cashier, $terminalSetting, $customer);
         $this->addCartLine($cashier, $terminalSetting, $product->id, 5);
 
         // Expected: 
@@ -223,7 +226,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $response = $this->finalize($cashier, $terminalSetting, [
             'idempotency_key' => 'K-TAX-MIXED-001',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 500000, // Gross/final price
             ],
         ]);
@@ -272,7 +275,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $location = $this->createLocation($setting, 'LOC-1');
         $terminal = $this->createTerminalForSetting($setting, $location->id);
         $cashier = $this->createUserForSetting($setting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $this->assignDefaultWalkInCustomer($setting);
+        $customer = $this->assignDefaultWalkInCustomer($setting);
         $methods = $this->seedPaymentMethods($setting);
         $this->assignSaleLocation($setting, $location);
 
@@ -282,12 +285,13 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $this->seedStock($product, $location, 10, true);
 
         $this->openSession($setting, $terminal, $cashier);
+        $this->selectCustomerInCart($cashier, $setting, $customer);
         $this->addCartLine($cashier, $setting, $product->id, 1);
 
         $response = $this->finalize($cashier, $setting, [
             'idempotency_key' => 'K-STABILITY-001',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 100000,
             ],
         ]);
@@ -380,10 +384,12 @@ class POSTaxBySourceSnapshotTest extends TestCase
         return $user;
     }
 
-    private function assignDefaultWalkInCustomer(Setting $setting): void
+    private function assignDefaultWalkInCustomer(Setting $setting): Customer
     {
         $customer = Customer::factory()->create(['setting_id' => $setting->id]);
         $setting->update(['pos_walk_in_customer_id' => $customer->id]);
+        
+        return $customer;
     }
 
     private function assignSaleLocation(Setting $setting, Location $location): void
@@ -459,6 +465,16 @@ class POSTaxBySourceSnapshotTest extends TestCase
         );
     }
 
+        private function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
+    {
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
+    }
+
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
     {
         $this->actingAs($cashier)
@@ -477,7 +493,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
             ->postJson(route('pos.sell.checkout.finalize'), $payload);
     }
 
-    private function seedPaymentMethods(Setting $setting): object
+    private function seedPaymentMethods(Setting $setting): array
     {
         $methods = [];
         
@@ -495,11 +511,10 @@ class POSTaxBySourceSnapshotTest extends TestCase
                 'name' => "$name POS",
                 'coa_id' => $coaId,
                 'is_cash' => $isCash,
-                'is_available_in_pos' => true,
                 'requires_reference' => !$isCash,
             ]);
         }
 
-        return (object) $methods;
+        return $methods;
     }
 }

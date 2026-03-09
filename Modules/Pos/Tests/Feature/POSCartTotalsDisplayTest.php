@@ -248,7 +248,7 @@ class POSCartTotalsDisplayTest extends TestCase
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $product->id]), [
-                'qty' => 1,
+                'qty' => 3,
             ])
             ->assertOk();
 
@@ -260,6 +260,55 @@ class POSCartTotalsDisplayTest extends TestCase
         $this->assertSame($salesBefore, DB::table('sales')->count());
         $this->assertSame($paymentsBefore, DB::table('sale_payments')->count());
         $this->assertSame($dispatchBefore, DB::table('dispatches')->count());
+    }
+
+    public function test_qty_decrease_is_rejected_by_api(): void
+    {
+        $setting = $this->createSetting('BIZ POS QTY DECREASE', true);
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'POS QTY DECREASE');
+        $tax = $this->createTax('PPN 11% QTY DECREASE', 11);
+        $product = $this->createStockedProduct($setting, $location, 'SKU-QTY-DEC', 'Produk Qty Decrease', 10000, $tax->id, $cashier->id);
+
+        // Add product with qty=3
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 3])
+            ->assertOk();
+
+        // Attempt to decrease qty to 2 - should be rejected with 422
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $product->id]), [
+                'qty' => 2,
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Jumlah qty tidak dapat dikurangi.');
+    }
+
+    public function test_qty_increase_succeeds_for_non_serial_line(): void
+    {
+        $setting = $this->createSetting('BIZ POS QTY INCREASE', true);
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'POS QTY INCREASE');
+        $tax = $this->createTax('PPN 11% QTY INCREASE', 11);
+        $product = $this->createStockedProduct($setting, $location, 'SKU-QTY-INC', 'Produk Qty Increase', 10000, $tax->id, $cashier->id);
+
+        // Add product with qty=1
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+
+        // Increase qty to 2 - should succeed
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $product->id]), [
+                'qty' => 2,
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.lines.0.qty', 2)
+            ->assertJsonPath('cart_snapshot.totals.subtotal', 20000);
     }
 
     private function createSetting(string $name, bool $isPkp): Setting

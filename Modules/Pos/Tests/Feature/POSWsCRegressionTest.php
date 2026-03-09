@@ -320,9 +320,9 @@ class POSWsCRegressionTest extends TestCase
     }
 
     /**
-     * @return object{cash: PaymentMethod, transfer: PaymentMethod, qris: PaymentMethod}
+     * @return array{cash: PaymentMethod, transfer: PaymentMethod, qris: PaymentMethod}
      */
-    private function seedPaymentMethods(Setting $setting): object
+    private function seedPaymentMethods(Setting $setting): array
     {
         $methods = [];
         $index = $this->terminalSequence;
@@ -341,12 +341,21 @@ class POSWsCRegressionTest extends TestCase
                 'name' => "$name WS-C " . $index,
                 'coa_id' => $coaId,
                 'is_cash' => $isCash,
-                'is_available_in_pos' => true,
                 'requires_reference' => !$isCash,
             ]);
         }
 
-        return (object) $methods;
+        return $methods;
+    }
+
+        private function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
+    {
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
     }
 
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void

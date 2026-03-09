@@ -70,14 +70,15 @@ class POSReceiptGenerationTest extends TestCase
         // No prefix set, should default to RCP
         $this->assertNull($setting->pos_receipt_prefix);
 
-        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-001', 50000, false);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
         $payload = [
             'idempotency_key' => 'receipt-k-001',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 50000,
             ],
         ];
@@ -105,14 +106,15 @@ class POSReceiptGenerationTest extends TestCase
         $setting = $context['setting'];
         $setting->update(['pos_receipt_prefix' => 'POSX']);
         
-        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-002', 100000, false);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
         $payload = [
             'idempotency_key' => 'receipt-k-002',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 100000,
             ],
         ];
@@ -128,14 +130,15 @@ class POSReceiptGenerationTest extends TestCase
     {
         $context = $this->createCheckoutContext('POS PRINT VIEW');
         $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-003', 25000, false);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
         $payload = [
             'idempotency_key' => 'receipt-k-003',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 25000,
             ],
         ];
@@ -167,14 +170,15 @@ class POSReceiptGenerationTest extends TestCase
     {
         $context = $this->createCheckoutContext('POS REPRINT VIEW');
         $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-004', 30000, false);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
         $payload = [
             'idempotency_key' => 'receipt-k-004',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 30000,
             ],
         ];
@@ -201,13 +205,14 @@ class POSReceiptGenerationTest extends TestCase
         $methods = $this->seedPaymentMethods($context1['setting']);
         $context2 = $this->createCheckoutContext('POS STORE 2');
         
-        $customer = $this->assignDefaultWalkInCustomer($context1['setting']);
+        $customer = $customer = $this->assignDefaultWalkInCustomer($context1['setting']);
         $product = $this->createStockedProduct($context1['setting'], $context1['location'], 'PROD-FORBID', 10000, false);
         $this->addCartLine($context1['cashier'], $context1['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context1['cashier'], $context1['setting'], $customer);
         $payload = [
             'idempotency_key' => 'receipt-k-forbid',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 10000,
             ],
         ];
@@ -395,7 +400,7 @@ class POSReceiptGenerationTest extends TestCase
         return $product;
     }
 
-    private function seedPaymentMethods(Setting $setting): object
+    private function seedPaymentMethods(Setting $setting): array
     {
         $methods = [];
         
@@ -413,12 +418,21 @@ class POSReceiptGenerationTest extends TestCase
                 'name' => "$name POS",
                 'coa_id' => $coaId,
                 'is_cash' => $isCash,
-                'is_available_in_pos' => true,
                 'requires_reference' => !$isCash,
             ]);
         }
 
-        return (object) $methods;
+        return $methods;
+    }
+
+        private function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
+    {
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
     }
 
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void

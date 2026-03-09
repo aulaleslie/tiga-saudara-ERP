@@ -25,7 +25,6 @@
                                     <th class="align-middle">Nama</th>
                                     <th class="align-middle">Nomor Akun</th>
                                     <th class="align-middle">Metode Tunai</th>
-                                    <th class="align-middle">Tersedia di POS</th>
                                     <th class="align-middle">Wajib Referensi</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
@@ -37,9 +36,6 @@
                                         <td>{{ $method->chartOfAccount->name ?? 'N/A' }}</td>
                                         <td>
                                             <span class="badge {{ $method->is_cash ? 'bg-success' : 'bg-secondary' }}">{{ $method->is_cash ? 'Ya' : 'Tidak' }}</span>
-                                        </td>
-                                        <td>
-                                            <span class="badge {{ $method->is_available_in_pos ? 'bg-success' : 'bg-secondary' }}">{{ $method->is_available_in_pos ? 'Ya' : 'Tidak' }}</span>
                                         </td>
                                         <td>
                                             <span class="badge {{ $method->requires_reference ? 'bg-success' : 'bg-secondary' }}">{{ $method->requires_reference ? 'Ya' : 'Tidak' }}</span>

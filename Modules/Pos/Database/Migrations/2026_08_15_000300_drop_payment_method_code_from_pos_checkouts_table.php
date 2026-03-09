@@ -23,10 +23,7 @@ return new class extends Migration {
             );
         }
 
-        // Skip for SQLite
-        if (Schema::getConnection()->getDriverName() === 'sqlite') {
-            return;
-        }
+
 
         Schema::table('pos_checkouts', function (Blueprint $table) {
             if (Schema::hasColumn('pos_checkouts', 'payment_method_code')) {
@@ -40,10 +37,7 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        // Skip for SQLite
-        if (Schema::getConnection()->getDriverName() === 'sqlite') {
-            return;
-        }
+
 
         Schema::table('pos_checkouts', function (Blueprint $table) {
             if (! Schema::hasColumn('pos_checkouts', 'payment_method_code')) {

@@ -16,16 +16,18 @@ class PosPaymentMethodSearchService
     public function search(int $settingId, ?string $query = null): array
     {
         $builder = PaymentMethod::query()
-            ->where('setting_id', $settingId)
-            ->where('is_available_in_pos', true)
-            ->orderBy('name');
+            ->join('setting_pos_payment_methods', 'payment_methods.id', '=', 'setting_pos_payment_methods.payment_method_id')
+            ->where('setting_pos_payment_methods.setting_id', $settingId)
+            ->where('setting_pos_payment_methods.is_enabled', true)
+            ->select('payment_methods.*')
+            ->orderBy('payment_methods.name');
 
         if ($query !== null && $query !== '') {
             $builder->where('name', 'like', "%{$query}%");
         }
 
         return $builder
-            ->get(['id', 'name', 'is_cash', 'requires_reference'])
+            ->get(['payment_methods.id', 'payment_methods.name', 'payment_methods.is_cash', 'payment_methods.requires_reference'])
             ->map(fn (PaymentMethod $method): array => [
                 'id' => (int) $method->id,
                 'name' => (string) $method->name,

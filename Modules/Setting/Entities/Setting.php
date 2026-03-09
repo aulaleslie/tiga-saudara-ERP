@@ -47,6 +47,19 @@ class Setting extends BaseModel
 
                 SettingSaleLocation::insertOrIgnore($payload);
             }
+
+            $paymentMethodIds = \Modules\Setting\Entities\PaymentMethod::pluck('id');
+            $chunksPm = $paymentMethodIds->chunk(500);
+            foreach ($chunksPm as $chunk) {
+                $payloadPm = $chunk->map(fn ($pmId) => [
+                    'setting_id'        => $setting->id,
+                    'payment_method_id' => $pmId,
+                    'is_enabled'        => false,
+                    'created_at'        => $now,
+                    'updated_at'        => $now,
+                ])->all();
+                \Modules\Setting\Entities\SettingPosPaymentMethod::insertOrIgnore($payloadPm);
+            }
         });
     }
 
@@ -87,6 +100,14 @@ class Setting extends BaseModel
     public function posWalkInCustomer(): BelongsTo
     {
         return $this->belongsTo(Customer::class, 'pos_walk_in_customer_id');
+    }
+
+    public function posPaymentMethods(): BelongsToMany
+    {
+        return $this->belongsToMany(PaymentMethod::class, 'setting_pos_payment_methods')
+            ->using(SettingPosPaymentMethod::class)
+            ->withTimestamps()
+            ->withPivot('is_enabled');
     }
 
 }

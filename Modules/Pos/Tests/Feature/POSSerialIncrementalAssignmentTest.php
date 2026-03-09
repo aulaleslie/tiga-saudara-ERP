@@ -242,6 +242,91 @@ class POSSerialIncrementalAssignmentTest extends TestCase
             ->assertJsonPath('cart_snapshot.lines.0.assigned_serials', ['SN-SAFE-1']);
     }
 
+    public function test_qty_increase_preserves_assigned_serials(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL QTY PRESERVE');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-QTY-PRESERVE', 100000, true);
+        
+        $sn1 = $this->createSerialNumber($product, $context['location'], 'SN-PRESERVE-1');
+        $sn2 = $this->createSerialNumber($product, $context['location'], 'SN-PRESERVE-2');
+        $sn3 = $this->createSerialNumber($product, $context['location'], 'SN-PRESERVE-3');
+
+        // Add line with qty=2
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 2);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        // Assign 2 serials
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-PRESERVE-1', 'SN-PRESERVE-2'],
+            ])
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.lines.0.assigned_serials', ['SN-PRESERVE-1', 'SN-PRESERVE-2']);
+
+        // Increase qty to 3 - serials should be preserved
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $lineId]), [
+                'qty' => 3,
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.lines.0.qty', 3)
+            ->assertJsonPath('cart_snapshot.lines.0.assigned_serials', ['SN-PRESERVE-1', 'SN-PRESERVE-2']);
+
+        // Verify we can append a third serial now (qty=3, 2 assigned, so 1 slot available)
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => 'SN-PRESERVE-3',
+            ])
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.lines.0.assigned_serials', ['SN-PRESERVE-1', 'SN-PRESERVE-2', 'SN-PRESERVE-3']);
+    }
+
+    public function test_qty_decrease_rejected_for_serial_line(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL QTY DECREASE');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-QTY-DECREASE', 100000, true);
+        
+        $sn1 = $this->createSerialNumber($product, $context['location'], 'SN-DECREASE-1');
+        $sn2 = $this->createSerialNumber($product, $context['location'], 'SN-DECREASE-2');
+
+        // Add line with qty=3
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 3);
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $lineId = $snapshot['lines'][0]['line_id'];
+
+        // Assign 2 serials
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-DECREASE-1', 'SN-DECREASE-2'],
+            ])
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.lines.0.qty', 3)
+            ->assertJsonPath('cart_snapshot.lines.0.assigned_serials', ['SN-DECREASE-1', 'SN-DECREASE-2']);
+
+        // Try to decrease qty to 2 - should be rejected by increase-only guard
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $lineId]), [
+                'qty' => 2,
+            ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Jumlah qty tidak dapat dikurangi.');
+
+        // Verify cart line is unchanged (serials still assigned)
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(3, $snapshot['lines'][0]['qty']);
+        $this->assertEquals(['SN-DECREASE-1', 'SN-DECREASE-2'], $snapshot['lines'][0]['assigned_serials']);
+    }
+
     // ==== HELPER METHODS ====
 
     private function createCheckoutContext(string $name): array
@@ -379,6 +464,9 @@ class POSSerialIncrementalAssignmentTest extends TestCase
             'quantity' => 100,
             'quantity_non_tax' => 100,
             'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
         ]);
 
         ProductPrice::query()->updateOrCreate([
@@ -402,6 +490,16 @@ class POSSerialIncrementalAssignmentTest extends TestCase
             'tax_id' => null,
             'status' => 'ACTIVE',
         ]);
+    }
+
+        private function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
+    {
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
     }
 
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void

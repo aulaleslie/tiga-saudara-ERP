@@ -335,6 +335,16 @@ class POSCustomerTierRepricingTest extends TestCase
             ->update(['tier_1_price' => $tierPrice]);
     }
 
+        private function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
+    {
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
+    }
+
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
     {
         $this->actingAs($cashier)

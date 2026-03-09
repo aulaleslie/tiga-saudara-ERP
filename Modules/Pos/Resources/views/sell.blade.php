@@ -1325,7 +1325,6 @@
                 const productCode = escapeHtml(line.product_code || '-');
                 const barcode = escapeHtml(line.barcode || '-');
                 const qty = Number(line.qty || 0);
-                const availableQty = Number(line.available_qty || 0);
                 const lineId = Number(line.line_id || 0);
                 const priceValid = line.price_valid !== false;
                 const priceError = escapeHtml(line.price_error || '');
@@ -1361,12 +1360,12 @@
                         </td>
                     `;
                 } else {
-                    // Non-serial line: read-only qty as badge/text
+                    // Non-serial line: editable qty input (no serial controls)
                     qtyCell = `
                         <td class="text-center align-middle">
-                            <span class="badge badge-secondary" style="font-size: 0.9rem; padding: 0.4rem 0.6rem;">
-                                ${qty}
-                            </span>
+                            <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty" 
+                                   type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                   style="width: 60px;">
                         </td>
                     `;
                 }
@@ -1381,7 +1380,6 @@
                             ${priceWarning}
                             <div class="name">${productName}${serialBadge}</div>
                             <div class="meta">${productCode} | ${barcode}</div>
-                            <div class="meta">Stok: ${availableQty}</div>
                         </td>
                         <td class="text-right align-middle">${formatPrice(line.unit_price || 0)}</td>
                         ${qtyCell}
@@ -1592,7 +1590,6 @@
                     const productName = escapeHtml(product.product_name);
                     const productCode = escapeHtml(product.product_code || '-');
                     const barcode = escapeHtml(product.barcode || '-');
-                    const availableQty = escapeHtml(product.available_qty);
                     const price = formatPrice(product.sale_price);
 
                     card.innerHTML = `
@@ -1605,9 +1602,11 @@
                             <div>SKU: ${productCode}</div>
                             <div>Barcode: ${barcode}</div>
                         </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; font-weight: 500; padding-top: 0.75rem; border-top: 1px solid #eee;">
-                            <div>
-                                <div style="font-size: 0.75rem; color: #999;\">Stok</div>\n                                <div style="font-size: 1rem; font-weight: 600;\">${availableQty}</div>\n                            </div>\n                            <div style=\"text-align: right;\">\n                                <div style=\"font-size: 0.75rem; color: #999;\">${price}</div>\n                            </div>\n                        </div>\n                    `;
+                        <div style="display: flex; justify-content: flex-end; align-items: center; font-weight: 500; padding-top: 0.75rem; border-top: 1px solid #eee;">
+                            <div style="text-align: right;">
+                                <div style="font-size: 0.75rem; color: #999;">${price}</div>
+                            </div>
+                        </div>\n                    `;
 
                     // Hover effect
                     card.addEventListener('mouseenter', function () {

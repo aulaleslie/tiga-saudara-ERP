@@ -39,14 +39,6 @@
             <div class="text-danger small">{{ $message }}</div>
             @enderror
             <div class="form-check mb-2">
-                <input type="hidden" name="is_available_in_pos" value="0">
-                <input class="form-check-input" type="checkbox" id="is_available_in_pos" name="is_available_in_pos" value="1" {{ old('is_available_in_pos', $paymentMethod->is_available_in_pos) ? 'checked' : '' }}>
-                <label class="form-check-label" for="is_available_in_pos">Tersedia di POS</label>
-            </div>
-            @error('is_available_in_pos')
-            <div class="text-danger small">{{ $message }}</div>
-            @enderror
-            <div class="form-check mb-2">
                 <input type="hidden" name="requires_reference" value="0">
                 <input class="form-check-input" type="checkbox" id="requires_reference" name="requires_reference" value="1" {{ old('requires_reference', $paymentMethod->requires_reference) ? 'checked' : '' }}>
                 <label class="form-check-label" for="requires_reference">Wajib Referensi</label>

@@ -74,9 +74,9 @@ class POSPaymentMethodSearchTest extends TestCase
             ->getJson(route('pos.sell.payment-methods.search'));
 
         $response->assertOk()
-            ->assertJsonCount(1, 'results');
+            ->assertJsonCount(1, 'methods');
 
-        $resultIds = collect($response->json('results'))->pluck('id')->all();
+        $resultIds = collect($response->json('methods'))->pluck('id')->all();
         $this->assertContains($available->id, $resultIds);
         $this->assertNotContains($notAvailable->id, $resultIds);
     }
@@ -94,19 +94,19 @@ class POSPaymentMethodSearchTest extends TestCase
             ->getJson(route('pos.sell.payment-methods.search'));
 
         $response->assertOk()
-            ->assertJsonCount(2, 'results');
+            ->assertJsonCount(2, 'methods');
 
         // Check cash method structure
-        $response->assertJsonPath('results.0.id', $cash->id)
-            ->assertJsonPath('results.0.name', 'Tunai')
-            ->assertJsonPath('results.0.is_cash', true)
-            ->assertJsonPath('results.0.requires_reference', false);
+        $response->assertJsonPath('methods.0.id', $cash->id)
+            ->assertJsonPath('methods.0.name', 'Tunai')
+            ->assertJsonPath('methods.0.is_cash', true)
+            ->assertJsonPath('methods.0.requires_reference', false);
 
         // Check transfer method structure  
-        $response->assertJsonPath('results.1.id', $transfer->id)
-            ->assertJsonPath('results.1.name', 'Transfer')
-            ->assertJsonPath('results.1.is_cash', false)
-            ->assertJsonPath('results.1.requires_reference', true);
+        $response->assertJsonPath('methods.1.id', $transfer->id)
+            ->assertJsonPath('methods.1.name', 'Transfer')
+            ->assertJsonPath('methods.1.is_cash', false)
+            ->assertJsonPath('methods.1.requires_reference', true);
     }
 
     public function test_search_supports_name_query(): void
@@ -123,8 +123,8 @@ class POSPaymentMethodSearchTest extends TestCase
             ->getJson(route('pos.sell.payment-methods.search', ['q' => 'transfer']));
 
         $response->assertOk()
-            ->assertJsonCount(1, 'results')
-            ->assertJsonPath('results.0.name', 'Transfer Bank');
+            ->assertJsonCount(1, 'methods')
+            ->assertJsonPath('methods.0.name', 'Transfer Bank');
     }
 
     public function test_excludes_inactive_methods(): void
@@ -137,7 +137,6 @@ class POSPaymentMethodSearchTest extends TestCase
             'name' => 'Tidak Aktif',
             'coa_id' => $this->createCoa($setting),
             'is_cash' => false,
-            'is_available_in_pos' => false, // Not available
             'requires_reference' => false,
         ]);
 
@@ -146,8 +145,8 @@ class POSPaymentMethodSearchTest extends TestCase
             ->getJson(route('pos.sell.payment-methods.search'));
 
         $response->assertOk()
-            ->assertJsonCount(1, 'results')
-            ->assertJsonPath('results.0.id', $active->id);
+            ->assertJsonCount(1, 'methods')
+            ->assertJsonPath('methods.0.id', $active->id);
     }
 
     public function test_empty_result_when_none_available(): void
@@ -163,7 +162,7 @@ class POSPaymentMethodSearchTest extends TestCase
             ->getJson(route('pos.sell.payment-methods.search'));
 
         $response->assertOk()
-            ->assertJsonCount(0, 'results');
+            ->assertJsonCount(0, 'methods');
     }
 
     // --- Helpers ---
@@ -277,12 +276,18 @@ class POSPaymentMethodSearchTest extends TestCase
         bool $isAvailableInPos,
         bool $requiresReference
     ): PaymentMethod {
-        return PaymentMethod::create([
+        $method = PaymentMethod::create([
             'name' => $name,
             'coa_id' => $this->createCoa($setting),
             'is_cash' => $isCash,
-            'is_available_in_pos' => $isAvailableInPos,
             'requires_reference' => $requiresReference,
         ]);
+
+        \Modules\Setting\Entities\SettingPosPaymentMethod::updateOrCreate(
+            ['setting_id' => $setting->id, 'payment_method_id' => $method->id],
+            ['is_enabled' => $isAvailableInPos]
+        );
+
+        return $method;
     }
 }

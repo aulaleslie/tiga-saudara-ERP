@@ -37,6 +37,15 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('sales-location-configurations.toggle');
     Route::put('sales-location-configurations/order', [SaleLocationConfigurationController::class, 'order'])
         ->name('sales-location-configurations.order');
+    // POS Payment Configurations
+    Route::get('pos-payment-configurations', 'PosPaymentConfigurationController@index')
+        ->name('pos-payment-configurations.index');
+    Route::patch('pos-payment-configurations/{paymentMethod}/toggle', 'PosPaymentConfigurationController@toggle')
+        ->name('pos-payment-configurations.toggle');
+    Route::post('pos-payment-configurations/bulk-enable', 'PosPaymentConfigurationController@bulkEnable')
+        ->name('pos-payment-configurations.bulkEnable');
+    Route::post('pos-payment-configurations/bulk-disable', 'PosPaymentConfigurationController@bulkDisable')
+        ->name('pos-payment-configurations.bulkDisable');
     // Taxes
     Route::resource('taxes', 'TaxController')->except('show');
     // PaymentTerms

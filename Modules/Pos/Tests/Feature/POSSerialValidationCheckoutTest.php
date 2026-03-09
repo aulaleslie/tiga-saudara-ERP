@@ -124,15 +124,16 @@ class POSSerialValidationCheckoutTest extends TestCase
     {
         $context = $this->createCheckoutContext('POS SERIAL MISSING');
         $methods = $this->seedPaymentMethods($context['setting']);
-        $this->assignDefaultWalkInCustomer($context['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-MISSING', 100000, true);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
 
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-SERIAL-MISSING-001',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 100000,
             ],
         ]);
@@ -146,11 +147,12 @@ class POSSerialValidationCheckoutTest extends TestCase
     {
         $context = $this->createCheckoutContext('POS SERIAL SUCCESS');
         $methods = $this->seedPaymentMethods($context['setting']);
-        $this->assignDefaultWalkInCustomer($context['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-OK', 100000, true);
         $sn = $this->createSerialNumber($product, $context['location'], 'SN-SUCCESS-001');
 
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
         $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
         $lineId = $snapshot['lines'][0]['line_id'];
 
@@ -166,7 +168,7 @@ class POSSerialValidationCheckoutTest extends TestCase
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-SERIAL-OK-001',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 100000,
             ],
         ]);
@@ -429,7 +431,7 @@ class POSSerialValidationCheckoutTest extends TestCase
         ]);
     }
 
-    private function seedPaymentMethods(Setting $setting): object
+    private function seedPaymentMethods(Setting $setting): array
     {
         $methods = [];
         
@@ -447,12 +449,21 @@ class POSSerialValidationCheckoutTest extends TestCase
                 'name' => "$name POS",
                 'coa_id' => $coaId,
                 'is_cash' => $isCash,
-                'is_available_in_pos' => true,
                 'requires_reference' => !$isCash,
             ]);
         }
 
-        return (object) $methods;
+        return $methods;
+    }
+
+        private function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
+    {
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
     }
 
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void

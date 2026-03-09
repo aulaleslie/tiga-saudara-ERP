@@ -212,6 +212,11 @@ class PosCartService
             throw new DomainException('Quantity must be at least 1.');
         }
 
+        // Guard: prevent qty decrease (increase-only rule)
+        if ($qty < (int) $line['qty']) {
+            throw new DomainException('Jumlah qty tidak dapat dikurangi.');
+        }
+
         // Guard: prevent qty reduction below assigned serial count for serial-required products
         $assignedSerials = (array) ($line['assigned_serials'] ?? []);
         $serialCount = count($assignedSerials);
@@ -227,8 +232,9 @@ class PosCartService
         $discountType = $payload['line_discount_type'] ?? $line['line_discount_type'] ?? 'fixed';
         $discountValue = (float) ($payload['line_discount_value'] ?? $line['line_discount_value'] ?? 0);
 
-        // Clear assigned serials if qty changed (for non-serial products, this is a no-op)
-        if ($qty !== (int) $line['qty']) {
+        // Clear assigned serials only on qty decrease (blocked above, but kept for safety).
+        // On qty increase, preserve assigned serials.
+        if ($qty < (int) $line['qty']) {
             $assignedSerials = [];
         }
 
@@ -523,15 +529,6 @@ class PosCartService
             if (in_array($sn, $allAssignedSerials, true)) {
                 throw new DomainException("Serial number $sn is already assigned in this cart.");
             }
-
-            // Tax match validation
-            $isTaxedItem = ! empty($taxId) && (int) $taxId > 0;
-            if ($isTaxedItem && $record->tax_id === null) {
-                throw new DomainException("Serial number $sn is non-taxed, but line is taxed.");
-            }
-            if (! $isTaxedItem && $record->tax_id !== null) {
-                throw new DomainException("Serial number $sn is taxed, but line is non-taxed.");
-            }
         }
 
         $cart['lines'][$lineId]['assigned_serials'] = $serialNumbers;
@@ -728,15 +725,6 @@ class PosCartService
 
         if (in_array($serialNumber, $allAssignedSerials, true)) {
             throw new DomainException("Serial number $serialNumber is already assigned in this cart.");
-        }
-
-        // Tax match validation
-        $isTaxedItem = ! empty($taxId) && (int) $taxId > 0;
-        if ($isTaxedItem && $record->tax_id === null) {
-            throw new DomainException("Serial number $serialNumber is non-taxed, but line is taxed.");
-        }
-        if (! $isTaxedItem && $record->tax_id !== null) {
-            throw new DomainException("Serial number $serialNumber is taxed, but line is non-taxed.");
         }
 
         $assignedSerials = (array) ($line['assigned_serials'] ?? []);

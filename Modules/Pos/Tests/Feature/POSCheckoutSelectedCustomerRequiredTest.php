@@ -93,7 +93,7 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-CUSTOMER-REQ-OK',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 60000,
             ],
         ]);
@@ -106,7 +106,8 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
     public function test_base_price_applied_when_no_customer_selected_in_cart(): void
     {
         $context = $this->createCheckoutContext('BASE PRICE NO CUST');
-        [$cashier, $location] = $context;
+        $cashier = $context['cashier'];
+        $location = $context['location'];
         $methods = $this->seedPaymentMethods($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $location, 'P-BASE-PRICE', 40000);
 
@@ -119,13 +120,14 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
             ->assertOk();
 
         // Without customer, should use base sale_price (40000)
-        $response->assertJsonPath('cart_snapshot.lines.0.unit_price', 40000.0);
+        $response->assertJsonPath('cart_snapshot.lines.0.unit_price', 40000);
     }
 
     public function test_base_price_applied_for_non_tier_customer(): void
     {
         $context = $this->createCheckoutContext('BASE PRICE NON TIER');
-        [$cashier, $location] = $context;
+        $cashier = $context['cashier'];
+        $location = $context['location'];
         $this->seedPaymentMethods($context['setting']);
         $customer = Customer::factory()->create(['setting_id' => $context['setting']->id]);
         $product = $this->createStockedProduct($context['setting'], $location, 'P-BASE-PRICE-NT', 35000);
@@ -144,7 +146,7 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
             ->assertOk();
 
         // Non-tier customer: should still use base sale_price (35000)
-        $response->assertJsonPath('cart_snapshot.lines.0.unit_price', 35000.0);
+        $response->assertJsonPath('cart_snapshot.lines.0.unit_price', 35000);
     }
 
     public function test_no_default_walk_in_fallback_at_checkout(): void
@@ -165,7 +167,7 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
         $response = $this->finalize($cashier, $setting, [
             'idempotency_key' => 'K-NO-WALKIN',
             'payment' => [
-                'payment_method_id' => $methods->cash->id,
+                'payment_method_id' => $methods['cash']->id,
                 'amount_paid' => 25000,
             ],
         ]);
@@ -347,9 +349,9 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
     }
 
     /**
-     * @return object{cash: PaymentMethod, transfer: PaymentMethod, qris: PaymentMethod}
+     * @return array
      */
-    private function seedPaymentMethods(Setting $setting): object
+    private function seedPaymentMethods(Setting $setting): array
     {
         $methods = [];
         $index = $this->terminalSequence;
@@ -368,12 +370,21 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
                 'name' => "$name CustomerRequired " . $index,
                 'coa_id' => $coaId,
                 'is_cash' => $isCash,
-                'is_available_in_pos' => true,
                 'requires_reference' => !$isCash,
             ]);
         }
 
-        return (object) $methods;
+        return $methods;
+    }
+
+        private function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
+    {
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), [
+                'customer_id' => $customer->id,
+            ])
+            ->assertOk();
     }
 
     private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
