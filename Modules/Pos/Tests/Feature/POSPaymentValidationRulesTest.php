@@ -64,8 +64,8 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_cash_exact_payment_posts_successfully(): void
     {
         $context = $this->createCheckoutContext('CASH-EXACT');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-CASH-1', 50000);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -109,8 +109,8 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_cash_overpay_computes_change_correctly(): void
     {
         $context = $this->createCheckoutContext('CASH-OVERPAY');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-CASH-2', 75000);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -147,8 +147,8 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_transfer_requires_reference(): void
     {
         $context = $this->createCheckoutContext('TRF-REF');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-TRF-1', 100000);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -193,8 +193,8 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_qris_requires_reference(): void
     {
         $context = $this->createCheckoutContext('QRIS-REF');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-QRIS-1', 35000);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -230,8 +230,8 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_partial_cash_payment_rejected(): void
     {
         $context = $this->createCheckoutContext('CASH-PARTIAL');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-CASH-P', 50000);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -257,8 +257,8 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_transfer_must_match_exact_total(): void
     {
         $context = $this->createCheckoutContext('TRF-EXACT');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-TRF-E', 50000);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -284,8 +284,8 @@ class POSPaymentValidationRulesTest extends TestCase
     public function test_non_cash_does_not_create_cash_event(): void
     {
         $context = $this->createCheckoutContext('NON-CASH-EVENT');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-NCE', 10000);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -308,6 +308,39 @@ class POSPaymentValidationRulesTest extends TestCase
     }
 
 
+
+    /**
+     * POS-TM-024: Reject payment if method is disabled for setting
+     */
+    public function test_checkout_rejected_if_payment_method_disabled(): void
+    {
+        $context = $this->createCheckoutContext('DISABLED-PM');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'P-DIS-1', 10000);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        // Explicitly disable the cash method for this setting
+        DB::table('setting_pos_payment_methods')
+            ->where('setting_id', $context['setting']->id)
+            ->where('payment_method_id', $methods['cash']->id)
+            ->update(['is_enabled' => false]);
+
+        $payload = [
+            'idempotency_key' => 'K-DISABLED-PM-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 10000,
+            ],
+        ];
+
+        $response = $this->finalize($context['cashier'], $context['setting'], $payload);
+        
+        $response->assertStatus(422)
+            ->assertJsonPath('code', 'PAYMENT_INVALID');
+    }
 
     // --- Helpers ---
 
@@ -356,8 +389,9 @@ class POSPaymentValidationRulesTest extends TestCase
             'close_variance_approval_threshold' => 0,
             'require_pickup_supervisor_approval' => true,
             'cash_threshold' => 50000,
-            'cash_threshold' => 50000,
         ]);
+
+        $methods = $this->seedPaymentMethods($setting);
 
         /** @var PosSessionLifecycleService $sessionLifecycle */
         $sessionLifecycle = app(PosSessionLifecycleService::class);
@@ -376,6 +410,7 @@ class POSPaymentValidationRulesTest extends TestCase
             'terminal' => $terminal,
             'location' => $location,
             'session' => $session,
+            'methods' => $methods,
         ];
     }
 
@@ -468,12 +503,22 @@ class POSPaymentValidationRulesTest extends TestCase
                 'updated_at' => now(),
             ]);
 
-            $methods[strtolower($name)] = PaymentMethod::create([
+            $method = PaymentMethod::create([
                 'name' => "$name POS",
                 'coa_id' => $coaId,
                 'is_cash' => $isCash,
                 'requires_reference' => !$isCash, // cash doesn't need, transfer/qris do
             ]);
+
+            DB::table('setting_pos_payment_methods')->insertOrIgnore([
+                'setting_id' => $setting->id,
+                'payment_method_id' => $method->id,
+                'is_enabled' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $methods[strtolower($name)] = $method;
         }
 
         return $methods;

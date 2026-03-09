@@ -84,7 +84,7 @@ class FinalizePosCheckoutService
             ];
         }
 
-        $payment = $this->normalizePayment($paymentPayload);
+        $payment = $this->normalizePayment($settingId, $paymentPayload);
         $cartSnapshot = $this->cartService->getSnapshot($settingId, $sessionId);
 
         $resolvedCustomerId = (int) ($cartSnapshot['customer']['resolved_customer_id'] ?? 0);
@@ -228,7 +228,7 @@ class FinalizePosCheckoutService
      * @param  array<string, mixed>  $paymentPayload
      * @return array{payment_method_id:int,amount_paid:float,reference:?string,is_cash:bool,requires_reference:bool}
      */
-    private function normalizePayment(array $paymentPayload): array
+    private function normalizePayment(int $settingId, array $paymentPayload): array
     {
         $paymentMethodId = isset($paymentPayload['payment_method_id']) ? (int) $paymentPayload['payment_method_id'] : null;
         $amountPaid = round((float) ($paymentPayload['amount_paid'] ?? 0), 2);
@@ -243,9 +243,16 @@ class FinalizePosCheckoutService
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method is required.');
         }
 
-        $paymentMethod = PaymentMethod::query()->find($paymentMethodId);
+        $paymentMethod = PaymentMethod::query()
+            ->join('setting_pos_payment_methods', 'payment_methods.id', '=', 'setting_pos_payment_methods.payment_method_id')
+            ->where('setting_pos_payment_methods.setting_id', $settingId)
+            ->where('setting_pos_payment_methods.is_enabled', true)
+            ->where('payment_methods.id', $paymentMethodId)
+            ->select('payment_methods.*')
+            ->first();
+
         if (! $paymentMethod) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method not found.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method not found or not enabled for this setting.');
         }
 
         return [

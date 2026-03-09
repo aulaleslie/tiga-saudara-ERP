@@ -41,13 +41,16 @@ class POSSessionLifecycleTest extends TestCase
 
         Permission::findOrCreate('pos.access', 'web');
         Permission::findOrCreate('pos.sell', 'web');
+        Permission::findOrCreate('pos.sessions.open', 'web');
+        Permission::findOrCreate('pos.sessions.view', 'web');
     }
 
     public function test_open_session_creates_open_session_for_valid_terminal_and_cashier(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell']);
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.view']);
         $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
 
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
@@ -76,8 +79,9 @@ class POSSessionLifecycleTest extends TestCase
     public function test_open_session_rejects_duplicate_active_session_for_same_cashier_and_terminal(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell']);
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.view']);
         $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
 
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
@@ -92,8 +96,9 @@ class POSSessionLifecycleTest extends TestCase
     public function test_session_lifecycle_allows_open_to_closing_to_closed_only(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell']);
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.view']);
         $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
 
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
@@ -114,8 +119,9 @@ class POSSessionLifecycleTest extends TestCase
     public function test_session_lifecycle_rejects_invalid_status_transitions(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell']);
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.view']);
         $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
 
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
@@ -152,7 +158,7 @@ class POSSessionLifecycleTest extends TestCase
     public function test_sell_route_redirects_to_session_open_without_active_session(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell']);
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.view']);
 
         $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -164,8 +170,9 @@ class POSSessionLifecycleTest extends TestCase
     public function test_sell_route_allows_access_with_active_session(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell']);
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.view']);
         $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
 
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
@@ -176,6 +183,34 @@ class POSSessionLifecycleTest extends TestCase
             ->get(route('pos.sell'))
             ->assertOk()
             ->assertSee('Layar Kasir POS');
+    }
+
+    public function test_open_session_rejects_when_no_enabled_payment_methods(): void
+    {
+        $setting = $this->createSetting('BIZ A');
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.view']);
+        $terminal = $this->createTerminalForSetting($setting);
+
+        // Ensure no payment methods are enabled (though they are not enabled by default, let's be explicit if needed)
+
+        $this->expectException(DomainException::class);
+        $this->expectExceptionMessage('at least one payment method');
+
+        /** @var PosSessionLifecycleService $service */
+        $service = app(PosSessionLifecycleService::class);
+        $service->openSession($setting->id, $terminal->id, $user->id, 100000, ['100000' => 1], $user->id);
+    }
+
+    public function test_create_session_view_redirects_when_no_enabled_payment_methods(): void
+    {
+        $setting = $this->createSetting('BIZ A');
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.view']);
+        $this->createTerminalForSetting($setting);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.create'))
+            ->assertRedirect(route('pos.sessions.index'));
     }
 
     private function createSetting(string $name): Setting
@@ -232,9 +267,32 @@ class POSSessionLifecycleTest extends TestCase
             'close_variance_approval_threshold' => 0,
             'cash_threshold' => 50000,
             'require_pickup_supervisor_approval' => true,
-            'cash_threshold' => 50000,
         ]);
 
         return $terminal;
+    }
+
+    private function enablePaymentMethodForSetting(Setting $setting): void
+    {
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'name' => 'Cash Account ' . $setting->id . '-' . bin2hex(random_bytes(4)),
+            'account_number' => '1101-' . $setting->id . '-' . bin2hex(random_bytes(4)),
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+        ]);
+
+        $pm = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $coa->id,
+            'is_cash' => true,
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('setting_pos_payment_methods')->insert([
+            'setting_id' => $setting->id,
+            'payment_method_id' => $pm->id,
+            'is_enabled' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }

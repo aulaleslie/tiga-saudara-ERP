@@ -19,6 +19,7 @@ use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Pos\Services\PosSessionMonitorService;
 use Modules\Pos\Services\PosSessionSummaryService;
 use Modules\Setting\Entities\SettingSaleLocation;
+use Modules\Setting\Entities\SettingPosPaymentMethod;
 
 class PosSessionController extends Controller
 {
@@ -57,6 +58,17 @@ class PosSessionController extends Controller
 
         if (! $hasConfiguredSaleLocations) {
             toast('Konfigurasi lokasi penjualan belum diatur. Silakan atur terlebih dahulu.', 'error');
+
+            return redirect()->route('pos.sessions.index');
+        }
+
+        $hasConfiguredPayments = SettingPosPaymentMethod::query()
+            ->where('setting_id', $settingId)
+            ->where('is_enabled', true)
+            ->exists();
+
+        if (! $hasConfiguredPayments) {
+            toast('Konfigurasi pembayaran POS belum diatur. Silakan atur terlebih dahulu.', 'error');
 
             return redirect()->route('pos.sessions.index');
         }
@@ -245,6 +257,10 @@ class PosSessionController extends Controller
         }
 
         if (str_contains($normalized, 'sales location') || str_contains($normalized, 'location')) {
+            return 'terminal_id';
+        }
+
+        if (str_contains($normalized, 'payment method')) {
             return 'terminal_id';
         }
 

@@ -61,13 +61,13 @@ class POSPaymentMethodSearchTest extends TestCase
             ->assertRedirect(route('pos.sessions.create'));
     }
 
-    public function test_returns_only_pos_available_methods(): void
+    public function test_returns_only_enabled_methods(): void
     {
-        $setting = $this->createSetting('PAYMENT METHOD POS AVAILABLE');
-        [$cashier] = $this->createCashierAndOpenSession($setting, 'PAYMENT METHOD POS AVAILABLE');
+        $setting = $this->createSetting('PAYMENT METHOD ENABLED');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'PAYMENT METHOD ENABLED');
 
-        $available = $this->createPaymentMethod($setting, 'Cash Available', true, true, false);
-        $notAvailable = $this->createPaymentMethod($setting, 'Cash Not Available', true, false, false);
+        $enabled = $this->createPaymentMethod($setting, 'Cash Enabled', true, true, false);
+        $disabled = $this->createPaymentMethod($setting, 'Cash Disabled', true, false, false);
 
         $response = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -77,8 +77,8 @@ class POSPaymentMethodSearchTest extends TestCase
             ->assertJsonCount(1, 'methods');
 
         $resultIds = collect($response->json('methods'))->pluck('id')->all();
-        $this->assertContains($available->id, $resultIds);
-        $this->assertNotContains($notAvailable->id, $resultIds);
+        $this->assertContains($enabled->id, $resultIds);
+        $this->assertNotContains($disabled->id, $resultIds);
     }
 
     public function test_response_includes_required_metadata(): void
@@ -96,17 +96,19 @@ class POSPaymentMethodSearchTest extends TestCase
         $response->assertOk()
             ->assertJsonCount(2, 'methods');
 
-        // Check cash method structure
-        $response->assertJsonPath('methods.0.id', $cash->id)
-            ->assertJsonPath('methods.0.name', 'Tunai')
-            ->assertJsonPath('methods.0.is_cash', true)
-            ->assertJsonPath('methods.0.requires_reference', false);
+        // Results are ordered by name. 'TRANSFER' < 'TUNAI'
+        
+        // Check transfer method structure (index 0)
+        $response->assertJsonPath('methods.0.id', $transfer->id)
+            ->assertJsonPath('methods.0.name', 'TRANSFER')
+            ->assertJsonPath('methods.0.is_cash', false)
+            ->assertJsonPath('methods.0.requires_reference', true);
 
-        // Check transfer method structure  
-        $response->assertJsonPath('methods.1.id', $transfer->id)
-            ->assertJsonPath('methods.1.name', 'Transfer')
-            ->assertJsonPath('methods.1.is_cash', false)
-            ->assertJsonPath('methods.1.requires_reference', true);
+        // Check cash method structure (index 1)
+        $response->assertJsonPath('methods.1.id', $cash->id)
+            ->assertJsonPath('methods.1.name', 'TUNAI')
+            ->assertJsonPath('methods.1.is_cash', true)
+            ->assertJsonPath('methods.1.requires_reference', false);
     }
 
     public function test_search_supports_name_query(): void
@@ -124,7 +126,7 @@ class POSPaymentMethodSearchTest extends TestCase
 
         $response->assertOk()
             ->assertJsonCount(1, 'methods')
-            ->assertJsonPath('methods.0.name', 'Transfer Bank');
+            ->assertJsonPath('methods.0.name', 'TRANSFER BANK');
     }
 
     public function test_excludes_inactive_methods(): void
@@ -149,13 +151,13 @@ class POSPaymentMethodSearchTest extends TestCase
             ->assertJsonPath('methods.0.id', $active->id);
     }
 
-    public function test_empty_result_when_none_available(): void
+    public function test_empty_result_when_none_enabled(): void
     {
-        $setting = $this->createSetting('PAYMENT METHOD NONE AVAILABLE');
-        [$cashier] = $this->createCashierAndOpenSession($setting, 'PAYMENT METHOD NONE AVAILABLE');
+        $setting = $this->createSetting('PAYMENT METHOD NONE ENABLED');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'PAYMENT METHOD NONE ENABLED');
 
-        // Create only non-POS methods
-        $this->createPaymentMethod($setting, 'Offline Method', true, false, false);
+        // Create only disabled methods
+        $this->createPaymentMethod($setting, 'Disabled Method', true, false, false);
 
         $response = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -273,7 +275,7 @@ class POSPaymentMethodSearchTest extends TestCase
         Setting $setting,
         string $name,
         bool $isCash,
-        bool $isAvailableInPos,
+        bool $isEnabled,
         bool $requiresReference
     ): PaymentMethod {
         $method = PaymentMethod::create([
@@ -285,7 +287,7 @@ class POSPaymentMethodSearchTest extends TestCase
 
         \Modules\Setting\Entities\SettingPosPaymentMethod::updateOrCreate(
             ['setting_id' => $setting->id, 'payment_method_id' => $method->id],
-            ['is_enabled' => $isAvailableInPos]
+            ['is_enabled' => $isEnabled]
         );
 
         return $method;

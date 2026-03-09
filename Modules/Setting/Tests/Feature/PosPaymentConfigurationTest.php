@@ -107,6 +107,55 @@ class PosPaymentConfigurationTest extends TestCase
     }
 
     /** @test */
+    public function it_isolates_configuration_between_settings()
+    {
+        $otherSetting = Setting::factory()->create();
+        
+        // Ensure other setting also has the pivot record
+        SettingPosPaymentMethod::updateOrCreate(
+            ['setting_id' => $otherSetting->id, 'payment_method_id' => $this->paymentMethod->id],
+            ['is_enabled' => false]
+        );
+
+        // Enable for current setting
+        $this->patch(route('pos-payment-configurations.toggle', $this->paymentMethod->id), [
+            'is_enabled' => 1
+        ]);
+
+        $this->assertTrue(
+            SettingPosPaymentMethod::where('setting_id', $this->setting->id)
+                ->where('payment_method_id', $this->paymentMethod->id)
+                ->first()
+                ->is_enabled
+        );
+
+        // Should still be disabled for other setting
+        $this->assertFalse(
+            SettingPosPaymentMethod::where('setting_id', $otherSetting->id)
+                ->where('payment_method_id', $this->paymentMethod->id)
+                ->first()
+                ->is_enabled
+        );
+    }
+
+    /** @test */
+    public function it_shows_read_only_view_without_edit_permission()
+    {
+        $this->user->revokePermissionTo('paymentMethods.edit');
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+        $response = $this->get(route('pos-payment-configurations.index'));
+
+        $response->assertStatus(200);
+        $response->assertSee('Konfigurasi Pembayaran POS');
+        
+        // Should NOT see toggle buttons or bulk actions
+        $response->assertDontSee('Enable All');
+        $response->assertDontSee('Disable All');
+        $response->assertDontSee('Aksi');
+    }
+
+    /** @test */
     public function it_denies_access_without_permission()
     {
         $unauthorizedUser = User::factory()->create();

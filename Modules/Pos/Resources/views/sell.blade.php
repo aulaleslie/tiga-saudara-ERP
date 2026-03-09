@@ -2196,6 +2196,13 @@
                         if (firstMethod) {
                             selectPaymentMethod(firstMethod);
                         }
+                        if (checkoutSubmit) checkoutSubmit.disabled = false;
+                    } else {
+                        checkoutMethodId.value = '';
+                        checkoutMethodLabel.value = '(Metode Tidak Tersedia)';
+                        checkoutError.textContent = 'Tidak ada metode pembayaran yang diaktifkan untuk unit ini. Atur di Konfigurasi Pembayaran POS.';
+                        checkoutError.classList.remove('d-none');
+                        if (checkoutSubmit) checkoutSubmit.disabled = true;
                     }
                 })();
 

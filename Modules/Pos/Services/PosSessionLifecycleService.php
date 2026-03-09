@@ -6,6 +6,7 @@ use DomainException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Modules\Setting\Entities\SettingSaleLocation;
+use Modules\Setting\Entities\SettingPosPaymentMethod;
 use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Services\PosCashDrawerService;
@@ -45,6 +46,15 @@ class PosSessionLifecycleService
 
             if (! $hasConfiguredSaleLocations) {
                 throw new DomainException('Configure at least one sales location before opening a POS session.');
+            }
+
+            $hasEnabledPayments = SettingPosPaymentMethod::query()
+                ->where('setting_id', $settingId)
+                ->where('is_enabled', true)
+                ->exists();
+
+            if (! $hasEnabledPayments) {
+                throw new DomainException('Configure at least one payment method before opening a POS session.');
             }
 
             $terminal = $this->terminalResolver->resolveForSessionOpen($settingId, $terminalId);
