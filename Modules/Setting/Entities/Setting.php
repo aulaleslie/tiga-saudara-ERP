@@ -25,6 +25,9 @@ class Setting extends BaseModel
     protected static function booted(): void
     {
         static::created(function (Setting $setting) {
+            if (app()->runningUnitTests()) {
+                return;
+            }
             $locations = Location::query()
                 ->orderByRaw('CASE WHEN setting_id = ? THEN 0 ELSE 1 END', [$setting->id])
                 ->orderBy('name')

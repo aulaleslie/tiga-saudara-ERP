@@ -19,6 +19,8 @@ class ChartOfAccount extends BaseModel
         'setting_id'
     ];
 
+    protected array $uppercaseExcept = ['category'];
+
     public function tax(): BelongsTo
     {
         return $this->belongsTo(Tax::class, 'tax_id');

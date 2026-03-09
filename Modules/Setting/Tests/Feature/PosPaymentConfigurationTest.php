@@ -35,7 +35,7 @@ class PosPaymentConfigurationTest extends TestCase
         $coa = \Modules\Setting\Entities\ChartOfAccount::create([
             'account_number' => '1101',
             'name' => 'Cash on Hand',
-            'category' => 'Asset',
+            'category' => 'Kas & Bank',
             'setting_id' => $this->setting->id,
         ]);
         
@@ -60,7 +60,7 @@ class PosPaymentConfigurationTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee('Konfigurasi Pembayaran POS');
-        $response->assertSee('Cash');
+        $response->assertSee('CASH');
     }
 
     /** @test */
