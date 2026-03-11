@@ -221,7 +221,7 @@ class POSSafeDropWorkflowTest extends TestCase
 
     public function test_safe_drop_rejected_when_amount_exceeds_expected_cash(): void
     {
-        [$setting, $cashier, $session] = $this->createOpenSession(openingFloat: 90000, cashThreshold: 100000, requireSupervisorApproval: true);
+        [$setting, $cashier, $session] = $this->createOpenSession(openingFloat: 90000, cashThreshold: 50000, requireSupervisorApproval: true);
 
         $supervisor = $this->createUserForSetting(
             $setting,
@@ -256,7 +256,7 @@ class POSSafeDropWorkflowTest extends TestCase
     public function test_safe_drop_route_requires_pos_safe_drops_create_permission(): void
     {
         [$setting, $cashierWithoutPermission, $session] = $this->createOpenSession(
-            openingFloat: 100000,
+            openingFloat: 150000,
             cashThreshold: 100000,
             requireSupervisorApproval: true,
             cashierPermissions: ['pos.access', 'pos.sell', 'pos.sessions.open']
@@ -294,6 +294,27 @@ class POSSafeDropWorkflowTest extends TestCase
         );
 
         $terminal = $this->createTerminalForSetting($setting, $cashThreshold, $requireSupervisorApproval);
+
+        $coaId = \Illuminate\Support\Facades\DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'COA PM ' . $setting->id,
+            'account_number' => 'ACC-PM-' . $setting->id . '-' . rand(100, 999),
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $method = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $coaId,
+            'is_cash' => true,
+            'requires_reference' => false,
+        ]);
+
+        \Modules\Setting\Entities\SettingPosPaymentMethod::updateOrCreate(
+            ['setting_id' => $setting->id, 'payment_method_id' => $method->id],
+            ['is_enabled' => true]
+        );
 
         /** @var PosSessionLifecycleService $sessionLifecycleService */
         $sessionLifecycleService = app(PosSessionLifecycleService::class);

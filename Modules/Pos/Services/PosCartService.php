@@ -2,14 +2,18 @@
 
 namespace Modules\Pos\Services;
 
+use App\Models\User;
 use App\Support\SalesLocationResolver;
 use DomainException;
-use Illuminate\Support\Facades\DB;
-use Modules\People\Entities\Customer;
+use InvalidArgumentException;
+use Modules\Pos\Entities\PosActionApprovalRequest;
+use Modules\Pos\Entities\PosCartLine;
+use Modules\Pos\Events\PosCartUpdated;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Product\Entities\ProductUnitConversionPrice;
+use Illuminate\Support\Facades\DB;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 
@@ -19,7 +23,8 @@ class PosCartService
         private readonly PosCartSessionStore $cartSessionStore,
         private readonly PosCartTotalsCalculator $totalsCalculator,
         private readonly PosSupervisorApprovalService $approvalService,
-        private readonly PosCheckoutCustomerResolverService $customerResolver
+        private readonly PosCheckoutCustomerResolverService $customerResolver,
+        private readonly PosCartActionAuthorizationService $actionAuthorizationService
     ) {
     }
 
@@ -184,7 +189,7 @@ class PosCartService
      * }  $payload
      * @return array<string, mixed>
      */
-    public function updateLine(int $settingId, int $sessionId, int $lineId, array $payload): array
+    public function updateLine(int $settingId, int $sessionId, int $lineId, array $payload, ?string $approvalToken = null, ?User $user = null): array
     {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
 
@@ -212,9 +217,16 @@ class PosCartService
             throw new DomainException('Quantity must be at least 1.');
         }
 
-        // Guard: prevent qty decrease (increase-only rule)
         if ($qty < (int) $line['qty']) {
-            throw new DomainException('Jumlah qty tidak dapat dikurangi.');
+            if ($user) {
+                $this->actionAuthorizationService->authorize(
+                    $user,
+                    PosActionApprovalRequest::ACTION_QTY_REDUCE,
+                    $approvalToken
+                );
+            } else {
+                throw new DomainException('Jumlah qty tidak dapat dikurangi tanpa otorisasi.');
+            }
         }
 
         // Guard: prevent qty reduction below assigned serial count for serial-required products
@@ -253,8 +265,16 @@ class PosCartService
     /**
      * @return array<string, mixed>
      */
-    public function removeLine(int $settingId, int $sessionId, int $lineId): array
+    public function removeLine(int $settingId, int $sessionId, int $lineId, ?string $approvalToken = null, ?User $user = null): array
     {
+        if ($user) {
+            $this->actionAuthorizationService->authorize(
+                $user,
+                PosActionApprovalRequest::ACTION_LINE_REMOVE,
+                $approvalToken
+            );
+        }
+
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
 
         // Try to find line by line_id first
@@ -557,8 +577,16 @@ class PosCartService
     /**
      * @return array<string, mixed>
      */
-    public function clear(int $settingId, int $sessionId): array
+    public function clear(int $settingId, int $sessionId, ?string $approvalToken = null, ?User $user = null): array
     {
+        if ($user) {
+            $this->actionAuthorizationService->authorize(
+                $user,
+                PosActionApprovalRequest::ACTION_CART_CLEAR,
+                $approvalToken
+            );
+        }
+
         $cart = $this->cartSessionStore->emptyCart($settingId, $sessionId);
         $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
 

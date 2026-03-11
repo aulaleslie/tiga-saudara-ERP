@@ -1145,7 +1145,12 @@
                 }
 
                 if (payload !== undefined) {
-                    options.body = JSON.stringify(payload);
+                    if (options.method === 'GET') {
+                        const qs = new URLSearchParams(payload).toString();
+                        url += (url.includes('?') ? '&' : '?') + qs;
+                    } else {
+                        options.body = JSON.stringify(payload);
+                    }
                 }
 
                 const response = await fetch(url, options);
@@ -1169,6 +1174,99 @@
 
                 return body;
             }
+
+            const ApprovalManager = {
+                activePolls: {},
+
+                async wrapAction(btn, originalText, actionType, targetType, targetId, payload, actionFn) {
+                    if (btn.hasAttribute('data-approval-pending')) {
+                        const reqId = btn.getAttribute('data-approval-pending');
+                        if (confirm('Batalkan permohonan persetujuan ini?')) {
+                            try {
+                                await jsonRequest('/pos/sell/approval-requests/' + reqId + '/cancel', 'POST');
+                                this.resetBtn(btn, originalText);
+                                setCartStatus('Permohonan dibatalkan.', 'text-muted');
+                            } catch (e) {
+                                setCartStatus('Gagal membatalkan.', 'text-danger');
+                            }
+                        }
+                        return false;
+                    }
+
+                    const token = btn.getAttribute('data-approval-token') || null;
+                    try {
+                        await actionFn(token);
+                        this.resetBtn(btn, originalText);
+                        return true;
+                    } catch (error) {
+                        const msg = error.message || '';
+                        if (msg === 'APPROVAL_REQUIRED' || msg.includes('otorisasi') || msg.includes('APPROVAL')) {
+                            this.requestApproval(btn, originalText, actionType, targetType, targetId, payload, actionFn);
+                        } else {
+                            setCartStatus(msg || 'Aksi gagal.', 'text-danger');
+                            this.resetBtn(btn, originalText);
+                            throw error;
+                        }
+                        return false;
+                    }
+                },
+
+                async requestApproval(btn, originalText, actionType, targetType, targetId, payload, actionFn) {
+                    try {
+                        const reqPayload = { action_type: actionType, target_type: targetType, target_id: targetId, payload: payload };
+                        const res = await jsonRequest('/pos/sell/approval-requests', 'POST', reqPayload);
+                        if (res && res.request_id) {
+                            btn.setAttribute('data-approval-pending', res.request_id);
+                            btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Menunggu... (Klik Batal)`;
+                            btn.classList.add('btn-warning');
+                            btn.classList.remove('btn-danger', 'btn-outline-danger');
+                            setCartStatus('Menunggu persetujuan Supervisor...', 'text-warning');
+                            this.poll(res.request_id, btn, originalText, actionFn);
+                        }
+                    } catch (error) {
+                        setCartStatus('Gagal meminta persetujuan.', 'text-danger');
+                        this.resetBtn(btn, originalText);
+                    }
+                },
+
+                poll(reqId, btn, originalText, actionFn) {
+                    if (this.activePolls[reqId]) clearInterval(this.activePolls[reqId]);
+                    this.activePolls[reqId] = setInterval(async () => {
+                        if (!btn || !document.body.contains(btn)) {
+                            clearInterval(this.activePolls[reqId]);
+                            return;
+                        }
+                        try {
+                            const res = await jsonRequest('/pos/sell/approval-requests/' + reqId, 'GET');
+                            if (res.status === 'APPROVED' && res.token) {
+                                clearInterval(this.activePolls[reqId]);
+                                btn.removeAttribute('data-approval-pending');
+                                btn.setAttribute('data-approval-token', res.token);
+                                btn.textContent = 'Disetujui! Lanjutkan';
+                                btn.classList.remove('btn-warning');
+                                btn.classList.add('btn-success');
+                                setCartStatus('Disetujui. Klik tombol lagi untuk melanjutkan.', 'text-success');
+                            } else if (res.status === 'REJECTED' || res.status === 'CANCELLED') {
+                                clearInterval(this.activePolls[reqId]);
+                                this.resetBtn(btn, originalText);
+                                setCartStatus(res.status === 'REJECTED' ? 'Permohonan ditolak.' : 'Permohonan dibatalkan.', 'text-danger');
+                            }
+                        } catch (e) {
+                            // ignore intermittent errors during polling
+                        }
+                    }, 3000);
+                },
+
+                resetBtn(btn, originalText) {
+                    const reqId = btn.getAttribute('data-approval-pending');
+                    if (reqId && this.activePolls[reqId]) clearInterval(this.activePolls[reqId]);
+                    btn.removeAttribute('data-approval-pending');
+                    btn.removeAttribute('data-approval-token');
+                    btn.innerHTML = originalText;
+                    btn.className = btn.getAttribute('data-original-class') || btn.className;
+                    // For inline qty elements, reset logic will be handled manually
+                }
+            };
 
             function getLineEndpoint(lineId) {
                 return cartLinesBaseUrl + '/' + lineId;
@@ -1385,7 +1483,7 @@
                         ${qtyCell}
                         <td class="text-right align-middle" style="vertical-align: top;">
                             <div class="font-weight-bold mb-1">${formatPrice(line.line_total || 0)}</div>
-                            <button type="button" class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;">Hapus</button>
+                            <button type="button" class="btn btn-link text-danger p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;">Hapus</button>
                         </td>
                     </tr>
                 `;
@@ -1934,19 +2032,21 @@
             // Siap Pindai button removed in Phase 3A - Enter key now handles scan resolution
 
             if (clearCartButton) {
+                if (!clearCartButton.hasAttribute('data-original-class')) {
+                    clearCartButton.setAttribute('data-original-class', clearCartButton.className);
+                }
                 clearCartButton.addEventListener('click', async function () {
-                    try {
-                        const response = await jsonRequest(cartClearEndpoint, 'DELETE');
-
-                        if (!response) {
-                            return;
+                    const btn = this;
+                    const originalText = 'Hapus Keranjang';
+                    
+                    ApprovalManager.wrapAction(btn, originalText, 'CART_CLEAR', 'pos_session', window.posSessionId || 0, {}, async (token) => {
+                        const payload = token ? { approval_token: token } : undefined;
+                        const response = await jsonRequest(cartClearEndpoint, 'DELETE', payload);
+                        if (response) {
+                            renderCart(response.cart_snapshot || null);
+                            setCartStatus('Keranjang dikosongkan.', 'text-success');
                         }
-
-                        renderCart(response.cart_snapshot || null);
-                        setCartStatus('Keranjang dikosongkan.', 'text-success');
-                    } catch (error) {
-                        setCartStatus(error.message || 'Gagal mengosongkan keranjang.', 'text-danger');
-                    }
+                    });
                 });
             }
 
@@ -1980,19 +2080,25 @@
                 qtyInput.setAttribute('data-prev-qty', newQty);
 
                 try {
-                    const response = await jsonRequest(getLineEndpoint(lineId), 'PATCH', { qty: newQty });
-                    if (!response) {
+                    ApprovalManager.wrapAction(qtyInput, qtyInput.value, 'QTY_REDUCE', 'pos_cart_line', lineId, { qty: newQty }, async (token) => {
+                        const payload = { qty: newQty };
+                        if (token) payload.approval_token = token;
+                        
+                        const response = await jsonRequest(getLineEndpoint(lineId), 'PATCH', payload);
+                        if (response) {
+                            renderCart(response.cart_snapshot || null);
+                            setCartStatus('Qty berhasil diperbarui.', 'text-success');
+                        } else {
+                            qtyInput.value = prevQty;
+                            qtyInput.setAttribute('data-prev-qty', prevQty);
+                        }
+                    }).catch(err => {
                         qtyInput.value = prevQty;
                         qtyInput.setAttribute('data-prev-qty', prevQty);
-                        return;
-                    }
-
-                    renderCart(response.cart_snapshot || null);
-                    setCartStatus('Qty berhasil diperbarui.', 'text-success');
+                    });
                 } catch (error) {
                     qtyInput.value = prevQty;
                     qtyInput.setAttribute('data-prev-qty', prevQty);
-                    setCartStatus(error.message || 'Gagal memperbarui qty.', 'text-danger');
                 }
             });
 
@@ -2011,17 +2117,14 @@
                 }
 
                 if (button.classList.contains('js-line-remove')) {
-                    try {
-                        const response = await jsonRequest(getLineEndpoint(lineId), 'DELETE');
-                        if (!response) {
-                            return;
+                    ApprovalManager.wrapAction(button, 'Hapus', 'LINE_REMOVE', 'pos_cart_line', lineId, {}, async (token) => {
+                        const payload = token ? { approval_token: token } : undefined;
+                        const response = await jsonRequest(getLineEndpoint(lineId), 'DELETE', payload);
+                        if (response) {
+                            renderCart(response.cart_snapshot || null);
+                            setCartStatus('Baris keranjang dihapus.', 'text-success');
                         }
-
-                        renderCart(response.cart_snapshot || null);
-                        setCartStatus('Baris keranjang dihapus.', 'text-success');
-                    } catch (error) {
-                        setCartStatus(error.message || 'Gagal menghapus baris keranjang.', 'text-danger');
-                    }
+                    });
                 }
             });
 

@@ -192,7 +192,9 @@ class PosSellController extends Controller
                 $settingId,
                 $sessionId,
                 $lineId,
-                $request->validated()
+                $request->validated(),
+                $request->input('approval_token'),
+                $request->user()
             );
         } catch (DomainException $exception) {
             return response()->json([
@@ -212,7 +214,13 @@ class PosSellController extends Controller
         $sessionId = $this->activeSessionId($request);
 
         try {
-            $snapshot = $cartService->removeLine($settingId, $sessionId, $lineId);
+            $snapshot = $cartService->removeLine(
+                $settingId,
+                $sessionId,
+                $lineId,
+                $request->input('approval_token'),
+                $request->user()
+            );
         } catch (DomainException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
@@ -267,7 +275,12 @@ class PosSellController extends Controller
         $sessionId = $this->activeSessionId($request);
 
         try {
-            $snapshot = $cartService->clear($settingId, $sessionId);
+            $snapshot = $cartService->clear(
+                $settingId,
+                $sessionId,
+                $request->input('approval_token'),
+                $request->user()
+            );
         } catch (DomainException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),

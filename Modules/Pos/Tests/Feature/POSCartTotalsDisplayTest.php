@@ -54,6 +54,9 @@ class POSCartTotalsDisplayTest extends TestCase
             'pos.sessions.open',
             'pos.overrides.price',
             'pos.supervisor.approval',
+            'pos.cart.clear',
+            'pos.cart.line.remove',
+            'pos.cart.line.reduce',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -240,14 +243,17 @@ class POSCartTotalsDisplayTest extends TestCase
         $paymentsBefore = DB::table('sale_payments')->count();
         $dispatchBefore = DB::table('dispatches')->count();
 
-        $this->actingAs($cashier)
+        $resStore = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 2])
-            ->assertOk();
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 2]);
+        $resStore->assertOk();
+        $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
+
+        $cashier->givePermissionTo(['pos.cart.line.reduce', 'pos.cart.clear']);
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $product->id]), [
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $lineId]), [
                 'qty' => 3,
             ])
             ->assertOk();
@@ -270,19 +276,20 @@ class POSCartTotalsDisplayTest extends TestCase
         $product = $this->createStockedProduct($setting, $location, 'SKU-QTY-DEC', 'Produk Qty Decrease', 10000, $tax->id, $cashier->id);
 
         // Add product with qty=3
-        $this->actingAs($cashier)
+        $resStore = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 3])
-            ->assertOk();
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 3]);
+        $resStore->assertOk();
+        $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
 
         // Attempt to decrease qty to 2 - should be rejected with 422
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $product->id]), [
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $lineId]), [
                 'qty' => 2,
             ])
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Jumlah qty tidak dapat dikurangi.');
+            ->assertJsonPath('message', 'APPROVAL_REQUIRED');
     }
 
     public function test_qty_increase_succeeds_for_non_serial_line(): void
@@ -293,15 +300,16 @@ class POSCartTotalsDisplayTest extends TestCase
         $product = $this->createStockedProduct($setting, $location, 'SKU-QTY-INC', 'Produk Qty Increase', 10000, $tax->id, $cashier->id);
 
         // Add product with qty=1
-        $this->actingAs($cashier)
+        $resStore = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
-            ->assertOk();
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1]);
+        $resStore->assertOk();
+        $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
 
         // Increase qty to 2 - should succeed
         $response = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $product->id]), [
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $lineId]), [
                 'qty' => 2,
             ]);
 
@@ -370,6 +378,27 @@ class POSCartTotalsDisplayTest extends TestCase
 
         $terminal = $this->createTerminalForSetting($setting);
         $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
+
+        $coaId = \Illuminate\Support\Facades\DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'COA PM ' . $setting->id,
+            'account_number' => 'ACC-PM-' . $setting->id . '-' . rand(100, 999),
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $method = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $coaId,
+            'is_cash' => true,
+            'requires_reference' => false,
+        ]);
+
+        \Modules\Setting\Entities\SettingPosPaymentMethod::updateOrCreate(
+            ['setting_id' => $setting->id, 'payment_method_id' => $method->id],
+            ['is_enabled' => true]
+        );
 
         $session = PosSession::create([
             'setting_id' => $setting->id,

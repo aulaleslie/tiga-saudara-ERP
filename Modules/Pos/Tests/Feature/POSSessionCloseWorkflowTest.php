@@ -338,6 +338,27 @@ class POSSessionCloseWorkflowTest extends TestCase
 
         $terminal = $this->createTerminalForSetting($setting, $varianceThreshold);
 
+        $coaId = \Illuminate\Support\Facades\DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'COA PM ' . $setting->id,
+            'account_number' => 'ACC-PM-' . $setting->id . '-' . rand(100, 999),
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $method = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $coaId,
+            'is_cash' => true,
+            'requires_reference' => false,
+        ]);
+
+        \Modules\Setting\Entities\SettingPosPaymentMethod::updateOrCreate(
+            ['setting_id' => $setting->id, 'payment_method_id' => $method->id],
+            ['is_enabled' => true]
+        );
+
         /** @var PosSessionLifecycleService $sessionLifecycleService */
         $sessionLifecycleService = app(PosSessionLifecycleService::class);
 

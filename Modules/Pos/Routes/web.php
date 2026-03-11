@@ -6,6 +6,8 @@ use Modules\Pos\Http\Controllers\PosSellController;
 use Modules\Pos\Http\Controllers\PosTerminalController;
 use Modules\Pos\Http\Controllers\PosReportController;
 use Modules\Pos\Http\Controllers\PosReconciliationController;
+use Modules\Pos\Http\Controllers\PosCartApprovalController;
+use Modules\Pos\Http\Controllers\PosSupervisorApprovalQueueController;
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sessions.view']], function () {
     Route::get('/pos/sessions', [PosSessionController::class, 'index'])->name('pos.sessions.index');
@@ -54,6 +56,10 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::post('/pos/sell/customers', [PosSellController::class, 'customerStore'])->name('pos.sell.customers.store');
     Route::get('/pos/sell/payment-methods/search', [PosSellController::class, 'paymentMethodSearch'])->name('pos.sell.payment-methods.search');
 
+    Route::post('/pos/sell/approval-requests', [PosCartApprovalController::class, 'store'])->name('pos.sell.approval-requests.store');
+    Route::get('/pos/sell/approval-requests/{id}', [PosCartApprovalController::class, 'show'])->name('pos.sell.approval-requests.show');
+    Route::post('/pos/sell/approval-requests/{id}/cancel', [PosCartApprovalController::class, 'cancel'])->name('pos.sell.approval-requests.cancel');
+
     Route::get('/pos/sell/cart', [PosSellController::class, 'cartShow'])->name('pos.sell.cart.show');
     Route::post('/pos/sell/cart/lines', [PosSellController::class, 'cartStoreLine'])->name('pos.sell.cart.lines.store');
     Route::patch('/pos/sell/cart/lines/{lineId}', [PosSellController::class, 'cartUpdateLine'])
@@ -99,4 +105,11 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.t
         Route::put('/pos/terminals/{terminal}', [PosTerminalController::class, 'update'])->name('pos.terminals.update');
         Route::delete('/pos/terminals/{terminal}', [PosTerminalController::class, 'destroy'])->name('pos.terminals.destroy');
     });
+});
+
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.supervisor.approval']], function () {
+    Route::get('/pos/supervisor/approval-requests', [PosSupervisorApprovalQueueController::class, 'index'])->name('pos.supervisor.approval-requests.index');
+    Route::get('/pos/supervisor/approval-requests/data', [PosSupervisorApprovalQueueController::class, 'data'])->name('pos.supervisor.approval-requests.data');
+    Route::post('/pos/supervisor/approval-requests/{id}/approve', [PosSupervisorApprovalQueueController::class, 'approve'])->name('pos.supervisor.approval-requests.approve');
+    Route::post('/pos/supervisor/approval-requests/{id}/reject', [PosSupervisorApprovalQueueController::class, 'reject'])->name('pos.supervisor.approval-requests.reject');
 });

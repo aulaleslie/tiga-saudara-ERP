@@ -1,0 +1,215 @@
+<?php
+
+namespace Modules\Pos\Services;
+
+use App\Models\User;
+use DomainException;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Modules\Pos\Entities\PosActionApprovalRequest;
+use Modules\Pos\Entities\PosSupervisorApproval;
+
+class PosApprovalRequestService
+{
+    public function __construct(
+        private readonly PosApprovalTokenService $tokenService
+    ) {
+    }
+
+    public function createRequest(
+        int $settingId,
+        int $sessionId,
+        User $requester,
+        string $actionType,
+        string $targetType,
+        int $targetId,
+        array $payload
+    ): PosActionApprovalRequest {
+        PosActionApprovalRequest::query()
+            ->where('requested_by', $requester->id)
+            ->where('action_type', $actionType)
+            ->where('target_id', $targetId)
+            ->where('status', PosActionApprovalRequest::STATUS_PENDING)
+            ->update(['status' => PosActionApprovalRequest::STATUS_CANCELLED]);
+
+        return PosActionApprovalRequest::create([
+            'setting_id' => $settingId,
+            'pos_session_id' => $sessionId,
+            'action_type' => $actionType,
+            'target_type' => $targetType,
+            'target_id' => $targetId,
+            'request_payload' => $payload,
+            'requested_by' => $requester->id,
+            'status' => PosActionApprovalRequest::STATUS_PENDING,
+        ]);
+    }
+
+    public function checkStatus(int $requestId, User $requester): array
+    {
+        $request = PosActionApprovalRequest::query()
+            ->where('id', $requestId)
+            ->where('requested_by', $requester->id)
+            ->with('token')
+            ->first();
+
+        if (! $request) {
+            throw new DomainException('Request was not found.');
+        }
+
+        $tokenStr = null;
+        if ($request->status === PosActionApprovalRequest::STATUS_APPROVED && $request->token) {
+            $tokenStr = $request->token->token_hash;
+            $expiresAt = $request->token->expires_at->toIso8601String();
+        }
+
+        return [
+            'status' => $request->status,
+            'token_ready' => $tokenStr !== null,
+            'approval_token' => $tokenStr,
+            'expires_at' => $expiresAt ?? null,
+        ];
+    }
+
+    public function cancelRequest(int $requestId, User $requester): void
+    {
+        $request = PosActionApprovalRequest::query()
+            ->where('id', $requestId)
+            ->where('requested_by', $requester->id)
+            ->first();
+
+        if (! $request) {
+            throw new DomainException('Request was not found.');
+        }
+
+        if ($request->status !== PosActionApprovalRequest::STATUS_PENDING) {
+            throw new DomainException('NOT_PENDING');
+        }
+
+        $request->update(['status' => PosActionApprovalRequest::STATUS_CANCELLED]);
+    }
+
+    public function listPending(int $settingId, ?array $filters = []): LengthAwarePaginator
+    {
+        $query = PosActionApprovalRequest::query()
+            ->where('setting_id', $settingId)
+            ->with(['requester', 'session']);
+
+        if (empty($filters['status'])) {
+            $query->where('status', PosActionApprovalRequest::STATUS_PENDING);
+        } else {
+            $query->where('status', $filters['status']);
+        }
+
+        if (! empty($filters['action_type'])) {
+            $query->where('action_type', $filters['action_type']);
+        }
+
+        if (! empty($filters['requested_by'])) {
+            $query->where('requested_by', $filters['requested_by']);
+        }
+
+        return $query->latest()->paginate(15);
+    }
+
+    public function approveRequest(int $requestId, User $supervisor, ?string $note = null): array
+    {
+        $request = PosActionApprovalRequest::query()->find($requestId);
+
+        if (! $request) {
+            throw new DomainException('Request was not found.');
+        }
+
+        if ($request->status !== PosActionApprovalRequest::STATUS_PENDING) {
+            throw new DomainException('ALREADY_DECIDED');
+        }
+
+        $requiredPermission = match ($request->action_type) {
+            PosActionApprovalRequest::ACTION_CART_CLEAR => 'pos.cart.clear',
+            PosActionApprovalRequest::ACTION_LINE_REMOVE => 'pos.cart.line.remove',
+            PosActionApprovalRequest::ACTION_QTY_REDUCE => 'pos.cart.line.reduce',
+            default => throw new DomainException('Invalid action type.'),
+        };
+
+        if (! $supervisor->can('pos.supervisor.approval') || ! $supervisor->can($requiredPermission)) {
+            throw new DomainException('MISSING_PERMISSION');
+        }
+
+        $actionParam = match ($request->action_type) {
+            PosActionApprovalRequest::ACTION_CART_CLEAR => PosSupervisorApproval::ACTION_CART_CLEAR_APPROVAL,
+            PosActionApprovalRequest::ACTION_LINE_REMOVE => PosSupervisorApproval::ACTION_LINE_REMOVE_APPROVAL,
+            PosActionApprovalRequest::ACTION_QTY_REDUCE => PosSupervisorApproval::ACTION_QTY_REDUCE_APPROVAL,
+        };
+
+        $request->update([
+            'status' => PosActionApprovalRequest::STATUS_APPROVED,
+            'decided_by' => $supervisor->id,
+            'decided_at' => now(),
+            'decision_reason' => $note,
+        ]);
+
+        PosSupervisorApproval::create([
+            'setting_id' => $request->setting_id,
+            'action_type' => $actionParam,
+            'target_type' => 'pos_session',
+            'target_id' => $request->pos_session_id,
+            'requested_by' => $request->requested_by,
+            'approved_by' => $supervisor->id,
+            'approval_result' => PosSupervisorApproval::RESULT_APPROVED,
+            'reason' => $note,
+            'occurred_at' => now(),
+        ]);
+
+        $tokenTTL = 10;
+        $this->tokenService->issueToken($request, $tokenTTL);
+
+        return [
+            'status' => PosActionApprovalRequest::STATUS_APPROVED,
+            'token_ttl_seconds' => $tokenTTL * 60,
+        ];
+    }
+
+    public function rejectRequest(int $requestId, User $supervisor, string $reason): array
+    {
+        $request = PosActionApprovalRequest::query()->find($requestId);
+
+        if (! $request) {
+            throw new DomainException('Request was not found.');
+        }
+
+        if ($request->status !== PosActionApprovalRequest::STATUS_PENDING) {
+            throw new DomainException('ALREADY_DECIDED');
+        }
+
+        if (! $supervisor->can('pos.supervisor.approval')) {
+            throw new DomainException('MISSING_PERMISSION');
+        }
+
+        $actionParam = match ($request->action_type) {
+            PosActionApprovalRequest::ACTION_CART_CLEAR => PosSupervisorApproval::ACTION_CART_CLEAR_APPROVAL,
+            PosActionApprovalRequest::ACTION_LINE_REMOVE => PosSupervisorApproval::ACTION_LINE_REMOVE_APPROVAL,
+            PosActionApprovalRequest::ACTION_QTY_REDUCE => PosSupervisorApproval::ACTION_QTY_REDUCE_APPROVAL,
+        };
+
+        $request->update([
+            'status' => PosActionApprovalRequest::STATUS_REJECTED,
+            'decided_by' => $supervisor->id,
+            'decided_at' => now(),
+            'decision_reason' => $reason,
+        ]);
+
+        PosSupervisorApproval::create([
+            'setting_id' => $request->setting_id,
+            'action_type' => $actionParam,
+            'target_type' => 'pos_session',
+            'target_id' => $request->pos_session_id,
+            'requested_by' => $request->requested_by,
+            'approved_by' => $supervisor->id,
+            'approval_result' => PosSupervisorApproval::RESULT_REJECTED,
+            'reason' => $reason,
+            'occurred_at' => now(),
+        ]);
+
+        return [
+            'status' => PosActionApprovalRequest::STATUS_REJECTED,
+        ];
+    }
+}

@@ -340,6 +340,10 @@
                                             'pos.terminals.access' => 'Akses Terminal POS',
                                             'pos.terminals.edit' => 'Kelola Terminal POS',
                                             'pos.settings.edit' => 'Ubah Pengaturan POS',
+                                            'pos.cart.clear' => 'Hapus Keranjang POS',
+                                            'pos.cart.line.remove' => 'Hapus Baris Keranjang POS',
+                                            'pos.cart.line.reduce' => 'Kurangi Qty Keranjang POS',
+                                            'pos.approval.requests.view' => 'Lihat Antrian Persetujuan POS',
                                         ],
 
                                         'Metode / Syarat Pembayaran' => [
