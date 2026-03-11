@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Tests\Feature;
 
+use App\Http\Middleware\VerifyCsrfToken;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +40,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->withoutMiddleware(VerifyCsrfToken::class);
 
         Currency::create([
             'currency_name' => 'Rupiah',
@@ -498,9 +500,10 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $methods = [];
         
         foreach (['CASH' => true, 'TRANSFER' => false, 'QRIS' => false] as $name => $isCash) {
+            $methodSuffix = $this->sequence++;
             $coaId = DB::table('chart_of_accounts')->insertGetId([
-                'name' => "COA $name " . $this->sequence,
-                'account_number' => "ACC-$name-" . $this->sequence++,
+                'name' => "COA $name " . $methodSuffix,
+                'account_number' => "ACC-$name-" . $methodSuffix,
                 'category' => 'Kas & Bank',
                 'setting_id' => $setting->id,
                 'created_at' => now(),
@@ -508,11 +511,23 @@ class POSTaxBySourceSnapshotTest extends TestCase
             ]);
 
             $methods[strtolower($name)] = PaymentMethod::create([
-                'name' => "$name POS",
+                'name' => "$name POS $methodSuffix",
                 'coa_id' => $coaId,
                 'is_cash' => $isCash,
                 'requires_reference' => !$isCash,
             ]);
+
+            DB::table('setting_pos_payment_methods')->updateOrInsert(
+                [
+                    'setting_id' => $setting->id,
+                    'payment_method_id' => $methods[strtolower($name)]->id,
+                ],
+                [
+                    'is_enabled' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]
+            );
         }
 
         return $methods;

@@ -5,6 +5,7 @@ namespace Modules\Pos\Providers;
 use Illuminate\Support\ServiceProvider;
 use Modules\Pos\Services\Adapters\InlinePosCheckoutPostingAdapter;
 use Modules\Pos\Services\Adapters\LoggingPosCashDrawerAdapter;
+use Modules\Pos\Services\Adapters\SplitPosCheckoutPostingAdapter;
 use Modules\Pos\Services\Contracts\PosCashDrawerAdapter;
 use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
 
@@ -28,7 +29,15 @@ class PosServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->register(RouteServiceProvider::class);
-        $this->app->bind(PosCheckoutPostingAdapter::class, InlinePosCheckoutPostingAdapter::class);
+        $this->app->bind(PosCheckoutPostingAdapter::class, function ($app) {
+            $splitPostingEnabled = (bool) config('pos.checkout.split_posting.enabled', false);
+
+            if ($splitPostingEnabled) {
+                return $app->make(SplitPosCheckoutPostingAdapter::class);
+            }
+
+            return $app->make(InlinePosCheckoutPostingAdapter::class);
+        });
         $this->app->bind(PosCashDrawerAdapter::class, LoggingPosCashDrawerAdapter::class);
     }
 

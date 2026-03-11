@@ -6,6 +6,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Pos\Entities\PosCheckout;
+use Modules\Pos\Entities\PosCheckoutSale;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosTerminal;
@@ -514,6 +515,21 @@ class FinalizePosCheckoutService
                     static fn ($id): int => (int) $id,
                     is_array($postingResult['dispatch_ids'] ?? null) ? $postingResult['dispatch_ids'] : []
                 ));
+                $splitGroups = $this->normalizeSplitGroupsPayload($postingResult['split_groups'] ?? []);
+                $sales = is_array($postingResult['sales'] ?? null)
+                    ? $postingResult['sales']
+                    : [];
+                $salePayments = is_array($postingResult['sale_payments'] ?? null)
+                    ? $postingResult['sale_payments']
+                    : [];
+                $splitSummary = is_array($postingResult['split_summary'] ?? null)
+                    ? $postingResult['split_summary']
+                    : ($splitGroups !== []
+                        ? [
+                            'group_count' => count($splitGroups),
+                            'groups' => $splitGroups,
+                        ]
+                        : null);
 
                 $actualTaxTotal = (float) ($postingResult['actual_tax_total'] ?? $lockedCheckout->tax_total);
                 $actualGrandTotal = (float) ($postingResult['actual_grand_total'] ?? $lockedCheckout->grand_total);
@@ -534,6 +550,14 @@ class FinalizePosCheckoutService
                     'change_total' => $actualChangeTotal,
                     'idempotent_replay' => false,
                 ];
+
+                if ($splitGroups !== []) {
+                    $responsePayload['split_groups'] = $splitGroups;
+                    $responsePayload['sales'] = array_values($sales);
+                    $responsePayload['sale_payments'] = array_values($salePayments);
+
+                    $this->persistCheckoutSplitMappings($checkoutId, $splitGroups);
+                }
 
                 if ($payment['is_cash']) {
                     $cashEvent = PosSessionCashEvent::query()->create([
@@ -578,6 +602,7 @@ class FinalizePosCheckoutService
                 $lockedCheckout->change_total = $actualChangeTotal;
                 $lockedCheckout->dispatch_ids = $dispatchIds;
                 $lockedCheckout->response_payload = $responsePayload;
+                $lockedCheckout->split_summary = $splitSummary;
                 $lockedCheckout->failure_code = null;
                 $lockedCheckout->failure_message = null;
                 $lockedCheckout->metadata = $this->mergeMetadata(
@@ -585,6 +610,9 @@ class FinalizePosCheckoutService
                     [
                         'client_context' => $clientContext,
                         'posted_at' => now()->toISOString(),
+                        'split_group_count' => is_array($splitSummary['groups'] ?? null)
+                            ? count($splitSummary['groups'])
+                            : 0,
                     ]
                 );
                 $lockedCheckout->finalized_at = now();
@@ -662,6 +690,97 @@ class FinalizePosCheckoutService
     }
 
     /**
+     * @param  mixed  $splitGroups
+     * @return array<int, array{
+     *     split_key:string,
+     *     source_setting_id:int,
+     *     source_location_id:int,
+     *     tax_bucket:string,
+     *     sale_id:int,
+     *     sale_payment_id:int,
+     *     dispatch_ids:array<int, int>,
+     *     subtotal:float,
+     *     tax_total:float,
+     *     grand_total:float,
+     *     paid_total:float
+     * }>
+     */
+    private function normalizeSplitGroupsPayload(mixed $splitGroups): array
+    {
+        if (! is_array($splitGroups)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($splitGroups as $group) {
+            if (! is_array($group)) {
+                continue;
+            }
+
+            $splitKey = trim((string) ($group['split_key'] ?? ''));
+            if ($splitKey === '') {
+                continue;
+            }
+
+            $normalized[] = [
+                'split_key' => $splitKey,
+                'source_setting_id' => (int) ($group['source_setting_id'] ?? 0),
+                'source_location_id' => (int) ($group['source_location_id'] ?? 0),
+                'tax_bucket' => (string) ($group['tax_bucket'] ?? 'NON_TAX'),
+                'sale_id' => (int) ($group['sale_id'] ?? 0),
+                'sale_payment_id' => (int) ($group['sale_payment_id'] ?? 0),
+                'dispatch_ids' => array_values(array_map(
+                    static fn ($id): int => (int) $id,
+                    is_array($group['dispatch_ids'] ?? null) ? $group['dispatch_ids'] : []
+                )),
+                'subtotal' => round((float) ($group['subtotal'] ?? 0), 2),
+                'tax_total' => round((float) ($group['tax_total'] ?? 0), 2),
+                'grand_total' => round((float) ($group['grand_total'] ?? 0), 2),
+                'paid_total' => round((float) ($group['paid_total'] ?? 0), 2),
+            ];
+        }
+
+        usort($normalized, static fn (array $left, array $right): int => strcmp($left['split_key'], $right['split_key']));
+
+        return $normalized;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $splitGroups
+     */
+    private function persistCheckoutSplitMappings(int $checkoutId, array $splitGroups): void
+    {
+        foreach ($splitGroups as $group) {
+            $splitKey = trim((string) ($group['split_key'] ?? ''));
+            if ($splitKey === '') {
+                continue;
+            }
+
+            PosCheckoutSale::query()->updateOrCreate(
+                [
+                    'pos_checkout_id' => $checkoutId,
+                    'split_key' => $splitKey,
+                ],
+                [
+                    'source_setting_id' => (int) ($group['source_setting_id'] ?? 0),
+                    'source_location_id' => (int) ($group['source_location_id'] ?? 0),
+                    'tax_bucket' => (string) ($group['tax_bucket'] ?? 'NON_TAX'),
+                    'sale_id' => (int) ($group['sale_id'] ?? 0) ?: null,
+                    'sale_payment_id' => (int) ($group['sale_payment_id'] ?? 0) ?: null,
+                    'dispatch_ids' => array_values(array_map(
+                        static fn ($id): int => (int) $id,
+                        is_array($group['dispatch_ids'] ?? null) ? $group['dispatch_ids'] : []
+                    )),
+                    'subtotal' => round((float) ($group['subtotal'] ?? 0), 2),
+                    'tax_total' => round((float) ($group['tax_total'] ?? 0), 2),
+                    'grand_total' => round((float) ($group['grand_total'] ?? 0), 2),
+                    'paid_total' => round((float) ($group['paid_total'] ?? 0), 2),
+                ]
+            );
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $metadata
      */
     private function markCheckoutFailed(
@@ -727,7 +846,66 @@ class FinalizePosCheckoutService
         $payload['change_total'] = round((float) ($payload['change_total'] ?? 0), 2);
         $payload['idempotent_replay'] = true;
 
+        $splitGroups = $this->normalizeSplitGroupsPayload($payload['split_groups'] ?? []);
+        if ($splitGroups === []) {
+            $splitGroups = $this->normalizeSplitGroupsPayload($checkout->split_summary['groups'] ?? []);
+        }
+
+        if ($splitGroups !== []) {
+            $payload['split_groups'] = $splitGroups;
+            $payload['sales'] = is_array($payload['sales'] ?? null) && $payload['sales'] !== []
+                ? array_values($payload['sales'])
+                : $this->buildSalesPayloadFromSplitGroups($splitGroups);
+            $payload['sale_payments'] = is_array($payload['sale_payments'] ?? null) && $payload['sale_payments'] !== []
+                ? array_values($payload['sale_payments'])
+                : $this->buildSalePaymentsPayloadFromSplitGroups($splitGroups);
+        }
+
         return $payload;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $splitGroups
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildSalesPayloadFromSplitGroups(array $splitGroups): array
+    {
+        $sales = [];
+
+        foreach ($splitGroups as $group) {
+            $sales[] = [
+                'split_key' => (string) ($group['split_key'] ?? ''),
+                'sale_id' => (int) ($group['sale_id'] ?? 0),
+                'source_setting_id' => (int) ($group['source_setting_id'] ?? 0),
+                'source_location_id' => (int) ($group['source_location_id'] ?? 0),
+                'tax_bucket' => (string) ($group['tax_bucket'] ?? 'NON_TAX'),
+                'subtotal' => round((float) ($group['subtotal'] ?? 0), 2),
+                'tax_total' => round((float) ($group['tax_total'] ?? 0), 2),
+                'grand_total' => round((float) ($group['grand_total'] ?? 0), 2),
+            ];
+        }
+
+        return $sales;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $splitGroups
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildSalePaymentsPayloadFromSplitGroups(array $splitGroups): array
+    {
+        $payments = [];
+
+        foreach ($splitGroups as $group) {
+            $payments[] = [
+                'split_key' => (string) ($group['split_key'] ?? ''),
+                'sale_id' => (int) ($group['sale_id'] ?? 0),
+                'sale_payment_id' => (int) ($group['sale_payment_id'] ?? 0),
+                'amount' => round((float) ($group['paid_total'] ?? 0), 2),
+            ];
+        }
+
+        return $payments;
     }
 
     /**

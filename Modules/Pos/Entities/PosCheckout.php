@@ -5,6 +5,7 @@ namespace Modules\Pos\Entities;
 use App\Models\BaseModel;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\People\Entities\Customer;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
@@ -46,6 +47,7 @@ class PosCheckout extends BaseModel
         'sale_payment_id',
         'dispatch_ids',
         'response_payload',
+        'split_summary',
         'failure_code',
         'failure_message',
         'metadata',
@@ -61,6 +63,7 @@ class PosCheckout extends BaseModel
         'change_total' => 'decimal:2',
         'dispatch_ids' => 'array',
         'response_payload' => 'array',
+        'split_summary' => 'array',
         'metadata' => 'array',
         'finalized_at' => 'datetime',
     ];
@@ -113,5 +116,10 @@ class PosCheckout extends BaseModel
     public function printLogs()
     {
         return $this->hasMany(PosReceiptPrintLog::class, 'pos_checkout_id', 'id');
+    }
+
+    public function checkoutSales(): HasMany
+    {
+        return $this->hasMany(PosCheckoutSale::class, 'pos_checkout_id', 'id');
     }
 }

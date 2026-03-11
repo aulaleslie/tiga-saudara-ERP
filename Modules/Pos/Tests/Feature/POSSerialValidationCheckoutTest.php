@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Tests\Feature;
 
+use App\Http\Middleware\VerifyCsrfToken;
 use App\Models\User;
 use App\Support\SalesLocationResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,6 +40,7 @@ class POSSerialValidationCheckoutTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->withoutMiddleware(VerifyCsrfToken::class);
 
         Currency::create([
             'currency_name' => 'Rupiah',
@@ -187,18 +189,20 @@ class POSSerialValidationCheckoutTest extends TestCase
         ]);
 
         // Assert SaleDetail has serial_number_ids
-        $this->assertDatabaseHas('sale_details', [
-            'sale_id' => $saleId,
-            'product_id' => $product->id,
-            'serial_number_ids' => json_encode([(int) $sn->id]),
-        ]);
+        $saleDetailSerials = DB::table('sale_details')
+            ->where('sale_id', $saleId)
+            ->where('product_id', $product->id)
+            ->value('serial_number_ids');
+        $this->assertNotNull($saleDetailSerials);
+        $this->assertSame([(int) $sn->id], json_decode((string) $saleDetailSerials, true));
 
         // Assert DispatchDetail has serial_numbers
-        $this->assertDatabaseHas('dispatch_details', [
-            'dispatch_id' => $dispatchId,
-            'product_id' => $product->id,
-            'serial_numbers' => json_encode(['SN-SUCCESS-001']),
-        ]);
+        $dispatchDetailSerials = DB::table('dispatch_details')
+            ->where('dispatch_id', $dispatchId)
+            ->where('product_id', $product->id)
+            ->value('serial_numbers');
+        $this->assertNotNull($dispatchDetailSerials);
+        $this->assertSame(['SN-SUCCESS-001'], json_decode((string) $dispatchDetailSerials, true));
 
         // Assert history record
         $this->assertDatabaseHas('serial_number_histories', [
@@ -256,6 +260,7 @@ class POSSerialValidationCheckoutTest extends TestCase
         $cashier = $this->createUserForSetting($setting, $name . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $terminal = $this->createTerminalForSetting($setting);
         $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
+        $this->seedPaymentMethods($setting);
 
         /** @var PosSessionLifecycleService $sessionLifecycle */
         $sessionLifecycle = app(PosSessionLifecycleService::class);
@@ -436,9 +441,10 @@ class POSSerialValidationCheckoutTest extends TestCase
         $methods = [];
         
         foreach (['CASH' => true, 'TRANSFER' => false, 'QRIS' => false] as $name => $isCash) {
+            $methodSuffix = $this->sequence++;
             $coaId = DB::table('chart_of_accounts')->insertGetId([
-                'name' => "COA $name " . $this->sequence,
-                'account_number' => "ACC-$name-" . $this->sequence++,
+                'name' => "COA $name " . $methodSuffix,
+                'account_number' => "ACC-$name-" . $methodSuffix,
                 'category' => 'Kas & Bank',
                 'setting_id' => $setting->id,
                 'created_at' => now(),
@@ -446,11 +452,23 @@ class POSSerialValidationCheckoutTest extends TestCase
             ]);
 
             $methods[strtolower($name)] = PaymentMethod::create([
-                'name' => "$name POS",
+                'name' => "$name POS $methodSuffix",
                 'coa_id' => $coaId,
                 'is_cash' => $isCash,
                 'requires_reference' => !$isCash,
             ]);
+
+            DB::table('setting_pos_payment_methods')->updateOrInsert(
+                [
+                    'setting_id' => $setting->id,
+                    'payment_method_id' => $methods[strtolower($name)]->id,
+                ],
+                [
+                    'is_enabled' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]
+            );
         }
 
         return $methods;

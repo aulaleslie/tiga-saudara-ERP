@@ -55,12 +55,13 @@ class PosReconciliationService
             ->get()
             ->keyBy('pos_session_id');
 
-        // 3. Get Posted Sales Totals (using sale_id from checkouts)
-        $salesQuery = DB::table('pos_checkouts')
-            ->join('sales', 'pos_checkouts.sale_id', '=', 'sales.id')
+        // 3. Get Posted Sales Totals (split-aware path via pos_checkout_sales)
+        $mappedSalesTotals = DB::table('pos_checkouts')
+            ->join('pos_checkout_sales', 'pos_checkouts.id', '=', 'pos_checkout_sales.pos_checkout_id')
+            ->leftJoin('sales', 'pos_checkout_sales.sale_id', '=', 'sales.id')
             ->select([
                 'pos_checkouts.pos_session_id',
-                DB::raw('SUM(sales.total_amount) as posted_sales_total')
+                DB::raw('SUM(COALESCE(sales.total_amount, pos_checkout_sales.grand_total)) as posted_sales_total')
             ])
             ->whereIn('pos_checkouts.pos_session_id', $sessionIds)
             ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)
@@ -68,8 +69,37 @@ class PosReconciliationService
             ->get()
             ->keyBy('pos_session_id');
 
-        // 4. Get Posted Payments Totals (using sale_payment_id from checkouts)
-        $paymentsQuery = DB::table('pos_checkouts')
+        // Legacy fallback for pre-split rows without mapping records.
+        $legacySalesTotals = DB::table('pos_checkouts')
+            ->leftJoin('pos_checkout_sales', 'pos_checkouts.id', '=', 'pos_checkout_sales.pos_checkout_id')
+            ->join('sales', 'pos_checkouts.sale_id', '=', 'sales.id')
+            ->select([
+                'pos_checkouts.pos_session_id',
+                DB::raw('SUM(sales.total_amount) as posted_sales_total')
+            ])
+            ->whereIn('pos_checkouts.pos_session_id', $sessionIds)
+            ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)
+            ->whereNull('pos_checkout_sales.id')
+            ->groupBy('pos_checkouts.pos_session_id')
+            ->get()
+            ->keyBy('pos_session_id');
+
+        // 4. Get Posted Payments Totals (split-aware path via pos_checkout_sales)
+        $mappedPaymentsTotals = DB::table('pos_checkouts')
+            ->join('pos_checkout_sales', 'pos_checkouts.id', '=', 'pos_checkout_sales.pos_checkout_id')
+            ->leftJoin('sale_payments', 'pos_checkout_sales.sale_payment_id', '=', 'sale_payments.id')
+            ->select([
+                'pos_checkouts.pos_session_id',
+                DB::raw('SUM(COALESCE(sale_payments.amount, pos_checkout_sales.paid_total)) as posted_payments_total')
+            ])
+            ->whereIn('pos_checkouts.pos_session_id', $sessionIds)
+            ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)
+            ->groupBy('pos_checkouts.pos_session_id')
+            ->get()
+            ->keyBy('pos_session_id');
+
+        $legacyPaymentsTotals = DB::table('pos_checkouts')
+            ->leftJoin('pos_checkout_sales', 'pos_checkouts.id', '=', 'pos_checkout_sales.pos_checkout_id')
             ->join('sale_payments', 'pos_checkouts.sale_payment_id', '=', 'sale_payments.id')
             ->select([
                 'pos_checkouts.pos_session_id',
@@ -77,6 +107,7 @@ class PosReconciliationService
             ])
             ->whereIn('pos_checkouts.pos_session_id', $sessionIds)
             ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)
+            ->whereNull('pos_checkout_sales.id')
             ->groupBy('pos_checkouts.pos_session_id')
             ->get()
             ->keyBy('pos_session_id');
@@ -86,16 +117,20 @@ class PosReconciliationService
         foreach ($sessions as $session) {
             $cTotals = $checkoutTotals->get($session->id);
             $sdTotals = $safeDropTotals->get($session->id);
-            $sTotals = $salesQuery->get($session->id);
-            $pTotals = $paymentsQuery->get($session->id);
+            $mappedSales = $mappedSalesTotals->get($session->id);
+            $legacySales = $legacySalesTotals->get($session->id);
+            $mappedPayments = $mappedPaymentsTotals->get($session->id);
+            $legacyPayments = $legacyPaymentsTotals->get($session->id);
 
             $posCheckoutTotal = $cTotals ? (float) $cTotals->pos_checkout_total : 0.0;
             $posCashSalesTotal = $cTotals ? (float) $cTotals->pos_cash_sales_total : 0.0;
             $posNonCashSalesTotal = $cTotals ? (float) $cTotals->pos_non_cash_sales_total : 0.0;
             $safeDropTotal = $sdTotals ? (float) $sdTotals->safe_drop_total : 0.0;
             
-            $postedSalesTotal = $sTotals ? (float) $sTotals->posted_sales_total : 0.0;
-            $postedPaymentsTotal = $pTotals ? (float) $pTotals->posted_payments_total : 0.0;
+            $postedSalesTotal = ($mappedSales ? (float) $mappedSales->posted_sales_total : 0.0)
+                + ($legacySales ? (float) $legacySales->posted_sales_total : 0.0);
+            $postedPaymentsTotal = ($mappedPayments ? (float) $mappedPayments->posted_payments_total : 0.0)
+                + ($legacyPayments ? (float) $legacyPayments->posted_payments_total : 0.0);
 
             $hasMismatch = false;
             $mismatchDetails = [];
