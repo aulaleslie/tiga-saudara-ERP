@@ -8,6 +8,7 @@ use Modules\Pos\Http\Controllers\PosReportController;
 use Modules\Pos\Http\Controllers\PosReconciliationController;
 use Modules\Pos\Http\Controllers\PosCartApprovalController;
 use Modules\Pos\Http\Controllers\PosSupervisorApprovalQueueController;
+use Modules\Pos\Http\Controllers\PosTransactionController;
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sessions.view']], function () {
     Route::get('/pos/sessions', [PosSessionController::class, 'index'])->name('pos.sessions.index');
@@ -93,6 +94,9 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
         ->whereNumber('lineId')
         ->name('pos.sell.cart.lines.serials.remove');
     Route::get('/pos/sell/search/resolve', [PosSellController::class, 'scanResolve'])->name('pos.sell.search.resolve');
+
+    Route::post('/pos/sell/transactions/save-and-new', [PosTransactionController::class, 'saveAndNew'])
+        ->name('pos.sell.transactions.save-and-new');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.terminals.access']], function () {
@@ -105,6 +109,17 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.t
         Route::put('/pos/terminals/{terminal}', [PosTerminalController::class, 'update'])->name('pos.terminals.update');
         Route::delete('/pos/terminals/{terminal}', [PosTerminalController::class, 'destroy'])->name('pos.terminals.destroy');
     });
+});
+
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.transactions.view']], function () {
+    Route::get('/pos/transactions', [PosTransactionController::class, 'index'])->name('pos.transactions.index');
+    Route::get('/pos/transactions/data', [PosTransactionController::class, 'data'])->name('pos.transactions.data');
+    Route::get('/pos/transactions/{transaction}', [PosTransactionController::class, 'show'])->name('pos.transactions.show');
+    Route::post('/pos/transactions/{transaction}/cancel', [PosTransactionController::class, 'cancel'])->name('pos.transactions.cancel');
+});
+
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sell', 'can:pos.transactions.load', 'pos.session.active']], function () {
+    Route::post('/pos/transactions/{transaction}/load', [PosTransactionController::class, 'load'])->name('pos.transactions.load');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.supervisor.approval']], function () {

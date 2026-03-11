@@ -217,6 +217,10 @@ class PermissionsTableSeeder extends Seeder
             'pos.cart.line.remove',
             'pos.cart.line.reduce',
             'pos.approval.requests.view',
+            'pos.transactions.view',
+            'pos.transactions.save',
+            'pos.transactions.load',
+            'pos.transactions.edit.any',
 
             // Stock Transfers
             'stockTransfers.access',

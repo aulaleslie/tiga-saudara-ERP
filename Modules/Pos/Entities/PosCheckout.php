@@ -25,6 +25,7 @@ class PosCheckout extends BaseModel
 
     protected $fillable = [
         'setting_id',
+        'pos_transaction_id',
         'pos_session_id',
         'terminal_id',
         'cashier_user_id',
@@ -97,6 +98,11 @@ class PosCheckout extends BaseModel
     public function salePayment(): BelongsTo
     {
         return $this->belongsTo(SalePayment::class, 'sale_payment_id');
+    }
+
+    public function transaction(): BelongsTo
+    {
+        return $this->belongsTo(PosTransaction::class, 'pos_transaction_id');
     }
 
     public function paymentMethod(): BelongsTo

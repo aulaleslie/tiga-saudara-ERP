@@ -25,7 +25,8 @@ class FinalizePosCheckoutService
         private readonly PosCheckoutPostingAdapter $postingAdapter,
         private readonly ResolvePosStockAllocationsService $stockResolver,
         private readonly PosReceiptNumberGenerator $receiptNumberGenerator,
-        private readonly PosCashDrawerService $cashDrawerService
+        private readonly PosCashDrawerService $cashDrawerService,
+        private readonly ?PosTransactionService $transactionService = null
     ) {
     }
 
@@ -587,6 +588,18 @@ class FinalizePosCheckoutService
                     ]
                 );
                 $lockedCheckout->finalized_at = now();
+
+                // Link transaction if active
+                if ($cartSnapshot['active_transaction_id'] ?? null) {
+                    $lockedCheckout->pos_transaction_id = (int) $cartSnapshot['active_transaction_id'];
+                    if ($this->transactionService) {
+                        $this->transactionService->markCompleted(
+                            \Modules\Pos\Entities\PosTransaction::find($cartSnapshot['active_transaction_id']),
+                            $lockedCheckout->id
+                        );
+                    }
+                }
+
                 $lockedCheckout->save();
 
                 return $responsePayload;

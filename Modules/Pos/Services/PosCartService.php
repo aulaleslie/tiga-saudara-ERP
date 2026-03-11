@@ -277,6 +277,9 @@ class PosCartService
 
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
 
+        // Check if this would violate loaded transaction empty constraint
+        $this->assertNotLastLineOfLoadedTransaction($cart, $lineId);
+
         // Try to find line by line_id first
         $line = $cart['lines'][$lineId] ?? null;
 
@@ -587,6 +590,10 @@ class PosCartService
             );
         }
 
+        // Check if we have a loaded transaction that would become empty
+        $currentCart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertNotLastLineOfLoadedTransaction($currentCart, null);
+
         $cart = $this->cartSessionStore->emptyCart($settingId, $sessionId);
         $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
 
@@ -635,7 +642,39 @@ class PosCartService
                 'tax_display_mode' => 'ESTIMATED',
                 'tax_mode' => $isPkp ? 'INCLUDED' : 'EXCLUDED',
             ],
+            'active_transaction_id' => $cart['active_transaction_id'] ?? null,
         ];
+    }
+
+    /**
+     * Assert that removing a line would not leave a loaded transaction empty.
+     * If $lineIdToRemove is null, check if clearing would violate the constraint.
+     *
+     * @throws DomainException('TRANSACTION_EMPTY_BLOCKED')
+     */
+    private function assertNotLastLineOfLoadedTransaction(array $cart, ?int $lineIdToRemove = null): void
+    {
+        $activeTransactionId = $cart['active_transaction_id'] ?? null;
+
+        // Only applies if there's an active loaded transaction
+        if (!$activeTransactionId) {
+            return;
+        }
+
+        $lineCount = count($cart['lines'] ?? []);
+
+        if ($lineIdToRemove === null) {
+            // We're clearing the entire cart
+            if ($lineCount > 0) {
+                throw new DomainException('Transaksi yang dimuat tidak dapat dikosongkan.');
+            }
+        } else {
+            // We're removing a specific line
+            // Check if it's the only line (removing it would result in 0 lines)
+            if ($lineCount === 1 && isset($cart['lines'][$lineIdToRemove])) {
+                throw new DomainException('Transaksi yang dimuat tidak dapat dikosongkan.');
+            }
+        }
     }
 
     /**

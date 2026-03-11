@@ -12,7 +12,8 @@ class PosCartSessionStore
      *     lines:array<int, array<string, mixed>>,
      *     bill_discount_type:string,
      *     bill_discount_value:float,
-     *     selected_customer_id:int|null
+     *     selected_customer_id:int|null,
+     *     active_transaction_id:int|null
      * }
      */
     public function getCart(int $settingId, int $sessionId): array
@@ -39,6 +40,9 @@ class PosCartSessionStore
             'selected_customer_id' => isset($stored['selected_customer_id'])
                 ? (int) $stored['selected_customer_id']
                 : null,
+            'active_transaction_id' => isset($stored['active_transaction_id'])
+                ? (int) $stored['active_transaction_id']
+                : null,
         ];
     }
 
@@ -50,7 +54,8 @@ class PosCartSessionStore
      *     lines?:array<int, array<string, mixed>>,
      *     bill_discount_type?:string,
      *     bill_discount_value?:float|int|string,
-     *     selected_customer_id?:int|null
+     *     selected_customer_id?:int|null,
+     *     active_transaction_id?:int|null
      * }  $cart
      */
     public function putCart(int $settingId, int $sessionId, array $cart): void
@@ -66,6 +71,9 @@ class PosCartSessionStore
             'bill_discount_value' => (float) ($cart['bill_discount_value'] ?? 0),
             'selected_customer_id' => isset($cart['selected_customer_id'])
                 ? (int) $cart['selected_customer_id']
+                : null,
+            'active_transaction_id' => isset($cart['active_transaction_id'])
+                ? (int) $cart['active_transaction_id']
                 : null,
         ]);
     }
@@ -83,7 +91,8 @@ class PosCartSessionStore
      *     lines:array<int, array<string, mixed>>,
      *     bill_discount_type:string,
      *     bill_discount_value:float,
-     *     selected_customer_id:int|null
+     *     selected_customer_id:int|null,
+     *     active_transaction_id:int|null
      * }
      */
     public function emptyCart(int $settingId, int $sessionId): array
@@ -96,6 +105,7 @@ class PosCartSessionStore
             'bill_discount_type' => 'fixed',
             'bill_discount_value' => 0.0,
             'selected_customer_id' => null,
+            'active_transaction_id' => null,
         ];
     }
 
