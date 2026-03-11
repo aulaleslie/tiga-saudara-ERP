@@ -593,10 +593,10 @@ class FinalizePosCheckoutService
                 if ($cartSnapshot['active_transaction_id'] ?? null) {
                     $lockedCheckout->pos_transaction_id = (int) $cartSnapshot['active_transaction_id'];
                     if ($this->transactionService) {
-                        $this->transactionService->markCompleted(
-                            \Modules\Pos\Entities\PosTransaction::find($cartSnapshot['active_transaction_id']),
-                            $lockedCheckout->id
-                        );
+                        $transaction = \Modules\Pos\Entities\PosTransaction::find($cartSnapshot['active_transaction_id']);
+                        if ($transaction) {
+                            $this->transactionService->markCompleted($transaction, $lockedCheckout->id);
+                        }
                     }
                 }
 

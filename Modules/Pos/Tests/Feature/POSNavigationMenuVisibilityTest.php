@@ -37,6 +37,7 @@ class POSNavigationMenuVisibilityTest extends TestCase
             'pos.sell',
             'pos.sessions.open',
             'pos.sessions.view',
+            'pos.transactions.view',
             'sales.access',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
@@ -77,9 +78,41 @@ class POSNavigationMenuVisibilityTest extends TestCase
         $response->assertDontSee('Buka POS');
     }
 
-    private function createSetting(string $name, bool $posEnabled): Setting
+    public function test_home_shows_transaction_menu_when_transactions_feature_enabled(): void
     {
-        return Setting::create([
+        $setting = $this->createSetting('BIZ POS NAV TXN ON', true, true);
+        $user = $this->createUserForSetting($setting, 'POS NAV TXN ON ROLE', [
+            'pos.access',
+            'pos.transactions.view',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('home'));
+
+        $response->assertOk();
+        $response->assertSee('Transaksi POS');
+    }
+
+    public function test_home_hides_transaction_menu_when_transactions_feature_disabled(): void
+    {
+        $setting = $this->createSetting('BIZ POS NAV TXN OFF', true, false);
+        $user = $this->createUserForSetting($setting, 'POS NAV TXN OFF ROLE', [
+            'pos.access',
+            'pos.transactions.view',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('home'));
+
+        $response->assertOk();
+        $response->assertDontSee('Transaksi POS');
+    }
+
+    private function createSetting(string $name, bool $posEnabled, bool $posTransactionsEnabled = false): Setting
+    {
+        $setting = Setting::create([
             'company_name' => $name,
             'company_email' => strtolower(str_replace(' ', '.', $name)) . '@example.com',
             'company_phone' => '0800000000',
@@ -92,7 +125,12 @@ class POSNavigationMenuVisibilityTest extends TestCase
             'purchase_prefix_document' => 'PO',
             'sale_prefix_document' => 'SO',
             'pos_enabled' => $posEnabled,
+            'pos_transactions_enabled' => $posTransactionsEnabled,
         ]);
+
+        cache()->forget('settings_' . $setting->id);
+
+        return $setting;
     }
 
     private function createUserForSetting(Setting $setting, string $roleName, array $permissions): User

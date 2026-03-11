@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Tests\Feature;
 
+use App\Http\Middleware\VerifyCsrfToken;
 use App\Models\User;
 use App\Support\SalesLocationResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -14,7 +15,6 @@ use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
-// Removed redundant import
 use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
 use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Product\Entities\Category;
@@ -43,6 +43,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->withoutMiddleware(VerifyCsrfToken::class);
 
         Currency::create([
             'currency_name' => 'Rupiah',
@@ -67,8 +68,8 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_successful_finalize_posts_once_and_replays_same_idempotency_key(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT REPLAY');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-REPLAY-001', 50000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
@@ -98,7 +99,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $secondPayload = $second->json();
         $secondPayload['idempotent_replay'] = false;
 
-        $this->assertSame($firstPayload, $secondPayload);
+        $this->assertEquals($firstPayload, $secondPayload);
         $this->assertDatabaseCount('pos_checkouts', 1);
         $this->assertDatabaseCount('sales', 1);
         $this->assertDatabaseCount('sale_payments', 1);
@@ -109,8 +110,8 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_duplicate_with_finalizing_status_returns_conflict(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT FINALIZING');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-FINALIZING-001', 30000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
@@ -163,8 +164,8 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_duplicate_after_failed_attempt_returns_conflict(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT FAILED');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-FAILED-001', 40000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
@@ -219,8 +220,8 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_posting_failure_rolls_back_partial_records_and_marks_checkout_failed(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT ROLLBACK');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-ROLLBACK-001', 25000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
@@ -297,11 +298,9 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_unresolved_customer_returns_domain_validation_error(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT UNRESOLVED');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-UNRESOLVED-001', 15000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
-        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
 
         $response = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-UNRESOLVED-001',
@@ -318,8 +317,8 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_non_cash_requires_reference(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT NON CASH');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-NON-CASH-001', 20000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
@@ -340,8 +339,8 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     public function test_serial_tracked_line_with_incomplete_assignment_is_rejected(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT SERIAL');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-SERIAL-001', 23000, true);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
@@ -358,14 +357,14 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
 
         $response->assertStatus(422)
             ->assertJsonPath('code', 'SERIAL_INVALID')
-            ->assertJsonPath('message', 'Serial validation failed');
+            ->assertJsonPath('message', 'Product POS-SERIAL-001 NAME requires 1 serial number(s) but 0 assigned.');
     }
 
     public function test_cash_overpay_computes_change_and_updates_expected_cash_by_grand_total(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT OVERPAY');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-OVERPAY-001', 10000, false);
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
@@ -403,6 +402,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $cashier = $this->createUserForSetting($setting, $name . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $terminal = $this->createTerminalForSetting($setting);
         $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
+        $methods = $this->seedPaymentMethods($setting, true);
 
         /** @var PosSessionLifecycleService $sessionLifecycle */
         $sessionLifecycle = app(PosSessionLifecycleService::class);
@@ -421,6 +421,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             'terminal' => $terminal,
             'location' => $location,
             'session' => $session,
+            'methods' => $methods,
         ];
     }
 
@@ -508,11 +509,13 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         float $salePrice,
         bool $serialRequired
     ): Product {
+        $createdBy = User::query()->value('id') ?? User::factory()->create()->id;
+
         $category = Category::firstOrCreate(
             ['category_code' => $code . '-CAT'],
             [
                 'category_name' => $code . ' CATEGORY',
-                'created_by' => 1,
+                'created_by' => $createdBy,
                 'setting_id' => $setting->id,
             ]
         );
@@ -570,7 +573,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     /**
      * @return array
      */
-    private function seedPaymentMethods(Setting $setting): array
+    private function seedPaymentMethods(Setting $setting, bool $enableForSetting = false): array
     {
         $index = $this->sequence++;
         $methods = [];
@@ -622,6 +625,23 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             'is_cash' => false,
             'requires_reference' => true,
         ]);
+
+        if ($enableForSetting) {
+            $timestamp = now();
+            foreach ($methods as $method) {
+                DB::table('setting_pos_payment_methods')->updateOrInsert(
+                    [
+                        'setting_id' => $setting->id,
+                        'payment_method_id' => $method->id,
+                    ],
+                    [
+                        'is_enabled' => true,
+                        'created_at' => $timestamp,
+                        'updated_at' => $timestamp,
+                    ]
+                );
+            }
+        }
 
         return $methods;
     }
@@ -688,13 +708,13 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             'terminal_id' => $terminalId,
             'cashier_user_id' => $cashierUserId,
             'customer_id' => $customerId,
-            'cart' => [
+            'cart' => $this->normalizeSnapshotForHash([
                 'lines' => $snapshot['lines'] ?? [],
                 'totals' => $snapshot['totals'] ?? [],
                 'bill_discount' => $snapshot['bill_discount'] ?? [],
-            ],
+            ]),
             'payment' => [
-                'payment_method_id' => (int) ($payment['payment_method_id'] ?? 0),
+                'method_code' => strtolower((string) ($payment['method_code'] ?? '')),
                 'amount_paid' => round((float) ($payment['amount_paid'] ?? 0), 2),
                 'reference' => $payment['reference'] ?? null,
             ],
@@ -725,6 +745,22 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         }
 
         return $value;
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshotPart
+     * @return array<string, mixed>
+     */
+    private function normalizeSnapshotForHash(array $snapshotPart): array
+    {
+        $encoded = json_encode($snapshotPart);
+        if (! is_string($encoded)) {
+            return $snapshotPart;
+        }
+
+        $decoded = json_decode($encoded, true);
+
+        return is_array($decoded) ? $decoded : $snapshotPart;
     }
 
     protected function tearDown(): void

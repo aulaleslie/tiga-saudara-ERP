@@ -2,232 +2,275 @@
 
 namespace Modules\Pos\Tests\Feature;
 
-use Modules\Pos\Entities\PosSession;
+use Illuminate\Support\Facades\DB;
 use Modules\Pos\Entities\PosTransaction;
-use Tests\TestCase;
+use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 
-class POSTransactionLoadTest extends TestCase
+class POSTransactionLoadTest extends PosTransactionFeatureTestCase
 {
-    /**
-     * Test cashier can load draft into empty cart.
-     */
     public function test_cashier_can_load_draft_into_empty_cart(): void
     {
-        // Arrange - Create and save a draft
-        $user = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save', 'pos.transactions.load']);
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($user, $setting);
+        $setting = $this->createSetting('BIZ POS TXN LOAD');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN LOAD CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $user);
+        $product = $this->createStockedProduct($setting, $location);
 
-        // Add product and save draft
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 2,
-        ])->assertSuccessful();
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 2])
+            ->assertOk();
 
-        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-        $transactionId = $saveResponse->json('transaction.id');
-        $transaction = PosTransaction::find($transactionId);
+        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
 
-        // Open new session for loading
-        $session2 = $this->openPosSession($setting, $user);
+        $transactionId = (int) $saveResponse->json('transaction.id');
 
-        // Act - Load draft
-        $loadResponse = $this->postJson(route('pos.transactions.load', ['transaction' => $transaction]), []);
+        $loadResponse = $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]));
 
-        // Assert
-        $loadResponse->assertStatus(200)
-            ->assertJsonStructure([
-                'message',
-                'cart_snapshot',
-                'transaction' => ['id', 'code', 'status'],
-            ])
+        $loadResponse->assertOk()
+            ->assertJsonPath('transaction.id', $transactionId)
             ->assertJsonPath('transaction.status', PosTransaction::STATUS_LOADED)
-            ->assertJsonPath('cart_snapshot.meta.line_count', 1);
-
-        // Verify transaction status updated
-        $transaction->refresh();
-        $this->assertEquals(PosTransaction::STATUS_LOADED, $transaction->status);
+            ->assertJsonPath('cart_snapshot.meta.line_count', 1)
+            ->assertJsonPath('cart_snapshot.active_transaction_id', $transactionId);
     }
 
-    /**
-     * Test load fails with 409 CART_NOT_EMPTY when lines exist.
-     */
-    public function test_load_fails_with_409_cart_not_empty_when_lines_exist(): void
+    public function test_load_fails_with_409_when_cart_not_empty(): void
     {
-        // Arrange
-        $user = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save', 'pos.transactions.load']);
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($user, $setting);
+        $setting = $this->createSetting('BIZ POS TXN LOAD NOT EMPTY');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN LOAD NOT EMPTY CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $user);
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-LD-001']);
+        $productB = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-LD-002']);
 
-        // Save a draft
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
 
-        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-        $transaction = PosTransaction::find($saveResponse->json('transaction.id'));
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
 
-        // Add a product to current (new) cart
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $productB->id, 'qty' => 1])
+            ->assertOk();
 
-        // Act - Try to load with non-empty cart
-        $response = $this->postJson(route('pos.transactions.load', ['transaction' => $transaction]), []);
-
-        // Assert
-        $response->assertStatus(409)
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertStatus(409)
             ->assertJsonPath('code', 'CART_NOT_EMPTY');
     }
 
-    /**
-     * Test load fails with 403 EDIT_FORBIDDEN for other user without edit.any.
-     */
-    public function test_load_fails_with_403_edit_forbidden_for_other_user(): void
+    public function test_non_creator_without_edit_any_cannot_load_other_user_draft(): void
     {
-        // Arrange
-        $owner = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save']);
-        $otherUser = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.load']);
-        // Note: otherUser does NOT have pos.transactions.edit.any
+        $setting = $this->createSetting('BIZ POS TXN LOAD OWNER');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
 
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($owner, $setting);
+        $owner = $this->createUserForSetting($setting, 'POS TXN LOAD OWNER USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+        ]);
+        $otherUser = $this->createUserForSetting($setting, 'POS TXN LOAD OTHER USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.load',
+        ]);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $owner);
+        $this->openSession($setting, $terminal, $owner);
+        $this->actingAsInSetting($owner, $setting);
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-LD-003']);
 
-        // Save draft as owner
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
 
-        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-        $transaction = PosTransaction::find($saveResponse->json('transaction.id'));
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
 
-        // Switch to other user
-        $this->actAsUser($otherUser, $setting);
-        $session2 = $this->openPosSession($setting, $otherUser);
+        [$otherTerminal] = $this->createTerminalWithLocation($setting);
+        $this->openSession($setting, $otherTerminal, $otherUser);
+        $this->actingAsInSetting($otherUser, $setting);
 
-        // Act - Try to load as different user
-        $response = $this->postJson(route('pos.transactions.load', ['transaction' => $transaction]), []);
-
-        // Assert
-        $response->assertStatus(409)
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertStatus(409)
             ->assertJsonPath('code', 'EDIT_FORBIDDEN');
     }
 
-    /**
-     * Test load allowed for user with edit.any permission.
-     */
-    public function test_load_allowed_for_user_with_edit_any_permission(): void
+    public function test_user_with_edit_any_can_load_other_user_draft(): void
     {
-        // Arrange
-        $owner = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save']);
-        $admin = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.load', 'pos.transactions.edit.any']);
+        $setting = $this->createSetting('BIZ POS TXN LOAD EDIT ANY');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
 
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($owner, $setting);
+        $owner = $this->createUserForSetting($setting, 'POS TXN LOAD OWNER 2', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+        ]);
+        $admin = $this->createUserForSetting($setting, 'POS TXN LOAD ADMIN', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.load',
+            'pos.transactions.edit.any',
+        ]);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $owner);
+        $this->openSession($setting, $terminal, $owner);
+        $this->actingAsInSetting($owner, $setting);
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-LD-004']);
 
-        // Save draft as owner
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
 
-        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-        $transaction = PosTransaction::find($saveResponse->json('transaction.id'));
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
 
-        // Switch to admin
-        $this->actAsUser($admin, $setting);
-        $session2 = $this->openPosSession($setting, $admin);
+        [$adminTerminal] = $this->createTerminalWithLocation($setting);
+        $this->openSession($setting, $adminTerminal, $admin);
+        $this->actingAsInSetting($admin, $setting);
 
-        // Act - Load as admin with edit.any
-        $response = $this->postJson(route('pos.transactions.load', ['transaction' => $transaction]), []);
-
-        // Assert
-        $response->assertStatus(200)
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk()
             ->assertJsonPath('transaction.status', PosTransaction::STATUS_LOADED);
     }
 
-    /**
-     * Test cannot load non-draft transaction.
-     */
-    public function test_cannot_load_non_draft_transaction(): void
+    public function test_can_reload_loaded_transaction_status(): void
     {
-        // Arrange
-        $user = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save', 'pos.transactions.load']);
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($user, $setting);
+        $setting = $this->createSetting('BIZ POS TXN RELOAD');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN RELOAD CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $user);
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-LD-005']);
 
-        // Save draft
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
 
-        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-        $transaction = PosTransaction::find($saveResponse->json('transaction.id'));
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
 
-        // Change status to CANCELLED manually
-        $transaction->update(['status' => PosTransaction::STATUS_CANCELLED]);
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk();
 
-        $session2 = $this->openPosSession($setting, $user);
+        app(\Modules\Pos\Services\PosCartSessionStore::class)->clearCart($setting->id, $session->id);
 
-        // Act - Try to load CANCELLED transaction
-        $response = $this->postJson(route('pos.transactions.load', ['transaction' => $transaction]), []);
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk()
+            ->assertJsonPath('transaction.status', PosTransaction::STATUS_LOADED);
+    }
 
-        // Assert
-        $response->assertStatus(422)
+    public function test_cannot_load_cancelled_transaction(): void
+    {
+        $setting = $this->createSetting('BIZ POS TXN LOAD CANCELLED');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN LOAD CANCELLED CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
+
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-LD-006']);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
+
+        PosTransaction::whereKey($transactionId)->update(['status' => PosTransaction::STATUS_CANCELLED]);
+
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertStatus(422)
             ->assertJsonPath('code', 'TRANSACTION_NOT_LOADABLE');
     }
 
-    /**
-     * Test load requires pos.transactions.load permission.
-     */
     public function test_load_requires_pos_transactions_load_permission(): void
     {
-        // Arrange
-        $owner = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save']);
-        $otherUser = $this->createAuthenticatedUser(['pos.access', 'pos.sell']);
-        // Note: otherUser lacks pos.transactions.load
+        $setting = $this->createSetting('BIZ POS TXN LOAD PERM');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
 
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($owner, $setting);
+        $owner = $this->createUserForSetting($setting, 'POS TXN LOAD OWNER 3', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+        ]);
+        $otherUser = $this->createUserForSetting($setting, 'POS TXN LOAD NO PERM', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $owner);
+        $this->openSession($setting, $terminal, $owner);
+        $this->actingAsInSetting($owner, $setting);
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-LD-007']);
 
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
 
-        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-        $transaction = PosTransaction::find($saveResponse->json('transaction.id'));
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
 
-        // Switch to other user
-        $this->actAsUser($otherUser, $setting);
-        $session2 = $this->openPosSession($setting, $otherUser);
+        [$otherTerminal] = $this->createTerminalWithLocation($setting);
+        $this->openSession($setting, $otherTerminal, $otherUser);
+        $this->actingAsInSetting($otherUser, $setting);
 
-        // Act - Try to load without permission
-        $response = $this->postJson(route('pos.transactions.load', ['transaction' => $transaction]), []);
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertForbidden();
+    }
 
-        // Assert
-        $response->assertForbidden();
+    public function test_load_returns_409_when_snapshot_hash_detects_drift(): void
+    {
+        $setting = $this->createSetting('BIZ POS TXN LOAD DRIFT');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN LOAD DRIFT CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
+
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-LD-DRIFT-001']);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
+
+        DB::table('pos_transaction_lines')
+            ->where('pos_transaction_id', $transactionId)
+            ->update(['qty' => 2]);
+
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'SNAPSHOT_DRIFT');
     }
 }

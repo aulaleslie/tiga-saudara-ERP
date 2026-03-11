@@ -96,6 +96,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::get('/pos/sell/search/resolve', [PosSellController::class, 'scanResolve'])->name('pos.sell.search.resolve');
 
     Route::post('/pos/sell/transactions/save-and-new', [PosTransactionController::class, 'saveAndNew'])
+        ->middleware('pos.transactions.enabled')
         ->name('pos.sell.transactions.save-and-new');
 });
 
@@ -111,14 +112,14 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.t
     });
 });
 
-Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.transactions.view']], function () {
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'pos.transactions.enabled', 'can:pos.access', 'can:pos.transactions.view']], function () {
     Route::get('/pos/transactions', [PosTransactionController::class, 'index'])->name('pos.transactions.index');
     Route::get('/pos/transactions/data', [PosTransactionController::class, 'data'])->name('pos.transactions.data');
     Route::get('/pos/transactions/{transaction}', [PosTransactionController::class, 'show'])->name('pos.transactions.show');
     Route::post('/pos/transactions/{transaction}/cancel', [PosTransactionController::class, 'cancel'])->name('pos.transactions.cancel');
 });
 
-Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sell', 'can:pos.transactions.load', 'pos.session.active']], function () {
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'pos.transactions.enabled', 'can:pos.access', 'can:pos.sell', 'can:pos.transactions.load', 'pos.session.active']], function () {
     Route::post('/pos/transactions/{transaction}/load', [PosTransactionController::class, 'load'])->name('pos.transactions.load');
 });
 

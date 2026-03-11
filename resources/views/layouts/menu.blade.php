@@ -141,9 +141,17 @@
 @php
     $currentSetting = settings();
     $posEnabledForCurrentSetting = (bool) ($currentSetting->pos_enabled ?? false);
+    $posTransactionsEnabledForCurrentSetting = (bool) ($currentSetting->pos_transactions_enabled ?? false);
+    $canAccessPosTransactions = $posEnabledForCurrentSetting
+        && $posTransactionsEnabledForCurrentSetting
+        && auth()->user()->can('pos.access')
+        && auth()->user()->can('pos.transactions.view');
     $canAccessPosOperations = $posEnabledForCurrentSetting
         && auth()->user()->can('pos.access')
-        && auth()->user()->canAny(['pos.sell', 'pos.sessions.view', 'pos.monitor.access', 'pos.reports.access', 'pos.reconciliation.access']);
+        && (
+            auth()->user()->canAny(['pos.sell', 'pos.sessions.view', 'pos.monitor.access', 'pos.reports.access', 'pos.reconciliation.access'])
+            || $canAccessPosTransactions
+        );
     $canAccessPosTerminals = $posEnabledForCurrentSetting && auth()->user()->can('pos.terminals.access');
 @endphp
 
@@ -170,6 +178,17 @@
                     <a class="c-sidebar-nav-link {{ request()->routeIs('pos.sessions.*') ? 'c-active' : '' }}"
                        href="{{ route('pos.sessions.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-clock-history" style="line-height: 1;"></i> Sesi POS
+                    </a>
+                </li>
+            </ul>
+        @endif
+
+        @if($canAccessPosTransactions)
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.transactions.*') ? 'c-active' : '' }}"
+                       href="{{ route('pos.transactions.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-journal-text" style="line-height: 1;"></i> Transaksi POS
                     </a>
                 </li>
             </ul>

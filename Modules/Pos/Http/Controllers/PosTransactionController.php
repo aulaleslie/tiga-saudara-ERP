@@ -6,6 +6,7 @@ use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Validator;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Http\Requests\StorePosTransactionLoadRequest;
@@ -13,6 +14,7 @@ use Modules\Pos\Http\Requests\StorePosTransactionSaveRequest;
 use Modules\Pos\Services\Exceptions\PosTransactionConflictException;
 use Modules\Pos\Services\Exceptions\PosTransactionValidationException;
 use Modules\Pos\Services\PosTransactionService;
+use Modules\Setting\Entities\Setting;
 
 class PosTransactionController extends Controller
 {
@@ -27,7 +29,10 @@ class PosTransactionController extends Controller
     public function saveAndNew(StorePosTransactionSaveRequest $request): JsonResponse
     {
         try {
-            $settingId = (int) $request->attributes->get('setting_id');
+            $settingId = $this->currentSettingId();
+            if ($guardResponse = $this->transactionsDisabledResponse($request, $settingId)) {
+                return $guardResponse;
+            }
             $posSession = $request->attributes->get('pos_active_session');
 
             if (!$posSession instanceof PosSession) {
@@ -73,7 +78,12 @@ class PosTransactionController extends Controller
      */
     public function index(Request $request): Renderable
     {
-        $settingId = (int) $request->attributes->get('setting_id');
+        $settingId = $this->currentSettingId();
+        abort_if(
+            ! $this->transactionsEnabled($settingId),
+            403,
+            'Fitur transaksi POS belum diaktifkan untuk bisnis ini.'
+        );
 
         return view('pos::transactions.index', [
             'settingId' => $settingId,
@@ -87,15 +97,47 @@ class PosTransactionController extends Controller
     public function data(Request $request): JsonResponse
     {
         try {
-            $settingId = (int) $request->attributes->get('setting_id');
+            $settingId = $this->currentSettingId();
+            if ($guardResponse = $this->transactionsDisabledResponse($request, $settingId)) {
+                return $guardResponse;
+            }
+            $validator = Validator::make($request->query(), [
+                'status' => ['nullable', 'array'],
+                'status.*' => ['string'],
+                'owner_user_id' => ['nullable', 'integer', 'min:1'],
+                'q' => ['nullable', 'string'],
+                'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+                'date_from' => ['nullable', 'date_format:Y-m-d'],
+                'date_to' => ['nullable', 'date_format:Y-m-d'],
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'Parameter filter transaksi tidak valid.',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $validated = $validator->validated();
+            $dateFrom = $validated['date_from'] ?? null;
+            $dateTo = $validated['date_to'] ?? null;
+
+            if ($dateFrom !== null && $dateTo !== null && $dateFrom > $dateTo) {
+                return response()->json([
+                    'code' => 'INVALID_DATE_RANGE',
+                    'message' => 'Rentang tanggal tidak valid: date_from harus sebelum atau sama dengan date_to.',
+                ], 422);
+            }
 
             $filters = [
-                'status' => $request->query('status', []),
-                'owner_user_id' => $request->query('owner_user_id'),
-                'q' => $request->query('q'),
+                'status' => $validated['status'] ?? [],
+                'owner_user_id' => $validated['owner_user_id'] ?? null,
+                'q' => $validated['q'] ?? null,
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
             ];
 
-            $perPage = (int) $request->query('per_page', 20);
+            $perPage = (int) ($validated['per_page'] ?? 20);
             $paginator = $this->transactionService->list($settingId, $filters, $perPage);
 
             return response()->json([
@@ -120,7 +162,12 @@ class PosTransactionController extends Controller
      */
     public function show(PosTransaction $transaction, Request $request): Renderable
     {
-        $settingId = (int) $request->attributes->get('setting_id');
+        $settingId = $this->currentSettingId();
+        abort_if(
+            ! $this->transactionsEnabled($settingId),
+            403,
+            'Fitur transaksi POS belum diaktifkan untuk bisnis ini.'
+        );
         $this->assertSettingScope($transaction, $settingId);
 
         $transaction->load(['lines.serials', 'owner', 'customer']);
@@ -137,7 +184,10 @@ class PosTransactionController extends Controller
     public function load(PosTransaction $transaction, StorePosTransactionLoadRequest $request): JsonResponse
     {
         try {
-            $settingId = (int) $request->attributes->get('setting_id');
+            $settingId = $this->currentSettingId();
+            if ($guardResponse = $this->transactionsDisabledResponse($request, $settingId)) {
+                return $guardResponse;
+            }
             $this->assertSettingScope($transaction, $settingId);
 
             $activeSession = $request->attributes->get('pos_active_session');
@@ -187,7 +237,10 @@ class PosTransactionController extends Controller
     public function cancel(PosTransaction $transaction, Request $request): JsonResponse
     {
         try {
-            $settingId = (int) $request->attributes->get('setting_id');
+            $settingId = $this->currentSettingId();
+            if ($guardResponse = $this->transactionsDisabledResponse($request, $settingId)) {
+                return $guardResponse;
+            }
             $this->assertSettingScope($transaction, $settingId);
 
             $transaction = $this->transactionService->cancel($transaction, $request->user());
@@ -225,5 +278,36 @@ class PosTransactionController extends Controller
         if ($transaction->setting_id !== $settingId) {
             abort(403, 'Transaksi ini tidak termasuk dalam setting Anda.');
         }
+    }
+
+    private function currentSettingId(): int
+    {
+        $settingId = (int) session('setting_id');
+        abort_if($settingId <= 0, 403, 'Setting context is required.');
+
+        return $settingId;
+    }
+
+    private function transactionsEnabled(int $settingId): bool
+    {
+        return (bool) Setting::query()
+            ->whereKey($settingId)
+            ->value('pos_transactions_enabled');
+    }
+
+    private function transactionsDisabledResponse(Request $request, int $settingId): ?JsonResponse
+    {
+        if ($this->transactionsEnabled($settingId)) {
+            return null;
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'code' => 'POS_TRANSACTIONS_DISABLED',
+                'message' => 'Fitur transaksi POS belum diaktifkan untuk bisnis ini.',
+            ], 403);
+        }
+
+        abort(403, 'Fitur transaksi POS belum diaktifkan untuk bisnis ini.');
     }
 }

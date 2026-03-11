@@ -353,6 +353,10 @@
                                             'pos.cart.line.remove' => 'Hapus Baris Keranjang POS',
                                             'pos.cart.line.reduce' => 'Kurangi Qty Keranjang POS',
                                             'pos.approval.requests.view' => 'Lihat Antrian Persetujuan POS',
+                                            'pos.transactions.view' => 'Lihat Transaksi POS',
+                                            'pos.transactions.save' => 'Simpan Transaksi POS',
+                                            'pos.transactions.load' => 'Muat Transaksi POS',
+                                            'pos.transactions.edit.any' => 'Edit Semua Transaksi POS',
                                         ],
 
                                         'Metode / Syarat Pembayaran' => [

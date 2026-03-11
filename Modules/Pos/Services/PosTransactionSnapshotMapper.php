@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Services;
 
+use App\Support\SalesLocationResolver;
 use Illuminate\Support\Facades\DB;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Entities\PosTransactionLine;
@@ -90,6 +91,27 @@ class PosTransactionSnapshotMapper
         // Eager load lines with serials
         $transaction->load(['lines.serials', 'customer']);
 
+        $productIds = $transaction->lines
+            ->pluck('product_id')
+            ->filter(fn ($id) => $id !== null)
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $availableQtyByProduct = [];
+        $allowedLocationIds = SalesLocationResolver::resolveLocationIds((int) $transaction->setting_id)->all();
+        if ($productIds !== [] && $allowedLocationIds !== []) {
+            $availableQtyByProduct = DB::table('product_stocks')
+                ->selectRaw('product_id, SUM(quantity) as total_qty')
+                ->whereIn('product_id', $productIds)
+                ->whereIn('location_id', $allowedLocationIds)
+                ->groupBy('product_id')
+                ->pluck('total_qty', 'product_id')
+                ->map(fn ($qty) => (int) $qty)
+                ->all();
+        }
+
         $lines = [];
         $nextLineId = 1;
 
@@ -106,7 +128,7 @@ class PosTransactionSnapshotMapper
                 'serial_number_required' => $this->isSerialRequired($dbLine->product_id),
                 'assigned_serials' => $serials,
                 'qty' => $dbLine->qty,
-                'available_qty' => 0, // Safe default; caller should not rely on this from draft
+                'available_qty' => (int) ($availableQtyByProduct[(int) $dbLine->product_id] ?? 0),
                 'unit_price' => (float) $dbLine->unit_price,
                 'line_discount_type' => $dbLine->line_discount_type,
                 'line_discount_value' => (float) $dbLine->line_discount_value,
@@ -152,12 +174,90 @@ class PosTransactionSnapshotMapper
     }
 
     /**
+     * Build deterministic snapshot hash from persisted transaction header + lines + serials.
+     */
+    public function buildSnapshotHash(PosTransaction $transaction): string
+    {
+        $transaction->loadMissing(['lines.serials']);
+
+        $totals = is_array($transaction->snapshot_totals) ? $transaction->snapshot_totals : [];
+
+        $lines = $transaction->lines
+            ->sortBy(fn (PosTransactionLine $line) => (int) $line->line_no)
+            ->values()
+            ->map(function (PosTransactionLine $line): array {
+                return [
+                    'line_no' => (int) $line->line_no,
+                    'product_id' => (int) $line->product_id,
+                    'conversion_id' => $line->conversion_id !== null ? (int) $line->conversion_id : null,
+                    'qty' => round((float) $line->qty, 4),
+                    'unit_price' => round((float) $line->unit_price, 2),
+                    'tax_id' => $line->tax_id !== null ? (int) $line->tax_id : null,
+                    'tax_name' => $line->tax_name_snapshot !== null ? (string) $line->tax_name_snapshot : null,
+                    'tax_rate' => round((float) $line->tax_rate_snapshot, 4),
+                    'line_discount_type' => (string) $line->line_discount_type,
+                    'line_discount_value' => round((float) $line->line_discount_value, 2),
+                    'serials' => $line->serials
+                        ->pluck('serial_number')
+                        ->map(fn ($serial): string => (string) $serial)
+                        ->sort()
+                        ->values()
+                        ->all(),
+                ];
+            })
+            ->all();
+
+        $payload = [
+            'setting_id' => (int) $transaction->setting_id,
+            'owner_user_id' => (int) $transaction->owner_user_id,
+            'customer_id' => $transaction->customer_id !== null ? (int) $transaction->customer_id : null,
+            'lines' => $lines,
+            'snapshot_totals' => [
+                'subtotal' => round((float) ($totals['subtotal'] ?? 0), 2),
+                'discount_total' => round((float) ($totals['discount_total'] ?? 0), 2),
+                'tax_total' => round((float) ($totals['tax_total'] ?? 0), 2),
+                'grand_total' => round((float) ($totals['grand_total'] ?? 0), 2),
+            ],
+        ];
+
+        $canonical = $this->canonicalizeForHash($payload);
+        $json = json_encode(
+            $canonical,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
+        );
+
+        return hash('sha256', $json ?: '{}');
+    }
+
+    /**
      * Check if a product requires serials.
      */
     private function isSerialRequired(int $productId): bool
     {
         $product = Product::find($productId);
-        return $product && $product->require_serial;
+
+        return (bool) ($product?->serial_number_required ?? false);
+    }
+
+    /**
+     * @return mixed
+     */
+    private function canonicalizeForHash(mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        if (array_is_list($value)) {
+            return array_map(fn ($item) => $this->canonicalizeForHash($item), $value);
+        }
+
+        ksort($value);
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalizeForHash($item);
+        }
+
+        return $value;
     }
 
     /**
@@ -168,7 +268,8 @@ class PosTransactionSnapshotMapper
     {
         $taxId = $line->tax_id ?? 'null';
         $conversionId = $line->conversion_id ?? 'null';
+        $unitPrice = round((float) $line->unit_price, 2);
 
-        return "{$line->product_id}:{$line->unit_price}:{$taxId}:{$conversionId}";
+        return "{$line->product_id}:{$unitPrice}:{$taxId}:{$conversionId}";
     }
 }

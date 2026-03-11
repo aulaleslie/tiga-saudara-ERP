@@ -9,11 +9,13 @@ use InvalidArgumentException;
 use Modules\Pos\Entities\PosActionApprovalRequest;
 use Modules\Pos\Entities\PosCartLine;
 use Modules\Pos\Events\PosCartUpdated;
+use Modules\Pos\Services\Exceptions\PosCartMutationException;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Product\Entities\ProductUnitConversionPrice;
 use Illuminate\Support\Facades\DB;
+use Modules\People\Entities\Customer;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 
@@ -277,9 +279,6 @@ class PosCartService
 
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
 
-        // Check if this would violate loaded transaction empty constraint
-        $this->assertNotLastLineOfLoadedTransaction($cart, $lineId);
-
         // Try to find line by line_id first
         $line = $cart['lines'][$lineId] ?? null;
 
@@ -298,6 +297,9 @@ class PosCartService
         if ($line === null) {
             throw new DomainException('Cart line was not found.');
         }
+
+        // Check if this would violate loaded transaction empty constraint
+        $this->assertNotLastLineOfLoadedTransaction($cart, $lineId);
 
         unset($cart['lines'][$lineId]);
         $this->cartSessionStore->putCart($settingId, $sessionId, $cart);
@@ -650,14 +652,14 @@ class PosCartService
      * Assert that removing a line would not leave a loaded transaction empty.
      * If $lineIdToRemove is null, check if clearing would violate the constraint.
      *
-     * @throws DomainException('TRANSACTION_EMPTY_BLOCKED')
+     * @throws PosCartMutationException('TRANSACTION_EMPTY_BLOCKED')
      */
     private function assertNotLastLineOfLoadedTransaction(array $cart, ?int $lineIdToRemove = null): void
     {
         $activeTransactionId = $cart['active_transaction_id'] ?? null;
 
         // Only applies if there's an active loaded transaction
-        if (!$activeTransactionId) {
+        if (! $activeTransactionId) {
             return;
         }
 
@@ -666,13 +668,19 @@ class PosCartService
         if ($lineIdToRemove === null) {
             // We're clearing the entire cart
             if ($lineCount > 0) {
-                throw new DomainException('Transaksi yang dimuat tidak dapat dikosongkan.');
+                throw new PosCartMutationException(
+                    'TRANSACTION_EMPTY_BLOCKED',
+                    'Transaksi yang dimuat tidak dapat dikosongkan.'
+                );
             }
         } else {
             // We're removing a specific line
             // Check if it's the only line (removing it would result in 0 lines)
             if ($lineCount === 1 && isset($cart['lines'][$lineIdToRemove])) {
-                throw new DomainException('Transaksi yang dimuat tidak dapat dikosongkan.');
+                throw new PosCartMutationException(
+                    'TRANSACTION_EMPTY_BLOCKED',
+                    'Transaksi yang dimuat tidak dapat dikosongkan.'
+                );
             }
         }
     }

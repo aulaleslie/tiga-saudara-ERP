@@ -581,6 +581,7 @@
             ? ($activeSession->terminal->code . ' (' . $activeSession->terminal->name . ')')
             : '-';
         $terminalLabelShort = \Illuminate\Support\Str::limit($terminalLabelFull, 30);
+        $posTransactionsEnabled = (bool) (settings()->pos_transactions_enabled ?? false);
     @endphp
 
     <div class="pos-lock-screen" aria-live="polite">
@@ -642,6 +643,9 @@
                                         @can('pos.sessions.view')
                                             <a class="dropdown-item" href="{{ route('pos.sessions.index') }}" target="_blank">Sesi POS</a>
                                         @endcan
+                                        @if($posTransactionsEnabled && auth()->user()->can('pos.transactions.view'))
+                                            <a class="dropdown-item" href="{{ route('pos.transactions.index') }}" target="_blank">Transaksi POS</a>
+                                        @endif
                                         @can('pos.monitor.access')
                                             <a class="dropdown-item" href="{{ route('pos.monitor.index') }}" target="_blank">Monitor</a>
                                         @endcan
@@ -757,9 +761,16 @@
                                     <div id="pos-payment-summary-total" class="pos-total-value">Rp0</div>
                                 </div>
                                 <div class="d-flex" style="gap: 0.5rem;">
-                                    <button id="pos-save-draft" class="btn btn-outline-primary btn-lg" type="button">
-                                        Simpan dan Buka Baru
-                                    </button>
+                                    @if($posTransactionsEnabled && auth()->user()->can('pos.transactions.save'))
+                                        <button id="pos-save-draft" class="btn btn-outline-primary btn-lg" type="button">
+                                            Simpan dan Buka Baru
+                                        </button>
+                                    @else
+                                        <button class="btn btn-outline-primary btn-lg" type="button" disabled
+                                                title="Membutuhkan izin simpan transaksi POS.">
+                                            Simpan dan Buka Baru
+                                        </button>
+                                    @endif
                                     <button id="pos-checkout-final" class="btn btn-primary btn-lg flex-grow-1" type="button" disabled>
                                         Pilih Pembayaran
                                     </button>
@@ -999,6 +1010,7 @@
             const newCustomerName = document.getElementById('pos-new-customer-name');
             const newCustomerPhone = document.getElementById('pos-new-customer-phone');
             const newCustomerTier = document.getElementById('pos-new-customer-tier');
+            const saveDraftButton = document.getElementById('pos-save-draft');
 
             const btnCheckout = document.getElementById('pos-checkout-final');
 
@@ -1037,6 +1049,7 @@
             const cartShowEndpoint = @json(route('pos.sell.cart.show'));
             const cartStoreLineEndpoint = @json(route('pos.sell.cart.lines.store'));
             const cartClearEndpoint = @json(route('pos.sell.cart.clear'));
+            const saveAndNewEndpoint = @json(route('pos.sell.transactions.save-and-new'));
             const cartCustomerEndpoint = @json(route('pos.sell.cart.customer.update'));
             const customerStoreEndpoint = @json(route('pos.sell.customers.store'));
             const paymentMethodSearchEndpoint = @json(url('/pos/sell/payment-methods/search'));
@@ -2050,6 +2063,27 @@
                 });
             }
 
+            if (saveDraftButton) {
+                saveDraftButton.addEventListener('click', async function () {
+                    const originalText = saveDraftButton.textContent;
+                    saveDraftButton.disabled = true;
+                    saveDraftButton.textContent = 'Menyimpan...';
+
+                    try {
+                        const response = await jsonRequest(saveAndNewEndpoint, 'POST');
+                        await refreshCart();
+
+                        const code = response && response.transaction ? response.transaction.code : '-';
+                        setCartStatus('Transaksi ' + code + ' disimpan. Keranjang baru siap dipakai.', 'text-success');
+                    } catch (error) {
+                        setCartStatus(error.message || 'Gagal menyimpan transaksi.', 'text-danger', true);
+                    } finally {
+                        saveDraftButton.disabled = false;
+                        saveDraftButton.textContent = originalText;
+                    }
+                });
+            }
+
             cartBody.addEventListener('change', async function (event) {
                 const qtyInput = event.target.closest('.js-line-qty');
                 if (!qtyInput) return;
@@ -2077,28 +2111,40 @@
                     return;
                 }
 
-                qtyInput.setAttribute('data-prev-qty', newQty);
+                const applyQtyUpdate = async (token) => {
+                    const payload = { qty: newQty };
+                    if (token) payload.approval_token = token;
+
+                    const response = await jsonRequest(getLineEndpoint(lineId), 'PATCH', payload);
+                    if (!response) {
+                        throw new Error('Gagal memperbarui qty.');
+                    }
+
+                    renderCart(response.cart_snapshot || null);
+                    setCartStatus('Qty berhasil diperbarui.', 'text-success');
+                };
 
                 try {
-                    ApprovalManager.wrapAction(qtyInput, qtyInput.value, 'QTY_REDUCE', 'pos_cart_line', lineId, { qty: newQty }, async (token) => {
-                        const payload = { qty: newQty };
-                        if (token) payload.approval_token = token;
-                        
-                        const response = await jsonRequest(getLineEndpoint(lineId), 'PATCH', payload);
-                        if (response) {
-                            renderCart(response.cart_snapshot || null);
-                            setCartStatus('Qty berhasil diperbarui.', 'text-success');
-                        } else {
+                    if (newQty < prevQty) {
+                        const executed = await ApprovalManager.wrapAction(
+                            qtyInput,
+                            String(prevQty),
+                            'QTY_REDUCE',
+                            'pos_cart_line',
+                            lineId,
+                            { qty: newQty },
+                            applyQtyUpdate
+                        );
+                        if (!executed) {
                             qtyInput.value = prevQty;
-                            qtyInput.setAttribute('data-prev-qty', prevQty);
+                            qtyInput.setAttribute('data-prev-qty', String(prevQty));
                         }
-                    }).catch(err => {
-                        qtyInput.value = prevQty;
-                        qtyInput.setAttribute('data-prev-qty', prevQty);
-                    });
+                    } else {
+                        await applyQtyUpdate(null);
+                    }
                 } catch (error) {
                     qtyInput.value = prevQty;
-                    qtyInput.setAttribute('data-prev-qty', prevQty);
+                    qtyInput.setAttribute('data-prev-qty', String(prevQty));
                 }
             });
 

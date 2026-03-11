@@ -3,140 +3,131 @@
 namespace Modules\Pos\Tests\Feature;
 
 use Modules\Pos\Entities\PosTransaction;
-use Tests\TestCase;
+use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 
-class POSTransactionCancelTest extends TestCase
+class POSTransactionCancelTest extends PosTransactionFeatureTestCase
 {
-    /**
-     * Test creator can cancel own draft.
-     */
-    public function test_creator_can_cancel_own_draft(): void
+    public function test_creator_can_cancel_own_draft_transaction(): void
     {
-        // Arrange
-        $user = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save', 'pos.transactions.view']);
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($user, $setting);
+        $setting = $this->createSetting('BIZ POS TXN CANCEL OWNER');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN CANCEL OWNER USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.view',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $user);
+        $product = $this->createStockedProduct($setting, $location);
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
 
-        // Create draft
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
 
-        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-        $transaction = PosTransaction::find($saveResponse->json('transaction.id'));
-
-        // Act - Cancel own transaction
-        $response = $this->postJson(route('pos.transactions.cancel', ['transaction' => $transaction]), []);
-
-        // Assert
-        $response->assertSuccessful()
+        $this->postJson(route('pos.transactions.cancel', ['transaction' => $transactionId]))
+            ->assertOk()
             ->assertJsonPath('transaction.status', PosTransaction::STATUS_CANCELLED);
 
-        $transaction->refresh();
-        $this->assertEquals(PosTransaction::STATUS_CANCELLED, $transaction->status);
+        $this->assertDatabaseHas('pos_transactions', [
+            'id' => $transactionId,
+            'status' => PosTransaction::STATUS_CANCELLED,
+        ]);
     }
 
-    /**
-     * Test other user cannot cancel without edit.any.
-     */
-    public function test_other_user_cannot_cancel_without_edit_any(): void
+    public function test_other_user_without_edit_any_cannot_cancel_transaction(): void
     {
-        // Arrange
-        $owner = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save']);
-        $otherUser = $this->createAuthenticatedUser(['pos.access', 'pos.transactions.view']);
-        // Note: otherUser lacks pos.transactions.edit.any
+        $setting = $this->createSetting('BIZ POS TXN CANCEL FORBIDDEN');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
 
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($owner, $setting);
+        $owner = $this->createUserForSetting($setting, 'POS TXN CANCEL OWNER 2', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+        ]);
+        $otherUser = $this->createUserForSetting($setting, 'POS TXN CANCEL OTHER USER', [
+            'pos.access',
+            'pos.transactions.view',
+        ]);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $owner);
+        $this->openSession($setting, $terminal, $owner);
+        $this->actingAsInSetting($owner, $setting);
 
-        // Create draft as owner
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-CN-001']);
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
 
-        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-        $transaction = PosTransaction::find($saveResponse->json('transaction.id'));
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
 
-        // Act - Try to cancel as other user
-        $this->actAsUser($otherUser, $setting);
-        $response = $this->postJson(route('pos.transactions.cancel', ['transaction' => $transaction]), []);
-
-        // Assert
-        $response->assertStatus(409)
+        $this->actingAsInSetting($otherUser, $setting);
+        $this->postJson(route('pos.transactions.cancel', ['transaction' => $transactionId]))
+            ->assertStatus(409)
             ->assertJsonPath('code', 'EDIT_FORBIDDEN');
     }
 
-    /**
-     * Test user with edit.any can cancel others draft.
-     */
-    public function test_user_with_edit_any_can_cancel_others_draft(): void
+    public function test_user_with_edit_any_can_cancel_other_users_transaction(): void
     {
-        // Arrange
-        $owner = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save']);
-        $admin = $this->createAuthenticatedUser(['pos.access', 'pos.transactions.view', 'pos.transactions.edit.any']);
+        $setting = $this->createSetting('BIZ POS TXN CANCEL EDIT ANY');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
 
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($owner, $setting);
+        $owner = $this->createUserForSetting($setting, 'POS TXN CANCEL OWNER 3', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+        ]);
+        $admin = $this->createUserForSetting($setting, 'POS TXN CANCEL ADMIN', [
+            'pos.access',
+            'pos.transactions.view',
+            'pos.transactions.edit.any',
+        ]);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $owner);
+        $this->openSession($setting, $terminal, $owner);
+        $this->actingAsInSetting($owner, $setting);
 
-        // Create draft as owner
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-CN-002']);
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
 
-        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-        $transaction = PosTransaction::find($saveResponse->json('transaction.id'));
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
 
-        // Act - Cancel as admin with edit.any
-        $this->actAsUser($admin, $setting);
-        $response = $this->postJson(route('pos.transactions.cancel', ['transaction' => $transaction]), []);
-
-        // Assert
-        $response->assertSuccessful()
+        $this->actingAsInSetting($admin, $setting);
+        $this->postJson(route('pos.transactions.cancel', ['transaction' => $transactionId]))
+            ->assertOk()
             ->assertJsonPath('transaction.status', PosTransaction::STATUS_CANCELLED);
     }
 
-    /**
-     * Test cannot cancel completed transaction.
-     */
-    public function test_cannot_cancel_completed_transaction(): void
+    public function test_completed_transaction_cannot_be_cancelled(): void
     {
-        // Arrange
-        $user = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save', 'pos.transactions.view']);
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($user, $setting);
+        $setting = $this->createSetting('BIZ POS TXN CANCEL COMPLETED');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN CANCEL COMPLETED USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.view',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $user);
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-CN-003']);
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
 
-        // Create draft
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
 
-        $saveResponse = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-        $transaction = PosTransaction::find($saveResponse->json('transaction.id'));
+        PosTransaction::whereKey($transactionId)->update(['status' => PosTransaction::STATUS_COMPLETED]);
 
-        // Change status to COMPLETED
-        $transaction->update(['status' => PosTransaction::STATUS_COMPLETED]);
-
-        // Act - Try to cancel completed transaction
-        $response = $this->postJson(route('pos.transactions.cancel', ['transaction' => $transaction]), []);
-
-        // Assert
-        $response->assertStatus(422)
+        $this->postJson(route('pos.transactions.cancel', ['transaction' => $transactionId]))
+            ->assertStatus(422)
             ->assertJsonPath('code', 'TRANSACTION_NOT_CANCELLABLE');
     }
 }

@@ -31,6 +31,7 @@ class PosTransaction extends BaseModel
         'source_pos_session_id',
         'completed_checkout_id',
         'snapshot_totals',
+        'snapshot_hash',
         'metadata',
     ];
 

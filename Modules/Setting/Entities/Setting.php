@@ -71,6 +71,7 @@ class Setting extends BaseModel
     protected $casts = [
         'is_pkp' => 'boolean',
         'pos_enabled' => 'boolean',
+        'pos_transactions_enabled' => 'boolean',
         'pos_walk_in_customer_id' => 'integer',
     ];
 

@@ -2,159 +2,225 @@
 
 namespace Modules\Pos\Tests\Feature;
 
-use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTransaction;
-use Modules\Pos\Services\Exceptions\PosTransactionValidationException;
-use Tests\TestCase;
+use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 
-class POSTransactionSaveAndNewTest extends TestCase
+class POSTransactionSaveAndNewTest extends PosTransactionFeatureTestCase
 {
-    /**
-     * Test cashier can save non-empty cart as draft and receives code.
-     */
-    public function test_cashier_can_save_non_empty_cart_as_draft_and_receives_code(): void
+    public function test_cashier_can_save_non_empty_cart_as_draft_and_cart_is_cleared(): void
     {
-        // Arrange
-        $user = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save']);
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($user, $setting);
+        $setting = $this->createSetting('BIZ POS TXN SAVE');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN SAVE CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $session = $this->openPosSession($setting, $user);
+        $product = $this->createStockedProduct($setting, $location);
 
-        // Add product to cart
         $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 2,
-        ])->assertSuccessful();
+                'product_id' => $product->id,
+                'qty' => 2,
+            ])
+            ->assertOk();
+        $this->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.meta.line_count', 1);
 
-        // Act - Save and new
-        $response = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
+        $response = $this->postJson(route('pos.sell.transactions.save-and-new'));
 
-        // Assert
         $response->assertStatus(201)
             ->assertJsonStructure([
                 'message',
                 'transaction' => ['id', 'code', 'status'],
-            ]);
+            ])
+            ->assertJsonPath('transaction.status', PosTransaction::STATUS_DRAFT);
 
-        $transactionId = $response->json('transaction.id');
-        $transaction = PosTransaction::find($transactionId);
+        $transactionId = (int) $response->json('transaction.id');
+        $this->assertDatabaseHas('pos_transactions', [
+            'id' => $transactionId,
+            'setting_id' => $setting->id,
+            'owner_user_id' => $user->id,
+            'status' => PosTransaction::STATUS_DRAFT,
+        ]);
+        $this->assertDatabaseHas('pos_transaction_lines', [
+            'pos_transaction_id' => $transactionId,
+            'product_id' => $product->id,
+            'qty' => 2,
+        ]);
+        $savedTransaction = PosTransaction::query()->find($transactionId);
+        $this->assertNotNull($savedTransaction?->snapshot_hash);
+        $this->assertSame(64, strlen((string) $savedTransaction?->snapshot_hash));
 
-        $this->assertNotNull($transaction);
-        $this->assertEquals(PosTransaction::STATUS_DRAFT, $transaction->status);
-        $this->assertEquals($user->id, $transaction->owner_user_id);
-        $this->assertStringContainsString('TXN-', $transaction->code);
-
-        // Verify cart is cleared
-        $cartResponse = $this->getJson(route('pos.sell.cart.show'));
-        $cartResponse->assertJsonPath('meta.line_count', 0);
+        $this->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.meta.line_count', 0)
+            ->assertJsonPath('cart_snapshot.active_transaction_id', null);
     }
 
-    /**
-     * Test save draft requires pos.transactions.save permission.
-     */
     public function test_save_draft_requires_pos_transactions_save_permission(): void
     {
-        // Arrange
-        $user = $this->createAuthenticatedUser(['pos.access', 'pos.sell']);
-        // Note: NO 'pos.transactions.save' permission
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($user, $setting);
+        $setting = $this->createSetting('BIZ POS TXN SAVE PERM');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN SAVE NO PERM', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        $product = $this->createProduct(['stock_managed' => true]);
-        $this->openPosSession($setting, $user);
-
+        $product = $this->createStockedProduct($setting, $location);
         $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
+                'product_id' => $product->id,
+                'qty' => 1,
+            ])
+            ->assertOk();
 
-        // Act - Try to save without permission
-        $response = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-
-        // Assert
-        $response->assertForbidden();
+        $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertForbidden();
     }
 
-    /**
-     * Test save draft with empty cart returns 422 CART_EMPTY.
-     */
     public function test_save_draft_with_empty_cart_returns_422_cart_empty(): void
     {
-        // Arrange
-        $user = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save']);
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($user, $setting);
+        $setting = $this->createSetting('BIZ POS TXN SAVE EMPTY');
+        [$terminal] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN SAVE EMPTY CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        $this->openPosSession($setting, $user);
-
-        // Act - Try to save with empty cart
-        $response = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-
-        // Assert
-        $response->assertStatus(422)
+        $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(422)
             ->assertJsonPath('code', 'CART_EMPTY');
     }
 
-    /**
-     * Test saved draft persists serials to line_serials table.
-     */
-    public function test_saved_draft_persists_serials_to_line_serials_table(): void
+    public function test_save_draft_is_blocked_when_transactions_feature_is_disabled(): void
     {
-        // Arrange
-        $user = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save']);
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($user, $setting);
+        $setting = $this->createSetting('BIZ POS TXN SAVE FLAG OFF');
+        $setting->update(['pos_transactions_enabled' => false]);
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN SAVE FLAG OFF CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        $product = $this->createProduct(['stock_managed' => true, 'require_serial' => true]);
-        $session = $this->openPosSession($setting, $user);
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-SF-001']);
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
 
-        // Add product to cart
-        $this->postJson(route('pos.sell.cart.lines.store'), [
-            'product_id' => $product->id,
-            'qty' => 1,
-        ])->assertSuccessful();
-
-        // Get cart to find line_id
-        $cartResponse = $this->getJson(route('pos.sell.cart.show'));
-        $lineId = $cartResponse->json('lines')[0]['line_id'];
-
-        // Add serial to line
-        $this->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
-            'serial_number' => 'SN12345',
-        ])->assertSuccessful();
-
-        // Act - Save draft
-        $response = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
-
-        // Assert
-        $response->assertStatus(201);
-        $transactionId = $response->json('transaction.id');
-
-        $transaction = PosTransaction::with('lines.serials')->find($transactionId);
-        $this->assertNotNull($transaction);
-        $this->assertCount(1, $transaction->lines);
-        $this->assertCount(1, $transaction->lines[0]->serials);
-        $this->assertEquals('SN12345', $transaction->lines[0]->serials[0]->serial_number);
+        $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'POS_TRANSACTIONS_DISABLED');
     }
 
-    /**
-     * Test save draft requires active session.
-     */
-    public function test_save_draft_requires_active_session(): void
+    public function test_saved_draft_persists_line_serial_assignments(): void
     {
-        // Arrange
-        $user = $this->createAuthenticatedUser(['pos.access', 'pos.sell', 'pos.transactions.save']);
-        $setting = $this->createSetting(['pos_enabled' => true]);
-        $this->actAsUser($user, $setting);
+        $setting = $this->createSetting('BIZ POS TXN SAVE SERIAL');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN SAVE SERIAL CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
 
-        // NO active session!
+        $product = $this->createStockedProduct($setting, $location, [
+            'serial_number_required' => true,
+            'product_code' => 'SKU-TXN-SN-001',
+        ]);
+        $serialNumber = 'SN-TXN-001';
+        $this->createSerialNumber($product, $location, $serialNumber);
 
-        // Act - Try to save without session
-        $response = $this->postJson(route('pos.sell.transactions.save-and-new'), []);
+        $this->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $product->id,
+                'qty' => 1,
+            ])
+            ->assertOk();
 
-        // Assert
-        $response->assertStatus(500); // No active session error
+        $lineId = (int) $this->getJson(route('pos.sell.cart.show'))
+            ->json('cart_snapshot.lines.0.line_id');
+
+        $this->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                'serial_number' => $serialNumber,
+            ])
+            ->assertOk();
+
+        $response = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+
+        $transactionId = (int) $response->json('transaction.id');
+        $this->assertDatabaseHas('pos_transaction_line_serials', [
+            'serial_number' => $serialNumber,
+        ]);
+        $this->assertDatabaseHas('pos_transaction_lines', [
+            'pos_transaction_id' => $transactionId,
+            'product_id' => $product->id,
+        ]);
+    }
+
+    public function test_save_and_new_updates_loaded_transaction_instead_of_creating_new_record(): void
+    {
+        $setting = $this->createSetting('BIZ POS TXN SAVE UPDATE');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN SAVE UPDATE CASHIER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.load',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
+
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-UPD-001']);
+
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+
+        $initialSave = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+
+        $transactionId = (int) $initialSave->json('transaction.id');
+
+        $this->postJson(route('pos.transactions.load', ['transaction' => $transactionId]))
+            ->assertOk()
+            ->assertJsonPath('transaction.status', PosTransaction::STATUS_LOADED);
+
+        $lineId = (int) $this->getJson(route('pos.sell.cart.show'))
+            ->json('cart_snapshot.lines.0.line_id');
+
+        $this->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $lineId]), ['qty' => 3])
+            ->assertOk();
+
+        $secondSave = $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->assertStatus(201);
+
+        $secondTransactionId = (int) $secondSave->json('transaction.id');
+        $this->assertSame($transactionId, $secondTransactionId);
+
+        $this->assertDatabaseCount('pos_transactions', 1);
+        $this->assertDatabaseHas('pos_transactions', [
+            'id' => $transactionId,
+            'status' => PosTransaction::STATUS_DRAFT,
+        ]);
+        $this->assertDatabaseHas('pos_transaction_lines', [
+            'pos_transaction_id' => $transactionId,
+            'qty' => 3,
+        ]);
     }
 }

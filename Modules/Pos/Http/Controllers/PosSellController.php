@@ -22,6 +22,7 @@ use Modules\Pos\Services\PosProductSearchService;
 use Modules\Pos\Services\Exceptions\PosCheckoutConflictException;
 use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
+use Modules\Pos\Services\Exceptions\PosCartMutationException;
 use Modules\Pos\Services\PosReceiptService;
 use Modules\Pos\Services\PosPaymentMethodSearchService;
 use Modules\People\Entities\Customer;
@@ -196,6 +197,11 @@ class PosSellController extends Controller
                 $request->input('approval_token'),
                 $request->user()
             );
+        } catch (PosCartMutationException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], $exception->httpStatus());
         } catch (DomainException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
@@ -221,6 +227,11 @@ class PosSellController extends Controller
                 $request->input('approval_token'),
                 $request->user()
             );
+        } catch (PosCartMutationException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], $exception->httpStatus());
         } catch (DomainException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
@@ -281,6 +292,11 @@ class PosSellController extends Controller
                 $request->input('approval_token'),
                 $request->user()
             );
+        } catch (PosCartMutationException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], $exception->httpStatus());
         } catch (DomainException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),

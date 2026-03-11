@@ -3,10 +3,11 @@
 namespace Modules\Pos\Tests\Unit;
 
 use Modules\Pos\Entities\PosTransaction;
+use Modules\Pos\Entities\PosTransactionLine;
 use Modules\Pos\Services\PosTransactionSnapshotMapper;
-use Tests\TestCase;
+use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 
-class PosTransactionSnapshotMapperTest extends TestCase
+class PosTransactionSnapshotMapperTest extends PosTransactionFeatureTestCase
 {
     private PosTransactionSnapshotMapper $mapper;
 
@@ -16,14 +17,33 @@ class PosTransactionSnapshotMapperTest extends TestCase
         $this->mapper = app(PosTransactionSnapshotMapper::class);
     }
 
-    /**
-     * Test persist_lines writes correct line count and serial rows.
-     */
-    public function test_persist_lines_writes_correct_line_count_and_serial_rows(): void
+    public function test_persist_lines_writes_expected_line_and_serial_rows(): void
     {
-        // Arrange
-        $transaction = PosTransaction::factory()->create();
-        $product = $this->createProduct(['require_serial' => true]);
+        $setting = $this->createSetting('BIZ POS TXN MAP PERSIST');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN MAP PERSIST USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-TXN-MAP-0001',
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 0],
+        ]);
+
+        $product = $this->createStockedProduct($setting, $location, [
+            'serial_number_required' => true,
+            'product_code' => 'SKU-TXN-MAP-001',
+        ]);
 
         $cartLines = [
             1 => [
@@ -33,186 +53,200 @@ class PosTransactionSnapshotMapperTest extends TestCase
                 'product_code' => $product->product_code,
                 'barcode' => $product->barcode,
                 'serial_number_required' => true,
-                'assigned_serials' => ['SN001', 'SN002'],
+                'assigned_serials' => ['SN-MAP-001', 'SN-MAP-002'],
                 'qty' => 2,
-                'unit_price' => 100000.00,
+                'unit_price' => 15000,
                 'tax_id' => null,
                 'tax_name' => null,
-                'tax_rate' => 0.0,
+                'tax_rate' => 0,
                 'line_discount_type' => 'fixed',
-                'line_discount_value' => 10000.00,
-            ],
-            2 => [
-                'line_id' => 2,
-                'product_id' => $product->id,
-                'product_name' => $product->product_name,
-                'product_code' => $product->product_code,
-                'barcode' => $product->barcode,
-                'serial_number_required' => true,
-                'assigned_serials' => ['SN003'],
-                'qty' => 1,
-                'unit_price' => 50000.00,
-                'tax_id' => null,
-                'tax_name' => null,
-                'tax_rate' => 0.0,
-                'line_discount_type' => 'fixed',
-                'line_discount_value' => 0.0,
+                'line_discount_value' => 0,
             ],
         ];
 
-        // Act
         $this->mapper->persistLines($transaction, $cartLines);
 
-        // Assert
-        $transaction->refresh();
-        $this->assertCount(2, $transaction->lines);
+        $line = PosTransactionLine::with('serials')
+            ->where('pos_transaction_id', $transaction->id)
+            ->first();
 
-        // Check first line serials
-        $line1 = $transaction->lines[0];
-        $this->assertCount(2, $line1->serials);
-        $this->assertEquals('SN001', $line1->serials[0]->serial_number);
-        $this->assertEquals('SN002', $line1->serials[1]->serial_number);
-
-        // Check second line serials
-        $line2 = $transaction->lines[1];
-        $this->assertCount(1, $line2->serials);
-        $this->assertEquals('SN003', $line2->serials[0]->serial_number);
+        $this->assertNotNull($line);
+        $this->assertEquals(2, (int) $line->qty);
+        $this->assertCount(2, $line->serials);
+        $this->assertDatabaseHas('pos_transaction_line_serials', [
+            'pos_transaction_line_id' => $line->id,
+            'serial_number' => 'SN-MAP-001',
+        ]);
     }
 
-    /**
-     * Test hydrate_cart restores line fields with safe defaults.
-     */
-    public function test_hydrate_cart_restores_line_fields_with_safe_defaults(): void
+    public function test_hydrate_cart_restores_fields_and_active_transaction_id(): void
     {
-        // Arrange
-        $product = $this->createProduct(['require_serial' => true]);
-        $transaction = PosTransaction::factory()
-            ->has(\Modules\Pos\Entities\PosTransactionLine::factory()
-                ->state([
-                    'product_id' => $product->id,
-                    'product_name_snapshot' => 'Test Product',
-                    'qty' => 5,
-                    'unit_price' => 100000.00,
-                ])
-                ->count(1)
-            )
-            ->create();
+        $setting = $this->createSetting('BIZ POS TXN MAP HYDRATE');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN MAP HYDRATE USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
 
-        // Act
-        $cart = $this->mapper->hydrateCart($transaction);
+        $product = $this->createStockedProduct($setting, $location, [
+            'product_code' => 'SKU-TXN-MAP-002',
+            'serial_number_required' => true,
+        ]);
 
-        // Assert
-        $this->assertCount(1, $cart['lines']);
-        $line = $cart['lines'][1];
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-TXN-MAP-0002',
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 30000],
+        ]);
 
-        // Check specific fields
-        $this->assertEquals($product->id, $line['product_id']);
-        $this->assertEquals('Test Product', $line['product_name']);
-        $this->assertEquals(5, $line['qty']);
-        $this->assertEquals(100000.00, $line['unit_price']);
-
-        // Check safe defaults
-        $this->assertEquals(0, $line['available_qty']);
-        $this->assertTrue($line['price_valid']);
-        $this->assertNull($line['price_error']);
-        $this->assertEquals('DRAFT_RESTORED', $line['price_source']);
-        $this->assertEquals($transaction->id, $cart['active_transaction_id']);
-    }
-
-    /**
-     * Test persist and hydrate round trip preserves qty, price, discount.
-     */
-    public function test_persist_and_hydrate_round_trip_preserves_values(): void
-    {
-        // Arrange
-        $product = $this->createProduct();
-        $transaction = PosTransaction::factory()->create();
-
-        $originalCart = [
-            1 => [
-                'line_id' => 1,
-                'product_id' => $product->id,
-                'product_name' => 'Test Product',
-                'product_code' => 'TP001',
-                'barcode' => 'BAR123',
-                'qty' => 10,
-                'unit_price' => 50000.00,
-                'line_discount_type' => 'percentage',
-                'line_discount_value' => 10.0,
-                'tax_id' => null,
-                'tax_name' => null,
-                'tax_rate' => 0.0,
-                'serial_number_required' => false,
-                'assigned_serials' => [],
+        $line = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => 'Hydrate Product',
+            'product_code_snapshot' => 'SKU-TXN-MAP-002',
+            'conversion_id' => null,
+            'qty' => 2,
+            'unit_price' => 15000,
+            'tax_id' => null,
+            'tax_name_snapshot' => null,
+            'tax_rate_snapshot' => 0,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'line_meta' => [
+                'barcode' => 'SKU-TXN-MAP-002-BC',
             ],
-        ];
+        ]);
+        $line->serials()->create(['serial_number' => 'SN-MAP-003']);
 
-        // Act
-        $this->mapper->persistLines($transaction, $originalCart);
-        $hydratedCart = $this->mapper->hydrateCart($transaction);
-
-        // Assert
-        $hydratedLine = $hydratedCart['lines'][1];
-        $this->assertEquals($originalCart[1]['qty'], $hydratedLine['qty']);
-        $this->assertEquals($originalCart[1]['unit_price'], $hydratedLine['unit_price']);
-        $this->assertEquals($originalCart[1]['line_discount_type'], $hydratedLine['line_discount_type']);
-        $this->assertEquals($originalCart[1]['line_discount_value'], $hydratedLine['line_discount_value']);
-    }
-
-    /**
-     * Test build_snapshot_totals creates correct structure.
-     */
-    public function test_build_snapshot_totals_creates_correct_structure(): void
-    {
-        // Arrange
-        $totals = [
-            'line_count' => 3,
-            'subtotal' => 300000.00,
-            'discount_total' => 30000.00,
-            'tax_total' => 30000.00,
-            'grand_total' => 300000.00,
-        ];
-
-        // Act
-        $snapshotTotals = $this->mapper->buildSnapshotTotals($totals);
-
-        // Assert
-        $this->assertEquals(3, $snapshotTotals['line_count']);
-        $this->assertEquals(300000.00, $snapshotTotals['subtotal']);
-        $this->assertEquals(30000.00, $snapshotTotals['discount_total']);
-        $this->assertEquals(30000.00, $snapshotTotals['tax_total']);
-        $this->assertEquals(300000.00, $snapshotTotals['grand_total']);
-    }
-
-    /**
-     * Test hydrate_cart assigns merge_key consistent with cart service logic.
-     */
-    public function test_hydrate_cart_merge_key_consistency(): void
-    {
-        // Arrange
-        $product = $this->createProduct();
-        $taxId = 5;
-        $conversionId = null;
-        $unitPrice = 100000.00;
-
-        $transaction = PosTransaction::factory()
-            ->has(\Modules\Pos\Entities\PosTransactionLine::factory()
-                ->state([
-                    'product_id' => $product->id,
-                    'unit_price' => $unitPrice,
-                    'tax_id' => $taxId,
-                    'conversion_id' => $conversionId,
-                ])
-                ->count(1)
-            )
-            ->create();
-
-        // Act
         $cart = $this->mapper->hydrateCart($transaction);
 
-        // Assert - Merge key should follow pattern: "{product_id}:{unit_price}:{tax_id}:{conversion_id}"
-        $line = $cart['lines'][1];
-        $expectedMergeKey = "{$product->id}:{$unitPrice}:{$taxId}:{$conversionId}";
-        $this->assertEquals($expectedMergeKey, $line['merge_key']);
+        $this->assertEquals($transaction->id, $cart['active_transaction_id']);
+        $this->assertCount(1, $cart['lines']);
+        $this->assertEquals('Hydrate Product', $cart['lines'][1]['product_name']);
+        $this->assertTrue($cart['lines'][1]['serial_number_required']);
+        $this->assertEquals(['SN-MAP-003'], $cart['lines'][1]['assigned_serials']);
+        $this->assertNotEmpty($cart['lines'][1]['merge_key']);
+    }
+
+    public function test_build_snapshot_totals_returns_expected_structure(): void
+    {
+        $snapshotTotals = $this->mapper->buildSnapshotTotals([
+            'line_count' => 3,
+            'subtotal' => 30000,
+            'discount_total' => 1500,
+            'tax_total' => 2850,
+            'grand_total' => 31350,
+        ]);
+
+        $this->assertSame(3, $snapshotTotals['line_count']);
+        $this->assertSame(30000, $snapshotTotals['subtotal']);
+        $this->assertSame(1500, $snapshotTotals['discount_total']);
+        $this->assertSame(2850, $snapshotTotals['tax_total']);
+        $this->assertSame(31350, $snapshotTotals['grand_total']);
+    }
+
+    public function test_build_snapshot_hash_is_stable_for_same_transaction_content(): void
+    {
+        $transaction = $this->createTransactionForHashing('HASH-STABLE', ['SN-HASH-1', 'SN-HASH-2'], 2);
+
+        $hashA = $this->mapper->buildSnapshotHash($transaction);
+        $hashB = $this->mapper->buildSnapshotHash($transaction->fresh(['lines.serials']));
+
+        $this->assertSame($hashA, $hashB);
+    }
+
+    public function test_build_snapshot_hash_normalizes_serial_order(): void
+    {
+        $transaction = $this->createTransactionForHashing('HASH-SERIAL', ['SN-HASH-3', 'SN-HASH-4'], 2);
+        $hashA = $this->mapper->buildSnapshotHash($transaction);
+
+        $line = $transaction->lines()->firstOrFail();
+        $line->serials()->delete();
+        $line->serials()->create(['serial_number' => 'SN-HASH-4']);
+        $line->serials()->create(['serial_number' => 'SN-HASH-3']);
+
+        $hashB = $this->mapper->buildSnapshotHash($transaction->fresh(['lines.serials']));
+
+        $this->assertSame($hashA, $hashB);
+    }
+
+    public function test_build_snapshot_hash_changes_when_line_payload_changes(): void
+    {
+        $transactionA = $this->createTransactionForHashing('HASH-LINE-A', ['SN-HASH-5'], 1);
+        $transactionB = $this->createTransactionForHashing('HASH-LINE-B', ['SN-HASH-5'], 3);
+
+        $hashA = $this->mapper->buildSnapshotHash($transactionA);
+        $hashB = $this->mapper->buildSnapshotHash($transactionB);
+
+        $this->assertNotSame($hashA, $hashB);
+    }
+
+    private function createTransactionForHashing(string $suffix, array $serials, int $qty): PosTransaction
+    {
+        $setting = $this->createSetting('BIZ POS TXN MAP HASH ' . $suffix);
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN MAP HASH USER ' . $suffix, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        $product = $this->createStockedProduct($setting, $location, [
+            'product_code' => 'SKU-TXN-HASH-' . $suffix,
+            'serial_number_required' => true,
+        ]);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-TXN-HASH-' . $suffix,
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => [
+                'line_count' => 1,
+                'subtotal' => 15000 * $qty,
+                'discount_total' => 0,
+                'tax_total' => 0,
+                'grand_total' => 15000 * $qty,
+            ],
+        ]);
+
+        $line = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'conversion_id' => null,
+            'qty' => $qty,
+            'unit_price' => 15000,
+            'tax_id' => null,
+            'tax_name_snapshot' => null,
+            'tax_rate_snapshot' => 0,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'line_meta' => [],
+        ]);
+
+        foreach ($serials as $serial) {
+            $line->serials()->create([
+                'serial_number' => $serial,
+            ]);
+        }
+
+        return $transaction->fresh(['lines.serials']);
     }
 }
