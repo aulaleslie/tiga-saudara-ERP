@@ -10,6 +10,7 @@ return new class extends Migration
     {
         Schema::create('pos_checkouts', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('pos_transaction_id')->nullable();
             $table->unsignedBigInteger('setting_id');
             $table->unsignedBigInteger('pos_session_id');
             $table->unsignedBigInteger('terminal_id');
@@ -37,10 +38,12 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique(['setting_id', 'idempotency_key'], 'pos_checkouts_setting_idempotency_unique');
+            $table->index('pos_transaction_id', 'pos_checkouts_transaction_idx');
             $table->index(['pos_session_id', 'status'], 'pos_checkouts_session_status_idx');
             $table->index('sale_id', 'pos_checkouts_sale_idx');
             $table->index('finalized_at', 'pos_checkouts_finalized_at_idx');
 
+            $table->foreign('pos_transaction_id')->references('id')->on('pos_transactions')->nullOnDelete();
             $table->foreign('setting_id')->references('id')->on('settings')->onDelete('cascade');
             $table->foreign('pos_session_id')->references('id')->on('pos_sessions')->onDelete('cascade');
             $table->foreign('terminal_id')->references('id')->on('pos_terminals')->onDelete('restrict');

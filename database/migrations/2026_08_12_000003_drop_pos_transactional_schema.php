@@ -14,6 +14,10 @@ return new class extends Migration
         $this->dropForeignAndColumnIfExists('sale_payments', 'pos_session_id');
         $this->dropForeignAndColumnIfExists('sale_payments', 'pos_receipt_id');
 
+        // These tables survive this cleanup and must be detached from the legacy pos_sessions table first.
+        $this->dropForeignIfExists('pos_transactions', 'source_pos_session_id');
+        $this->dropForeignIfExists('pos_action_approval_requests', 'pos_session_id');
+
         $tables = [
             'pos_audit_logs',
             'pos_submit_idempotencies',
@@ -36,6 +40,10 @@ return new class extends Migration
 
     private function dropForeignAndColumnIfExists(string $tableName, string $column): void
     {
+        if (! Schema::hasTable($tableName)) {
+            return;
+        }
+
         if (! Schema::hasColumn($tableName, $column)) {
             return;
         }
@@ -52,6 +60,25 @@ return new class extends Migration
             }
 
             $table->dropColumn($column);
+        });
+    }
+
+    private function dropForeignIfExists(string $tableName, string $column): void
+    {
+        if (! Schema::hasTable($tableName) || ! Schema::hasColumn($tableName, $column)) {
+            return;
+        }
+
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
+        Schema::table($tableName, function (Blueprint $table) use ($column) {
+            try {
+                $table->dropForeign([$column]);
+            } catch (\Throwable) {
+                // No-op if foreign key name differs or FK is already absent.
+            }
         });
     }
 };
