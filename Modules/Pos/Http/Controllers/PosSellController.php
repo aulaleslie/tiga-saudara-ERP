@@ -344,6 +344,11 @@ class PosSellController extends Controller
                 $lineId,
                 (array) $request->input('serial_numbers')
             );
+        } catch (PosCheckoutValidationException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], 422);
         } catch (DomainException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
@@ -392,6 +397,11 @@ class PosSellController extends Controller
                 $lineId,
                 (string) $validated['serial_number']
             );
+        } catch (PosCheckoutValidationException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], 422);
         } catch (DomainException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
@@ -417,6 +427,11 @@ class PosSellController extends Controller
                 $lineId,
                 $serial
             );
+        } catch (PosCheckoutValidationException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], 422);
         } catch (DomainException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),

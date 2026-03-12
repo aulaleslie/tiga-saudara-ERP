@@ -10,6 +10,7 @@ use Modules\Pos\Entities\PosActionApprovalRequest;
 use Modules\Pos\Entities\PosCartLine;
 use Modules\Pos\Events\PosCartUpdated;
 use Modules\Pos\Services\Exceptions\PosCartMutationException;
+use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
@@ -804,10 +805,13 @@ class PosCartService
         $assignedSerials = (array) ($line['assigned_serials'] ?? []);
         $qty = (int) ($line['qty'] ?? 0);
 
-        // If line is full, auto-increment qty by 1
+        // Guard: prevent appending if serial count already matches qty.
+        // We do NOT auto-increment here to maintain existing backend validation rules.
         if (count($assignedSerials) >= $qty) {
-            $qty++;
-            $cart['lines'][$lineId]['qty'] = $qty;
+            throw new PosCheckoutValidationException(
+                'SERIAL_EXCEEDS_QTY',
+                "Cannot append serial. Line quantity ($qty) is already fully assigned."
+            );
         }
 
         // Append the serial
@@ -852,7 +856,7 @@ class PosCartService
         $key = array_search($serialNumber, $assignedSerials, true);
 
         if ($key === false) {
-            throw new DomainException("Serial number $serialNumber is not assigned to this line.");
+            return $this->buildSnapshot($settingId, $sessionId, $cart);
         }
 
         unset($assignedSerials[$key]);

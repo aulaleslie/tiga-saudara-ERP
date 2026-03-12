@@ -87,6 +87,9 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::post('/pos/sell/cart/lines/{lineId}/serials', [PosSellController::class, 'cartAssignSerials'])
         ->whereNumber('lineId')
         ->name('pos.sell.cart.lines.serials.store');
+    Route::put('/pos/sell/cart/lines/{lineId}/serials', [PosSellController::class, 'cartAssignSerials'])
+        ->whereNumber('lineId')
+        ->name('pos.sell.cart.lines.serials.update');
     Route::post('/pos/sell/cart/lines/{lineId}/serials/append', [PosSellController::class, 'cartAppendSerial'])
         ->whereNumber('lineId')
         ->name('pos.sell.cart.lines.serials.append');

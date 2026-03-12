@@ -291,6 +291,53 @@
         margin: 0 auto;
     }
 
+    /* Phase 4: Serial UI Refinement */
+    .pos-serial-wrapper {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-items: center;
+    }
+
+    .pos-serial-chip {
+        display: inline-flex;
+        align-items: center;
+        background-color: #17a2b8;
+        color: white;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 0.725rem;
+        font-weight: 500;
+        line-height: normal;
+        border: 1px solid rgba(0,0,0,0.1);
+    }
+
+    .pos-serial-chip span {
+        max-width: 100px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .pos-serial-chip .js-serial-remove {
+        background: transparent;
+        border: none;
+        color: rgba(255,255,255,0.8);
+        padding: 0;
+        margin-left: 5px;
+        font-size: 1rem;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: color 0.15s;
+    }
+
+    .pos-serial-chip .js-serial-remove:hover {
+        color: #fff;
+    }
+
     .pos-cart-actions {
         text-align: center;
     }
@@ -944,7 +991,7 @@
                             Simpan Pelanggan
                         </button>
                     </div>
-                </form>
+                </div>
             </div>
         </div>
     </div>
@@ -981,10 +1028,48 @@
         </div>
     </div>
 
+    <!-- Serial Input Modal (Phase 4) -->
+    <div class="modal fade" id="pos-serial-modal" tabindex="-1" role="dialog" aria-labelledby="pos-serial-modal-label" aria-hidden="true">
+        <div class="modal-dialog modal-md modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="pos-serial-modal-label">Input Nomor Serial</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Tutup">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="pos-serial-modal-info" class="alert alert-info py-2 mb-3">
+                        <small id="pos-serial-modal-product-name" class="font-weight-bold d-block"></small>
+                        <small id="pos-serial-modal-qty-info"></small>
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label for="pos-serial-modal-input" class="small font-weight-bold">Scan atau ketik serial:</label>
+                        <input id="pos-serial-modal-input" type="text" class="form-control" autocomplete="off" placeholder="Nomor Serial...">
+                    </div>
+                    
+                    <div id="pos-serial-modal-status" class="small mb-3" style="min-height: 1.25rem;"></div>
+                    
+                    <div class="border-top pt-3">
+                        <label class="small font-weight-bold mb-2">Serial Terinput:</label>
+                        <div id="pos-serial-modal-list" class="d-flex flex-wrap" style="max-height: 150px; overflow-y: auto; gap: 4px;">
+                            <!-- Serials will be listed here -->
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary btn-block" data-dismiss="modal">Selesai</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');
             const statusElement = document.getElementById('pos-shell-search-status');
+
             const cariProdukButton = document.getElementById('pos-btn-cari-produk');
             const scanFeedbackButton = document.getElementById('pos-shell-scan-feedback');
             const cartBody = document.getElementById('pos-shell-cart-body');
@@ -1042,6 +1127,14 @@
             const searchResultsModalContainer = document.getElementById('pos-search-modal-results');
             const modalSearchInput = document.getElementById('pos-modal-search-input');
             const modalSearchBtn = document.getElementById('pos-modal-search-btn');
+
+            // Phase 4: Serial modal elements
+            const serialModalElement = document.getElementById('pos-serial-modal');
+            const serialModalProductName = document.getElementById('pos-serial-modal-product-name');
+            const serialModalQtyInfo = document.getElementById('pos-serial-modal-qty-info');
+            const serialModalInput = document.getElementById('pos-serial-modal-input');
+            const serialModalStatus = document.getElementById('pos-serial-modal-status');
+            const serialModalList = document.getElementById('pos-serial-modal-list');
 
             const searchEndpoint = @json(route('pos.sell.products.search'));
             const scanResolveEndpoint = @json(url('/pos/sell/search/resolve'));
@@ -1446,28 +1539,30 @@
                     // Serial line: editable qty + serial management
                     const assignedCount = Array.isArray(line.assigned_serials) ? line.assigned_serials.length : 0;
                     const serialChips = (line.assigned_serials || []).map(serial => `
-                        <span class="badge badge-info mr-1" style="font-size: 0.75rem;">
-                            ${escapeHtml(serial)}
-                            <button type="button" class="btn btn-link p-0 ml-1 text-white js-serial-remove" 
-                                    data-serial="${escapeHtml(serial)}" 
-                                    style="font-size: 0.65rem; text-decoration: none; margin-left: 4px !important;">×</button>
-                        </span>
+                        <div class="pos-serial-chip">
+                            <span title="${escapeHtml(serial)}">${escapeHtml(serial)}</span>
+                            <button type="button" class="js-serial-remove" data-serial="${escapeHtml(serial)}">×</button>
+                        </div>
                     `).join('');
 
                     qtyCell = `
-                        <td class="pos-cart-serial-cell align-top" style="vertical-align: top; min-width: 200px;">
-                            <div class="mb-2">
-                                <div class="d-flex gap-1 align-items-center mb-2">
-                                    <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty" 
-                                           type="number" min="1" value="${qty}" data-prev-qty="${qty}"
-                                           style="width: 60px;">
-                                    <button type="button" class="btn btn-sm btn-outline-info js-serial-add" data-line-id="${lineId}">
-                                        + Serial
-                                    </button>
+                        <td class="pos-cart-serial-cell align-middle" style="min-width: 200px;">
+                            <div class="d-flex align-items-center flex-wrap" style="gap: 12px;">
+                                <div class="d-flex flex-column align-items-center" style="gap: 2px;">
+                                    <div class="d-flex align-items-center" style="gap: 4px;">
+                                        <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty" 
+                                               type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                               style="width: 55px;">
+                                        <button type="button" class="btn btn-sm btn-outline-info js-serial-add" data-line-id="${lineId}" title="Atur Serial">
+                                            <i class="fas fa-barcode"></i>
+                                        </button>
+                                    </div>
+                                    <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
                                 </div>
-                                <small class="text-muted">${assignedCount} / ${qty} serial</small>
+                                <div class="pos-serial-wrapper flex-grow-1">
+                                    ${serialChips}
+                                </div>
                             </div>
-                            <div>${serialChips}</div>
                         </td>
                     `;
                 } else {
@@ -1604,15 +1699,71 @@
             }
 
             // Phase 3A: Append serial to a cart line
+            let currentSerialLineId = null;
+
+            function renderSerialModalList() {
+                if (!serialModalList || !currentSnapshot || currentSerialLineId === null) return;
+                
+                const line = currentSnapshot.lines.find(l => Number(l.line_id) === currentSerialLineId);
+                if (!line) return;
+
+                const serials = Array.isArray(line.assigned_serials) ? line.assigned_serials : [];
+                
+                serialModalList.innerHTML = serials.map(serial => `
+                    <div class="badge badge-primary d-flex align-items-center p-2">
+                        <span class="mr-2">${escapeHtml(serial)}</span>
+                        <button type="button" class="btn btn-link btn-sm p-0 text-white js-serial-remove" 
+                                data-serial="${escapeHtml(serial)}" title="Hapus">
+                            <i class="fas fa-times-circle"></i>
+                        </button>
+                    </div>
+                `).join('');
+
+                if (serialModalQtyInfo) {
+                    serialModalQtyInfo.textContent = `${serials.length} dari ${line.qty} serial terinput`;
+                    serialModalQtyInfo.className = serials.length === line.qty ? 'text-success font-weight-bold' : 'text-primary';
+                }
+            }
+
+            function openSerialModal(lineId, productName, qty) {
+                currentSerialLineId = lineId;
+                if (serialModalProductName) serialModalProductName.textContent = productName;
+                if (serialModalInput) serialModalInput.value = '';
+                if (serialModalStatus) {
+                    serialModalStatus.textContent = '';
+                    serialModalStatus.className = 'small mb-3';
+                }
+                
+                renderSerialModalList();
+                $(serialModalElement).modal('show');
+            }
+
             async function appendSerialToLine(lineId, serialNumber) {
                 try {
                     const url = cartLinesBaseUrl + '/' + lineId + '/serials/append';
                     const response = await jsonRequest(url, 'POST', { serial_number: serialNumber });
                     if (response && response.cart_snapshot) {
                         renderCart(response.cart_snapshot);
+                        
+                        // If modal is open for this line, update it
+                        if (currentSerialLineId === lineId) {
+                            renderSerialModalList();
+                            if (serialModalStatus) {
+                                serialModalStatus.textContent = `Serial ${serialNumber} berhasil ditambahkan.`;
+                                serialModalStatus.className = 'small mb-3 text-success';
+                            }
+                        }
                     }
                 } catch (error) {
-                    setCartStatus('Gagal menambahkan serial: ' + (error.message || 'Server error'), 'text-danger', true);
+                    const errorMsg = error.message || 'Gagal menambahkan serial.';
+                    if (currentSerialLineId === lineId) {
+                        if (serialModalStatus) {
+                            serialModalStatus.textContent = errorMsg;
+                            serialModalStatus.className = 'small mb-3 text-danger';
+                        }
+                    } else {
+                        setCartStatus(errorMsg, 'text-danger', true);
+                    }
                 }
             }
 
@@ -1939,6 +2090,40 @@
                         }
                     });
                 }
+
+                // Phase 4: Auto-focus serial modal input when modal opens
+                if (serialModalElement) {
+                    serialModalElement.addEventListener('shown.bs.modal', function () {
+                        if (serialModalInput) {
+                            serialModalInput.focus();
+                        }
+                    });
+                    
+                    serialModalElement.addEventListener('hidden.bs.modal', function() {
+                        currentSerialLineId = null;
+                        if (serialModalInput) serialModalInput.value = '';
+                        if (serialModalStatus) {
+                            serialModalStatus.textContent = '';
+                            serialModalStatus.className = 'small mb-3';
+                        }
+                        if (searchInput) searchInput.focus();
+                    });
+                }
+            }
+
+            // Phase 4: Serial modal input keyboard handler
+            if (serialModalInput) {
+                serialModalInput.addEventListener('keydown', async function(event) {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        const serialNumber = (this.value || '').trim();
+                        if (serialNumber && currentSerialLineId !== null) {
+                            await appendSerialToLine(currentSerialLineId, serialNumber);
+                            this.value = ''; // Clear for next burst
+                            this.focus();
+                        }
+                    }
+                });
             }
 
             // Phase 3: Modal search input/button event handlers
@@ -2180,9 +2365,12 @@
                 const addSerialBtn = event.target.closest('.js-serial-add');
                 if (addSerialBtn) {
                     const lineId = Number(addSerialBtn.getAttribute('data-line-id'));
-                    const serialInput = prompt('Masukkan nomor serial:');
-                    if (serialInput && serialInput.trim()) {
-                        await appendSerialToLine(lineId, serialInput.trim());
+                    const row = addSerialBtn.closest('tr[data-line-id]');
+                    const productName = row ? row.querySelector('.product-name')?.textContent : 'Produk';
+                    const qty = row ? Number(row.querySelector('.js-line-qty')?.value) : 0;
+                    
+                    if (lineId) {
+                        openSerialModal(lineId, productName, qty);
                     }
                     return;
                 }

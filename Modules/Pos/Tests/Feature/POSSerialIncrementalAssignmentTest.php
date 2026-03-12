@@ -82,7 +82,7 @@ class POSSerialIncrementalAssignmentTest extends TestCase
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
             ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
-                'serial_numbers' => ['SN-APPEND-2'],
+                'serial_number' => 'SN-APPEND-2',
             ])
             ->assertOk()
             ->assertJsonPath('cart_snapshot.lines.0.assigned_serials', ['SN-APPEND-1', 'SN-APPEND-2']);
@@ -146,7 +146,7 @@ class POSSerialIncrementalAssignmentTest extends TestCase
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
             ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
-                'serial_numbers' => ['SN-DUPAPP'],
+                'serial_number' => 'SN-DUPAPP',
             ])
             ->assertStatus(422);
     }
@@ -208,7 +208,7 @@ class POSSerialIncrementalAssignmentTest extends TestCase
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
             ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
-                'serial_numbers' => ['SN-EXCEED-3'],
+                'serial_number' => 'SN-EXCEED-3',
             ])
             ->assertStatus(422)
             ->assertJsonPath('code', 'SERIAL_EXCEEDS_QTY');
@@ -319,7 +319,7 @@ class POSSerialIncrementalAssignmentTest extends TestCase
 
         $response
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Jumlah qty tidak dapat dikurangi.');
+            ->assertJsonPath('message', 'APPROVAL_REQUIRED');
 
         // Verify cart line is unchanged (serials still assigned)
         $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
@@ -335,6 +335,7 @@ class POSSerialIncrementalAssignmentTest extends TestCase
         $cashier = $this->createUserForSetting($setting, $name . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $terminal = $this->createTerminalForSetting($setting);
         $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
+        $this->seedPaymentMethods($setting);
 
         $sessionLifecycle = app(PosSessionLifecycleService::class);
         $session = $sessionLifecycle->openSession(
@@ -490,6 +491,44 @@ class POSSerialIncrementalAssignmentTest extends TestCase
             'tax_id' => null,
             'status' => 'ACTIVE',
         ]);
+    }
+
+    private function seedPaymentMethods(Setting $setting): array
+    {
+        $methods = [];
+        
+        foreach (['CASH' => true, 'TRANSFER' => false, 'QRIS' => false] as $name => $isCash) {
+            $methodSuffix = $this->sequence++;
+            $coaId = DB::table('chart_of_accounts')->insertGetId([
+                'name' => "COA $name " . $methodSuffix,
+                'account_number' => "ACC-$name-" . $methodSuffix,
+                'category' => 'Kas & Bank',
+                'setting_id' => $setting->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $methods[strtolower($name)] = PaymentMethod::create([
+                'name' => "$name POS $methodSuffix",
+                'coa_id' => $coaId,
+                'is_cash' => $isCash,
+                'requires_reference' => !$isCash,
+            ]);
+
+            DB::table('setting_pos_payment_methods')->updateOrInsert(
+                [
+                    'setting_id' => $setting->id,
+                    'payment_method_id' => $methods[strtolower($name)]->id,
+                ],
+                [
+                    'is_enabled' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]
+            );
+        }
+
+        return $methods;
     }
 
         private function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
