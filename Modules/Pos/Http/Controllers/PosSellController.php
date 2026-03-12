@@ -483,10 +483,17 @@ class PosSellController extends Controller
                 $request->input('client_context')
             );
         } catch (PosCheckoutValidationException $exception) {
-            return response()->json([
+            $payload = [
                 'code' => $exception->errorCode(),
                 'message' => $exception->getMessage(),
-            ], 422);
+            ];
+
+            $details = $exception->details();
+            if ($details !== []) {
+                $payload['details'] = $details;
+            }
+
+            return response()->json($payload, 422);
         } catch (PosCheckoutConflictException $exception) {
             return response()->json([
                 'code' => $exception->errorCode(),

@@ -6,7 +6,14 @@ use DomainException;
 
 class PosCheckoutValidationException extends DomainException
 {
-    public function __construct(private readonly string $errorCode, string $message)
+    /**
+     * @param  array<string, mixed>  $details
+     */
+    public function __construct(
+        private readonly string $errorCode,
+        string $message,
+        private readonly array $details = []
+    )
     {
         parent::__construct($message);
     }
@@ -14,5 +21,13 @@ class PosCheckoutValidationException extends DomainException
     public function errorCode(): string
     {
         return $this->errorCode;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function details(): array
+    {
+        return $this->details;
     }
 }

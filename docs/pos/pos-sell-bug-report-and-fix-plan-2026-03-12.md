@@ -154,3 +154,42 @@ Regression checks executed:
 Notes:
 - Automated coverage confirms the serial UI wiring and existing serial remove API flow remain green.
 - Manual browser validation on `/pos/sell` should still be performed to visually confirm button rendering and modal interaction in the target environment.
+
+---
+
+## Issue B Implementation Update (2026-03-12)
+
+Scope implemented in this update:
+- `Modules/Pos/Services/ResolvePosStockAllocationsService.php`
+  - Added serial-aware stock pre-check path using assigned serial records (`status`, `location`, and effective tax context).
+  - Kept existing non-serial allocation behavior unchanged.
+  - Added structured diagnostics output: `unfulfilled_details[]` with `line_index`, `product_id`, `reason_code`, and qty context.
+- `Modules/Pos/Services/FinalizePosCheckoutService.php`
+  - Normalized resolver input lines to include serial metadata (`serial_number_required`, `assigned_serials`).
+  - Added `STOCK_UNAVAILABLE` response details payload (`details.unfulfilled_lines[]`) with actionable line diagnostics.
+  - Persisted validation failure details into checkout failure metadata for triage.
+- `Modules/Pos/Services/Exceptions/PosCheckoutValidationException.php`
+  - Added optional structured `details` payload support.
+- `Modules/Pos/Http/Controllers/PosSellController.php`
+  - Exposed validation exception details in `checkoutFinalize` 422 JSON responses when available.
+- `Modules/Pos/Services/PosCheckoutSplitPlannerService.php`
+  - Updated serial tax resolution precedence so serial-assigned lines with null `line.tax_id` use explicit line tax first, then serial tax context, before fallback.
+- `Modules/Pos/Tests/Unit/PosCheckoutSplitPlannerServiceTest.php`
+  - Added regression test for serial-tax bucket resolution when line tax is null.
+- `Modules/Pos/Tests/Feature/POSStockAllocationResolverTest.php`
+  - Added resolver regression tests for serial taxed-line fulfillment and location-not-allowed diagnostic reason.
+- `Modules/Pos/Tests/Feature/POSCheckoutFinalizeIdempotencyTest.php`
+  - Added feature regression test for mixed-business cart (taxed serial + non-serial non-tax) successful finalize.
+  - Added feature regression test asserting `STOCK_UNAVAILABLE` includes actionable failing-line details.
+
+Regression checks executed:
+1. `php artisan test Modules/Pos/Tests/Feature/POSStockAllocationResolverTest.php`
+   - Result: PASS (7 tests, 22 assertions)
+2. `php artisan test Modules/Pos/Tests/Unit/PosCheckoutSplitPlannerServiceTest.php`
+   - Result: PASS (2 tests, 13 assertions)
+3. `php artisan test Modules/Pos/Tests/Feature/POSCheckoutFinalizeIdempotencyTest.php`
+   - Result: PASS (11 tests, 84 assertions)
+
+Notes:
+- Checkout now keeps backward-compatible `STOCK_UNAVAILABLE` code while returning actionable `details.unfulfilled_lines[]`.
+- Mixed-business checkout path with serial-taxed line is now covered by automated regression.

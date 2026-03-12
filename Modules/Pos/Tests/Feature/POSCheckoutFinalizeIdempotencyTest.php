@@ -20,11 +20,14 @@ use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\SettingSaleLocation;
+use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -360,6 +363,133 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             ->assertJsonPath('message', 'Product POS-SERIAL-001 NAME requires 1 serial number(s) but 0 assigned.');
     }
 
+    public function test_finalize_succeeds_for_mixed_business_cart_with_taxed_serial_and_non_tax_line(): void
+    {
+        $context = $this->createCheckoutContext('POS CHECKOUT MIXED SERIAL TAX');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $sourceOwner = $this->createSetting('POS SERIAL SOURCE OWNER');
+        $sourceOwner->update(['is_pkp' => true]);
+        $sourceLocation = Location::query()->create([
+            'name' => 'POS SERIAL SOURCE LOC ' . $this->sequence++,
+            'setting_id' => $sourceOwner->id,
+        ]);
+        SettingSaleLocation::query()->updateOrCreate(
+            ['setting_id' => $context['setting']->id, 'location_id' => $sourceLocation->id],
+            ['is_enabled' => true, 'position' => 2]
+        );
+        SalesLocationResolver::forget($context['setting']->id);
+
+        $tax = Tax::query()->create([
+            'name' => 'VAT SERIAL 11',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $serialProduct = $this->createStockedProduct(
+            $context['setting'],
+            $sourceLocation,
+            'POS-MIXED-SERIAL-001',
+            80000,
+            true
+        );
+        ProductStock::query()
+            ->where('product_id', $serialProduct->id)
+            ->where('location_id', $sourceLocation->id)
+            ->update([
+                'quantity' => 5,
+                'quantity_non_tax' => 0,
+                'quantity_tax' => 5,
+                'tax_id' => $tax->id,
+            ]);
+        $this->createSerialNumber($serialProduct, $sourceLocation, 'POS-MIX-SN-001', $tax->id);
+
+        $nonSerialProduct = $this->createStockedProduct(
+            $context['setting'],
+            $context['location'],
+            'POS-MIXED-NON-TAX-001',
+            20000,
+            false
+        );
+
+        $this->addCartLine($context['cashier'], $context['setting'], $serialProduct->id, 1);
+        $this->addCartLine($context['cashier'], $context['setting'], $nonSerialProduct->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $serialLine = collect($snapshot['lines'])->firstWhere('product_id', $serialProduct->id);
+        $this->assertNotNull($serialLine, 'Serial line was not found in cart snapshot.');
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => (int) $serialLine['line_id']]), [
+                'serial_numbers' => ['POS-MIX-SN-001'],
+            ])
+            ->assertOk();
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-MIXED-SERIAL-TAX-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('status', 'POSTED')
+            ->assertJsonPath('idempotent_replay', false);
+
+        $this->assertDatabaseHas('pos_checkouts', [
+            'setting_id' => $context['setting']->id,
+            'idempotency_key' => 'k-mixed-serial-tax-001',
+            'status' => PosCheckout::STATUS_POSTED,
+        ]);
+    }
+
+    public function test_stock_unavailable_response_includes_actionable_unfulfilled_line_details(): void
+    {
+        $context = $this->createCheckoutContext('POS CHECKOUT STOCK DETAILS');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-STOCK-DETAIL-001', 15000, false);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        ProductStock::query()
+            ->where('product_id', $product->id)
+            ->where('location_id', $context['location']->id)
+            ->update([
+                'quantity' => 0,
+                'quantity_non_tax' => 0,
+                'quantity_tax' => 0,
+            ]);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-STOCK-DETAILS-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 15000,
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('code', 'STOCK_UNAVAILABLE')
+            ->assertJsonPath('details.unfulfilled_lines.0.line_index', 0)
+            ->assertJsonPath('details.unfulfilled_lines.0.product_id', $product->id)
+            ->assertJsonPath('details.unfulfilled_lines.0.reason_code', 'INSUFFICIENT_STOCK');
+
+        $checkout = PosCheckout::query()
+            ->where('setting_id', $context['setting']->id)
+            ->where('idempotency_key', 'k-stock-details-001')
+            ->first();
+
+        $this->assertNotNull($checkout);
+        $this->assertSame(PosCheckout::STATUS_FAILED, $checkout->status);
+        $this->assertSame('STOCK_UNAVAILABLE', $checkout->failure_code);
+    }
+
     public function test_cash_overpay_computes_change_and_updates_expected_cash_by_grand_total(): void
     {
         $context = $this->createCheckoutContext('POS CHECKOUT OVERPAY');
@@ -568,6 +698,17 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         ]);
 
         return $product;
+    }
+
+    private function createSerialNumber(Product $product, Location $location, string $serialNumber, ?int $taxId): ProductSerialNumber
+    {
+        return ProductSerialNumber::query()->create([
+            'product_id' => $product->id,
+            'location_id' => $location->id,
+            'serial_number' => $serialNumber,
+            'tax_id' => $taxId,
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+        ]);
     }
 
     /**

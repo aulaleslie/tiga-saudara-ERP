@@ -219,13 +219,12 @@ class PosCheckoutSplitPlannerService
             $sourceIsPkp = $this->sourceIsPkp($sourceSettingId);
 
             $lineTaxId = (int) ($line['tax_id'] ?? 0);
-            $candidateTaxId = (int) ($record->tax_id ?? 0);
-            if ($candidateTaxId <= 0 && $lineTaxId > 0) {
-                $candidateTaxId = $lineTaxId;
-            }
+            $serialTaxId = (int) ($record->tax_id ?? 0);
+            $candidateTaxId = $lineTaxId > 0 ? $lineTaxId : ($serialTaxId > 0 ? $serialTaxId : 0);
+            $serialLineTaxable = $lineTaxable || $serialTaxId > 0;
 
             [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
-                $lineTaxable,
+                $serialLineTaxable,
                 $sourceIsPkp,
                 $candidateTaxId
             );
@@ -299,10 +298,7 @@ class PosCheckoutSplitPlannerService
                 : $this->sourceIsPkp($sourceSettingId);
 
             $lineTaxId = (int) ($line['tax_id'] ?? 0);
-            $candidateTaxId = (int) ($snapshot['tax_id'] ?? 0);
-            if ($candidateTaxId <= 0 && $lineTaxId > 0) {
-                $candidateTaxId = $lineTaxId;
-            }
+            $candidateTaxId = $lineTaxId > 0 ? $lineTaxId : (int) ($snapshot['tax_id'] ?? 0);
 
             [$effectiveTaxId, $taxName, $taxRate] = $this->resolveEffectiveTax(
                 $lineTaxable,

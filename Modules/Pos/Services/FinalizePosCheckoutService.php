@@ -467,14 +467,18 @@ class FinalizePosCheckoutService
                     ->lockForUpdate()
                     ->first();
 
-                /** @var array<int, array{product_id: int, qty: int, tax_id: int|null}> $lines */
-                $lines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
-
+                $cartLines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
+                $lines = $this->buildStockResolverLines($cartLines);
                 $resolution = $this->stockResolver->resolve($settingId, $lines);
                 if (! empty($resolution['unfulfilled_lines'])) {
+                    $failureDetails = $this->buildStockUnavailableDetailsPayload($resolution, $lines);
+
                     throw new PosCheckoutValidationException(
                         'STOCK_UNAVAILABLE',
-                        'One or more items in the cart are no longer available in stock across allowed locations.'
+                        'One or more items in the cart are no longer available in stock across allowed locations.',
+                        [
+                            'unfulfilled_lines' => $failureDetails,
+                        ]
                     );
                 }
 
@@ -635,15 +639,20 @@ class FinalizePosCheckoutService
         } catch (PosCheckoutConflictException $exception) {
             throw $exception;
         } catch (PosCheckoutValidationException $exception) {
+            $failureMetadata = [
+                'setting_id' => $settingId,
+                'session_id' => $sessionId,
+                'idempotency_key' => $idempotencyKey,
+            ];
+            if ($exception->details() !== []) {
+                $failureMetadata['details'] = $exception->details();
+            }
+
             $this->markCheckoutFailed(
                 checkoutId: $checkoutId,
                 failureCode: $exception->errorCode(),
                 failureMessage: $exception->getMessage(),
-                metadata: [
-                    'setting_id' => $settingId,
-                    'session_id' => $sessionId,
-                    'idempotency_key' => $idempotencyKey,
-                ]
+                metadata: $failureMetadata
             );
 
             throw $exception;
@@ -906,6 +915,120 @@ class FinalizePosCheckoutService
         }
 
         return $payments;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $lines
+     * @return array<int, array{
+     *     line_id:int|null,
+     *     product_id:int,
+     *     product_code:string|null,
+     *     product_name:string|null,
+     *     qty:int,
+     *     tax_id:int|null,
+     *     serial_number_required:bool,
+     *     assigned_serials:array<int, string>
+     * }>
+     */
+    private function buildStockResolverLines(array $lines): array
+    {
+        $resolverLines = [];
+
+        foreach ($lines as $lineIndex => $line) {
+            if (! is_array($line)) {
+                continue;
+            }
+
+            $taxId = isset($line['tax_id']) ? (int) $line['tax_id'] : null;
+            $taxId = $taxId !== null && $taxId > 0 ? $taxId : null;
+
+            $assignedSerials = array_values(array_filter(
+                (array) ($line['assigned_serials'] ?? []),
+                static fn ($serial): bool => is_string($serial) && trim($serial) !== ''
+            ));
+
+            $resolverLines[$lineIndex] = [
+                'line_id' => isset($line['line_id']) ? (int) $line['line_id'] : null,
+                'product_id' => (int) ($line['product_id'] ?? 0),
+                'product_code' => isset($line['product_code']) ? (string) $line['product_code'] : null,
+                'product_name' => isset($line['product_name']) ? (string) $line['product_name'] : null,
+                'qty' => max(0, (int) ($line['qty'] ?? 0)),
+                'tax_id' => $taxId,
+                'serial_number_required' => (bool) ($line['serial_number_required'] ?? false),
+                'assigned_serials' => $assignedSerials,
+            ];
+        }
+
+        return $resolverLines;
+    }
+
+    /**
+     * @param  array<string, mixed>  $resolution
+     * @param  array<int, array<string, mixed>>  $lines
+     * @return array<int, array{
+     *     line_index:int,
+     *     line_id:int|null,
+     *     product_id:int,
+     *     product_code:string|null,
+     *     reason_code:string,
+     *     requested_qty:int,
+     *     allocated_qty:int
+     * }>
+     */
+    private function buildStockUnavailableDetailsPayload(array $resolution, array $lines): array
+    {
+        $rawDetails = is_array($resolution['unfulfilled_details'] ?? null)
+            ? $resolution['unfulfilled_details']
+            : [];
+        $detailByIndex = [];
+
+        foreach ($rawDetails as $detail) {
+            if (! is_array($detail)) {
+                continue;
+            }
+
+            $lineIndex = (int) ($detail['line_index'] ?? -1);
+            if ($lineIndex < 0) {
+                continue;
+            }
+
+            $detailByIndex[$lineIndex] = $detail;
+        }
+
+        $payload = [];
+        foreach ((array) ($resolution['unfulfilled_lines'] ?? []) as $lineIndex) {
+            $lineIndex = (int) $lineIndex;
+            if ($lineIndex < 0) {
+                continue;
+            }
+
+            $line = is_array($lines[$lineIndex] ?? null) ? $lines[$lineIndex] : [];
+            $detail = is_array($detailByIndex[$lineIndex] ?? null) ? $detailByIndex[$lineIndex] : [];
+
+            $payload[] = [
+                'line_index' => $lineIndex,
+                'line_id' => isset($detail['line_id'])
+                    ? (int) $detail['line_id']
+                    : (isset($line['line_id']) ? (int) $line['line_id'] : null),
+                'product_id' => isset($detail['product_id'])
+                    ? (int) $detail['product_id']
+                    : (int) ($line['product_id'] ?? 0),
+                'product_code' => isset($detail['product_code'])
+                    ? ($detail['product_code'] !== null ? (string) $detail['product_code'] : null)
+                    : (isset($line['product_code']) ? (string) $line['product_code'] : null),
+                'reason_code' => isset($detail['reason_code'])
+                    ? (string) $detail['reason_code']
+                    : 'INSUFFICIENT_STOCK',
+                'requested_qty' => isset($detail['requested_qty'])
+                    ? (int) $detail['requested_qty']
+                    : (int) ($line['qty'] ?? 0),
+                'allocated_qty' => isset($detail['allocated_qty'])
+                    ? (int) $detail['allocated_qty']
+                    : 0,
+            ];
+        }
+
+        return $payload;
     }
 
     /**
