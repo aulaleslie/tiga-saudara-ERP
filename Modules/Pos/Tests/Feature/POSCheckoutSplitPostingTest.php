@@ -11,11 +11,14 @@ use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Customer;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
+use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
+use Modules\Pos\Services\PosCheckoutGroupCustomerResolverService;
 use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
+use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
@@ -91,6 +94,48 @@ class POSCheckoutSplitPostingTest extends TestCase
         $this->assertSame($splitGroups[0]['sale_payment_id'], $payload['sale_payment_id']);
         $this->assertSame($splitGroups[0]['dispatch_ids'], $payload['dispatch_ids']);
 
+        $saleIds = array_values(array_map(
+            static fn (array $group): int => (int) ($group['sale_id'] ?? 0),
+            $splitGroups
+        ));
+        /** @var \Illuminate\Support\Collection<int, Sale> $sales */
+        $sales = Sale::query()->whereIn('id', $saleIds)->get()->keyBy('id');
+
+        $prefixBySetting = [
+            (int) $context['setting']->id => $context['setting']->document_prefix . '-' . $context['setting']->sale_prefix_document . '-',
+            (int) $context['source_setting']->id => $context['source_setting']->document_prefix . '-' . $context['source_setting']->sale_prefix_document . '-',
+        ];
+
+        $checkoutId = (int) ($payload['pos_checkout_id'] ?? 0);
+        $seenSourceSettings = [];
+        foreach ($splitGroups as $group) {
+            $sale = $sales->get((int) ($group['sale_id'] ?? 0));
+            $this->assertNotNull($sale, 'Expected sale record to exist for split group.');
+
+            $sourceSettingId = (int) ($group['source_setting_id'] ?? 0);
+            $seenSourceSettings[] = $sourceSettingId;
+
+            $this->assertSame($sourceSettingId, (int) $sale->setting_id);
+            $this->assertStringStartsWith(
+                (string) ($prefixBySetting[$sourceSettingId] ?? ''),
+                (string) $sale->reference
+            );
+
+            $this->assertDatabaseHas('transactions', [
+                'product_id' => $context['product']->id,
+                'setting_id' => $sourceSettingId,
+                'location_id' => (int) ($group['source_location_id'] ?? 0),
+                'reason' => 'POS CHECKOUT #' . $checkoutId,
+                'type' => 'DISPATCH',
+            ]);
+        }
+
+        sort($seenSourceSettings);
+        $this->assertSame(
+            [(int) $context['setting']->id, (int) $context['source_setting']->id],
+            array_values(array_unique($seenSourceSettings))
+        );
+
         $this->assertSame(200000.0, round(array_sum(array_column($splitGroups, 'grand_total')), 2));
         $this->assertDatabaseCount('pos_checkouts', 1);
         $this->assertDatabaseCount('pos_checkout_sales', 2);
@@ -130,18 +175,92 @@ class POSCheckoutSplitPostingTest extends TestCase
         $this->assertDatabaseCount('sale_payments', 2);
     }
 
-    private function createSplitCheckoutContext(): array
+    public function test_finalize_succeeds_with_selected_global_customer_when_source_walk_in_is_not_configured(): void
     {
-        $setting = $this->createSetting('POS SPLIT BIZ');
+        $context = $this->createSplitCheckoutContext(false);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 2);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SPLIT-GLOBAL-CUSTOMER-001',
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 200000,
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('status', 'POSTED')
+            ->assertJsonCount(2, 'split_groups');
+
+        $payload = $response->json();
+        $saleIds = array_values(array_map(
+            static fn (array $group): int => (int) ($group['sale_id'] ?? 0),
+            $payload['split_groups'] ?? []
+        ));
+        /** @var \Illuminate\Support\Collection<int, Sale> $sales */
+        $sales = Sale::query()->whereIn('id', $saleIds)->get()->keyBy('id');
+
+        foreach ($payload['split_groups'] as $group) {
+            $sourceSettingId = (int) ($group['source_setting_id'] ?? 0);
+            $sale = $sales->get((int) ($group['sale_id'] ?? 0));
+            $this->assertNotNull($sale, 'Expected sale record to exist for split group.');
+            $this->assertSame($sourceSettingId, (int) $sale->setting_id);
+            $this->assertSame((int) $context['customer']->id, (int) $sale->customer_id);
+        }
+    }
+
+    public function test_group_customer_resolver_fails_with_actionable_details_when_selected_and_source_walk_in_customers_are_unresolved(): void
+    {
+        $terminalSetting = $this->createSetting('POS SPLIT RESOLVE TERMINAL', 'TNC', 'JL');
+        $sourceSetting = $this->createSetting('POS SPLIT RESOLVE SOURCE', 'TOP', 'JL');
+        $sourceSetting->update([
+            'pos_walk_in_customer_id' => 999999,
+        ]);
+
+        /** @var PosCheckoutGroupCustomerResolverService $resolver */
+        $resolver = app(PosCheckoutGroupCustomerResolverService::class);
+
+        try {
+            $resolver->resolve(
+                (int) $terminalSetting->id,
+                (int) $sourceSetting->id,
+                888888
+            );
+            $this->fail('Expected split group resolver to throw CUSTOMER_UNRESOLVED.');
+        } catch (PosCheckoutValidationException $exception) {
+            $this->assertSame('CUSTOMER_UNRESOLVED', $exception->errorCode());
+
+            $details = $exception->details();
+            $this->assertSame('SOURCE_CUSTOMER_UNRESOLVED', $details['reason_code'] ?? null);
+            $this->assertSame((int) $sourceSetting->id, (int) ($details['source_setting_id'] ?? 0));
+            $this->assertSame((int) $terminalSetting->id, (int) ($details['terminal_setting_id'] ?? 0));
+            $this->assertSame(888888, (int) ($details['selected_customer_id'] ?? 0));
+            $this->assertSame(999999, (int) ($details['source_walk_in_customer_id'] ?? 0));
+        }
+    }
+
+    private function createSplitCheckoutContext(bool $configureSourceWalkIn = true): array
+    {
+        $setting = $this->createSetting('POS SPLIT TERMINAL BIZ', 'TNC', 'JL');
+        $sourceSetting = $this->createSetting('POS SPLIT SOURCE BIZ', 'TOP', 'JL');
         $cashier = $this->createUserForSetting($setting, 'pos split cashier', [
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
         ]);
-        [$terminal, $locations] = $this->createTerminalAndSaleLocations($setting);
+        $sourceLocation = Location::create([
+            'name' => 'SPLIT SOURCE LOC ' . $this->sequence++,
+            'setting_id' => $sourceSetting->id,
+        ]);
+        [$terminal, $locations] = $this->createTerminalAndSaleLocations($setting, $sourceLocation);
         $methods = $this->seedPaymentMethods($setting, true);
         $session = $this->openSession($setting, $terminal, $cashier);
         $customer = $this->assignDefaultWalkInCustomer($setting);
+        if ($configureSourceWalkIn) {
+            $this->assignDefaultWalkInCustomer($sourceSetting);
+        }
         $tax = Tax::query()->create([
             'name' => 'VAT 11',
             'value' => 11,
@@ -156,12 +275,17 @@ class POSCheckoutSplitPostingTest extends TestCase
             'session' => $session,
             'methods' => $methods,
             'customer' => $customer,
+            'source_setting' => $sourceSetting,
             'product' => $product,
             'tax' => $tax,
         ];
     }
 
-    private function createSetting(string $name): Setting
+    private function createSetting(
+        string $name,
+        string $documentPrefix = 'DOC',
+        string $salePrefix = 'SO'
+    ): Setting
     {
         $suffix = $this->sequence++;
 
@@ -174,9 +298,9 @@ class POSCheckoutSplitPostingTest extends TestCase
             'default_currency_position' => 'prefix',
             'notification_email' => 'notify@example.com',
             'footer_text' => 'Footer',
-            'document_prefix' => 'DOC',
+            'document_prefix' => $documentPrefix,
             'purchase_prefix_document' => 'PO',
-            'sale_prefix_document' => 'SO',
+            'sale_prefix_document' => $salePrefix,
             'pos_enabled' => true,
             'is_pkp' => true,
         ]);
@@ -197,16 +321,12 @@ class POSCheckoutSplitPostingTest extends TestCase
     /**
      * @return array{0: PosTerminal, 1: array<int, Location>}
      */
-    private function createTerminalAndSaleLocations(Setting $setting): array
+    private function createTerminalAndSaleLocations(Setting $setting, Location $sourceLocation): array
     {
         $index = $this->sequence++;
 
         $locationA = Location::create([
             'name' => 'SPLIT LOC A ' . $index,
-            'setting_id' => $setting->id,
-        ]);
-        $locationB = Location::create([
-            'name' => 'SPLIT LOC B ' . $index,
             'setting_id' => $setting->id,
         ]);
 
@@ -215,9 +335,10 @@ class POSCheckoutSplitPostingTest extends TestCase
             ['is_enabled' => true, 'position' => 1]
         );
         SettingSaleLocation::updateOrCreate(
-            ['setting_id' => $setting->id, 'location_id' => $locationB->id],
+            ['setting_id' => $setting->id, 'location_id' => $sourceLocation->id],
             ['is_enabled' => true, 'position' => 2]
         );
+        SalesLocationResolver::forget($setting->id);
 
         $terminal = PosTerminal::create([
             'setting_id' => $setting->id,
@@ -236,7 +357,7 @@ class POSCheckoutSplitPostingTest extends TestCase
             'cash_threshold' => 50000,
         ]);
 
-        return [$terminal, [$locationA, $locationB]];
+        return [$terminal, [$locationA, $sourceLocation]];
     }
 
     private function openSession(Setting $setting, PosTerminal $terminal, User $cashier)

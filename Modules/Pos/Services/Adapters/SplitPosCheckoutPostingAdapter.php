@@ -5,6 +5,7 @@ namespace Modules\Pos\Services\Adapters;
 use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
 use Modules\Pos\Services\Exceptions\PosCheckoutPostingException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
+use Modules\Pos\Services\PosCheckoutGroupCustomerResolverService;
 use Modules\Pos\Services\PosCheckoutPaymentSplitService;
 use Modules\Pos\Services\PosCheckoutSplitPlannerService;
 
@@ -13,7 +14,8 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
     public function __construct(
         private readonly InlinePosCheckoutPostingAdapter $inlinePostingAdapter,
         private readonly PosCheckoutSplitPlannerService $splitPlanner,
-        private readonly PosCheckoutPaymentSplitService $paymentSplitService
+        private readonly PosCheckoutPaymentSplitService $paymentSplitService,
+        private readonly PosCheckoutGroupCustomerResolverService $groupCustomerResolver
     ) {
     }
 
@@ -58,10 +60,19 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $groupDiscount = round((float) ($group['discount_total'] ?? 0), 2);
             $groupTax = round((float) ($group['tax_total'] ?? 0), 2);
             $groupGrand = round((float) ($group['grand_total'] ?? 0), 2);
+            $sourceSettingId = (int) ($group['source_setting_id'] ?? 0);
+            $terminalSettingId = (int) ($context['setting_id'] ?? 0);
+            $selectedCustomerId = (int) ($context['customer_id'] ?? 0);
 
             $groupContext = $context;
+            $groupContext['setting_id'] = $sourceSettingId;
+            $groupContext['customer_id'] = $this->groupCustomerResolver->resolve(
+                $terminalSettingId,
+                $sourceSettingId,
+                $selectedCustomerId > 0 ? $selectedCustomerId : null
+            )['customer_id'];
             $groupContext['cart_snapshot'] = [
-                'setting_id' => (int) ($context['setting_id'] ?? 0),
+                'setting_id' => $sourceSettingId,
                 'session_id' => (int) ($context['pos_session_id'] ?? 0),
                 'lines' => is_array($group['lines'] ?? null) ? $group['lines'] : [],
                 'totals' => [

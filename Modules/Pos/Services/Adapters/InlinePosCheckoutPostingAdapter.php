@@ -38,7 +38,6 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         }
 
         $customer = Customer::query()
-            ->where('setting_id', $settingId)
             ->whereKey($customerId)
             ->first();
 
