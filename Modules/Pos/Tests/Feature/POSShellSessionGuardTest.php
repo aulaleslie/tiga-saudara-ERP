@@ -119,6 +119,30 @@ class POSShellSessionGuardTest extends TestCase
         $this->assertSame($checkoutCountBefore, DB::table('pos_checkouts')->count());
     }
 
+    public function test_sell_shell_exposes_serial_ui_hooks_for_visible_action_and_modal_remove_flow(): void
+    {
+        $setting = $this->createSetting('BIZ SHELL SERIAL GUI', true);
+        $cashier = $this->createUserForSetting(
+            $setting,
+            'POS SHELL CASHIER SERIAL GUI',
+            ['pos.access', 'pos.sell', 'pos.sessions.open']
+        );
+
+        $this->createActiveSessionForCashier($setting, $cashier);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'))
+            ->assertOk()
+            ->assertSee('js-serial-add pos-serial-action', false)
+            ->assertSee('pos-serial-action-label', false)
+            ->assertSee('data-product-name="${productName}"', false)
+            ->assertSee("addSerialBtn.getAttribute('data-product-name')", false)
+            ->assertSee('function removeSerialFromLine(lineId, serialNumber, source)', false)
+            ->assertSee("serialModalList.addEventListener('click', async function (event)", false)
+            ->assertSee("await removeSerialFromLine(currentSerialLineId, serialNumber, 'modal');", false);
+    }
+
     public function test_sell_route_remains_blocked_by_feature_flag_when_disabled(): void
     {
         $setting = $this->createSetting('BIZ SHELL D', false);

@@ -299,6 +299,23 @@
         align-items: center;
     }
 
+    .pos-serial-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+    }
+
+    .pos-serial-action .bi {
+        font-size: 0.85rem;
+    }
+
+    .pos-serial-action-label {
+        font-size: 0.64rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+    }
+
     .pos-serial-chip {
         display: inline-flex;
         align-items: center;
@@ -1553,8 +1570,14 @@
                                         <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty" 
                                                type="number" min="1" value="${qty}" data-prev-qty="${qty}"
                                                style="width: 55px;">
-                                        <button type="button" class="btn btn-sm btn-outline-info js-serial-add" data-line-id="${lineId}" title="Atur Serial">
-                                            <i class="fas fa-barcode"></i>
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-info js-serial-add pos-serial-action"
+                                                data-line-id="${lineId}"
+                                                data-product-name="${productName}"
+                                                title="Atur Serial"
+                                                aria-label="Atur Serial">
+                                            <i class="bi bi-upc-scan" aria-hidden="true"></i>
+                                            <span class="pos-serial-action-label">Serial</span>
                                         </button>
                                     </div>
                                     <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
@@ -1713,8 +1736,8 @@
                     <div class="badge badge-primary d-flex align-items-center p-2">
                         <span class="mr-2">${escapeHtml(serial)}</span>
                         <button type="button" class="btn btn-link btn-sm p-0 text-white js-serial-remove" 
-                                data-serial="${escapeHtml(serial)}" title="Hapus">
-                            <i class="fas fa-times-circle"></i>
+                                data-serial="${escapeHtml(serial)}" title="Hapus" aria-label="Hapus serial ${escapeHtml(serial)}">
+                            &times;
                         </button>
                     </div>
                 `).join('');
@@ -1725,7 +1748,7 @@
                 }
             }
 
-            function openSerialModal(lineId, productName, qty) {
+            function openSerialModal(lineId, productName) {
                 currentSerialLineId = lineId;
                 if (serialModalProductName) serialModalProductName.textContent = productName;
                 if (serialModalInput) serialModalInput.value = '';
@@ -1764,6 +1787,46 @@
                     } else {
                         setCartStatus(errorMsg, 'text-danger', true);
                     }
+                }
+            }
+
+            async function removeSerialFromLine(lineId, serialNumber, source) {
+                const normalizedLineId = Number(lineId);
+                const normalizedSerial = String(serialNumber || '').trim();
+
+                if (!Number.isFinite(normalizedLineId) || normalizedLineId <= 0 || normalizedSerial.length === 0) {
+                    const message = 'Data serial tidak valid.';
+                    if (source === 'modal' && serialModalStatus) {
+                        serialModalStatus.textContent = message;
+                        serialModalStatus.className = 'small mb-3 text-danger';
+                    }
+                    setCartStatus(message, 'text-danger', true);
+                    return;
+                }
+
+                try {
+                    const url = cartLinesBaseUrl + '/' + normalizedLineId + '/serials/' + encodeURIComponent(normalizedSerial);
+                    const response = await jsonRequest(url, 'DELETE');
+                    if (response && response.cart_snapshot) {
+                        renderCart(response.cart_snapshot);
+                        if (currentSerialLineId === normalizedLineId) {
+                            renderSerialModalList();
+                        }
+
+                        if (source === 'modal' && serialModalStatus) {
+                            serialModalStatus.textContent = `Serial ${normalizedSerial} berhasil dihapus.`;
+                            serialModalStatus.className = 'small mb-3 text-success';
+                        }
+
+                        setCartStatus('Serial berhasil dihapus.', 'text-success');
+                    }
+                } catch (error) {
+                    const errorMessage = 'Gagal menghapus serial: ' + (error.message || 'Server error');
+                    if (source === 'modal' && serialModalStatus) {
+                        serialModalStatus.textContent = errorMessage;
+                        serialModalStatus.className = 'small mb-3 text-danger';
+                    }
+                    setCartStatus(errorMessage, 'text-danger', true);
                 }
             }
 
@@ -2126,6 +2189,27 @@
                 });
             }
 
+            if (serialModalList) {
+                serialModalList.addEventListener('click', async function (event) {
+                    const removeSerialBtn = event.target.closest('.js-serial-remove');
+                    if (!removeSerialBtn) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    if (currentSerialLineId === null) {
+                        if (serialModalStatus) {
+                            serialModalStatus.textContent = 'Baris serial tidak aktif.';
+                            serialModalStatus.className = 'small mb-3 text-danger';
+                        }
+                        return;
+                    }
+
+                    const serialNumber = removeSerialBtn.getAttribute('data-serial');
+                    await removeSerialFromLine(currentSerialLineId, serialNumber, 'modal');
+                });
+            }
+
             // Phase 3: Modal search input/button event handlers
             function executeModalSearch() {
                 const query = (modalSearchInput ? modalSearchInput.value : '').trim();
@@ -2365,12 +2449,10 @@
                 const addSerialBtn = event.target.closest('.js-serial-add');
                 if (addSerialBtn) {
                     const lineId = Number(addSerialBtn.getAttribute('data-line-id'));
-                    const row = addSerialBtn.closest('tr[data-line-id]');
-                    const productName = row ? row.querySelector('.product-name')?.textContent : 'Produk';
-                    const qty = row ? Number(row.querySelector('.js-line-qty')?.value) : 0;
+                    const productName = String(addSerialBtn.getAttribute('data-product-name') || '').trim() || 'Produk';
                     
                     if (lineId) {
-                        openSerialModal(lineId, productName, qty);
+                        openSerialModal(lineId, productName);
                     }
                     return;
                 }
@@ -2378,24 +2460,12 @@
                 // Handle serial chip remove button click
                 const removeSerialBtn = event.target.closest('.js-serial-remove');
                 if (removeSerialBtn) {
-                    const row = event.target.closest('tr[data-line-id]');
+                    const row = removeSerialBtn.closest('tr[data-line-id]');
                     if (!row) return;
                     
                     const lineId = Number(row.getAttribute('data-line-id'));
                     const serialNumber = removeSerialBtn.getAttribute('data-serial');
-                    
-                    if (lineId && serialNumber) {
-                        try {
-                            const url = cartLinesBaseUrl + '/' + lineId + '/serials/' + encodeURIComponent(serialNumber);
-                            const response = await jsonRequest(url, 'DELETE');
-                            if (response && response.cart_snapshot) {
-                                renderCart(response.cart_snapshot);
-                                setCartStatus('Serial berhasil dihapus.', 'text-success');
-                            }
-                        } catch (error) {
-                            setCartStatus('Gagal menghapus serial: ' + (error.message || 'Server error'), 'text-danger', true);
-                        }
-                    }
+                    await removeSerialFromLine(lineId, serialNumber, 'cart');
                     return;
                 }
             });
