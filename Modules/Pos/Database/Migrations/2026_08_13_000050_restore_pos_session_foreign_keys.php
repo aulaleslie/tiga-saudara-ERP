@@ -47,13 +47,11 @@ return new class extends Migration
             return;
         }
 
-        Schema::table($tableName, function (Blueprint $table) use ($column, $definition) {
-            try {
-                $definition($table, $column);
-            } catch (\Throwable) {
-                // No-op if FK already exists or cannot be added in current state.
-            }
-        });
+        if ($this->hasForeignOnColumn($tableName, $column)) {
+            return;
+        }
+
+        Schema::table($tableName, fn (Blueprint $table) => $definition($table, $column));
     }
 
     private function dropForeignIfExists(string $tableName, string $column): void
@@ -62,12 +60,37 @@ return new class extends Migration
             return;
         }
 
-        Schema::table($tableName, function (Blueprint $table) use ($column) {
-            try {
-                $table->dropForeign([$column]);
-            } catch (\Throwable) {
-                // No-op if FK is already absent.
-            }
-        });
+        foreach ($this->foreignKeysOnColumn($tableName, $column) as $constraintName) {
+            Schema::table($tableName, fn (Blueprint $table) => $table->dropForeign($constraintName));
+        }
+    }
+
+    private function hasForeignOnColumn(string $tableName, string $column): bool
+    {
+        return count($this->foreignKeysOnColumn($tableName, $column)) > 0;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function foreignKeysOnColumn(string $tableName, string $column): array
+    {
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            return [];
+        }
+
+        $connection = Schema::getConnection();
+        $database = $connection->getDatabaseName();
+
+        return $connection->table('information_schema.KEY_COLUMN_USAGE')
+            ->where('TABLE_SCHEMA', $database)
+            ->where('TABLE_NAME', $tableName)
+            ->where('COLUMN_NAME', $column)
+            ->whereNotNull('REFERENCED_TABLE_NAME')
+            ->distinct()
+            ->pluck('CONSTRAINT_NAME')
+            ->map(static fn ($name): string => (string) $name)
+            ->values()
+            ->all();
     }
 };
