@@ -43,7 +43,7 @@
     </div>
 @endsection
 
-@push('scripts')
+@push('page_scripts')
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const tableBody = document.getElementById('monitor-table-body');

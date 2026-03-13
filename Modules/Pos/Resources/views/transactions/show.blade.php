@@ -155,7 +155,7 @@
     </div>
 @endsection
 
-@push('scripts')
+@push('page_scripts')
     <script>
         (function () {
             const loadButton = document.getElementById('btn-load-transaction');

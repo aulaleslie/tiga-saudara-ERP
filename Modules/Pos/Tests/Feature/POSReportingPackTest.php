@@ -66,6 +66,44 @@ class POSReportingPackTest extends TestCase
         $response->assertSee('Laporan POS');
     }
 
+    public function test_reports_page_contains_kpi_section_and_required_tabs(): void
+    {
+        $setting = $this->createSetting('BIZ KPI');
+        $user = $this->createUserForSetting($setting, 'POS_MANAGER_KPI', ['pos.access', 'pos.reports.access']);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.reports.index'));
+
+        $response->assertOk()
+            ->assertSee('id="reports-kpi-grid"', false)
+            ->assertSee('Total Penjualan')
+            ->assertSee('Total Transaksi')
+            ->assertSee('Rata-rata Basket')
+            ->assertSee('Rasio Tunai')
+            ->assertSee('Persetujuan Supervisor')
+            ->assertSee('Penjualan Harian')
+            ->assertSee('Ringkasan Kasir')
+            ->assertSee('Metode Pembayaran')
+            ->assertSee('Penjualan Produk')
+            ->assertSee('Persetujuan Supervisor');
+    }
+
+    public function test_reports_page_script_wires_date_filters_for_refresh_requests(): void
+    {
+        $setting = $this->createSetting('BIZ DATE FILTER');
+        $user = $this->createUserForSetting($setting, 'POS_MANAGER_DATE_FILTER', ['pos.access', 'pos.reports.access']);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.reports.index'));
+
+        $response->assertOk()
+            ->assertSee("url.searchParams.set('date_from', inputFrom.value);", false)
+            ->assertSee("url.searchParams.set('date_to', inputTo.value);", false)
+            ->assertSee("btnRefresh.addEventListener('click', loadAllTabs);", false);
+    }
+
     public function test_reports_page_blocked_for_unauthorized_user(): void
     {
         $setting = $this->createSetting('BIZ A');

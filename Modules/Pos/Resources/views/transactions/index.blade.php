@@ -80,7 +80,7 @@
     </div>
 @endsection
 
-@push('scripts')
+@push('page_scripts')
     <script>
         (function () {
             const tableBody = document.getElementById('pos-transaction-table-body');
@@ -103,6 +103,7 @@
 
             let page = 1;
             let pagination = null;
+            let latestLoadToken = 0;
 
             const formatCurrency = (value) => {
                 const amount = Number(value || 0);
@@ -184,12 +185,19 @@
                 return actions.join(' ');
             };
 
-            const renderRows = (rows) => {
-                if (!Array.isArray(rows) || rows.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Tidak ada transaksi.</td></tr>';
-                    return;
-                }
+            const renderLoadingState = (message = 'Memuat transaksi...') => {
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">${escapeHtml(message)}</td></tr>`;
+            };
 
+            const renderEmptyState = (message = 'Tidak ada transaksi pada filter saat ini.') => {
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">${escapeHtml(message)}</td></tr>`;
+            };
+
+            const renderErrorState = (message = 'Gagal memuat transaksi. Silakan klik Muat Data untuk mencoba lagi.') => {
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-4">${escapeHtml(message)}</td></tr>`;
+            };
+
+            const renderRows = (rows) => {
                 tableBody.innerHTML = rows.map((row) => {
                     const ownerName = row.owner && row.owner.name ? row.owner.name : '-';
                     const customerName = row.customer && row.customer.customer_name ? row.customer.customer_name : '-';
@@ -248,23 +256,65 @@
                 return url.toString();
             };
 
-            const setStatus = (message, isError = false) => {
+            const setStatus = (message, tone = 'muted') => {
                 statusNote.textContent = message || '';
-                statusNote.classList.toggle('text-danger', Boolean(isError));
-                statusNote.classList.toggle('text-muted', !isError);
+                statusNote.classList.remove('text-danger', 'text-success', 'text-muted');
+                statusNote.classList.add(tone === 'danger' ? 'text-danger' : (tone === 'success' ? 'text-success' : 'text-muted'));
             };
 
-            const loadRows = async () => {
-                setStatus('Memuat transaksi...');
+            const setLoadingControls = (isLoading) => {
+                filterButton.disabled = Boolean(isLoading);
+                searchInput.disabled = Boolean(isLoading);
+                statusSelect.disabled = Boolean(isLoading);
+                dateFromInput.disabled = Boolean(isLoading);
+                dateToInput.disabled = Boolean(isLoading);
+                prevButton.disabled = true;
+                nextButton.disabled = true;
+            };
+
+            const loadRows = async ({ showLoading = true } = {}) => {
+                const loadToken = ++latestLoadToken;
+                if (showLoading) {
+                    renderLoadingState();
+                }
+                setLoadingControls(true);
+                setStatus('Memuat transaksi...', 'muted');
                 try {
                     const response = await jsonRequest(buildQueryUrl(), 'GET');
+                    if (loadToken !== latestLoadToken) {
+                        return;
+                    }
                     pagination = response.pagination || null;
-                    renderRows(response.data || []);
+                    const rows = Array.isArray(response.data) ? response.data : [];
+                    if (rows.length === 0) {
+                        renderEmptyState();
+                    } else {
+                        renderRows(rows);
+                    }
                     updatePaginationState();
-                    setStatus('');
+                    if (rows.length === 0) {
+                        setStatus('Tidak ada transaksi pada filter saat ini.', 'muted');
+                    } else {
+                        const total = Number(pagination?.total || rows.length);
+                        setStatus(`Menampilkan ${rows.length} transaksi (total ${total}).`, 'success');
+                    }
                 } catch (error) {
-                    tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">Gagal memuat transaksi.</td></tr>';
-                    setStatus(error.message || 'Gagal memuat transaksi.', true);
+                    if (loadToken !== latestLoadToken) {
+                        return;
+                    }
+                    pagination = {
+                        current_page: 1,
+                        last_page: 1,
+                        total: 0,
+                    };
+                    renderErrorState();
+                    updatePaginationState();
+                    setStatus(error.message || 'Gagal memuat transaksi.', 'danger');
+                } finally {
+                    if (loadToken === latestLoadToken) {
+                        setLoadingControls(false);
+                        updatePaginationState();
+                    }
                 }
             };
 
@@ -279,7 +329,7 @@
                         await jsonRequest(`${transactionsBaseUrl}/${id}/load`, 'POST', {});
                         window.location.href = @json(route('pos.sell'));
                     } catch (error) {
-                        setStatus(error.message || 'Gagal memuat transaksi.', true);
+                        setStatus(error.message || 'Gagal memuat transaksi.', 'danger');
                     } finally {
                         loadButton.disabled = false;
                     }
@@ -296,9 +346,9 @@
                     try {
                         await jsonRequest(`${transactionsBaseUrl}/${id}/cancel`, 'POST', {});
                         await loadRows();
-                        setStatus('Transaksi berhasil dibatalkan.');
+                        setStatus('Transaksi berhasil dibatalkan.', 'success');
                     } catch (error) {
-                        setStatus(error.message || 'Gagal membatalkan transaksi.', true);
+                        setStatus(error.message || 'Gagal membatalkan transaksi.', 'danger');
                     } finally {
                         cancelButton.disabled = false;
                     }

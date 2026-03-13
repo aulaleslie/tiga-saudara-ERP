@@ -130,6 +130,23 @@ class POSTransactionListTest extends PosTransactionFeatureTestCase
             ->assertSee('Transaksi POS');
     }
 
+    public function test_transaction_list_page_includes_client_bootstrap_script(): void
+    {
+        $setting = $this->createSetting('BIZ POS TXN LIST SCRIPT');
+        $user = $this->createUserForSetting($setting, 'POS TXN LIST SCRIPT USER', [
+            'pos.access',
+            'pos.transactions.view',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.transactions.index'));
+
+        $response->assertOk()
+            ->assertSee('const dataEndpoint =', false)
+            ->assertSee('loadRows();', false);
+    }
+
     public function test_transaction_list_data_can_filter_by_date_range(): void
     {
         $setting = $this->createSetting('BIZ POS TXN LIST DATE RANGE');

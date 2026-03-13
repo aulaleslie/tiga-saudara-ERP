@@ -53,7 +53,7 @@
     </div>
 @endsection
 
-@push('scripts')
+@push('page_scripts')
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const btnRefresh = document.getElementById('reconciliation-refresh-btn');
