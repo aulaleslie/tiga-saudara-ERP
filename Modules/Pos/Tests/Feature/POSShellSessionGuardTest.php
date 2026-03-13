@@ -143,6 +143,36 @@ class POSShellSessionGuardTest extends TestCase
             ->assertSee("await removeSerialFromLine(currentSerialLineId, serialNumber, 'modal');", false);
     }
 
+    public function test_sell_shell_exposes_manual_serial_submit_and_close_semantics_hooks(): void
+    {
+        $setting = $this->createSetting('BIZ SHELL SERIAL MANUAL CONFIRM', true);
+        $cashier = $this->createUserForSetting(
+            $setting,
+            'POS SHELL CASHIER SERIAL MANUAL CONFIRM',
+            ['pos.access', 'pos.sell', 'pos.sessions.open']
+        );
+
+        $this->createActiveSessionForCashier($setting, $cashier);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'))
+            ->assertOk()
+            ->assertSee('id="pos-serial-modal-submit"', false)
+            ->assertSee('Tekan Enter atau klik Masukkan untuk menambah serial.', false)
+            ->assertSee('data-dismiss="modal">Tutup</button>', false)
+            ->assertDontSee('data-dismiss="modal">Selesai</button>', false)
+            ->assertSee('async function submitSerialModalInput()', false)
+            ->assertSee('let serialAppendInFlight = false;', false)
+            ->assertSee('serialModalSubmitButton.disabled = serialAppendInFlight;', false)
+            ->assertSee("if (event.key === 'Enter')", false)
+            ->assertSee('await submitSerialModalInput();', false)
+            ->assertSee("serialModalSubmitButton.addEventListener('click', async function (event)", false)
+            ->assertSee("const url = cartLinesBaseUrl + '/' + lineId + '/serials/append';", false)
+            ->assertSee("serialModalElement.addEventListener('hidden.bs.modal', function() {", false)
+            ->assertSee("if (serialModalInput) serialModalInput.value = '';", false);
+    }
+
     public function test_sell_route_remains_blocked_by_feature_flag_when_disabled(): void
     {
         $setting = $this->createSetting('BIZ SHELL D', false);

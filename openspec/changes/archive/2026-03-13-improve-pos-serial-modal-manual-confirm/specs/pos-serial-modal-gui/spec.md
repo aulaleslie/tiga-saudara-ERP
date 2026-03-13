@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Modal-Based Serial Input
 The POS system MUST use an in-app modal for serial number entry and management instead of native browser prompts, and MUST support both keyboard/scanner submit and explicit click submit for manual entry.
@@ -37,18 +37,3 @@ The POS system MUST use an in-app modal for serial number entry and management i
 - **WHEN** the cashier clicks remove on a serial chip inside the serial modal
 - **THEN** the system MUST call the serial delete endpoint for the currently active line and selected serial
 - **AND** on success the cart snapshot and modal serial list MUST refresh to reflect the removal.
-
-### Requirement: Improved Serial Chip Layout
-Serial tags (chips) in the cart line must be visually optimized for space and clarity.
-
-#### Scenario: Chip Alignment
-- **WHEN** multiple serials are attached to a line item
-- **THEN** they should be displayed in a wrapped flex container
-- **AND** they must be vertically aligned with the quantity controls.
-
-### Requirement: Visible Serial Action Affordance
-Serial-required cart lines MUST provide a clearly visible control to open serial management even when Font Awesome assets are unavailable.
-
-#### Scenario: Serial Action Control Remains Visible Without Font Awesome
-- **WHEN** the POS sell page is rendered with Bootstrap Icons loaded and Font Awesome not loaded
-- **THEN** each serial-required line MUST still display a visible serial action affordance (icon, text, or both) that cashiers can identify and click.

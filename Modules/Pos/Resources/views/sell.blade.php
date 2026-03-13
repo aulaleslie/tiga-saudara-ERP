@@ -1063,7 +1063,13 @@
                     
                     <div class="form-group mb-3">
                         <label for="pos-serial-modal-input" class="small font-weight-bold">Scan atau ketik serial:</label>
-                        <input id="pos-serial-modal-input" type="text" class="form-control" autocomplete="off" placeholder="Nomor Serial...">
+                        <div class="input-group">
+                            <input id="pos-serial-modal-input" type="text" class="form-control" autocomplete="off" placeholder="Nomor Serial...">
+                            <div class="input-group-append">
+                                <button id="pos-serial-modal-submit" type="button" class="btn btn-primary">Masukkan</button>
+                            </div>
+                        </div>
+                        <small class="form-text text-muted">Tekan Enter atau klik Masukkan untuk menambah serial.</small>
                     </div>
                     
                     <div id="pos-serial-modal-status" class="small mb-3" style="min-height: 1.25rem;"></div>
@@ -1076,7 +1082,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-primary btn-block" data-dismiss="modal">Selesai</button>
+                    <button type="button" class="btn btn-secondary btn-block" data-dismiss="modal">Tutup</button>
                 </div>
             </div>
         </div>
@@ -1150,6 +1156,7 @@
             const serialModalProductName = document.getElementById('pos-serial-modal-product-name');
             const serialModalQtyInfo = document.getElementById('pos-serial-modal-qty-info');
             const serialModalInput = document.getElementById('pos-serial-modal-input');
+            const serialModalSubmitButton = document.getElementById('pos-serial-modal-submit');
             const serialModalStatus = document.getElementById('pos-serial-modal-status');
             const serialModalList = document.getElementById('pos-serial-modal-list');
 
@@ -1723,6 +1730,14 @@
 
             // Phase 3A: Append serial to a cart line
             let currentSerialLineId = null;
+            let serialAppendInFlight = false;
+
+            function setSerialAppendInFlight(inFlight) {
+                serialAppendInFlight = inFlight === true;
+                if (serialModalSubmitButton) {
+                    serialModalSubmitButton.disabled = serialAppendInFlight;
+                }
+            }
 
             function renderSerialModalList() {
                 if (!serialModalList || !currentSnapshot || currentSerialLineId === null) return;
@@ -1777,6 +1792,7 @@
                             }
                         }
                     }
+                    return true;
                 } catch (error) {
                     const errorMsg = error.message || 'Gagal menambahkan serial.';
                     if (currentSerialLineId === lineId) {
@@ -1787,6 +1803,40 @@
                     } else {
                         setCartStatus(errorMsg, 'text-danger', true);
                     }
+                    return false;
+                }
+            }
+
+            async function submitSerialModalInput() {
+                if (!serialModalInput || currentSerialLineId === null) {
+                    return false;
+                }
+
+                if (serialAppendInFlight) {
+                    return false;
+                }
+
+                const serialNumber = (serialModalInput.value || '').trim();
+                if (!serialNumber) {
+                    if (serialModalStatus) {
+                        serialModalStatus.textContent = 'Serial tidak boleh kosong.';
+                        serialModalStatus.className = 'small mb-3 text-danger';
+                    }
+                    serialModalInput.focus();
+                    return false;
+                }
+
+                setSerialAppendInFlight(true);
+                try {
+                    const didAppend = await appendSerialToLine(currentSerialLineId, serialNumber);
+                    if (didAppend) {
+                        serialModalInput.value = '';
+                        serialModalInput.focus();
+                    }
+
+                    return didAppend;
+                } finally {
+                    setSerialAppendInFlight(false);
                 }
             }
 
@@ -2160,11 +2210,13 @@
                         if (serialModalInput) {
                             serialModalInput.focus();
                         }
+                        setSerialAppendInFlight(false);
                     });
                     
                     serialModalElement.addEventListener('hidden.bs.modal', function() {
                         currentSerialLineId = null;
                         if (serialModalInput) serialModalInput.value = '';
+                        setSerialAppendInFlight(false);
                         if (serialModalStatus) {
                             serialModalStatus.textContent = '';
                             serialModalStatus.className = 'small mb-3';
@@ -2179,13 +2231,15 @@
                 serialModalInput.addEventListener('keydown', async function(event) {
                     if (event.key === 'Enter') {
                         event.preventDefault();
-                        const serialNumber = (this.value || '').trim();
-                        if (serialNumber && currentSerialLineId !== null) {
-                            await appendSerialToLine(currentSerialLineId, serialNumber);
-                            this.value = ''; // Clear for next burst
-                            this.focus();
-                        }
+                        await submitSerialModalInput();
                     }
+                });
+            }
+
+            if (serialModalSubmitButton) {
+                serialModalSubmitButton.addEventListener('click', async function (event) {
+                    event.preventDefault();
+                    await submitSerialModalInput();
                 });
             }
 
