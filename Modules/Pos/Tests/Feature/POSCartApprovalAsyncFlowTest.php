@@ -334,4 +334,55 @@ class POSCartApprovalAsyncFlowTest extends TestCase
         $this->assertEquals('REJECTED', $statusRes->json('status'));
         $this->assertNull($statusRes->json('approval_token'));
     }
+
+    public function test_cancel_after_approval_invalidates_token_and_keeps_cart_unchanged(): void
+    {
+        $setting = $this->createSetting('BIZ POS ASYNC 3', true);
+        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'POS ASYNC 3', []);
+
+        $supervisor = $this->createUserForSetting(
+            $setting,
+            'POS ASYNC 3 SUP',
+            ['pos.access', 'pos.supervisor.approval', 'pos.cart.clear']
+        );
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-A3', 'Product A3', 10000, $cashier->id);
+
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+
+        $requestId = (int) $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.approval-requests.store'), [
+                'action_type' => 'CART_CLEAR',
+                'target_type' => 'pos_session',
+                'target_id' => $session->id,
+            ])
+            ->assertStatus(201)
+            ->json('request_id');
+
+        $this->actingAs($supervisor)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.supervisor.approval-requests.approve', ['id' => $requestId]))
+            ->assertOk();
+
+        $token = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.approval-requests.show', ['id' => $requestId]))
+            ->assertOk()
+            ->json('approval_token');
+
+        $this->assertNotEmpty($token);
+
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.approval-requests.cancel', ['id' => $requestId]))
+            ->assertOk();
+
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->deleteJson(route('pos.sell.cart.clear', ['approval_token' => $token]))
+            ->assertStatus(422);
+
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.cart.show'))
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.meta.line_count', 1);
+    }
 }

@@ -5,6 +5,7 @@ namespace Modules\Pos\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use Modules\Pos\Services\PosRolePolicyService;
 
 class StorePosSessionOpenRequest extends FormRequest
 {
@@ -16,10 +17,15 @@ class StorePosSessionOpenRequest extends FormRequest
     public function rules(): array
     {
         $settingId = (int) session('setting_id');
+        $requiresTerminal = true;
+
+        if ($this->user()) {
+            $requiresTerminal = app(PosRolePolicyService::class)->requiresTerminalSelection($this->user());
+        }
 
         return [
             'terminal_id' => [
-                'required',
+                $requiresTerminal ? 'required' : 'nullable',
                 'integer',
                 Rule::exists('pos_terminals', 'id')
                     ->where(static fn ($query) => $query

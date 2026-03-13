@@ -42,6 +42,10 @@ class PosApprovalTokenService
             throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
         }
 
+        if ($approvalToken->approvalRequest->status !== PosActionApprovalRequest::STATUS_APPROVED) {
+            throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
+        }
+
         $approvalToken->update([
             'consumed_at' => now(),
             'consumed_by' => $consumedBy,

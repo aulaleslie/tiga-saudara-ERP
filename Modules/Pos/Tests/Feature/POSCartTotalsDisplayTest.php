@@ -146,9 +146,9 @@ class POSCartTotalsDisplayTest extends TestCase
             ->assertJsonPath('message', 'Diskon tidak tersedia di POS kasir.');
     }
 
-    public function test_price_override_rejected_with_invalid_supervisor_pin(): void
+    public function test_price_override_requires_approval_and_rejected_request_keeps_price_unchanged(): void
     {
-        $setting = $this->createSetting('BIZ POS CART PIN FAIL', true);
+        $setting = $this->createSetting('BIZ POS CART PRICE REJECT', true);
         [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'POS CART PIN FAIL', true);
         $tax = $this->createTax('PPN 11% PIN FAIL', 11);
         $product = $this->createStockedProduct($setting, $location, 'SKU-PIN-F', 'Produk PIN Gagal', 10000, $tax->id, $cashier->id);
@@ -156,25 +156,54 @@ class POSCartTotalsDisplayTest extends TestCase
         $supervisor = $this->createUserForSetting(
             $setting,
             'POS CART SUPERVISOR FAIL',
-            ['pos.overrides.price', 'pos.supervisor.approval'],
+            ['pos.access', 'pos.overrides.price', 'pos.supervisor.approval'],
             'supervisor.pos.fail@example.com',
             'correct-pin'
         );
 
-        $this->actingAs($cashier)
+        $lineId = (int) $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
-            ->assertOk();
+            ->assertOk()
+            ->json('cart_snapshot.lines.0.line_id');
+
+        // Direct override by cashier requires supervisory approval.
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
+                'unit_price' => 9000,
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'APPROVAL_REQUIRED');
+
+        $requestId = (int) $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.approval-requests.store'), [
+                'action_type' => 'PRICE_OVERRIDE',
+                'target_type' => 'pos_cart_line',
+                'target_id' => $lineId,
+                'payload' => [
+                    'unit_price' => 9000,
+                ],
+            ])
+            ->assertStatus(201)
+            ->json('request_id');
+
+        $this->actingAs($supervisor)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.supervisor.approval-requests.reject', ['id' => $requestId]), [
+                'reason' => 'Harga terlalu rendah',
+            ])
+            ->assertOk()
+            ->assertJsonPath('status', 'REJECTED');
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $product->id]), [
-                'unit_price' => 9000,
-                'supervisor_identifier' => $supervisor->email,
-                'supervisor_pin' => 'wrong-pin',
-            ])
-            ->assertStatus(422)
-            ->assertJsonPath('message', 'Supervisor approval failed for price override.');
+            ->getJson(route('pos.sell.approval-requests.show', ['id' => $requestId]))
+            ->assertOk()
+            ->assertJsonPath('state', 'rejected')
+            ->assertJsonPath('approval_token', null)
+            ->assertJsonPath('decision_reason', 'HARGA TERLALU RENDAH');
 
         $this->assertDatabaseHas('pos_supervisor_approvals', [
             'setting_id' => $setting->id,
@@ -182,15 +211,15 @@ class POSCartTotalsDisplayTest extends TestCase
             'target_type' => 'pos_session',
             'target_id' => $session->id,
             'requested_by' => $cashier->id,
-            'approved_by' => null,
+            'approved_by' => $supervisor->id,
             'approval_result' => 'REJECTED',
-            'reason' => 'INVALID_CREDENTIALS',
+            'reason' => 'HARGA TERLALU RENDAH',
         ]);
     }
 
-    public function test_price_override_success_updates_line_price_and_logs_approval(): void
+    public function test_price_override_approved_token_updates_line_price_and_prevents_replay(): void
     {
-        $setting = $this->createSetting('BIZ POS CART PIN OK', true);
+        $setting = $this->createSetting('BIZ POS CART PRICE APPROVED', true);
         [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'POS CART PIN OK', true);
         $tax = $this->createTax('PPN 11% PIN OK', 11);
         $product = $this->createStockedProduct($setting, $location, 'SKU-PIN-S', 'Produk PIN Sukses', 10000, $tax->id, $cashier->id);
@@ -198,28 +227,67 @@ class POSCartTotalsDisplayTest extends TestCase
         $supervisor = $this->createUserForSetting(
             $setting,
             'POS CART SUPERVISOR OK',
-            ['pos.overrides.price', 'pos.supervisor.approval'],
+            ['pos.access', 'pos.overrides.price', 'pos.supervisor.approval'],
             'supervisor.pos.ok@example.com',
             'supervisor-pin'
         );
 
-        $this->actingAs($cashier)
+        $lineId = (int) $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
-            ->assertOk();
+            ->assertOk()
+            ->json('cart_snapshot.lines.0.line_id');
+
+        $requestId = (int) $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.approval-requests.store'), [
+                'action_type' => 'PRICE_OVERRIDE',
+                'target_type' => 'pos_cart_line',
+                'target_id' => $lineId,
+                'payload' => [
+                    'unit_price' => 9000,
+                ],
+            ])
+            ->assertStatus(201)
+            ->json('request_id');
+
+        $this->actingAs($supervisor)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.supervisor.approval-requests.approve', ['id' => $requestId]), [
+                'note' => 'Disetujui manager',
+            ])
+            ->assertOk()
+            ->assertJsonPath('status', 'APPROVED');
+
+        $token = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.approval-requests.show', ['id' => $requestId]))
+            ->assertOk()
+            ->assertJsonPath('state', 'approved')
+            ->json('approval_token');
+
+        $this->assertNotEmpty($token);
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $product->id]), [
-                'unit_price' => 9000,
-                'supervisor_identifier' => $supervisor->email,
-                'supervisor_pin' => 'supervisor-pin',
+            ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
+                'unit_price' => 7000, // token payload remains authoritative
+                'approval_token' => $token,
             ])
             ->assertOk()
             ->assertJsonPath('cart_snapshot.lines.0.unit_price', 9000)
             ->assertJsonPath('cart_snapshot.totals.subtotal', 9000)
             ->assertJsonPath('cart_snapshot.totals.tax_total', 892)
             ->assertJsonPath('cart_snapshot.totals.grand_total', 9000);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.price-override', ['lineId' => $lineId]), [
+                'unit_price' => 8000,
+                'approval_token' => $token,
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'TOKEN_ALREADY_USED');
 
         $this->assertDatabaseHas('pos_supervisor_approvals', [
             'setting_id' => $setting->id,

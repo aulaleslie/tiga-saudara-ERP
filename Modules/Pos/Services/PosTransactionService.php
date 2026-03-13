@@ -275,4 +275,105 @@ class PosTransactionService
             'completed_checkout_id' => $checkoutId,
         ]);
     }
+
+    /**
+     * Ensure checkout completion is always represented in POS transaction history.
+     * If cart comes from loaded draft, update that transaction; otherwise create a completed transaction.
+     *
+     * @param  array<string, mixed>  $cartSnapshot
+     */
+    public function completeFromCartSnapshot(
+        int $settingId,
+        PosSession $activeSession,
+        int $actorUserId,
+        array $cartSnapshot,
+        int $checkoutId
+    ): PosTransaction {
+        $activeTransactionId = (int) ($cartSnapshot['active_transaction_id'] ?? 0);
+        $snapshotTotals = $this->mapper->buildSnapshotTotals((array) ($cartSnapshot['totals'] ?? []));
+        $snapshotLines = $this->normalizeSnapshotLines((array) ($cartSnapshot['lines'] ?? []));
+        $resolvedCustomerId = (int) ($cartSnapshot['customer']['resolved_customer_id'] ?? 0);
+        $selectedCustomerId = (int) ($cartSnapshot['customer']['selected_customer']['id'] ?? 0);
+        $customerId = $resolvedCustomerId > 0
+            ? $resolvedCustomerId
+            : ($selectedCustomerId > 0 ? $selectedCustomerId : null);
+
+        return DB::transaction(function () use (
+            $settingId,
+            $activeSession,
+            $actorUserId,
+            $checkoutId,
+            $activeTransactionId,
+            $snapshotTotals,
+            $snapshotLines,
+            $customerId
+        ) {
+            $transaction = null;
+
+            if ($activeTransactionId > 0) {
+                $transaction = PosTransaction::query()
+                    ->where('setting_id', $settingId)
+                    ->whereKey($activeTransactionId)
+                    ->lockForUpdate()
+                    ->first();
+            }
+
+            if (! $transaction) {
+                $transaction = PosTransaction::query()->create([
+                    'setting_id' => $settingId,
+                    'code' => $this->codeGenerator->generate($settingId),
+                    'status' => PosTransaction::STATUS_DRAFT,
+                    'created_by' => $actorUserId,
+                    'owner_user_id' => $actorUserId,
+                    'last_saved_by' => $actorUserId,
+                    'customer_id' => $customerId,
+                    'source_pos_session_id' => $activeSession->id,
+                    'snapshot_totals' => $snapshotTotals,
+                ]);
+            } else {
+                $transaction->update([
+                    'last_saved_by' => $actorUserId,
+                    'customer_id' => $customerId,
+                    'source_pos_session_id' => $activeSession->id,
+                    'snapshot_totals' => $snapshotTotals,
+                ]);
+            }
+
+            $this->mapper->persistLines($transaction, $snapshotLines);
+            $transaction->refresh();
+            $transaction->update([
+                'snapshot_hash' => $this->mapper->buildSnapshotHash($transaction),
+                'status' => PosTransaction::STATUS_COMPLETED,
+                'completed_checkout_id' => $checkoutId,
+            ]);
+
+            return $transaction->fresh();
+        });
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $lines
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeSnapshotLines(array $lines): array
+    {
+        $normalized = [];
+        $fallbackLineId = 1;
+
+        foreach ($lines as $line) {
+            if (! is_array($line)) {
+                continue;
+            }
+
+            $lineId = (int) ($line['line_id'] ?? 0);
+            if ($lineId <= 0) {
+                $lineId = $fallbackLineId;
+            }
+
+            $normalized[$lineId] = $line;
+            $fallbackLineId = max($fallbackLineId + 1, $lineId + 1);
+        }
+
+        return $normalized;
+    }
 }

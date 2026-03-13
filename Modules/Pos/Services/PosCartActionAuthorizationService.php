@@ -9,7 +9,8 @@ use Modules\Pos\Entities\PosActionApprovalRequest;
 class PosCartActionAuthorizationService
 {
     public function __construct(
-        private readonly PosApprovalTokenService $tokenService
+        private readonly PosApprovalTokenService $tokenService,
+        private readonly PosRolePolicyService $rolePolicyService
     ) {
     }
 
@@ -22,10 +23,19 @@ class PosCartActionAuthorizationService
             PosActionApprovalRequest::ACTION_CART_CLEAR => 'pos.cart.clear',
             PosActionApprovalRequest::ACTION_LINE_REMOVE => 'pos.cart.line.remove',
             PosActionApprovalRequest::ACTION_QTY_REDUCE => 'pos.cart.line.reduce',
+            PosActionApprovalRequest::ACTION_PRICE_OVERRIDE => 'pos.overrides.price',
             default => throw new DomainException('Invalid action type.'),
         };
 
-        if ($user->can($permission)) {
+        $hasDirectPermission = $user->can($permission);
+        if ($actionType === PosActionApprovalRequest::ACTION_PRICE_OVERRIDE && $hasDirectPermission) {
+            $role = $this->rolePolicyService->detectRole($user);
+            if (in_array($role, [PosRolePolicyService::ROLE_FLOOR_STAFF, PosRolePolicyService::ROLE_CASHIER_STAFF], true)) {
+                $hasDirectPermission = false;
+            }
+        }
+
+        if ($hasDirectPermission) {
             return [
                 'authorized' => true,
                 'reason' => null,

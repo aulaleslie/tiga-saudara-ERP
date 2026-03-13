@@ -621,15 +621,16 @@ class FinalizePosCheckoutService
                 );
                 $lockedCheckout->finalized_at = now();
 
-                // Link transaction if active
-                if ($cartSnapshot['active_transaction_id'] ?? null) {
-                    $lockedCheckout->pos_transaction_id = (int) $cartSnapshot['active_transaction_id'];
-                    if ($this->transactionService) {
-                        $transaction = \Modules\Pos\Entities\PosTransaction::find($cartSnapshot['active_transaction_id']);
-                        if ($transaction) {
-                            $this->transactionService->markCompleted($transaction, $lockedCheckout->id);
-                        }
-                    }
+                if ($this->transactionService) {
+                    $completedTransaction = $this->transactionService->completeFromCartSnapshot(
+                        $settingId,
+                        $session,
+                        $cashierUserId,
+                        $cartSnapshot,
+                        $lockedCheckout->id
+                    );
+
+                    $lockedCheckout->pos_transaction_id = (int) $completedTransaction->id;
                 }
 
                 $lockedCheckout->save();

@@ -19,6 +19,7 @@ class PosActionApprovalRequest extends BaseModel
     public const ACTION_CART_CLEAR = 'CART_CLEAR';
     public const ACTION_LINE_REMOVE = 'LINE_REMOVE';
     public const ACTION_QTY_REDUCE = 'QTY_REDUCE';
+    public const ACTION_PRICE_OVERRIDE = 'PRICE_OVERRIDE';
 
     protected $table = 'pos_action_approval_requests';
 

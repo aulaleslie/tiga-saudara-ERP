@@ -24,6 +24,8 @@ class PosApprovalRequestService
         int $targetId,
         array $payload
     ): PosActionApprovalRequest {
+        $this->assertSupportedAction($actionType);
+
         PosActionApprovalRequest::query()
             ->where('requested_by', $requester->id)
             ->where('action_type', $actionType)
@@ -61,11 +63,17 @@ class PosApprovalRequestService
             $expiresAt = $request->token->expires_at->toIso8601String();
         }
 
+        $normalizedState = strtolower((string) $request->status);
+
         return [
             'status' => $request->status,
+            'state' => $normalizedState,
             'token_ready' => $tokenStr !== null,
+            'can_retry_check' => $request->status === PosActionApprovalRequest::STATUS_PENDING,
             'approval_token' => $tokenStr,
+            'token' => $tokenStr,
             'expires_at' => $expiresAt ?? null,
+            'decision_reason' => $request->decision_reason,
         ];
     }
 
@@ -74,17 +82,34 @@ class PosApprovalRequestService
         $request = PosActionApprovalRequest::query()
             ->where('id', $requestId)
             ->where('requested_by', $requester->id)
+            ->with('token')
             ->first();
 
         if (! $request) {
             throw new DomainException('Request was not found.');
         }
 
-        if ($request->status !== PosActionApprovalRequest::STATUS_PENDING) {
+        if (! in_array($request->status, [
+            PosActionApprovalRequest::STATUS_PENDING,
+            PosActionApprovalRequest::STATUS_APPROVED,
+        ], true)) {
             throw new DomainException('NOT_PENDING');
         }
 
         $request->update(['status' => PosActionApprovalRequest::STATUS_CANCELLED]);
+
+        if (
+            $request->token
+            && $request->token->consumed_at === null
+        ) {
+            $request->token->update([
+                'consumed_at' => now(),
+                'consumed_by' => $requester->id,
+                'consumed_context' => [
+                    'action' => 'cancelled_by_requester',
+                ],
+            ]);
+        }
     }
 
     public function listPending(int $settingId, ?array $filters = []): LengthAwarePaginator
@@ -122,22 +147,13 @@ class PosApprovalRequestService
             throw new DomainException('ALREADY_DECIDED');
         }
 
-        $requiredPermission = match ($request->action_type) {
-            PosActionApprovalRequest::ACTION_CART_CLEAR => 'pos.cart.clear',
-            PosActionApprovalRequest::ACTION_LINE_REMOVE => 'pos.cart.line.remove',
-            PosActionApprovalRequest::ACTION_QTY_REDUCE => 'pos.cart.line.reduce',
-            default => throw new DomainException('Invalid action type.'),
-        };
+        $requiredPermission = $this->requiredPermissionForAction($request->action_type);
 
         if (! $supervisor->can('pos.supervisor.approval') || ! $supervisor->can($requiredPermission)) {
             throw new DomainException('MISSING_PERMISSION');
         }
 
-        $actionParam = match ($request->action_type) {
-            PosActionApprovalRequest::ACTION_CART_CLEAR => PosSupervisorApproval::ACTION_CART_CLEAR_APPROVAL,
-            PosActionApprovalRequest::ACTION_LINE_REMOVE => PosSupervisorApproval::ACTION_LINE_REMOVE_APPROVAL,
-            PosActionApprovalRequest::ACTION_QTY_REDUCE => PosSupervisorApproval::ACTION_QTY_REDUCE_APPROVAL,
-        };
+        $actionParam = $this->supervisorActionFor($request->action_type);
 
         $request->update([
             'status' => PosActionApprovalRequest::STATUS_APPROVED,
@@ -163,6 +179,7 @@ class PosApprovalRequestService
 
         return [
             'status' => PosActionApprovalRequest::STATUS_APPROVED,
+            'state' => 'approved',
             'token_ttl_seconds' => $tokenTTL * 60,
         ];
     }
@@ -183,11 +200,7 @@ class PosApprovalRequestService
             throw new DomainException('MISSING_PERMISSION');
         }
 
-        $actionParam = match ($request->action_type) {
-            PosActionApprovalRequest::ACTION_CART_CLEAR => PosSupervisorApproval::ACTION_CART_CLEAR_APPROVAL,
-            PosActionApprovalRequest::ACTION_LINE_REMOVE => PosSupervisorApproval::ACTION_LINE_REMOVE_APPROVAL,
-            PosActionApprovalRequest::ACTION_QTY_REDUCE => PosSupervisorApproval::ACTION_QTY_REDUCE_APPROVAL,
-        };
+        $actionParam = $this->supervisorActionFor($request->action_type);
 
         $request->update([
             'status' => PosActionApprovalRequest::STATUS_REJECTED,
@@ -210,6 +223,35 @@ class PosApprovalRequestService
 
         return [
             'status' => PosActionApprovalRequest::STATUS_REJECTED,
+            'state' => 'rejected',
+            'decision_reason' => $reason,
         ];
+    }
+
+    private function assertSupportedAction(string $actionType): void
+    {
+        $this->requiredPermissionForAction($actionType);
+    }
+
+    private function requiredPermissionForAction(string $actionType): string
+    {
+        return match ($actionType) {
+            PosActionApprovalRequest::ACTION_CART_CLEAR => 'pos.cart.clear',
+            PosActionApprovalRequest::ACTION_LINE_REMOVE => 'pos.cart.line.remove',
+            PosActionApprovalRequest::ACTION_QTY_REDUCE => 'pos.cart.line.reduce',
+            PosActionApprovalRequest::ACTION_PRICE_OVERRIDE => 'pos.overrides.price',
+            default => throw new DomainException('Invalid action type.'),
+        };
+    }
+
+    private function supervisorActionFor(string $actionType): string
+    {
+        return match ($actionType) {
+            PosActionApprovalRequest::ACTION_CART_CLEAR => PosSupervisorApproval::ACTION_CART_CLEAR_APPROVAL,
+            PosActionApprovalRequest::ACTION_LINE_REMOVE => PosSupervisorApproval::ACTION_LINE_REMOVE_APPROVAL,
+            PosActionApprovalRequest::ACTION_QTY_REDUCE => PosSupervisorApproval::ACTION_QTY_REDUCE_APPROVAL,
+            PosActionApprovalRequest::ACTION_PRICE_OVERRIDE => PosSupervisorApproval::ACTION_PRICE_OVERRIDE,
+            default => throw new DomainException('Invalid action type.'),
+        };
     }
 }

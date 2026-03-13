@@ -9,15 +9,14 @@ class StorePosCartPriceOverrideRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return Gate::allows('pos.overrides.price');
+        return Gate::allows('pos.sell');
     }
 
     public function rules(): array
     {
         return [
             'unit_price' => ['required', 'numeric', 'gt:0'],
-            'supervisor_identifier' => ['required', 'string', 'max:255'],
-            'supervisor_pin' => ['required', 'string', 'max:255'],
+            'approval_token' => ['nullable', 'string', 'max:100'],
         ];
     }
 }

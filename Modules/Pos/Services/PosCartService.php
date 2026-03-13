@@ -8,6 +8,8 @@ use DomainException;
 use InvalidArgumentException;
 use Modules\Pos\Entities\PosActionApprovalRequest;
 use Modules\Pos\Entities\PosCartLine;
+use Modules\Pos\Entities\PosSupervisorApproval;
+use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Events\PosCartUpdated;
 use Modules\Pos\Services\Exceptions\PosCartMutationException;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
@@ -25,7 +27,6 @@ class PosCartService
     public function __construct(
         private readonly PosCartSessionStore $cartSessionStore,
         private readonly PosCartTotalsCalculator $totalsCalculator,
-        private readonly PosSupervisorApprovalService $approvalService,
         private readonly PosCheckoutCustomerResolverService $customerResolver,
         private readonly PosCartActionAuthorizationService $actionAuthorizationService
     ) {
@@ -51,6 +52,7 @@ class PosCartService
         }
 
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
         [$product, $availableQty] = $this->resolveCartProduct($settingId, $productId);
 
         // Resolve conversion if provided
@@ -195,6 +197,7 @@ class PosCartService
     public function updateLine(int $settingId, int $sessionId, int $lineId, array $payload, ?string $approvalToken = null, ?User $user = null): array
     {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
 
         // Try to find line by line_id first
         $line = $cart['lines'][$lineId] ?? null;
@@ -270,6 +273,9 @@ class PosCartService
      */
     public function removeLine(int $settingId, int $sessionId, int $lineId, ?string $approvalToken = null, ?User $user = null): array
     {
+        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
+
         if ($user) {
             $this->actionAuthorizationService->authorize(
                 $user,
@@ -277,8 +283,6 @@ class PosCartService
                 $approvalToken
             );
         }
-
-        $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
 
         // Try to find line by line_id first
         $line = $cart['lines'][$lineId] ?? null;
@@ -318,6 +322,7 @@ class PosCartService
         float $billDiscountValue
     ): array {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
 
         $cart['bill_discount_type'] = $this->normalizeDiscountType($billDiscountType);
         $cart['bill_discount_value'] = round(max(0.0, $billDiscountValue), 2);
@@ -333,6 +338,7 @@ class PosCartService
     public function updateCustomerSelection(int $settingId, int $sessionId, ?int $customerId): array
     {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
 
         if ($customerId !== null) {
             $isValidCustomer = Customer::query()
@@ -426,14 +432,19 @@ class PosCartService
         int $requestedBy,
         int $lineId,
         float $unitPrice,
-        string $supervisorIdentifier,
-        string $supervisorPin
+        ?string $approvalToken = null,
+        ?User $user = null
     ): array {
         if ($unitPrice <= 0) {
             throw new DomainException('Unit price must be greater than zero.');
         }
 
+        if (! $user) {
+            throw new DomainException('Authentication is required.');
+        }
+
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
 
         // Try to find line by line_id first
         $line = $cart['lines'][$lineId] ?? null;
@@ -454,25 +465,43 @@ class PosCartService
             throw new DomainException('Cart line was not found.');
         }
 
-        $currentUnitPrice = (float) ($line['unit_price'] ?? 0);
-
-        $approval = $this->approvalService->approvePriceOverride(
-            $settingId,
-            $sessionId,
-            $requestedBy,
-            $supervisorIdentifier,
-            $supervisorPin,
-            $lineId,
-            $currentUnitPrice,
-            $unitPrice
+        $authorization = $this->actionAuthorizationService->authorize(
+            $user,
+            PosActionApprovalRequest::ACTION_PRICE_OVERRIDE,
+            $approvalToken
         );
 
-        if (! (bool) ($approval['approved'] ?? false)) {
-            throw new DomainException('Supervisor approval failed for price override.');
+        $approvedRequest = $authorization['request'];
+        $targetUnitPrice = round($unitPrice, 2);
+
+        if ($approvedRequest instanceof PosActionApprovalRequest) {
+            if ((int) $approvedRequest->target_id !== $lineId) {
+                throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
+            }
+
+            $requestedUnitPrice = round((float) ($approvedRequest->request_payload['unit_price'] ?? 0), 2);
+            if ($requestedUnitPrice <= 0) {
+                throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
+            }
+
+            $targetUnitPrice = $requestedUnitPrice;
+        } else {
+            $this->recordDirectPriceOverrideApproval(
+                $settingId,
+                $sessionId,
+                $requestedBy,
+                $lineId,
+                (float) ($line['unit_price'] ?? 0),
+                $targetUnitPrice
+            );
+        }
+
+        if ($targetUnitPrice <= 0) {
+            throw new DomainException('Unit price must be greater than zero.');
         }
 
         $cart['lines'][$lineId] = array_merge($line, [
-            'unit_price' => round($unitPrice, 2),
+            'unit_price' => $targetUnitPrice,
             'price_source' => 'OVERRIDE',
         ]);
 
@@ -488,6 +517,7 @@ class PosCartService
     public function assignSerials(int $settingId, int $sessionId, int $lineId, array $serialNumbers): array
     {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
 
         // Try to find line by line_id first
         $line = $cart['lines'][$lineId] ?? null;
@@ -595,6 +625,7 @@ class PosCartService
 
         // Check if we have a loaded transaction that would become empty
         $currentCart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $currentCart);
         $this->assertNotLastLineOfLoadedTransaction($currentCart, null);
 
         $cart = $this->cartSessionStore->emptyCart($settingId, $sessionId);
@@ -686,6 +717,59 @@ class PosCartService
         }
     }
 
+    private function assertActiveTransactionIsMutable(int $settingId, array $cart): void
+    {
+        $activeTransactionId = (int) ($cart['active_transaction_id'] ?? 0);
+        if ($activeTransactionId <= 0) {
+            return;
+        }
+
+        $status = PosTransaction::query()
+            ->where('setting_id', $settingId)
+            ->whereKey($activeTransactionId)
+            ->value('status');
+
+        if ($status === null) {
+            throw new PosCartMutationException(
+                'TRANSACTION_NOT_FOUND',
+                'Transaksi aktif tidak ditemukan.'
+            );
+        }
+
+        if ($status !== PosTransaction::STATUS_DRAFT && $status !== PosTransaction::STATUS_LOADED) {
+            throw new PosCartMutationException(
+                'TRANSACTION_FINALIZED',
+                'Transaksi yang sudah selesai tidak dapat diubah.'
+            );
+        }
+    }
+
+    private function recordDirectPriceOverrideApproval(
+        int $settingId,
+        int $sessionId,
+        int $requestedBy,
+        int $lineId,
+        float $fromUnitPrice,
+        float $toUnitPrice
+    ): void {
+        PosSupervisorApproval::query()->create([
+            'setting_id' => $settingId,
+            'action_type' => PosSupervisorApproval::ACTION_PRICE_OVERRIDE,
+            'target_type' => 'pos_session',
+            'target_id' => $sessionId,
+            'requested_by' => $requestedBy,
+            'approved_by' => $requestedBy,
+            'approval_result' => PosSupervisorApproval::RESULT_APPROVED,
+            'reason' => 'DIRECT_PERMISSION',
+            'context_snapshot' => [
+                'line_id' => $lineId,
+                'from_unit_price' => round($fromUnitPrice, 2),
+                'to_unit_price' => round($toUnitPrice, 2),
+            ],
+            'occurred_at' => now(),
+        ]);
+    }
+
     /**
      * @return array{0: Product, 1: int}
      */
@@ -746,6 +830,7 @@ class PosCartService
     public function appendSerial(int $settingId, int $sessionId, int $lineId, string $serialNumber): array
     {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
 
         // Try to find line by line_id first
         $line = $cart['lines'][$lineId] ?? null;
@@ -832,6 +917,7 @@ class PosCartService
     public function removeSerial(int $settingId, int $sessionId, int $lineId, string $serialNumber): array
     {
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
+        $this->assertActiveTransactionIsMutable($settingId, $cart);
 
         // Try to find line by line_id first
         $line = $cart['lines'][$lineId] ?? null;

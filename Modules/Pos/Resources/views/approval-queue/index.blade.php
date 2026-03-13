@@ -115,7 +115,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const actionLabels = {
         'CART_CLEAR': '<span class="badge bg-danger">Hapus Keranjang</span>',
         'LINE_REMOVE': '<span class="badge bg-warning text-dark">Hapus Baris Produk</span>',
-        'QTY_REDUCE': '<span class="badge bg-info text-dark">Kurangi Qty Produk</span>'
+        'QTY_REDUCE': '<span class="badge bg-info text-dark">Kurangi Qty Produk</span>',
+        'PRICE_OVERRIDE': '<span class="badge bg-primary">Ubah Harga Jual</span>'
     };
 
     const loadQueue = () => {
@@ -142,9 +143,15 @@ document.addEventListener('DOMContentLoaded', function () {
                     const tr = document.createElement('tr');
                     
                     let actionHtml = actionLabels[req.action_type] || req.action_type;
-                    let targetHtml = req.target_type === 'pos_session' 
-                        ? `Sesi #${req.target_id}` 
+                    let targetHtml = req.target_type === 'pos_session'
+                        ? `Sesi #${req.target_id}`
                         : `Cart Line #${req.target_id}`;
+
+                    if (req.action_type === 'PRICE_OVERRIDE') {
+                        const requestedPrice = Number(req.request_payload?.unit_price || 0);
+                        const reason = req.request_payload?.reason ? `<br><small class="text-muted">${req.request_payload.reason}</small>` : '';
+                        targetHtml = `Cart Line #${req.target_id}<br><small class="text-primary">Harga diminta: ${requestedPrice.toLocaleString('id-ID')}</small>${reason}`;
+                    }
 
                     tr.innerHTML = `
                         <td>${formatDate(req.created_at)}</td>

@@ -73,7 +73,7 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
         // Should reject when no customer selected
         $response->assertStatus(422)
             ->assertJsonPath('code', 'CUSTOMER_UNRESOLVED')
-            ->assertJsonPath('message', 'Customer selection is required');
+            ->assertJsonPath('message', 'Customer is not resolved for checkout.');
     }
 
     public function test_checkout_with_selected_customer_succeeds(): void
@@ -372,6 +372,16 @@ class POSCheckoutSelectedCustomerRequiredTest extends TestCase
                 'is_cash' => $isCash,
                 'requires_reference' => !$isCash,
             ]);
+
+            \Modules\Setting\Entities\SettingPosPaymentMethod::updateOrCreate(
+                [
+                    'setting_id' => $setting->id,
+                    'payment_method_id' => $methods[strtolower($name)]->id,
+                ],
+                [
+                    'is_enabled' => true,
+                ]
+            );
         }
 
         return $methods;

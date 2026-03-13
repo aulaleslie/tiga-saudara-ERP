@@ -15,14 +15,34 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label for="terminal_search">Terminal <span class="text-danger">*</span></label>
-                                <livewire:modules.pos.pos-terminal-search-dropdown
-                                    name="terminal_id"
-                                    placeholder="Pilih terminal..."
-                                    :selected="old('terminal_id')"
-                                    :error="$errors->first('terminal_id')"
-                                    wire:key="pos-terminal-dropdown"
-                                />
+                                <label for="terminal_search">
+                                    Terminal
+                                    @if(($requiresTerminalSelection ?? true) === true)
+                                        <span class="text-danger">*</span>
+                                    @else
+                                        <span class="text-muted small">(Opsional)</span>
+                                    @endif
+                                </label>
+                                @if(($requiresTerminalSelection ?? true) === true)
+                                    <livewire:modules.pos.pos-terminal-search-dropdown
+                                        name="terminal_id"
+                                        placeholder="Pilih terminal..."
+                                        :selected="old('terminal_id')"
+                                        :error="$errors->first('terminal_id')"
+                                        wire:key="pos-terminal-dropdown"
+                                    />
+                                @else
+                                    <livewire:modules.pos.pos-terminal-search-dropdown
+                                        name="terminal_id"
+                                        placeholder="Kosongkan untuk sesi non-terminal..."
+                                        :selected="old('terminal_id')"
+                                        :error="$errors->first('terminal_id')"
+                                        wire:key="pos-terminal-dropdown-optional"
+                                    />
+                                    <small class="text-muted">
+                                        Anda dapat membuka sesi tanpa memilih terminal.
+                                    </small>
+                                @endif
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -89,4 +109,3 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 @endpush
-

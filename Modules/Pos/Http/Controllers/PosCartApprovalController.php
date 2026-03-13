@@ -23,20 +23,32 @@ class PosCartApprovalController extends Controller
             'target_type' => 'required|string',
             'target_id'   => 'required|integer',
             'payload'     => 'nullable|array',
+            'reason'      => 'nullable|string|max:255',
         ]);
 
         $settingId = $this->currentSettingId();
         $sessionId = $this->activeSessionId($request);
 
-        $approvalRequest = $this->requestService->createRequest(
-            $settingId,
-            $sessionId,
-            $request->user(),
-            $request->input('action_type'),
-            $request->input('target_type'),
-            $request->input('target_id'),
-            $request->input('payload', [])
-        );
+        $payload = (array) $request->input('payload', []);
+        if ($request->filled('reason')) {
+            $payload['reason'] = $request->string('reason')->value();
+        }
+
+        try {
+            $approvalRequest = $this->requestService->createRequest(
+                $settingId,
+                $sessionId,
+                $request->user(),
+                $request->input('action_type'),
+                $request->input('target_type'),
+                $request->input('target_id'),
+                $payload
+            );
+        } catch (DomainException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
 
         return response()->json([
             'request_id' => $approvalRequest->id,

@@ -25,11 +25,12 @@ use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
 use Modules\Pos\Services\Exceptions\PosCartMutationException;
 use Modules\Pos\Services\PosReceiptService;
 use Modules\Pos\Services\PosPaymentMethodSearchService;
+use Modules\Pos\Services\PosRolePolicyService;
 use Modules\People\Entities\Customer;
 
 class PosSellController extends Controller
 {
-    public function index(Request $request): Renderable
+    public function index(Request $request, PosRolePolicyService $rolePolicyService): Renderable
     {
         $activeSession = $request->attributes->get('pos_active_session');
 
@@ -41,8 +42,14 @@ class PosSellController extends Controller
             'terminal:id,code,name',
         ]);
 
+        $user = $request->user();
+        if (! $user) {
+            abort(403, 'Authentication is required.');
+        }
+
         return view('pos::sell', [
             'activeSession' => $activeSession,
+            'roleCapabilities' => $rolePolicyService->capabilityFlags($user),
         ]);
     }
 
@@ -268,9 +275,14 @@ class PosSellController extends Controller
                 $requestedBy,
                 $lineId,
                 (float) $request->input('unit_price'),
-                (string) $request->input('supervisor_identifier'),
-                (string) $request->input('supervisor_pin')
+                $request->input('approval_token'),
+                $request->user()
             );
+        } catch (PosCartMutationException $exception) {
+            return response()->json([
+                'code' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+            ], $exception->httpStatus());
         } catch (DomainException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
@@ -459,7 +471,8 @@ class PosSellController extends Controller
 
     public function checkoutFinalize(
         StorePosCheckoutFinalizeRequest $request,
-        FinalizePosCheckoutService $finalizeService
+        FinalizePosCheckoutService $finalizeService,
+        PosRolePolicyService $rolePolicyService
     ): JsonResponse {
         $settingId = $this->currentSettingId();
         $activeSession = $request->attributes->get('pos_active_session');
@@ -471,6 +484,13 @@ class PosSellController extends Controller
 
         if (! $user) {
             abort(403, 'Authentication is required.');
+        }
+
+        if (! $rolePolicyService->canCheckout($user)) {
+            return response()->json([
+                'code' => 'CHECKOUT_NOT_ALLOWED',
+                'message' => 'Peran Anda tidak diizinkan menyelesaikan pembayaran.',
+            ], 403);
         }
 
         try {

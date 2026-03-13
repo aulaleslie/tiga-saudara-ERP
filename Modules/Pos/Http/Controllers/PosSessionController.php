@@ -17,6 +17,7 @@ use Modules\Pos\Services\PosSessionCloseService;
 use Modules\Pos\Services\PosSafeDropService;
 use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Pos\Services\PosSessionMonitorService;
+use Modules\Pos\Services\PosRolePolicyService;
 use Modules\Pos\Services\PosSessionSummaryService;
 use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\SettingPosPaymentMethod;
@@ -50,6 +51,11 @@ class PosSessionController extends Controller
     public function create(): Renderable|RedirectResponse
     {
         $settingId = $this->currentSettingId();
+        $user = auth()->user();
+
+        if (! $user) {
+            abort(403, 'Authentication is required.');
+        }
 
         $hasConfiguredSaleLocations = SettingSaleLocation::query()
             ->where('setting_id', $settingId)
@@ -80,18 +86,23 @@ class PosSessionController extends Controller
             ->orderBy('code')
             ->get();
 
-        return view('pos::session.open', compact('terminals'));
+        $rolePolicy = app(PosRolePolicyService::class);
+        $requiresTerminalSelection = $rolePolicy->requiresTerminalSelection($user);
+        $roleCapabilities = $rolePolicy->capabilityFlags($user);
+
+        return view('pos::session.open', compact('terminals', 'requiresTerminalSelection', 'roleCapabilities'));
     }
 
     public function store(StorePosSessionOpenRequest $request, PosSessionLifecycleService $sessionLifecycleService): RedirectResponse
     {
         $settingId = $this->currentSettingId();
         $cashierId = (int) auth()->id();
+        $terminalId = $request->filled('terminal_id') ? (int) $request->input('terminal_id') : null;
 
         try {
             $sessionLifecycleService->openSession(
                 $settingId,
-                (int) $request->input('terminal_id'),
+                $terminalId,
                 $cashierId,
                 (float) $request->input('opening_float_total'),
                 $request->input('opening_denominations'),
@@ -253,6 +264,10 @@ class PosSessionController extends Controller
         }
 
         if (str_contains($normalized, 'terminal')) {
+            return 'terminal_id';
+        }
+
+        if (str_contains($normalized, 'sesi pos aktif') || str_contains($normalized, 'session aktif')) {
             return 'terminal_id';
         }
 

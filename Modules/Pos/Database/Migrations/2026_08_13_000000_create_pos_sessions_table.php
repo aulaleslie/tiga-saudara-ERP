@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('pos_sessions', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('setting_id');
-            $table->unsignedBigInteger('terminal_id');
+            $table->unsignedBigInteger('terminal_id')->nullable();
             $table->unsignedBigInteger('cashier_user_id');
             $table->string('status', 20)->default('OPEN');
             $table->timestamp('opened_at')->nullable();

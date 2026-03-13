@@ -76,7 +76,7 @@ class POSSessionLifecycleTest extends TestCase
         ]);
     }
 
-    public function test_open_session_rejects_duplicate_active_session_for_same_cashier_and_terminal(): void
+    public function test_open_session_reuses_existing_active_session_for_same_user_and_terminal_context(): void
     {
         $setting = $this->createSetting('BIZ A');
         $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.view']);
@@ -85,12 +85,11 @@ class POSSessionLifecycleTest extends TestCase
 
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
-        $service->openSession($setting->id, $terminal->id, $user->id, 100000, ['100000' => 1], $user->id);
+        $first = $service->openSession($setting->id, $terminal->id, $user->id, 100000, ['100000' => 1], $user->id);
+        $second = $service->openSession($setting->id, $terminal->id, $user->id, 100000, ['100000' => 1], $user->id);
 
-        $this->expectException(DomainException::class);
-        $this->expectExceptionMessage('active POS session');
-
-        $service->openSession($setting->id, $terminal->id, $user->id, 100000, ['100000' => 1], $user->id);
+        $this->assertSame((int) $first->id, (int) $second->id);
+        $this->assertDatabaseCount('pos_sessions', 1);
     }
 
     public function test_session_lifecycle_allows_open_to_closing_to_closed_only(): void

@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Services;
 
+use App\Models\User;
 use DomainException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -15,13 +16,14 @@ class PosSessionLifecycleService
 {
     public function __construct(
         private readonly PosTerminalRuntimeResolver $terminalResolver,
-        private readonly PosCashDrawerService $cashDrawerService
+        private readonly PosCashDrawerService $cashDrawerService,
+        private readonly PosRolePolicyService $rolePolicyService
     ) {
     }
 
     public function openSession(
         int $settingId,
-        int $terminalId,
+        ?int $terminalId,
         int $cashierUserId,
         float $openingFloatTotal,
         ?array $openingDenominations = null,
@@ -39,6 +41,20 @@ class PosSessionLifecycleService
             $notes,
             $metadata
         ) {
+            $cashier = User::query()->find($cashierUserId);
+            if (! $cashier) {
+                throw new DomainException('Cashier user was not found.');
+            }
+
+            $normalizedTerminalId = $terminalId !== null && $terminalId > 0
+                ? (int) $terminalId
+                : null;
+
+            $requiresTerminalSelection = $this->rolePolicyService->requiresTerminalSelection($cashier);
+            if ($requiresTerminalSelection && $normalizedTerminalId === null) {
+                throw new DomainException('Terminal selection is required for cashier sessions.');
+            }
+
             $hasConfiguredSaleLocations = SettingSaleLocation::query()
                 ->where('setting_id', $settingId)
                 ->where('is_enabled', true)
@@ -57,31 +73,69 @@ class PosSessionLifecycleService
                 throw new DomainException('Configure at least one payment method before opening a POS session.');
             }
 
-            $terminal = $this->terminalResolver->resolveForSessionOpen($settingId, $terminalId);
-
-            if ($terminal->policy->cash_threshold === null) {
-                throw new DomainException('Terminal policy not configured: cash_threshold is missing.');
-            }
-
             $openingTotal = round($openingFloatTotal, 2);
 
             if ($openingTotal <= 0) {
                 throw new DomainException('Opening float total must be greater than zero.');
             }
 
-            if ($openingTotal <= (float) $terminal->policy->cash_threshold) {
-                throw new DomainException('Opening float total must be greater than terminal cash threshold.');
-            }
-
-            $existingSession = PosSession::query()
+            $activeSessionForUser = PosSession::query()
                 ->where('setting_id', $settingId)
-                ->where('terminal_id', $terminalId)
+                ->where('cashier_user_id', $cashierUserId)
                 ->active()
                 ->lockForUpdate()
                 ->first();
 
-            if ($existingSession) {
-                throw new DomainException('An active POS session already exists for this terminal.');
+            if ($activeSessionForUser) {
+                $existingTerminalId = $activeSessionForUser->terminal_id !== null
+                    ? (int) $activeSessionForUser->terminal_id
+                    : null;
+
+                if ($existingTerminalId === $normalizedTerminalId) {
+                    return $activeSessionForUser;
+                }
+
+                $activeSessionForUser->loadMissing('terminal:id,code,name');
+                $terminalContext = $activeSessionForUser->terminal
+                    ? ($activeSessionForUser->terminal->code . ' (' . $activeSessionForUser->terminal->name . ')')
+                    : 'tanpa terminal';
+
+                throw new DomainException(
+                    "Anda sudah memiliki sesi POS aktif #{$activeSessionForUser->id} pada {$terminalContext}. " .
+                    'Lanjutkan sesi aktif atau tutup sesi tersebut terlebih dahulu.'
+                );
+            }
+
+            $terminal = null;
+
+            if ($normalizedTerminalId !== null) {
+                $terminal = $this->terminalResolver->resolveForSessionOpen($settingId, $normalizedTerminalId);
+
+                if ($terminal->policy->cash_threshold === null) {
+                    throw new DomainException('Terminal policy not configured: cash_threshold is missing.');
+                }
+
+                if ($openingTotal <= (float) $terminal->policy->cash_threshold) {
+                    throw new DomainException('Opening float total must be greater than terminal cash threshold.');
+                }
+
+                $activeSessionForTerminal = PosSession::query()
+                    ->where('setting_id', $settingId)
+                    ->where('terminal_id', $normalizedTerminalId)
+                    ->active()
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($activeSessionForTerminal) {
+                    $activeSessionForTerminal->loadMissing('cashier:id,name');
+                    $ownerName = $activeSessionForTerminal->cashier?->name ?? 'pengguna lain';
+                    $terminalLabel = $terminal->code . ' (' . $terminal->name . ')';
+
+                    throw new DomainException(
+                        "Terminal {$terminalLabel} sedang digunakan oleh {$ownerName} " .
+                        "(sesi #{$activeSessionForTerminal->id}). Pilih terminal lain atau tutup sesi tersebut."
+                    );
+                }
             }
 
             $openedByUserId = $openedBy ?: $cashierUserId;
@@ -89,7 +143,7 @@ class PosSessionLifecycleService
             try {
                 $session = PosSession::query()->create([
                     'setting_id' => $settingId,
-                    'terminal_id' => $terminalId,
+                    'terminal_id' => $normalizedTerminalId,
                     'cashier_user_id' => $cashierUserId,
                     'status' => PosSession::STATUS_OPEN,
                     'opened_at' => now(),
@@ -113,20 +167,23 @@ class PosSessionLifecycleService
                     'occurred_at' => now(),
                 ]);
 
-                $this->cashDrawerService->triggerDrawerOpen(
-                    PosCashDrawerService::TRIGGER_SESSION_OPEN,
-                    $terminalId,
-                    $settingId,
-                    [
-                        'pos_session_id' => $session->id,
-                        'cash_event_id' => $cashEvent->id,
-                    ]
-                );
+                if ($normalizedTerminalId !== null) {
+                    $this->cashDrawerService->triggerDrawerOpen(
+                        PosCashDrawerService::TRIGGER_SESSION_OPEN,
+                        $normalizedTerminalId,
+                        $settingId,
+                        [
+                            'pos_session_id' => $session->id,
+                            'cash_event_id' => $cashEvent->id,
+                        ],
+                        $terminal
+                    );
+                }
 
                 return $session;
             } catch (QueryException $exception) {
                 if ($this->isUniqueConstraintViolation($exception)) {
-                    throw new DomainException('An active POS session already exists for this terminal.');
+                    throw new DomainException('Konflik sesi POS aktif terdeteksi. Muat ulang halaman lalu coba lagi.');
                 }
 
                 throw $exception;
