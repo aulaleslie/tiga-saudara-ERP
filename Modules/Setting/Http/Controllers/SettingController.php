@@ -49,6 +49,7 @@ class SettingController extends Controller
             'purchase_return_prefix_document' => $request->purchase_return_prefix_document,
             'sale_return_prefix_document' => $request->sale_return_prefix_document,
             'pos_enabled'              => $request->boolean('pos_enabled'),
+            'pos_transactions_enabled' => $request->boolean('pos_enabled') && $request->boolean('pos_transactions_enabled'),
             'pos_walk_in_customer_id'  => $request->input('pos_walk_in_customer_id') !== null
                 ? (int) $request->input('pos_walk_in_customer_id')
                 : null,
@@ -96,6 +97,7 @@ class SettingController extends Controller
                 'purchase_return_prefix_document',
                 'sale_return_prefix_document',
                 'pos_enabled',
+                'pos_transactions_enabled',
                 'pos_walk_in_customer_id',
             ];
 
@@ -127,7 +129,7 @@ class SettingController extends Controller
         }
 
         // Bust cache and finish
-        cache()->forget('settings');
+        cache()->forget('settings_' . $setting->id);
         toast('Settings Updated!', 'info');
 
         return redirect()->route('settings.index');

@@ -172,7 +172,10 @@ class BusinessController extends Controller
             $userSettings = auth()->user()->settings()->orderBy('id')->get();
         }
         session(['user_settings' => $userSettings]);
-
+        
+        // Bust settings cache
+        cache()->forget('settings_' . $business->id);
+ 
         toast('Informasi Bisnis Telah Berhasil Diubah!', 'info');
         return redirect()->route('businesses.index');
     }

@@ -1,12 +1,12 @@
 @php use Modules\Currency\Entities\Currency; @endphp
 @extends('layouts.app')
 
-@section('title', 'Ubah Pengaturan Perusahaan')
+@section('title', 'Pengaturan Bisnis')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item active">Settings</li>
+        <li class="breadcrumb-item active">Pengaturan</li>
     </ol>
 @endsection
 
@@ -115,6 +115,14 @@
                                                 Izinkan akses modul POS untuk bisnis ini.
                                             </label>
                                         </div>
+
+                                        <div class="form-check mt-2" id="pos_transactions_wrapper" style="display: {{ old('pos_enabled', (bool) ($settings->pos_enabled ?? false)) ? 'block' : 'none' }};">
+                                            <input class="form-check-input" type="checkbox" id="pos_transactions_enabled" name="pos_transactions_enabled" value="1"
+                                                   {{ old('pos_transactions_enabled', (bool) ($settings->pos_transactions_enabled ?? false)) ? 'checked' : '' }}>
+                                            <label class="form-check-label" for="pos_transactions_enabled">
+                                                Aktifkan Transaksi POS (Simpan & Buka Baru)
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
@@ -169,6 +177,24 @@
             initFormSubmissionLock('settings-update-form', {
                 errorEventName: 'settings:submit-error'
             });
+
+            // Toggle POS Transactions based on POS enabled
+            const posEnabled = document.getElementById('pos_enabled');
+            const posTransactionsWrapper = document.getElementById('pos_transactions_wrapper');
+            const posTransactionsEnabled = document.getElementById('pos_transactions_enabled');
+
+            if (posEnabled && posTransactionsWrapper) {
+                posEnabled.addEventListener('change', function() {
+                    if (this.checked) {
+                        posTransactionsWrapper.style.display = 'block';
+                    } else {
+                        posTransactionsWrapper.style.display = 'none';
+                        if (posTransactionsEnabled) {
+                            posTransactionsEnabled.checked = false;
+                        }
+                    }
+                });
+            }
         });
     </script>
 @endpush
