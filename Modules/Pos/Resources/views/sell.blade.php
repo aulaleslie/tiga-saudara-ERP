@@ -1663,26 +1663,30 @@
                         const assignedCount = Array.isArray(line.assigned_serials) ? line.assigned_serials.length : 0;
                         return assignedCount === line.qty;
                     });
-
-                const canCheckout = hasItems && grandTotal > 0 && hasCustomer && allPricesValid && allSerialsValid;
-
-                if (btnCheckout) {
-                    btnCheckout.disabled = !canCheckout;
-                }
-            }
-
-            async function refreshCart() {
-                try {
-                    const response = await jsonRequest(cartShowEndpoint, 'GET');
-                    if (!response) {
-                        return;
-                    }
-
-                    renderCart(response.cart_snapshot || null);
-                } catch (error) {
-                    setCartStatus(error.message || 'Gagal memuat keranjang.', 'text-danger');
-                }
-            }
+ 
+                 const canCheckout = hasItems && grandTotal > 0 && hasCustomer && allPricesValid && allSerialsValid;
+ 
+                 if (btnCheckout) {
+                     btnCheckout.disabled = !canCheckout;
+                 }
+ 
+                 if (saveDraftButton) {
+                     saveDraftButton.disabled = !canCheckout;
+                 }
+             }
+ 
+             async function refreshCart() {
+                 try {
+                     const response = await jsonRequest(cartShowEndpoint, 'GET');
+                     if (!response) {
+                         return;
+                     }
+ 
+                     renderCart(response.cart_snapshot || null);
+                 } catch (error) {
+                     setCartStatus(error.message || 'Gagal memuat keranjang.', 'text-danger');
+                 }
+             }
 
             // Phase 3A: Handle serial scan result - append serial to cart line
             async function handleSerialScanResult(result) {
