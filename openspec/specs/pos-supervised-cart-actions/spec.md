@@ -71,12 +71,20 @@ Users with supervisory approval permission SHALL be able to review, approve, and
 - **WHEN** a supervisor rejects a pending request from queue
 - **THEN** the request status MUST become rejected and MUST prevent the requested mutation from executing
 
-### Requirement: Super Admins MUST Be Able To Clear Cart Regardless Of Transaction State
-The POS system SHALL allow users with Super Admin authority to execute the `clear cart` action even when an active transaction is loaded, effectively unloading the transaction while emptying the cart session.
+### Requirement: Authorized Users MUST Be Able To Clear Cart Regardless Of Transaction State
+The POS system SHALL allow users with Super Admin authority or users with direct `pos.cart.clear` permission to execute the `clear cart` action even when an active transaction is loaded. This action SHALL unload the transaction (reverting status to DRAFT) while emptying the cart session.
 
 #### Scenario: Super Admin clears cart with loaded transaction
 - **WHEN** a Super Admin user attempts to clear the cart while an active transaction is loaded
-- **THEN** the system MUST unload the transaction and MUST clear the cart immediately without returning a `TRANSACTION_EMPTY_BLOCKED` error
+- **THEN** the system MUST unload the transaction (status reverts to DRAFT), MUST clear the cart immediately, and MUST NOT return a `TRANSACTION_EMPTY_BLOCKED` error
+
+#### Scenario: Authorized user clears cart with loaded transaction
+- **WHEN** a user with direct `pos.cart.clear` permission attempts to clear the cart while an active transaction is loaded
+- **THEN** the system MUST unload the transaction (status reverts to DRAFT), MUST clear the cart immediately, and MUST NOT return a `TRANSACTION_EMPTY_BLOCKED` error
+
+#### Scenario: Non-authorized user is still blocked from clearing loaded transaction
+- **WHEN** a user without `pos.cart.clear` permission attempts to clear the cart while an active transaction is loaded
+- **THEN** the system MUST return a `TRANSACTION_EMPTY_BLOCKED` error and MUST NOT unload the transaction or clear the cart
 
 ### Requirement: Cart Clear Action UI MUST Maintain Label Consistency
 The POS UI SHALL ensure that the "Kosongkan Keranjang" button maintains its intended label during and after action cycles, correctly resetting to its original text upon failure or completion.

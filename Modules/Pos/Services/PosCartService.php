@@ -627,8 +627,11 @@ class PosCartService
         $currentCart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $currentCart);
 
-        if (! $user?->isSuperAdmin()) {
-            $this->assertNotLastLineOfLoadedTransaction($currentCart, null);
+        // For loaded transactions, clearing means "unloading" (status reverts to DRAFT).
+        // This is now allowed for any user authorized to clear the cart.
+        $activeTransactionId = $currentCart['active_transaction_id'] ?? null;
+        if ($activeTransactionId) {
+            app(\Modules\Pos\Services\PosTransactionService::class)->unload($settingId, (int) $activeTransactionId);
         }
 
         $cart = $this->cartSessionStore->emptyCart($settingId, $sessionId);

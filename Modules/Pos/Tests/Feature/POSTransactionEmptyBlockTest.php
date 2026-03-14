@@ -46,7 +46,7 @@ class POSTransactionEmptyBlockTest extends PosTransactionFeatureTestCase
         ]);
     }
 
-    public function test_clear_cart_with_loaded_transaction_is_blocked(): void
+    public function test_clear_cart_with_loaded_transaction_is_now_allowed_and_unloads(): void
     {
         $setting = $this->createSetting('BIZ POS TXN EMPTY CLEAR');
         [$terminal, $location] = $this->createTerminalWithLocation($setting);
@@ -72,9 +72,13 @@ class POSTransactionEmptyBlockTest extends PosTransactionFeatureTestCase
             ->assertOk();
 
         $this->deleteJson(route('pos.sell.cart.clear'))
-            ->assertStatus(422)
-            ->assertJsonPath('code', 'TRANSACTION_EMPTY_BLOCKED')
-            ->assertJsonPath('message', 'Transaksi yang dimuat tidak dapat dikosongkan.');
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.active_transaction_id', null);
+
+        $this->assertDatabaseHas('pos_transactions', [
+            'id' => $transactionId,
+            'status' => PosTransaction::STATUS_DRAFT,
+        ]);
     }
 
     public function test_remove_non_last_line_of_loaded_transaction_succeeds(): void

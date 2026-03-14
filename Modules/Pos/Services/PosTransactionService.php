@@ -277,6 +277,22 @@ class PosTransactionService
     }
 
     /**
+     * Revert a LOADED transaction back to DRAFT status.
+     * Called when a loaded transaction is cleared from the cart (unloaded).
+     */
+    public function unload(int $settingId, int $transactionId): void
+    {
+        $transaction = PosTransaction::query()
+            ->where('setting_id', $settingId)
+            ->whereKey($transactionId)
+            ->first();
+
+        if ($transaction && $transaction->status === PosTransaction::STATUS_LOADED) {
+            $transaction->update(['status' => PosTransaction::STATUS_DRAFT]);
+        }
+    }
+
+    /**
      * Ensure checkout completion is always represented in POS transaction history.
      * If cart comes from loaded draft, update that transaction; otherwise create a completed transaction.
      *
