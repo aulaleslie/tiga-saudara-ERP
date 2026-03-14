@@ -366,7 +366,22 @@
         padding-bottom: 0.18rem;
     }
 
+    /* Quantity Reduction Button */
+    .pos-qty-reduce-btn {
+        padding: 0.25rem 0.4rem;
+        font-size: 0.8rem;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 28px;
+        min-height: 28px;
+        white-space: nowrap;
+    }
 
+    .pos-qty-reduce-btn .bi {
+        font-size: 0.9rem;
+    }
 
     .pos-customer-shell {
         height: 100%;
@@ -1091,6 +1106,41 @@
         </div>
     </div>
 
+    <!-- Quantity Reduction Modal (Non-Privileged Users) -->
+    <div class="modal fade" id="pos-reduce-quantity-modal" tabindex="-1" role="dialog" aria-labelledby="pos-reduce-quantity-modal-label" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-md modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="pos-reduce-quantity-modal-label">Kurangi Jumlah</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Tutup">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group mb-3">
+                        <label class="small font-weight-bold">Jumlah Saat Ini:</label>
+                        <div id="pos-reduce-qty-current" class="form-control-plaintext font-weight-bold text-primary" style="font-size: 1.25rem;"></div>
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label for="pos-reduce-qty-new" class="small font-weight-bold">Jumlah Baru:</label>
+                        <input id="pos-reduce-qty-new" type="number" class="form-control" min="1" max="1" value="1">
+                        <small id="pos-reduce-qty-error" class="form-text text-danger" style="display: none;"></small>
+                    </div>
+
+                    <div class="form-group mb-0">
+                        <label for="pos-reduce-qty-reason" class="small font-weight-bold">Alasan (Opsional):</label>
+                        <textarea id="pos-reduce-qty-reason" class="form-control" rows="3" placeholder="Tulis alasan pengurangan..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                    <button type="button" id="pos-reduce-qty-submit" class="btn btn-primary" disabled>Minta Persetujuan</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 @push('page_scripts')
     <script>
         (function () {
@@ -1164,6 +1214,16 @@
             const serialModalStatus = document.getElementById('pos-serial-modal-status');
             const serialModalList = document.getElementById('pos-serial-modal-list');
 
+            // Quantity Reduction Modal elements
+            const reduceQuantityModal = document.getElementById('pos-reduce-quantity-modal');
+            const reduceQtyCurrent = document.getElementById('pos-reduce-qty-current');
+            const reduceQtyNewInput = document.getElementById('pos-reduce-qty-new');
+            const reduceQtyError = document.getElementById('pos-reduce-qty-error');
+            const reduceQtyReason = document.getElementById('pos-reduce-qty-reason');
+            const reduceQtySubmit = document.getElementById('pos-reduce-qty-submit');
+            let pendingReduceLineId = null;
+            let pendingReduceCurrentQty = null;
+
             const searchEndpoint = @json(route('pos.sell.products.search'));
             const scanResolveEndpoint = @json(url('/pos/sell/search/resolve'));
             const customerSearchEndpoint = @json(route('pos.sell.customers.search'));
@@ -1179,6 +1239,7 @@
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             const roleCapabilities = @json($roleCapabilities ?? []);
             const canCheckoutByRole = Boolean(roleCapabilities && roleCapabilities.can_checkout !== false);
+            const canReduceQuantity = Boolean(roleCapabilities && roleCapabilities.can_reduce_quantity !== false);
 
             if (!searchInput || !statusElement || !cartBody || !searchEndpoint || !cartShowEndpoint) {
                 return;
@@ -1639,7 +1700,9 @@
                 const priceValid = line.price_valid !== false;
                 const priceError = escapeHtml(line.price_error || '');
 
-                // Phase 3B: Different rendering for serial vs non-serial lines
+                // Pattern 1: Privilege-based quantity control rendering
+                // For non-privileged users: increment-only input + reduce button
+                // For privileged users: standard editable qty input
                 let qtyCell = '';
                 if (line.serial_number_required === true) {
                     // Serial line: editable qty + serial management
@@ -1651,41 +1714,105 @@
                         </div>
                     `).join('');
 
-                    qtyCell = `
-                        <td class="pos-cart-serial-cell align-middle" style="min-width: 200px;">
-                            <div class="d-flex align-items-center flex-wrap" style="gap: 12px;">
-                                <div class="d-flex flex-column align-items-center" style="gap: 2px;">
-                                    <div class="d-flex align-items-center" style="gap: 4px;">
-                                        <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty" 
-                                               type="number" min="1" value="${qty}" data-prev-qty="${qty}"
-                                               style="width: 55px;">
-                                        <button type="button"
-                                                class="btn btn-sm btn-outline-info js-serial-add pos-serial-action"
-                                                data-line-id="${lineId}"
-                                                data-product-name="${productName}"
-                                                title="Atur Serial"
-                                                aria-label="Atur Serial">
-                                            <i class="bi bi-upc-scan" aria-hidden="true"></i>
-                                            <span class="pos-serial-action-label">Serial</span>
-                                        </button>
+                    // For privileged users: full qty control with serial button
+                    if (canReduceQuantity) {
+                        qtyCell = `
+                            <td class="pos-cart-serial-cell align-middle" style="min-width: 200px;">
+                                <div class="d-flex align-items-center flex-wrap" style="gap: 12px;">
+                                    <div class="d-flex flex-column align-items-center" style="gap: 2px;">
+                                        <div class="d-flex align-items-center" style="gap: 4px;">
+                                            <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
+                                                   type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                                   style="width: 55px;">
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-info js-serial-add pos-serial-action"
+                                                    data-line-id="${lineId}"
+                                                    data-product-name="${productName}"
+                                                    title="Atur Serial"
+                                                    aria-label="Atur Serial">
+                                                <i class="bi bi-upc-scan" aria-hidden="true"></i>
+                                                <span class="pos-serial-action-label">Serial</span>
+                                            </button>
+                                        </div>
+                                        <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
                                     </div>
-                                    <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
+                                    <div class="pos-serial-wrapper flex-grow-1">
+                                        ${serialChips}
+                                    </div>
                                 </div>
-                                <div class="pos-serial-wrapper flex-grow-1">
-                                    ${serialChips}
+                            </td>
+                        `;
+                    } else {
+                        // For non-privileged users: qty input + serial button + reduce button
+                        qtyCell = `
+                            <td class="pos-cart-serial-cell align-middle" style="min-width: 200px;">
+                                <div class="d-flex align-items-center flex-wrap" style="gap: 12px;">
+                                    <div class="d-flex flex-column align-items-center" style="gap: 2px;">
+                                        <div class="d-flex align-items-center" style="gap: 4px;">
+                                            <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
+                                                   type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                                   data-can-reduce="${canReduceQuantity}"
+                                                   style="width: 55px;">
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-info js-serial-add pos-serial-action"
+                                                    data-line-id="${lineId}"
+                                                    data-product-name="${productName}"
+                                                    title="Atur Serial"
+                                                    aria-label="Atur Serial">
+                                                <i class="bi bi-upc-scan" aria-hidden="true"></i>
+                                                <span class="pos-serial-action-label">Serial</span>
+                                            </button>
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn"
+                                                    data-line-id="${lineId}"
+                                                    data-current-qty="${qty}"
+                                                    title="Kurangi Jumlah"
+                                                    aria-label="Kurangi Jumlah">
+                                                <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                                            </button>
+                                        </div>
+                                        <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
+                                    </div>
+                                    <div class="pos-serial-wrapper flex-grow-1">
+                                        ${serialChips}
+                                    </div>
                                 </div>
-                            </div>
-                        </td>
-                    `;
+                            </td>
+                        `;
+                    }
                 } else {
-                    // Non-serial line: editable qty input (no serial controls)
-                    qtyCell = `
-                        <td class="text-center align-middle">
-                            <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty" 
-                                   type="number" min="1" value="${qty}" data-prev-qty="${qty}"
-                                   style="width: 60px;">
-                        </td>
-                    `;
+                    // Non-serial line
+                    if (canReduceQuantity) {
+                        // Privileged: standard editable qty input
+                        qtyCell = `
+                            <td class="text-center align-middle">
+                                <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
+                                       type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                       data-can-reduce="${canReduceQuantity}"
+                                       style="width: 60px;">
+                            </td>
+                        `;
+                    } else {
+                        // Non-privileged: qty input + reduce button
+                        qtyCell = `
+                            <td class="text-center align-middle">
+                                <div class="d-flex align-items-center justify-content-center" style="gap: 4px;">
+                                    <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
+                                           type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                           data-can-reduce="${canReduceQuantity}"
+                                           style="width: 60px;">
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn"
+                                            data-line-id="${lineId}"
+                                            data-current-qty="${qty}"
+                                            title="Kurangi Jumlah"
+                                            aria-label="Kurangi Jumlah">
+                                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        `;
+                    }
                 }
 
                 // Phase 3B: Price validity indicator
@@ -2546,6 +2673,7 @@
                 const lineId = Number(row.getAttribute('data-line-id'));
                 const newQty = Number(qtyInput.value || 0);
                 const prevQty = Number(qtyInput.getAttribute('data-prev-qty') || 0);
+                const userCanReduce = canReduceQuantity; // Privilege check
 
                 if (!Number.isFinite(newQty) || newQty < 1) {
                     qtyInput.value = prevQty;
@@ -2554,6 +2682,14 @@
                 }
 
                 if (newQty === prevQty) {
+                    return;
+                }
+
+                // Pattern 1: For non-privileged users, prevent direct reduction via input
+                if (!userCanReduce && newQty < prevQty) {
+                    qtyInput.value = prevQty;
+                    qtyInput.setAttribute('data-prev-qty', String(prevQty));
+                    setCartStatus('Gunakan tombol Kurangi untuk mengurangi jumlah.', 'text-warning', true);
                     return;
                 }
 
@@ -2571,6 +2707,8 @@
                 };
 
                 try {
+                    // For privileged users: reduction triggers approval workflow
+                    // For non-privileged users: only increases reach here (decreases are blocked above)
                     if (newQty < prevQty) {
                         const executed = await ApprovalManager.wrapAction(
                             qtyInput,
@@ -2586,7 +2724,9 @@
                             qtyInput.setAttribute('data-prev-qty', String(prevQty));
                         }
                     } else {
+                        // Increase: apply immediately without approval
                         await applyQtyUpdate(null);
+                        qtyInput.setAttribute('data-prev-qty', String(newQty));
                     }
                 } catch (error) {
                     qtyInput.value = prevQty;
@@ -2618,6 +2758,38 @@
                         }
                     });
                 }
+
+                // Handle Reduce Quantity button click (non-privileged users only)
+                if (button.classList.contains('js-reduce-qty')) {
+                    const currentQty = Number(button.getAttribute('data-current-qty') || 0);
+                    if (currentQty < 1) {
+                        setCartStatus('Jumlah saat ini tidak valid.', 'text-danger', true);
+                        return;
+                    }
+
+                    pendingReduceLineId = lineId;
+                    pendingReduceCurrentQty = currentQty;
+
+                    // Reset modal
+                    if (reduceQtyCurrent) reduceQtyCurrent.textContent = currentQty;
+                    if (reduceQtyNewInput) {
+                        reduceQtyNewInput.min = 1;
+                        reduceQtyNewInput.max = currentQty - 1;
+                        reduceQtyNewInput.value = Math.max(1, currentQty - 1);
+                    }
+                    if (reduceQtyReason) reduceQtyReason.value = '';
+                    if (reduceQtyError) {
+                        reduceQtyError.textContent = '';
+                        reduceQtyError.style.display = 'none';
+                    }
+                    if (reduceQtySubmit) reduceQtySubmit.disabled = false;
+
+                    // Open modal
+                    if (reduceQuantityModal) {
+                        $(reduceQuantityModal).modal('show');
+                    }
+                    return;
+                }
             });
 
             // Phase 3B: Add serial chip event handlers
@@ -2646,6 +2818,101 @@
                     return;
                 }
             });
+
+            // Quantity Reduction Modal validation and submission
+            if (reduceQtyNewInput) {
+                reduceQtyNewInput.addEventListener('input', function () {
+                    const newQty = Number(this.value || 0);
+                    const maxQty = pendingReduceCurrentQty ? (pendingReduceCurrentQty - 1) : 0;
+
+                    if (!Number.isFinite(newQty) || newQty < 1) {
+                        if (reduceQtyError) {
+                            reduceQtyError.textContent = `Jumlah harus minimal 1.`;
+                            reduceQtyError.style.display = 'block';
+                        }
+                        if (reduceQtySubmit) reduceQtySubmit.disabled = true;
+                    } else if (newQty > maxQty) {
+                        if (reduceQtyError) {
+                            reduceQtyError.textContent = `Jumlah harus kurang dari ${pendingReduceCurrentQty}.`;
+                            reduceQtyError.style.display = 'block';
+                        }
+                        if (reduceQtySubmit) reduceQtySubmit.disabled = true;
+                    } else {
+                        if (reduceQtyError) {
+                            reduceQtyError.textContent = '';
+                            reduceQtyError.style.display = 'none';
+                        }
+                        if (reduceQtySubmit) reduceQtySubmit.disabled = false;
+                    }
+                });
+            }
+
+            if (reduceQtySubmit) {
+                reduceQtySubmit.addEventListener('click', async function () {
+                    if (!Number.isFinite(pendingReduceLineId) || pendingReduceLineId <= 0) {
+                        setCartStatus('Baris keranjang tidak valid.', 'text-danger', true);
+                        if (reduceQuantityModal) $(reduceQuantityModal).modal('hide');
+                        return;
+                    }
+
+                    const newQty = Number(reduceQtyNewInput ? reduceQtyNewInput.value : 0);
+                    const reason = reduceQtyReason ? reduceQtyReason.value.trim() || null : null;
+
+                    if (!Number.isFinite(newQty) || newQty < 1 || newQty >= pendingReduceCurrentQty) {
+                        if (reduceQtyError) {
+                            reduceQtyError.textContent = 'Input jumlah tidak valid.';
+                            reduceQtyError.style.display = 'block';
+                        }
+                        return;
+                    }
+
+                    // Close modal before submitting
+                    if (reduceQuantityModal) $(reduceQuantityModal).modal('hide');
+
+                    // Call ApprovalManager with reduction request
+                    const applyQtyUpdate = async (token) => {
+                        const payload = { qty: newQty };
+                        if (token) payload.approval_token = token;
+
+                        const response = await jsonRequest(getLineEndpoint(pendingReduceLineId), 'PATCH', payload);
+                        if (!response) {
+                            throw new Error('Gagal memperbarui qty.');
+                        }
+
+                        renderCart(response.cart_snapshot || null);
+                        setCartStatus('Qty berhasil diperbarui.', 'text-success');
+                    };
+
+                    try {
+                        await ApprovalManager.wrapAction(
+                            reduceQtySubmit,
+                            'Minta Persetujuan',
+                            'QTY_REDUCE',
+                            'pos_cart_line',
+                            pendingReduceLineId,
+                            { qty: newQty, reason: reason },
+                            applyQtyUpdate
+                        );
+                    } catch (error) {
+                        setCartStatus(error.message || 'Gagal memproses permintaan pengurangan.', 'text-danger', true);
+                    } finally {
+                        pendingReduceLineId = null;
+                        pendingReduceCurrentQty = null;
+                    }
+                });
+            }
+
+            // Handle modal close/reset
+            if (reduceQuantityModal) {
+                reduceQuantityModal.addEventListener('hidden.bs.modal', function () {
+                    pendingReduceLineId = null;
+                    pendingReduceCurrentQty = null;
+                    if (reduceQtyError) {
+                        reduceQtyError.textContent = '';
+                        reduceQtyError.style.display = 'none';
+                    }
+                });
+            }
 
             function generateIdempotencyKey() {
                 return 'pos-' + Date.now() + '-' + Math.random().toString(36).substring(2, 15);

@@ -223,6 +223,9 @@ class PosCartService
             throw new DomainException('Quantity must be at least 1.');
         }
 
+        // Backend validation: Enforce quantity reduction approval for non-privileged users
+        // The frontend prevents direct reduction via input for non-privileged users,
+        // but this backend check ensures defense-in-depth against API manipulation.
         if ($qty < (int) $line['qty']) {
             if ($user) {
                 $this->actionAuthorizationService->authorize(
