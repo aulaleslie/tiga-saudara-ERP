@@ -290,11 +290,11 @@ document.addEventListener('DOMContentLoaded', function () {
             console.log('Approve success:', data);
             hideApproveModal();
             loadQueue();
-            alert('Persetujuan berhasil disimpan.');
+            showToast('Persetujuan berhasil disimpan.', 'success');
         })
         .catch(err => {
             console.error('Approve catch:', err);
-            alert('Gagal menyetujui: ' + err.message);
+            showToast('Gagal menyetujui: ' + err.message, 'error');
         })
         .finally(() => {
             btn.disabled = false;
@@ -330,10 +330,10 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(() => {
             hideRejectModal();
             loadQueue();
-            alert('Penolakan berhasil disimpan.');
+            showToast('Penolakan berhasil disimpan.', 'success');
         })
         .catch(err => {
-            alert('Gagal menolak: ' + err.message);
+            showToast('Gagal menolak: ' + err.message, 'error');
         })
         .finally(() => {
             btn.disabled = false;
