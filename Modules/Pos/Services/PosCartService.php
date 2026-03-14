@@ -626,7 +626,10 @@ class PosCartService
         // Check if we have a loaded transaction that would become empty
         $currentCart = $this->cartSessionStore->getCart($settingId, $sessionId);
         $this->assertActiveTransactionIsMutable($settingId, $currentCart);
-        $this->assertNotLastLineOfLoadedTransaction($currentCart, null);
+
+        if (! $user?->isSuperAdmin()) {
+            $this->assertNotLastLineOfLoadedTransaction($currentCart, null);
+        }
 
         $cart = $this->cartSessionStore->emptyCart($settingId, $sessionId);
         $this->cartSessionStore->putCart($settingId, $sessionId, $cart);

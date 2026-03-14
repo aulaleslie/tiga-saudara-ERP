@@ -2445,7 +2445,7 @@
                 }
                 clearCartButton.addEventListener('click', async function () {
                     const btn = this;
-                    const originalText = 'Hapus Keranjang';
+                    const originalText = 'Kosongkan Keranjang';
                     
                     ApprovalManager.wrapAction(btn, originalText, 'CART_CLEAR', 'pos_session', window.posSessionId || 0, {}, async (token) => {
                         const payload = token ? { approval_token: token } : undefined;
