@@ -101,10 +101,69 @@ document.addEventListener('DOMContentLoaded', function () {
     let approveModalInstance = null;
     let rejectModalInstance = null;
 
-    if (typeof bootstrap !== 'undefined') {
-        approveModalInstance = new bootstrap.Modal(document.getElementById('approveModal'));
-        rejectModalInstance = new bootstrap.Modal(document.getElementById('rejectModal'));
-    }
+    // Use Bootstrap's programmatic API with fallback to data-bs attributes
+    const showApproveModal = () => {
+        const approveModalEl = document.getElementById('approveModal');
+        if (window.bootstrap?.Modal) {
+            if (!approveModalInstance) {
+                approveModalInstance = new window.bootstrap.Modal(approveModalEl);
+            }
+            approveModalInstance.show();
+        } else {
+            // Fallback: just add show class and backdrop
+            approveModalEl.classList.add('show');
+            approveModalEl.style.display = 'block';
+            document.body.classList.add('modal-open');
+            const backdrop = document.createElement('div');
+            backdrop.className = 'modal-backdrop fade show';
+            document.body.appendChild(backdrop);
+            backdrop.id = 'approve-modal-backdrop';
+        }
+    };
+
+    const showRejectModal = () => {
+        const rejectModalEl = document.getElementById('rejectModal');
+        if (window.bootstrap?.Modal) {
+            if (!rejectModalInstance) {
+                rejectModalInstance = new window.bootstrap.Modal(rejectModalEl);
+            }
+            rejectModalInstance.show();
+        } else {
+            rejectModalEl.classList.add('show');
+            rejectModalEl.style.display = 'block';
+            document.body.classList.add('modal-open');
+            const backdrop = document.createElement('div');
+            backdrop.className = 'modal-backdrop fade show';
+            document.body.appendChild(backdrop);
+            backdrop.id = 'reject-modal-backdrop';
+        }
+    };
+
+    const hideApproveModal = () => {
+        const approveModalEl = document.getElementById('approveModal');
+        if (approveModalInstance) {
+            approveModalInstance.hide();
+        } else {
+            approveModalEl.classList.remove('show');
+            approveModalEl.style.display = 'none';
+            document.body.classList.remove('modal-open');
+            const backdrop = document.getElementById('approve-modal-backdrop');
+            if (backdrop) backdrop.remove();
+        }
+    };
+
+    const hideRejectModal = () => {
+        const rejectModalEl = document.getElementById('rejectModal');
+        if (rejectModalInstance) {
+            rejectModalInstance.hide();
+        } else {
+            rejectModalEl.classList.remove('show');
+            rejectModalEl.style.display = 'none';
+            document.body.classList.remove('modal-open');
+            const backdrop = document.getElementById('reject-modal-backdrop');
+            if (backdrop) backdrop.remove();
+        }
+    };
 
     const formatDate = (isoString) => {
         if (!isoString) return '-';
@@ -189,12 +248,12 @@ document.addEventListener('DOMContentLoaded', function () {
             const id = e.target.getAttribute('data-id');
             document.getElementById('approveRequestId').value = id;
             document.getElementById('approveNote').value = '';
-            if (approveModalInstance) approveModalInstance.show();
+            showApproveModal();
         } else if (e.target.classList.contains('btn-reject')) {
             const id = e.target.getAttribute('data-id');
             document.getElementById('rejectRequestId').value = id;
             document.getElementById('rejectReason').value = '';
-            if (rejectModalInstance) rejectModalInstance.show();
+            showRejectModal();
         }
     });
 
@@ -203,7 +262,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const id = document.getElementById('approveRequestId').value;
         const note = document.getElementById('approveNote').value;
         const btn = document.getElementById('btnSubmitApprove');
-        
+
         btn.disabled = true;
         btn.textContent = 'Menyimpan...';
 
@@ -218,17 +277,23 @@ document.addEventListener('DOMContentLoaded', function () {
             body: JSON.stringify({ note: note })
         })
         .then(response => {
+            console.log('Approve response status:', response.status);
             if (!response.ok) {
-                return response.json().then(err => { throw new Error(err.message || 'Error occurred'); });
+                return response.json().then(err => {
+                    console.error('Approve error:', err);
+                    throw new Error(err.message || 'Error occurred');
+                });
             }
             return response.json();
         })
-        .then(() => {
-            if (approveModalInstance) approveModalInstance.hide();
+        .then(data => {
+            console.log('Approve success:', data);
+            hideApproveModal();
             loadQueue();
             alert('Persetujuan berhasil disimpan.');
         })
         .catch(err => {
+            console.error('Approve catch:', err);
             alert('Gagal menyetujui: ' + err.message);
         })
         .finally(() => {
@@ -263,7 +328,7 @@ document.addEventListener('DOMContentLoaded', function () {
             return response.json();
         })
         .then(() => {
-            if (rejectModalInstance) rejectModalInstance.hide();
+            hideRejectModal();
             loadQueue();
             alert('Penolakan berhasil disimpan.');
         })

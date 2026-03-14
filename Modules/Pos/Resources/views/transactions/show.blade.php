@@ -210,7 +210,17 @@
 
             if (cancelButton) {
                 cancelButton.addEventListener('click', async () => {
-                    if (!confirm('Batalkan transaksi ini?')) {
+                    const result = await Swal.fire({
+                        title: 'Batalkan Transaksi?',
+                        text: 'Aksi ini tidak dapat dibatalkan. Stok akan dikembalikan jika transaksi sudah dikurangi stoknya.',
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonColor: '#d33',
+                        confirmButtonText: 'Ya, Batalkan',
+                        cancelButtonText: 'Tutup'
+                    });
+
+                    if (!result.isConfirmed) {
                         return;
                     }
 

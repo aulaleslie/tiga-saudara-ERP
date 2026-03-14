@@ -340,7 +340,18 @@
                 if (cancelButton) {
                     const id = Number(cancelButton.getAttribute('data-id') || 0);
                     if (id <= 0) return;
-                    if (!confirm('Batalkan transaksi ini?')) return;
+
+                    const result = await Swal.fire({
+                        title: 'Batalkan Transaksi?',
+                        text: 'Aksi ini tidak dapat dibatalkan. Stok akan dikembalikan jika transaksi sudah dikurangi stoknya.',
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonColor: '#d33',
+                        confirmButtonText: 'Ya, Batalkan',
+                        cancelButtonText: 'Tutup'
+                    });
+
+                    if (!result.isConfirmed) return;
 
                     cancelButton.disabled = true;
                     try {

@@ -149,7 +149,7 @@
     $canAccessPosOperations = $posEnabledForCurrentSetting
         && auth()->user()->can('pos.access')
         && (
-            auth()->user()->canAny(['pos.sell', 'pos.sessions.view', 'pos.monitor.access', 'pos.reports.access', 'pos.reconciliation.access'])
+            auth()->user()->canAny(['pos.sell', 'pos.sessions.view', 'pos.monitor.access', 'pos.reports.access', 'pos.reconciliation.access', 'pos.supervisor.approval'])
             || $canAccessPosTransactions
         );
     $canAccessPosTerminals = $posEnabledForCurrentSetting && auth()->user()->can('pos.terminals.access');
@@ -233,6 +233,16 @@
                     <a class="c-sidebar-nav-link {{ request()->routeIs('pos.terminals.*') ? 'c-active' : '' }}"
                        href="{{ route('pos.terminals.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-pc-display" style="line-height: 1;"></i> Terminal POS
+                    </a>
+                </li>
+            </ul>
+        @endif
+        @if($posEnabledForCurrentSetting && auth()->user()->can('pos.supervisor.approval'))
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.supervisor.approval-requests.*') ? 'c-active' : '' }}"
+                       href="{{ route('pos.supervisor.approval-requests.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-check-circle" style="line-height: 1;"></i> Antrian Persetujuan
                     </a>
                 </li>
             </ul>

@@ -666,10 +666,47 @@ class PosCartService
         ));
         $customerResolution = $this->customerResolver->resolve($settingId, $selectedCustomerId);
 
+        // Fetch pending approval requests for this session to persist UI state on reload
+        $pendingRequests = PosActionApprovalRequest::query()
+            ->where('pos_session_id', $sessionId)
+            ->whereIn('status', [PosActionApprovalRequest::STATUS_PENDING, PosActionApprovalRequest::STATUS_APPROVED])
+            ->get();
+
+        $cartPendingApprovals = [];
+        $linePendingApprovals = [];
+
+        foreach ($pendingRequests as $req) {
+            if ($req->action_type === PosActionApprovalRequest::ACTION_CART_CLEAR) {
+                // Cart-wide pending approvals
+                $cartPendingApprovals[] = [
+                    'request_id' => (int) $req->id,
+                    'action_type' => $req->action_type,
+                    'status' => $req->status,
+                ];
+            } else {
+                // Line-specific pending approvals
+                $lineId = (int) $req->target_id;
+                if ($lineId > 0) {
+                    $linePendingApprovals[$lineId][] = [
+                        'request_id' => (int) $req->id,
+                        'action_type' => $req->action_type,
+                        'status' => $req->status,
+                    ];
+                }
+            }
+        }
+
+        // Map line approvals back to calculated lines
+        $finalLines = array_map(function ($line) use ($linePendingApprovals) {
+            $lineId = (int) ($line['line_id'] ?? 0);
+            $line['pending_approvals'] = $linePendingApprovals[$lineId] ?? [];
+            return $line;
+        }, $calculated['lines']);
+
         return [
             'setting_id' => $settingId,
             'session_id' => $sessionId,
-            'lines' => $calculated['lines'],
+            'lines' => $finalLines,
             'bill_discount' => [
                 'type' => (string) ($cart['bill_discount_type'] ?? 'fixed'),
                 'value' => round((float) ($cart['bill_discount_value'] ?? 0), 2),
@@ -677,12 +714,13 @@ class PosCartService
             'totals' => $calculated['totals'],
             'customer' => $customerResolution,
             'meta' => [
-                'line_count' => count($calculated['lines']),
+                'line_count' => count($finalLines),
                 'total_qty' => $totalQty,
                 'tax_display_mode' => 'ESTIMATED',
                 'tax_mode' => $isPkp ? 'INCLUDED' : 'EXCLUDED',
             ],
             'active_transaction_id' => $cart['active_transaction_id'] ?? null,
+            'pending_approvals' => $cartPendingApprovals,
         ];
     }
 

@@ -1091,6 +1091,7 @@
         </div>
     </div>
 
+@push('page_scripts')
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');
@@ -1320,8 +1321,17 @@
 
                     const token = btn.getAttribute('data-approval-token') || null;
                     if (token) {
-                        const continueAction = confirm('Tekan OK untuk Lanjutkan aksi. Tekan Cancel untuk Batalkan persetujuan.');
-                        if (!continueAction) {
+                        const result = await Swal.fire({
+                            title: 'Lanjutkan Aksi?',
+                            text: 'Tekan Lanjutkan untuk mengeksekusi aksi, atau Batalkan untuk menghapus persetujuan.',
+                            icon: 'question',
+                            showCancelButton: true,
+                            confirmButtonText: 'Lanjutkan',
+                            cancelButtonText: 'Batalkan Persetujuan',
+                            reverseButtons: true
+                        });
+                        
+                        if (!result.isConfirmed) {
                             await this.cancelApproval(btn, originalText);
                             setCartStatus('Aksi dibatalkan tanpa perubahan keranjang.', 'text-muted');
                             return false;
@@ -1346,8 +1356,17 @@
                 },
 
                 async requestApproval(btn, originalText, actionType, targetType, targetId, payload) {
-                    const reasonInput = window.prompt('Alasan permintaan persetujuan (opsional):', '');
-                    if (reasonInput === null) {
+                    const { value: reasonInput, isDismissed } = await Swal.fire({
+                        title: 'Permintaan Persetujuan',
+                        text: 'Silakan masukkan alasan permintaan persetujuan (opsional):',
+                        input: 'textarea',
+                        inputPlaceholder: 'Tulis alasan di sini...',
+                        showCancelButton: true,
+                        confirmButtonText: 'Kirim Permintaan',
+                        cancelButtonText: 'Batal',
+                    });
+
+                    if (isDismissed) {
                         return;
                     }
 
@@ -1684,7 +1703,16 @@
                         ${qtyCell}
                         <td class="text-right align-middle" style="vertical-align: top;">
                             <div class="font-weight-bold mb-1">${formatPrice(line.line_total || 0)}</div>
-                            <button type="button" class="btn btn-link text-danger p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;">Hapus</button>
+                            ${(() => {
+                                const removeReq = (line.pending_approvals || []).find(a => a.action_type === 'LINE_REMOVE');
+                                if (removeReq) {
+                                    if (removeReq.status === 'APPROVED') {
+                                        return `<button type="button" class="btn btn-link text-success p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;" data-approval-pending="${removeReq.request_id}">Lanjutkan</button>`;
+                                    }
+                                    return `<button type="button" class="btn btn-link text-warning p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;" data-approval-pending="${removeReq.request_id}">Periksa</button>`;
+                                }
+                                return `<button type="button" class="btn btn-link text-danger p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;">Hapus</button>`;
+                            })()}
                         </td>
                     </tr>
                 `;
@@ -1736,6 +1764,35 @@
  
                  if (saveDraftButton) {
                      saveDraftButton.disabled = !canSaveDraft;
+                 }
+
+                 if (clearCartButton) {
+                     const isCustomerSelected = snapshot && snapshot.customer && snapshot.customer.resolution_source === 'selected';
+                     const canClear = hasItems || isCustomerSelected;
+                     clearCartButton.disabled = !canClear;
+
+                     // Persist approval state for Kosongkan Keranjang
+                     const clearReq = (snapshot && snapshot.pending_approvals || []).find(a => a.action_type === 'CART_CLEAR');
+                     if (clearReq) {
+                         clearCartButton.setAttribute('data-approval-pending', clearReq.request_id);
+                         clearCartButton.setAttribute('data-approval-request-id', clearReq.request_id);
+                         if (clearReq.status === 'APPROVED') {
+                             clearCartButton.textContent = 'Lanjutkan / Batalkan';
+                             clearCartButton.classList.remove('btn-outline-danger', 'btn-warning');
+                             clearCartButton.classList.add('btn-success');
+                         } else {
+                             clearCartButton.textContent = 'Periksa Persetujuan';
+                             clearCartButton.classList.remove('btn-outline-danger', 'btn-success');
+                             clearCartButton.classList.add('btn-warning');
+                         }
+                     } else {
+                         clearCartButton.removeAttribute('data-approval-pending');
+                         clearCartButton.removeAttribute('data-approval-request-id');
+                         clearCartButton.removeAttribute('data-approval-token');
+                         clearCartButton.textContent = 'Kosongkan Keranjang';
+                         clearCartButton.classList.remove('btn-warning', 'btn-success');
+                         clearCartButton.classList.add('btn-outline-danger');
+                     }
                  }
 
                  if (!canCheckoutByRole && hasItems) {
@@ -2922,4 +2979,5 @@
             refreshCart();
         })();
     </script>
+@endpush
 @endsection

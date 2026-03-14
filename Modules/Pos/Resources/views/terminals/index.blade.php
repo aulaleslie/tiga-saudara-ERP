@@ -92,7 +92,7 @@
                                 <td class="text-end text-nowrap">
                                     <a href="{{ route('pos.terminals.edit', $terminal->id) }}" class="btn btn-outline-primary btn-sm">Ubah</a>
                                     @if($terminal->is_active)
-                                        <form action="{{ route('pos.terminals.destroy', $terminal->id) }}" method="POST" class="d-inline" onsubmit="return confirm('Nonaktifkan terminal ini?');">
+                                        <form action="{{ route('pos.terminals.destroy', $terminal->id) }}" method="POST" class="d-inline js-terminal-deactivate-form">
                                             @csrf
                                             @method('DELETE')
                                             <button type="submit" class="btn btn-outline-danger btn-sm">Nonaktifkan</button>
@@ -111,3 +111,25 @@
         </div>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        document.querySelectorAll('.js-terminal-deactivate-form').forEach(form => {
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const result = await Swal.fire({
+                    title: 'Nonaktifkan Terminal?',
+                    text: 'Terminal ini tidak akan dapat digunakan untuk transaksi baru sampai diaktifkan kembali.',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    confirmButtonText: 'Ya, Nonaktifkan',
+                    cancelButtonText: 'Batal'
+                });
+                if (result.isConfirmed) {
+                    this.submit();
+                }
+            });
+        });
+    </script>
+@endpush
