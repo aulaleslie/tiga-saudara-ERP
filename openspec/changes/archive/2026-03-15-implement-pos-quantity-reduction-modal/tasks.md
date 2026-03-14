@@ -49,6 +49,16 @@
   - [x] 5.2.3 If rejected: Show rejection reason and revert any changes
 - [x] 5.3 On modal "Cancel" button: Close modal and reset cart status
 
+## 5.5 Approval Status Button for Non-Privileged Users (Enhancement)
+
+- [x] 5.5.1 Render reduce button with different states based on approval status:
+  - Normal (gray ↓): Can click to open reduction modal
+  - Pending (warning ⏳): Can click to check approval status
+  - Approved (green ✓): Can click to proceed/cancel approval
+- [x] 5.5.2 Preserve approval state when cart is re-rendered (use line.pending_approvals data)
+- [x] 5.5.3 Non-privileged user can check approval without retrying the reduction
+- [x] 5.5.4 Reduce button intelligently handles pending/approved requests via ApprovalManager.checkApproval()
+
 ## 6. Backend Validation (Optional but Recommended)
 
 - [x] 6.1 Ensure cart line PATCH controller validates privilege-level constraints
@@ -77,4 +87,4 @@
 - [x] 8.2 Update POS module README (if exists) with note on privilege-based quantity controls
 - [ ] 8.3 Verify no console errors or warnings in browser DevTools
 - [ ] 8.4 Run final code review: Ensure style consistency and no leftover debug code
-- [ ] 8.5 Create git commit with summary of changes
+- [ ] 8.5 Create git commit with summary of changes (skipped - user will commit manually)

@@ -1223,6 +1223,10 @@
             const reduceQtySubmit = document.getElementById('pos-reduce-qty-submit');
             let pendingReduceLineId = null;
             let pendingReduceCurrentQty = null;
+            let pendingReduceButton = null;
+
+            // Track pending approval requests on the client side
+            const clientPendingApprovals = {}; // { lineId: { requestId, requestedQty, status, token } }
 
             const searchEndpoint = @json(route('pos.sell.products.search'));
             const scanResolveEndpoint = @json(url('/pos/sell/search/resolve'));
@@ -1762,14 +1766,22 @@
                                                 <i class="bi bi-upc-scan" aria-hidden="true"></i>
                                                 <span class="pos-serial-action-label">Serial</span>
                                             </button>
-                                            <button type="button"
-                                                    class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn"
-                                                    data-line-id="${lineId}"
-                                                    data-current-qty="${qty}"
-                                                    title="Kurangi Jumlah"
-                                                    aria-label="Kurangi Jumlah">
-                                                <i class="bi bi-chevron-down" aria-hidden="true"></i>
-                                            </button>
+                                            ${(() => {
+                                                const clientPending = clientPendingApprovals[lineId];
+                                                const backendQtyReduceReq = (line.pending_approvals || []).find(a => a.action_type === 'QTY_REDUCE');
+                                                const qtyReduceReq = clientPending || backendQtyReduceReq;
+                                                let buttons = `<button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${qty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>`;
+
+                                                if (qtyReduceReq && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
+                                                    if (qtyReduceReq.status === 'APPROVED') {
+                                                        const approvedQty = qtyReduceReq.requestedQty || qtyReduceReq.payload?.qty || '?';
+                                                        buttons += `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.token || qtyReduceReq.approval_token || ''}" data-approved-qty="${approvedQty}" title="Lanjutkan (qty: ${approvedQty})" aria-label="Lanjutkan">✓ ${approvedQty}</button>`;
+                                                    } else {
+                                                        buttons += `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.requestId || qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
+                                                    }
+                                                }
+                                                return buttons;
+                                            })()}
                                         </div>
                                         <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
                                     </div>
@@ -1793,7 +1805,25 @@
                             </td>
                         `;
                     } else {
-                        // Non-privileged: qty input + reduce button
+                        // Non-privileged: qty input + reduce button(s)
+                        // Check BOTH client-side pending approvals AND backend data
+                        const clientPending = clientPendingApprovals[lineId];
+                        const backendQtyReduceReq = (line.pending_approvals || []).find(a => a.action_type === 'QTY_REDUCE');
+                        const qtyReduceReq = clientPending || backendQtyReduceReq;
+                        let approvalButtonHtml = '';
+
+                        if (qtyReduceReq && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
+                            // Show approval button when pending or approved
+                            if (qtyReduceReq.status === 'APPROVED') {
+                                // Show approved qty in button text
+                                const approvedQty = qtyReduceReq.requestedQty || qtyReduceReq.payload?.qty || '?';
+                                approvalButtonHtml = `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.token || qtyReduceReq.approval_token || ''}" data-approved-qty="${approvedQty}" title="Lanjutkan (qty: ${approvedQty})" aria-label="Lanjutkan">✓ ${approvedQty}</button>`;
+                            } else {
+                                // Pending: show check approval button
+                                approvalButtonHtml = `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.requestId || qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
+                            }
+                        }
+
                         qtyCell = `
                             <td class="text-center align-middle">
                                 <div class="d-flex align-items-center justify-content-center" style="gap: 4px;">
@@ -1801,14 +1831,8 @@
                                            type="number" min="1" value="${qty}" data-prev-qty="${qty}"
                                            data-can-reduce="${canReduceQuantity}"
                                            style="width: 60px;">
-                                    <button type="button"
-                                            class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn"
-                                            data-line-id="${lineId}"
-                                            data-current-qty="${qty}"
-                                            title="Kurangi Jumlah"
-                                            aria-label="Kurangi Jumlah">
-                                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
-                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${qty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>
+                                    ${approvalButtonHtml}
                                 </div>
                             </td>
                         `;
@@ -2769,6 +2793,7 @@
 
                     pendingReduceLineId = lineId;
                     pendingReduceCurrentQty = currentQty;
+                    pendingReduceButton = button;  // Store the reduce button for approval tracking
 
                     // Reset modal
                     if (reduceQtyCurrent) reduceQtyCurrent.textContent = currentQty;
@@ -2787,6 +2812,62 @@
                     // Open modal
                     if (reduceQuantityModal) {
                         $(reduceQuantityModal).modal('show');
+                    }
+                    return;
+                }
+
+                // Handle Check Approval / Proceed button (separate from reduce button)
+                if (button.classList.contains('js-check-qty-approval')) {
+                    const pendingRequestId = button.getAttribute('data-approval-pending');
+                    const approvalToken = button.getAttribute('data-approval-token');
+                    const approvedQty = Number(button.getAttribute('data-approved-qty') || 0);
+
+                    if (pendingRequestId) {
+                        // Check approval status
+                        await ApprovalManager.checkApproval(button, '⏳ Periksa', pendingRequestId);
+
+                        // Update client-side state based on button attributes after checkApproval
+                        const updatedToken = button.getAttribute('data-approval-token');
+                        if (updatedToken && clientPendingApprovals[lineId]) {
+                            // Approval was approved
+                            clientPendingApprovals[lineId].status = 'APPROVED';
+                            clientPendingApprovals[lineId].token = updatedToken;
+                            renderCart(currentSnapshot);
+                        } else if (!button.hasAttribute('data-approval-pending') && !updatedToken) {
+                            // Approval was rejected or cancelled
+                            delete clientPendingApprovals[lineId];
+                            renderCart(currentSnapshot);
+                        }
+                    } else if (approvalToken && approvedQty > 0) {
+                        // Approved - proceed with reduction
+                        const applyQtyUpdate = async (token) => {
+                            const payload = { qty: approvedQty };
+                            if (token) payload.approval_token = token;
+
+                            const response = await jsonRequest(getLineEndpoint(lineId), 'PATCH', payload);
+                            if (!response) {
+                                throw new Error('Gagal memperbarui qty.');
+                            }
+
+                            renderCart(response.cart_snapshot || null);
+                            setCartStatus('Qty berhasil diperbarui.', 'text-success');
+                        };
+
+                        try {
+                            await ApprovalManager.wrapAction(
+                                button,
+                                '✓ Lanjutkan',
+                                'QTY_REDUCE',
+                                'pos_cart_line',
+                                lineId,
+                                { qty: approvedQty },
+                                applyQtyUpdate
+                            );
+                            // Clear client-side pending after successful application
+                            delete clientPendingApprovals[lineId];
+                        } catch (error) {
+                            setCartStatus(error.message || 'Gagal memproses pengurangan.', 'text-danger', true);
+                        }
                     }
                     return;
                 }
@@ -2884,20 +2965,41 @@
                     };
 
                     try {
+                        // Use the actual reduce button so approval state is stored on it
+                        const buttonForApproval = pendingReduceButton || reduceQtySubmit;
+                        const originalButtonText = '↓ Kurangi';
+                        const lineIdForStorage = pendingReduceLineId;
+                        const requestedQtyForStorage = newQty;
+
                         await ApprovalManager.wrapAction(
-                            reduceQtySubmit,
-                            'Minta Persetujuan',
+                            buttonForApproval,
+                            originalButtonText,
                             'QTY_REDUCE',
                             'pos_cart_line',
                             pendingReduceLineId,
                             { qty: newQty, reason: reason },
                             applyQtyUpdate
                         );
+
+                        // After ApprovalManager sets the pending state, capture it and re-render cart
+                        // to immediately show the "Periksa" button
+                        const pendingRequestId = buttonForApproval.getAttribute('data-approval-pending');
+                        if (pendingRequestId) {
+                            // Store in client-side pending approvals
+                            clientPendingApprovals[lineIdForStorage] = {
+                                requestId: pendingRequestId,
+                                requestedQty: requestedQtyForStorage,
+                                status: 'PENDING'
+                            };
+                            // Re-render the cart to show the Periksa button
+                            renderCart(currentSnapshot);
+                        }
                     } catch (error) {
                         setCartStatus(error.message || 'Gagal memproses permintaan pengurangan.', 'text-danger', true);
                     } finally {
                         pendingReduceLineId = null;
                         pendingReduceCurrentQty = null;
+                        pendingReduceButton = null;
                     }
                 });
             }
@@ -2907,6 +3009,7 @@
                 reduceQuantityModal.addEventListener('hidden.bs.modal', function () {
                     pendingReduceLineId = null;
                     pendingReduceCurrentQty = null;
+                    pendingReduceButton = null;
                     if (reduceQtyError) {
                         reduceQtyError.textContent = '';
                         reduceQtyError.style.display = 'none';
