@@ -11,9 +11,13 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('pos_terminal_policies', function (Blueprint $table) {
-            $table->dropColumn('close_variance_approval_threshold');
-        });
+        // Only drop the column if the table exists (for upgraded databases)
+        // Fresh installs will have the threshold included by the POS module migration
+        if (Schema::hasTable('pos_terminal_policies') && Schema::hasColumn('pos_terminal_policies', 'close_variance_approval_threshold')) {
+            Schema::table('pos_terminal_policies', function (Blueprint $table) {
+                $table->dropColumn('close_variance_approval_threshold');
+            });
+        }
     }
 
     /**

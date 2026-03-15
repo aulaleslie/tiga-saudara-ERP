@@ -242,7 +242,16 @@ class POSSessionFinalizeTest extends TestCase
     {
         return \Modules\Setting\Entities\Setting::create([
             'company_name' => 'Test Company',
-            'is_enabled' => true,
+            'company_email' => 'test@example.com',
+            'company_phone' => '0800000000',
+            'company_address' => 'Address',
+            'default_currency_id' => \Modules\Currency\Entities\Currency::query()->value('id') ?? 1,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'notify@example.com',
+            'footer_text' => 'Footer',
+            'document_prefix' => 'DOC',
+            'purchase_prefix_document' => 'PO',
+            'sale_prefix_document' => 'SO',
         ]);
     }
 
@@ -253,7 +262,12 @@ class POSSessionFinalizeTest extends TestCase
             'email' => 'test' . uniqid() . '@example.com',
         ]);
 
-        $user->settings()->attach($setting->id);
+        // Create a basic role
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(
+            ['name' => 'user', 'guard_name' => 'web'],
+        );
+
+        $user->settings()->attach($setting->id, ['role_id' => $role->id]);
 
         return $user;
     }
@@ -285,7 +299,7 @@ class POSSessionFinalizeTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'TERM-' . uniqid(),
             'name' => 'Terminal ' . uniqid(),
-            'is_enabled' => true,
+            'is_active' => true,
         ]);
 
         return PosSession::create([
@@ -306,7 +320,7 @@ class POSSessionFinalizeTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'TERM-' . uniqid(),
             'name' => 'Terminal ' . uniqid(),
-            'is_enabled' => true,
+            'is_active' => true,
         ]);
 
         // Create terminal policy
@@ -349,7 +363,7 @@ class POSSessionFinalizeTest extends TestCase
             'code' => 'CASH',
             'name' => 'Tunai',
             'is_cash' => true,
-            'is_enabled' => true,
+            'is_active' => true,
         ]);
     }
 }
