@@ -1,9 +1,9 @@
-@can("role.edit")
+@can("roles.edit")
 <a href="{{ route('roles.edit', $data->id) }}" class="btn btn-info btn-sm">
     <i class="bi bi-pencil"></i>
 </a>
 @endcan
-@can("role.delete")
+@can("roles.delete")
 <button class="btn btn-danger btn-sm" onclick="showDeleteModal({{ $data->id }})">
     <i class="bi bi-trash"></i>
 </button>

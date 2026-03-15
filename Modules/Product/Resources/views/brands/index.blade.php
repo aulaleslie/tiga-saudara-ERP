@@ -19,7 +19,7 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
-                        @can("brand.create")
+                        @can("brands.create")
                         <a href="{{ route('brands.create') }}" class="btn btn-primary">
                             Tambah Merek <i class="bi bi-plus"></i>
                         </a>
