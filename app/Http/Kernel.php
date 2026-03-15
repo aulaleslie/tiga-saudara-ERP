@@ -69,5 +69,6 @@ class Kernel extends HttpKernel
         'pos.enabled' => \Modules\Pos\Http\Middleware\PosEnabledMiddleware::class,
         'pos.transactions.enabled' => \Modules\Pos\Http\Middleware\PosTransactionsEnabledMiddleware::class,
         'pos.session.active' => \Modules\Pos\Http\Middleware\EnsureActivePosSessionMiddleware::class,
+        'log.pos.pickup' => \App\Http\Middleware\LogPosPickupRequest::class,
     ];
 }

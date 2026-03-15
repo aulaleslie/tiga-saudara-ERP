@@ -14,6 +14,11 @@ class PosEnabledMiddleware
         $settingId = (int) session('setting_id');
 
         if ($settingId <= 0) {
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Enabled Middleware: Setting context missing', [
+                'path' => $request->path(),
+                'setting_id' => $settingId,
+                'session_data' => session()->all(),
+            ]);
             abort(403, 'Setting context is required.');
         }
 

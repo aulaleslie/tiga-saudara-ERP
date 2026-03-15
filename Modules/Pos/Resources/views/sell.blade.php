@@ -705,7 +705,12 @@
                                     <button class="btn btn-secondary dropdown-toggle" type="button" id="pos-nav-menu-dropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                                         Menu
                                     </button>
-                                    <div class="dropdown-menu dropdown-menu-right" aria-labelledby="pos-nav-menu-dropdown">
+                                    <div class="dropdown-menu dropdown-menu-right" aria-labelledby="pos-nav-menu-dropdown"
+                                         data-session-id="{{ $activeSession->id }}"
+                                         data-terminal-code="{{ $activeSession->terminal->code ?? '-' }}"
+                                         data-terminal-name="{{ $activeSession->terminal->name ?? '-' }}"
+                                         data-cashier-name="{{ $activeSession->cashier->name ?? '-' }}"
+                                         data-expected-cash="{{ $activeSession->expected_cash_total ?? 0 }}">
                                         <button type="button" id="pos-shortcut-reprint" class="dropdown-item" disabled>Reprint</button>
 
                                         @can('pos.reports.access')
@@ -737,6 +742,8 @@
                                         @can('pos.supervisor.approval')
                                             <a class="dropdown-item" href="{{ route('pos.supervisor.approval-requests.index') }}" target="_blank">Antrian Persetujuan</a>
                                         @endcan
+                                        <div class="dropdown-divider"></div>
+                                        <button type="button" id="pos-cash-pickup-btn" class="dropdown-item">Pengambilan Kas</button>
                                     </div>
                                 </div>
                                 <span id="pos-shell-posting-note" class="pos-nav-note">pos-shell-posting-note</span>
@@ -1136,6 +1143,74 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
                     <button type="button" id="pos-reduce-qty-submit" class="btn btn-primary" disabled>Minta Persetujuan</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cash Pickup Modal -->
+    <div class="modal fade" id="pos-cash-pickup-modal" tabindex="-1" role="dialog" aria-labelledby="pos-cash-pickup-modal-label" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-md modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="pos-cash-pickup-modal-label">Pengambilan Kas</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Tutup">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <!-- Step 1: Amount Input -->
+                    <div id="pos-pickup-step-1">
+                        <div class="mb-3">
+                            <label class="form-label small font-weight-bold">Terminal:</label>
+                            <div id="pos-pickup-terminal-info" class="form-control-plaintext text-muted small"></div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small font-weight-bold">Kasir:</label>
+                            <div id="pos-pickup-cashier-info" class="form-control-plaintext text-muted small"></div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small font-weight-bold">Ekspektasi Kas:</label>
+                            <div id="pos-pickup-expected-cash" class="form-control-plaintext font-weight-bold text-primary" style="font-size: 1.1rem;"></div>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label for="pos-pickup-amount" class="form-label small font-weight-bold">Jumlah Pengambilan:</label>
+                            <input type="number" id="pos-pickup-amount" class="form-control" min="0" step="0.01" placeholder="0">
+                            <small id="pos-pickup-amount-error" class="form-text text-danger d-none"></small>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Supervisor Credentials -->
+                    <div id="pos-pickup-step-2" class="d-none">
+                        <div class="alert alert-info mb-3 small">
+                            <strong>Konfirmasi Pengambilan:</strong>
+                            <div id="pos-pickup-confirmation-amount" class="font-weight-bold mt-2"></div>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label for="pos-pickup-supervisor-email" class="form-label small font-weight-bold">Email Supervisor:</label>
+                            <input type="email" id="pos-pickup-supervisor-email" class="form-control" placeholder="supervisor@example.com">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label for="pos-pickup-supervisor-password" class="form-label small font-weight-bold">Password:</label>
+                            <input type="password" id="pos-pickup-supervisor-password" class="form-control" placeholder="••••••••">
+                        </div>
+                        <small id="pos-pickup-step2-error" class="form-text text-danger d-none d-block mb-3"></small>
+                        <div id="pos-pickup-spinner" class="spinner-border spinner-border-sm text-primary d-none" role="status">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <!-- Step 1 Footer -->
+                    <div id="pos-pickup-step-1-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                        <button type="button" id="pos-pickup-next-btn" class="btn btn-primary" disabled>Lanjut</button>
+                    </div>
+                    <!-- Step 2 Footer -->
+                    <div id="pos-pickup-step-2-footer" class="d-none w-100 d-flex justify-content-between">
+                        <button type="button" id="pos-pickup-back-btn" class="btn btn-secondary">Kembali</button>
+                        <button type="button" id="pos-pickup-confirm-btn" class="btn btn-primary" disabled>Konfirmasi Pengambilan</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -3014,6 +3089,213 @@
                         reduceQtyError.textContent = '';
                         reduceQtyError.style.display = 'none';
                     }
+                });
+            }
+
+            // Cash Pickup Modal
+            const pickupModalElement = document.getElementById('pos-cash-pickup-modal');
+            const pickupBtn = document.getElementById('pos-cash-pickup-btn');
+            const pickupStep1 = document.getElementById('pos-pickup-step-1');
+            const pickupStep2 = document.getElementById('pos-pickup-step-2');
+            const pickupStep1Footer = document.getElementById('pos-pickup-step-1-footer');
+            const pickupStep2Footer = document.getElementById('pos-pickup-step-2-footer');
+            const pickupTerminalInfo = document.getElementById('pos-pickup-terminal-info');
+            const pickupCashierInfo = document.getElementById('pos-pickup-cashier-info');
+            const pickupExpectedCash = document.getElementById('pos-pickup-expected-cash');
+            const pickupAmountInput = document.getElementById('pos-pickup-amount');
+            const pickupAmountError = document.getElementById('pos-pickup-amount-error');
+            const pickupNextBtn = document.getElementById('pos-pickup-next-btn');
+            const pickupBackBtn = document.getElementById('pos-pickup-back-btn');
+            const pickupConfirmBtn = document.getElementById('pos-pickup-confirm-btn');
+            const pickupSupervisorEmail = document.getElementById('pos-pickup-supervisor-email');
+            const pickupSupervisorPassword = document.getElementById('pos-pickup-supervisor-password');
+            const pickupConfirmationAmount = document.getElementById('pos-pickup-confirmation-amount');
+            const pickupStep2Error = document.getElementById('pos-pickup-step2-error');
+            const pickupSpinner = document.getElementById('pos-pickup-spinner');
+            let currentSessionData = null;
+
+            function showPickupStep1() {
+                pickupStep1.classList.remove('d-none');
+                pickupStep2.classList.add('d-none');
+                pickupStep1Footer.classList.remove('d-none');
+                pickupStep2Footer.classList.add('d-none');
+            }
+
+            function showPickupStep2() {
+                pickupStep1.classList.add('d-none');
+                pickupStep2.classList.remove('d-none');
+                pickupStep1Footer.classList.add('d-none');
+                pickupStep2Footer.classList.remove('d-none');
+                pickupSupervisorEmail.focus();
+            }
+
+            function validatePickupAmount() {
+                const amount = Number(pickupAmountInput.value || 0);
+                const expectedCash = currentSessionData && currentSessionData.expected_cash ? Number(currentSessionData.expected_cash) : 0;
+
+                pickupAmountError.classList.add('d-none');
+                pickupNextBtn.disabled = true;
+
+                if (amount <= 0) {
+                    pickupAmountError.textContent = 'Jumlah pengambilan harus lebih dari 0.';
+                    pickupAmountError.classList.remove('d-none');
+                    return false;
+                }
+
+                if (amount > expectedCash) {
+                    pickupAmountError.textContent = 'Jumlah pengambilan tidak boleh melebihi ekspektasi kas.';
+                    pickupAmountError.classList.remove('d-none');
+                    return false;
+                }
+
+                pickupNextBtn.disabled = false;
+                return true;
+            }
+
+            function formatPrice(amount) {
+                return new Intl.NumberFormat('id-ID', {
+                    style: 'currency',
+                    currency: 'IDR',
+                    maximumFractionDigits: 0
+                }).format(amount || 0);
+            }
+
+            if (pickupAmountInput && pickupNextBtn) {
+                pickupAmountInput.addEventListener('input', validatePickupAmount);
+                pickupAmountInput.addEventListener('change', validatePickupAmount);
+            }
+
+            if (pickupNextBtn) {
+                pickupNextBtn.addEventListener('click', function () {
+                    if (!validatePickupAmount()) return;
+
+                    const amount = Number(pickupAmountInput.value || 0);
+                    pickupConfirmationAmount.innerHTML = `<span>Rp ${amount.toLocaleString('id-ID')}</span>`;
+
+                    // Reset step 2 inputs
+                    pickupSupervisorEmail.value = '';
+                    pickupSupervisorPassword.value = '';
+                    pickupStep2Error.classList.add('d-none');
+                    pickupConfirmBtn.disabled = false;
+
+                    showPickupStep2();
+                });
+            }
+
+            if (pickupBackBtn) {
+                pickupBackBtn.addEventListener('click', function () {
+                    showPickupStep1();
+                });
+            }
+
+            if (pickupConfirmBtn) {
+                pickupConfirmBtn.addEventListener('click', async function () {
+                    const email = (pickupSupervisorEmail.value || '').trim();
+                    const password = (pickupSupervisorPassword.value || '').trim();
+
+                    pickupStep2Error.classList.add('d-none');
+
+                    if (!email) {
+                        pickupStep2Error.textContent = 'Email supervisor wajib diisi.';
+                        pickupStep2Error.classList.remove('d-none');
+                        return;
+                    }
+
+                    if (!password) {
+                        pickupStep2Error.textContent = 'Password wajib diisi.';
+                        pickupStep2Error.classList.remove('d-none');
+                        return;
+                    }
+
+                    pickupConfirmBtn.disabled = true;
+                    if (pickupSpinner) pickupSpinner.classList.remove('d-none');
+
+                    try {
+                        const sessionId = currentSessionData && currentSessionData.session_id ? currentSessionData.session_id : null;
+                        if (!sessionId) {
+                            throw new Error('Session ID tidak ditemukan.');
+                        }
+
+                        const amount = Number(pickupAmountInput.value || 0);
+                        const endpoint = `{{ url('/pos/sessions') }}/${sessionId}/pickup`;
+
+                        const response = await jsonRequest(endpoint, 'POST', {
+                            amount: amount,
+                            supervisor_email: email,
+                            supervisor_password: password
+                        });
+
+                        if (response) {
+                            $(pickupModalElement).modal('hide');
+                            const newExpectedCash = response.expected_cash_after || 0;
+                            const message = `Pengambilan kas berhasil. Ekspektasi kas: ${formatPrice(newExpectedCash)}`;
+                            showToast(message, 'success');
+
+                            // Refresh cart to update expected cash display
+                            refreshCart();
+                        }
+                    } catch (error) {
+                        pickupStep2Error.textContent = error.message || 'Gagal memproses pengambilan kas.';
+                        pickupStep2Error.classList.remove('d-none');
+                    } finally {
+                        pickupConfirmBtn.disabled = false;
+                        if (pickupSpinner) pickupSpinner.classList.add('d-none');
+                    }
+                });
+            }
+
+            if (pickupBtn) {
+                pickupBtn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    // Get dropdown menu element with session data attributes
+                    const dropdownMenu = document.querySelector('.dropdown-menu[data-session-id]');
+                    if (dropdownMenu) {
+                        currentSessionData = {
+                            session_id: Number(dropdownMenu.getAttribute('data-session-id')),
+                            terminal_code: dropdownMenu.getAttribute('data-terminal-code') || '-',
+                            terminal_name: dropdownMenu.getAttribute('data-terminal-name') || '-',
+                            cashier_name: dropdownMenu.getAttribute('data-cashier-name') || '-',
+                            expected_cash: Number(dropdownMenu.getAttribute('data-expected-cash') || 0)
+                        };
+
+                        const terminal = `${currentSessionData.terminal_code} - ${currentSessionData.terminal_name}`;
+                        if (pickupTerminalInfo) pickupTerminalInfo.textContent = terminal;
+                        if (pickupCashierInfo) pickupCashierInfo.textContent = currentSessionData.cashier_name;
+                        if (pickupExpectedCash) pickupExpectedCash.textContent = formatPrice(currentSessionData.expected_cash);
+
+                        pickupAmountInput.value = '';
+                        pickupAmountInput.max = currentSessionData.expected_cash;
+                        pickupAmountError.classList.add('d-none');
+                        pickupNextBtn.disabled = true;
+
+                        showPickupStep1();
+                        if (pickupModalElement) {
+                            if (typeof $ !== 'undefined') {
+                                $(pickupModalElement).modal('show');
+                            } else if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                                new bootstrap.Modal(pickupModalElement).show();
+                            }
+                        }
+                        if (pickupAmountInput) pickupAmountInput.focus();
+
+                        // Close dropdown if it's open
+                        const dropdownToggle = document.getElementById('pos-nav-menu-dropdown');
+                        if (dropdownToggle && typeof $ !== 'undefined') {
+                            $(dropdownToggle).dropdown('toggle');
+                        }
+                    }
+                });
+            }
+
+            if (pickupModalElement) {
+                pickupModalElement.addEventListener('hidden.bs.modal', function () {
+                    currentSessionData = null;
+                    pickupAmountInput.value = '';
+                    pickupSupervisorEmail.value = '';
+                    pickupSupervisorPassword.value = '';
+                    pickupStep2Error.classList.add('d-none');
+                    pickupAmountError.classList.add('d-none');
+                    showPickupStep1();
                 });
             }
 

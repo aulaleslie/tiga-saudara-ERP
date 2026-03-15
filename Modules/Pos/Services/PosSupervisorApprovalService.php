@@ -175,20 +175,23 @@ class PosSupervisorApprovalService
             );
         }
 
-        $belongsToSetting = $supervisor->settings()
-            ->where('setting_id', $settingId)
-            ->exists();
+        // Super Admin can access any setting, otherwise verify setting membership
+        if (! $supervisor->hasRole('Super Admin')) {
+            $belongsToSetting = $supervisor->settings()
+                ->where('setting_id', $settingId)
+                ->exists();
 
-        if (! $belongsToSetting) {
-            return $this->recordRejected(
-                $actionType,
-                $settingId,
-                $targetSessionId,
-                $requestedBy,
-                'INVALID_CREDENTIALS',
-                $supervisorIdentifier,
-                $context
-            );
+            if (! $belongsToSetting) {
+                return $this->recordRejected(
+                    $actionType,
+                    $settingId,
+                    $targetSessionId,
+                    $requestedBy,
+                    'INVALID_CREDENTIALS',
+                    $supervisorIdentifier,
+                    $context
+                );
+            }
         }
 
         if (! Hash::check($supervisorPin, (string) $supervisor->password)) {
@@ -203,17 +206,20 @@ class PosSupervisorApprovalService
             );
         }
 
-        foreach ($requiredPermissions as $permission) {
-            if (! $supervisor->can($permission)) {
-                return $this->recordRejected(
-                    $actionType,
-                    $settingId,
-                    $targetSessionId,
-                    $requestedBy,
-                    'MISSING_PERMISSION',
-                    $supervisorIdentifier,
-                    $context
-                );
+        // Super Admin can do anything
+        if (! $supervisor->hasRole('Super Admin')) {
+            foreach ($requiredPermissions as $permission) {
+                if (! $supervisor->can($permission)) {
+                    return $this->recordRejected(
+                        $actionType,
+                        $settingId,
+                        $targetSessionId,
+                        $requestedBy,
+                        'MISSING_PERMISSION',
+                        $supervisorIdentifier,
+                        $context
+                    );
+                }
             }
         }
 

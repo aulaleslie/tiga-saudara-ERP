@@ -81,17 +81,12 @@
     </div>
     <div class="col-md-4">
         <div class="mb-3">
-            <label for="close_variance_approval_threshold" class="form-label">Ambang persetujuan selisih penutupan</label>
-            <input type="number" min="0" step="0.01" id="close_variance_approval_threshold" name="close_variance_approval_threshold"
-                   class="form-control @error('close_variance_approval_threshold') is-invalid @enderror"
-                   value="{{ old('close_variance_approval_threshold', $policy?->close_variance_approval_threshold ?? 0) }}">
-            @error('close_variance_approval_threshold')<div class="invalid-feedback">{{ $message }}</div>@enderror
-        </div>
-        <div class="mb-3">
             <label for="cash_threshold" class="form-label">Batas kas</label>
+            <small class="d-block text-muted mb-2">Jumlah kas yang akan ditampilkan di dasbor monitor untuk pemberitahuan pengambilan</small>
             <input type="number" min="0" step="0.01" id="cash_threshold" name="cash_threshold"
                    class="form-control @error('cash_threshold') is-invalid @enderror"
-                   value="{{ old('cash_threshold', $policy?->cash_threshold) }}">
+                   value="{{ old('cash_threshold', $policy?->cash_threshold ?? 5000000) }}"
+                   placeholder="Rp 5.000.000,00">
             @error('cash_threshold')<div class="invalid-feedback">{{ $message }}</div>@enderror
         </div>
     </div>

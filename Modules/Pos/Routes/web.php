@@ -42,8 +42,13 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::get('/pos/reconciliation/sessions', [PosReconciliationController::class, 'sessions'])->name('pos.reconciliation.sessions');
 });
 
-Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.safeDrops.create']], function () {
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.safeDrops.create', 'log.pos.pickup']], function () {
     Route::post('/pos/sessions/{session}/safe-drops', [PosSessionController::class, 'safeDrop'])->name('pos.sessions.safe-drops.store');
+});
+
+// Cash pickup route - doesn't require can:pos.safeDrops.create since the supervisor's credentials are validated in the controller
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'log.pos.pickup']], function () {
+    Route::post('/pos/sessions/{session}/pickup', [PosSessionController::class, 'pickup'])->name('pos.sessions.pickup');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sessions.close']], function () {

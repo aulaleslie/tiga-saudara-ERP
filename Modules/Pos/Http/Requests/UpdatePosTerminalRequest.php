@@ -32,7 +32,6 @@ class UpdatePosTerminalRequest extends FormRequest
             'is_active' => ['nullable', 'boolean'],
             'require_opening_float' => ['nullable', 'boolean'],
             'allow_total_only_float_input' => ['nullable', 'boolean'],
-            'close_variance_approval_threshold' => ['nullable', 'numeric', 'min:0'],
             'cash_threshold' => ['nullable', 'numeric', 'min:0'],
             'auto_open_drawer_on_session_open' => ['nullable', 'boolean'],
             'auto_open_drawer_on_cash_sale' => ['nullable', 'boolean'],

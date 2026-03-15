@@ -17,6 +17,7 @@ use Modules\Pos\Services\PosSessionCloseService;
 use Modules\Pos\Services\PosSafeDropService;
 use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Pos\Services\PosSessionMonitorService;
+use Modules\Pos\Services\PosSupervisorApprovalService;
 use Modules\Pos\Services\PosRolePolicyService;
 use Modules\Pos\Services\PosSessionSummaryService;
 use Modules\Setting\Entities\SettingSaleLocation;
@@ -296,5 +297,113 @@ class PosSessionController extends Controller
         $summaries = $monitorService->getActiveSessionsSummary($settingId);
 
         return response()->json($summaries);
+    }
+
+    /**
+     * Handle cash pickup from POS terminal with supervisor authentication
+     */
+    public function pickup(
+        int $session,
+        PosSupervisorApprovalService $approvalService,
+        PosSafeDropService $safeDropService
+    ): JsonResponse {
+        $user = auth()->user();
+
+        \Illuminate\Support\Facades\Log::channel('single')->info('POS Pickup Controller: Request received', [
+            'session_id' => $session,
+            'user_id' => $user?->id,
+            'user_email' => $user?->email,
+            'user_roles' => $user?->getRoleNames()->toArray(),
+            'setting_id' => session('setting_id'),
+        ]);
+
+        if (! $user) {
+            abort(403, 'Authentication is required.');
+        }
+
+        // Get setting from the session being accessed (fallback for Super Admin)
+        $posSession = PosSession::query()
+            ->with('terminal.policy')
+            ->where('id', $session)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $posSession) {
+            return response()->json([
+                'message' => 'Sesi POS tidak ditemukan.',
+            ], 404);
+        }
+
+        $settingId = (int) $posSession->setting_id;
+
+        // Validate request
+        $amount = request()->input('amount');
+        $supervisorEmail = request()->input('supervisor_email');
+        $supervisorPassword = request()->input('supervisor_password');
+
+        if (! is_numeric($amount) || (float) $amount <= 0) {
+            return response()->json([
+                'message' => 'Jumlah pengambilan harus lebih dari 0.',
+            ], 422);
+        }
+
+        if (! $supervisorEmail || ! $supervisorPassword) {
+            return response()->json([
+                'message' => 'Email dan password supervisor wajib diisi.',
+            ], 422);
+        }
+
+        // Validate amount against expected cash
+        $expectedCash = (float) ($posSession->expected_cash_total ?? 0);
+        if ((float) $amount > $expectedCash) {
+            return response()->json([
+                'message' => 'Jumlah pengambilan tidak boleh melebihi ekspektasi kas.',
+            ], 422);
+        }
+
+        try {
+            // Verify supervisor credentials and permission
+            $approvalResult = $approvalService->approveSafeDrop(
+                $settingId,
+                (int) $posSession->id,
+                (int) $user->id,
+                $supervisorEmail,
+                $supervisorPassword
+            );
+
+            if (! $approvalResult['approved']) {
+                $reason = $approvalResult['approval_result'] ?? 'UNKNOWN';
+                $message = 'Kredensial supervisor tidak valid atau Anda tidak memiliki izin untuk persetujuan pengambilan kas.';
+
+                if ($reason === 'MISSING_PERMISSION') {
+                    $message = 'Supervisor tidak memiliki izin "Setujui Safe Drop POS" (pos.safeDrops.approve).';
+                } elseif ($reason === 'INVALID_CREDENTIALS') {
+                    $message = 'Email atau password supervisor tidak valid.';
+                }
+
+                return response()->json(['message' => $message], 403);
+            }
+
+            // Create safe drop with supervisor info
+            $result = $safeDropService->createSafeDrop(
+                $settingId,
+                (int) $posSession->id,
+                (int) $user->id,
+                (float) $amount,
+                null, // denominations
+                'Pengambilan kas dari terminal POS',
+                $supervisorEmail,
+                $supervisorPassword
+            );
+
+            return response()->json([
+                'message' => 'Pengambilan kas berhasil.',
+                'expected_cash_after' => (float) ($result['expected_cash_after'] ?? $expectedCash - (float) $amount),
+            ]);
+        } catch (DomainException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 403);
+        }
     }
 }

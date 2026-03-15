@@ -12,17 +12,41 @@ class CheckUserRoleForSetting
         if (Auth::check()) {
             $user = Auth::user();
 
+            // Ensure setting_id is set for all users (including Super Admin)
+            if (!session()->has('setting_id')) {
+                // For Super Admin, use the first available setting or a provided setting_id in request
+                if ($user->hasRole('Super Admin')) {
+                    // Try to get setting_id from request if provided
+                    $settingId = $request->input('setting_id') ?: $request->query('setting_id');
+                    if (!$settingId) {
+                        // Fall back to first available setting from any settings table
+                        $settingId = $user->settings()->orderBy('settings.id')->value('settings.id');
+                    }
+                    if ($settingId) {
+                        session(['setting_id' => (int) $settingId]);
+                        \Illuminate\Support\Facades\Log::channel('single')->info('CheckUserRoleForSetting: Super Admin setting assigned', [
+                            'user_id' => $user->id,
+                            'user_email' => $user->email,
+                            'setting_id' => (int) $settingId,
+                        ]);
+                    } else {
+                        \Illuminate\Support\Facades\Log::channel('single')->warning('CheckUserRoleForSetting: Super Admin has no settings', [
+                            'user_id' => $user->id,
+                            'user_email' => $user->email,
+                        ]);
+                    }
+                } else {
+                    $settingId = $user->settings()->orderBy('settings.id')->value('settings.id');
+                    if ($settingId) {
+                        session(['setting_id' => $settingId]);
+                    }
+                }
+            }
+
             // Check if the user has the Super Admin role
             if ($user->hasRole('Super Admin')) {
                 // Skip dynamic role assignment for Super Admin
                 return $next($request);
-            }
-
-            if (!session()->has('setting_id')) {
-                $settingId = $user->settings()->orderBy('settings.id')->value('settings.id');
-                if ($settingId) {
-                    session(['setting_id' => $settingId]);
-                }
             }
 
             // Assign roles dynamically based on the current setting
