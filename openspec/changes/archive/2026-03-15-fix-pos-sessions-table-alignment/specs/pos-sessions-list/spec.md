@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Sessions List Table Display
 The sessions list view SHALL render a normalized HTML table with consistent column structure across all session statuses and filters. The table structure SHALL NOT vary based on the active status filter or row status values.
