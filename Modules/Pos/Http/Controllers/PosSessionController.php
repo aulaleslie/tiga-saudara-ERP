@@ -8,7 +8,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Routing\Controller;
+use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosSession;
+use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Http\Requests\StorePosSessionCloseRequest;
 use Modules\Pos\Http\Requests\StorePosSafeDropRequest;
@@ -32,7 +34,16 @@ class PosSessionController extends Controller
         $terminalId = request()->query('terminal_id');
 
         $sessions = PosSession::query()
-            ->with(['terminal', 'cashier'])
+            ->with(['terminal', 'terminal.policy', 'cashier', 'cashEvents', 'checkouts'])
+            ->withCount([
+                'cashEvents as transaction_count' => function ($query) {
+                    return $query->where('event_type', PosSessionCashEvent::EVENT_CASH_SALE_IN);
+                },
+                'cashEvents as safe_drops_count' => function ($query) {
+                    return $query->where('event_type', PosSessionCashEvent::EVENT_SAFE_DROP_OUT);
+                },
+            ])
+            ->withMax('cashEvents as last_activity', 'occurred_at')
             ->where('setting_id', $settingId)
             ->when($status, function ($query) use ($status) {
                 return $query->where('status', $status);
@@ -43,6 +54,22 @@ class PosSessionController extends Controller
             ->orderBy('opened_at', 'desc')
             ->paginate(15)
             ->withQueryString();
+
+        // Calculate Pengambilan Kas Terkini (total cash picked up) and Sales Total for each session
+        $sessions->getCollection()->transform(function ($session) {
+            $cashPickedUp = $session->cashEvents
+                ->where('event_type', PosSessionCashEvent::EVENT_SAFE_DROP_OUT)
+                ->where('direction', PosSessionCashEvent::DIRECTION_OUT)
+                ->sum('amount');
+
+            $salesTotal = $session->checkouts
+                ->where('status', PosCheckout::STATUS_POSTED)
+                ->sum('grand_total');
+
+            $session->cash_picked_up_total = round((float) $cashPickedUp, 2);
+            $session->sales_total = round((float) $salesTotal, 2);
+            return $session;
+        });
 
         $terminalFilter = $terminalId ? PosTerminal::find($terminalId) : null;
 
@@ -142,9 +169,9 @@ class PosSessionController extends Controller
         }
 
         $isOwner = (int) $posSession->cashier_user_id === (int) $user->id;
-        $canMonitor = $user->can('pos.monitor.access');
+        $canViewSessions = $user->can('pos.sessions.view');
 
-        if (! $isOwner && ! $canMonitor) {
+        if (! $isOwner && ! $canViewSessions) {
             abort(403, 'Not authorized to view POS session summary.');
         }
 
@@ -283,21 +310,6 @@ class PosSessionController extends Controller
         return 'opening_float_total';
     }
 
-    public function monitor(): Renderable
-    {
-        $settingId = $this->currentSettingId();
-
-        return view('pos::monitor.index', compact('settingId'));
-    }
-
-    public function monitorApi(PosSessionMonitorService $monitorService): JsonResponse
-    {
-        $settingId = $this->currentSettingId();
-
-        $summaries = $monitorService->getActiveSessionsSummary($settingId);
-
-        return response()->json($summaries);
-    }
 
     /**
      * Handle cash pickup from POS terminal with supervisor authentication

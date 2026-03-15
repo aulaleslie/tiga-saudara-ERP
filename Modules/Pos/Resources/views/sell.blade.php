@@ -720,7 +720,7 @@
                                             <a href="{{ route('sale-returns.index') }}" target="_blank" class="dropdown-item">Retur</a>
                                         @endcan
 
-                                        @if(auth()->user()->canAny(['pos.sessions.view', 'pos.monitor.access', 'pos.reconciliation.access', 'pos.terminals.access']))
+                                        @if(auth()->user()->canAny(['pos.sessions.view', 'pos.reconciliation.access', 'pos.terminals.access']))
                                             <div class="dropdown-divider"></div>
                                         @endif
 
@@ -730,9 +730,6 @@
                                         @if($posTransactionsEnabled && auth()->user()->can('pos.transactions.view'))
                                             <a class="dropdown-item" href="{{ route('pos.transactions.index') }}" target="_blank">Transaksi POS</a>
                                         @endif
-                                        @can('pos.monitor.access')
-                                            <a class="dropdown-item" href="{{ route('pos.monitor.index') }}" target="_blank">Monitor</a>
-                                        @endcan
                                         @can('pos.reconciliation.access')
                                             <a class="dropdown-item" href="{{ route('pos.reconciliation.index') }}" target="_blank">Rekonsiliasi</a>
                                         @endcan

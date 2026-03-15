@@ -23,7 +23,9 @@ class PosSessionSummaryService
      *     threshold_source:string,
      *     is_threshold_breached:bool,
      *     events_count:int,
-     *     calculated_at:string
+     *     calculated_at:string,
+     *     transactions:array,
+     *     cash_events:array
      * }
      */
     public function getSummary(int $sessionId, int $actorUserId, int $settingId): array
@@ -33,7 +35,7 @@ class PosSessionSummaryService
         }
 
         $session = PosSession::query()
-            ->with('terminal.policy')
+            ->with('terminal.policy', 'cashEvents.performer', 'cashEvents.approver')
             ->where('id', $sessionId)
             ->where('setting_id', $settingId)
             ->first();
@@ -55,6 +57,53 @@ class PosSessionSummaryService
         $expectedCashTotal = round((float) $calculation['expected_cash_total'], 2);
         $threshold = round((float) $thresholdValue, 2);
 
+        // Load transactions (last 50) from checkouts
+        $checkoutQuery = \Modules\Pos\Entities\PosCheckout::query()
+            ->with(['cashier', 'paymentMethod'])
+            ->where('pos_session_id', $sessionId)
+            ->where('status', \Modules\Pos\Entities\PosCheckout::STATUS_POSTED)
+            ->orderBy('finalized_at', 'desc');
+
+        $transactions = $checkoutQuery
+            ->limit(50)
+            ->get()
+            ->map(function ($checkout) {
+                return [
+                    'id' => (int) $checkout->id,
+                    'receipt_number' => (string) $checkout->receipt_number,
+                    'amount' => round((float) $checkout->grand_total, 2),
+                    'payment_method' => $checkout->paymentMethod?->name ?? 'Unknown',
+                    'cashier' => $checkout->cashier?->name ?? 'Unknown',
+                    'timestamp' => $checkout->finalized_at?->toIso8601String(),
+                ];
+            })
+            ->values()
+            ->toArray();
+
+        // Calculate sales total
+        $salesTotal = \Modules\Pos\Entities\PosCheckout::query()
+            ->where('pos_session_id', $sessionId)
+            ->where('status', \Modules\Pos\Entities\PosCheckout::STATUS_POSTED)
+            ->sum('grand_total');
+
+        // Load cash event timeline
+        $cashEvents = $session->cashEvents
+            ->sortByDesc('occurred_at')
+            ->map(function ($event) {
+                return [
+                    'id' => (int) $event->id,
+                    'event_type' => (string) $event->event_type,
+                    'amount' => round((float) $event->amount, 2),
+                    'direction' => (string) $event->direction,
+                    'timestamp' => $event->occurred_at?->toIso8601String(),
+                    'performer' => $event->performer?->name ?? 'Unknown',
+                    'approver' => $event->approver?->name ?? null,
+                    'notes' => $event->notes ?? null,
+                ];
+            })
+            ->values()
+            ->toArray();
+
         return [
             'session_id' => (int) $session->id,
             'status' => (string) $session->status,
@@ -67,6 +116,9 @@ class PosSessionSummaryService
             'is_threshold_breached' => $expectedCashTotal > $threshold,
             'events_count' => (int) $calculation['events_count'],
             'calculated_at' => (string) $calculation['calculated_at'],
+            'sales_total' => round((float) $salesTotal, 2),
+            'transactions' => $transactions,
+            'cash_events' => $cashEvents,
         ];
     }
 }

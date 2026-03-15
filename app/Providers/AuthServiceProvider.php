@@ -27,16 +27,7 @@ class AuthServiceProvider extends ServiceProvider
 
         Gate::before(function ($user, $ability) {
             $isSuperAdmin = $user->hasRole('Super Admin');
-            if ($isSuperAdmin || strpos($ability, 'pos.safeDrops') !== false) {
-                \Illuminate\Support\Facades\Log::channel('single')->info('Gate::before check', [
-                    'user_id' => $user->id,
-                    'user_email' => $user->email,
-                    'ability' => $ability,
-                    'is_super_admin' => $isSuperAdmin,
-                    'user_roles' => $user->getRoleNames()->toArray(),
-                    'result' => $isSuperAdmin ? 'ALLOWED (Super Admin)' : 'NEUTRAL',
-                ]);
-            }
+            
             return $isSuperAdmin ? true : null;
         });
     }

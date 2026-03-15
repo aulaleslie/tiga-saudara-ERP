@@ -43,8 +43,21 @@
                                 <th>Dibuka</th>
                                 <th>Ditutup</th>
                                 <th class="text-end">Saldo Awal</th>
-                                <th class="text-end">Kas Akhir</th>
-                                <th class="text-end">Selisih</th>
+                                @if($status === 'OPEN')
+                                    <th class="text-end">Total Penjualan</th>
+                                    <th class="text-end">Kas Ekspektasi</th>
+                                    <th class="text-end">Pengambilan Kas</th>
+                                    <th class="text-end">Trx</th>
+                                    <th>Aktivitas Terakhir</th>
+                                @elseif($status === 'CLOSED')
+                                    <th class="text-end">Total Penjualan</th>
+                                    <th class="text-end">Kas Akhir</th>
+                                    <th class="text-end">Selisih</th>
+                                @else
+                                    <th class="text-end">Total Penjualan</th>
+                                    <th class="text-end">Kas Akhir</th>
+                                    <th class="text-end">Selisih</th>
+                                @endif
                                 <th>Aksi</th>
                             </tr>
                         </thead>
@@ -73,16 +86,31 @@
                                         {{ $session->closed_at ? $session->closed_at->format('d/m/Y H:i') : '-' }}
                                     </td>
                                     <td class="text-end">{{ format_currency($session->opening_float_total) }}</td>
-                                    <td class="text-end">{{ $session->status === 'CLOSED' ? format_currency($session->counted_cash_total) : '-' }}</td>
-                                    <td class="text-end">
-                                        @if($session->status === 'CLOSED')
+
+                                    @if($status === 'OPEN' || ($status === null && $session->status === 'OPEN'))
+                                        <td class="text-end">{{ format_currency($session->sales_total ?? 0) }}</td>
+                                        <td class="text-end">{{ format_currency($session->expected_cash_total) }}</td>
+                                        <td class="text-end">{{ format_currency($session->cash_picked_up_total ?? 0) }}</td>
+                                        <td class="text-end"><span class="badge bg-info">{{ $session->transaction_count ?? 0 }}</span></td>
+                                        <td>{{ $session->last_activity ? \Carbon\Carbon::parse($session->last_activity)->format('H:i') : '-' }}</td>
+                                    @elseif($status === 'CLOSED' || ($status === null && $session->status === 'CLOSED'))
+                                        <td class="text-end">{{ format_currency($session->sales_total ?? 0) }}</td>
+                                        <td class="text-end">{{ format_currency($session->counted_cash_total) }}</td>
+                                        <td class="text-end">
                                             <span class="{{ $session->variance_total != 0 ? 'text-danger fw-bold' : 'text-success' }}">
                                                 {{ format_currency($session->variance_total) }}
                                             </span>
-                                        @else
-                                            -
-                                        @endif
-                                    </td>
+                                        </td>
+                                    @else
+                                        <td class="text-end">{{ format_currency($session->sales_total ?? 0) }}</td>
+                                        <td class="text-end">{{ format_currency($session->counted_cash_total) }}</td>
+                                        <td class="text-end">
+                                            <span class="{{ $session->variance_total != 0 ? 'text-danger fw-bold' : 'text-success' }}">
+                                                {{ format_currency($session->variance_total) }}
+                                            </span>
+                                        </td>
+                                    @endif
+
                                     <td>
                                         <div class="dropdown">
                                             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">

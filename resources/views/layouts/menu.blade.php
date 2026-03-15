@@ -149,7 +149,7 @@
     $canAccessPosOperations = $posEnabledForCurrentSetting
         && auth()->user()->can('pos.access')
         && (
-            auth()->user()->canAny(['pos.sell', 'pos.sessions.view', 'pos.monitor.access', 'pos.reports.access', 'pos.reconciliation.access', 'pos.supervisor.approval'])
+            auth()->user()->canAny(['pos.sell', 'pos.sessions.view', 'pos.reports.access', 'pos.reconciliation.access', 'pos.supervisor.approval'])
             || $canAccessPosTransactions
         );
     $canAccessPosTerminals = $posEnabledForCurrentSetting && auth()->user()->can('pos.terminals.access');
@@ -189,17 +189,6 @@
                     <a class="c-sidebar-nav-link {{ request()->routeIs('pos.transactions.*') ? 'c-active' : '' }}"
                        href="{{ route('pos.transactions.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-journal-text" style="line-height: 1;"></i> Transaksi POS
-                    </a>
-                </li>
-            </ul>
-        @endif
-
-        @if($posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.monitor.access'))
-            <ul class="c-sidebar-nav-dropdown-items">
-                <li class="c-sidebar-nav-item">
-                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.monitor.*') ? 'c-active' : '' }}"
-                       href="{{ route('pos.monitor.index') }}">
-                        <i class="c-sidebar-nav-icon bi bi-display" style="line-height: 1;"></i> Monitor POS
                     </a>
                 </li>
             </ul>

@@ -86,6 +86,11 @@ class PosSession extends BaseModel
         return $this->hasMany(PosSessionCashEvent::class, 'pos_session_id');
     }
 
+    public function checkouts(): HasMany
+    {
+        return $this->hasMany(PosCheckout::class, 'pos_session_id');
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->whereNotNull('active_marker');
