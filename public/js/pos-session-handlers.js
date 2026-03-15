@@ -1,0 +1,435 @@
+/**
+ * POS Session Modal Handlers
+ * Handles admin force-close and supervisor finalization modal interactions
+ */
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize close admin modal
+    const closeAdminModal = document.getElementById('closeAdminModal');
+    if (closeAdminModal) {
+        closeAdminModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            const sessionId = button.dataset.sessionId;
+            const sessionCode = button.dataset.sessionCode;
+
+            // Fetch session data and populate modal
+            fetchSessionData(sessionId, function(session) {
+                populateCloseAdminModal(session);
+            });
+        });
+
+        // Handle form submission
+        document.getElementById('closeAdminForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            submitCloseAdmin(closeAdminModal);
+        });
+    }
+
+    // Initialize finalize modal
+    const finalizeModal = document.getElementById('finalizeModal');
+    if (finalizeModal) {
+        finalizeModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            const sessionId = button.dataset.sessionId;
+
+            // Fetch session data and populate modal
+            fetchSessionData(sessionId, function(session) {
+                populateFinalizeModal(session);
+            });
+        });
+
+        // Handle form submission
+        document.getElementById('finalizeForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            submitFinalize(finalizeModal);
+        });
+
+        // Real-time variance calculation
+        document.getElementById('actualCashReceived').addEventListener('input', function() {
+            calculateVariance();
+        });
+    }
+});
+
+/**
+ * Fetch session data from summary endpoint
+ */
+function fetchSessionData(sessionId, callback) {
+    console.log('[POS Session] Fetching session summary', { sessionId });
+
+    fetch(`/pos/sessions/${sessionId}/summary`)
+        .then(response => {
+            console.log('[POS Session] Summary response', {
+                status: response.status,
+                statusText: response.statusText,
+                contentType: response.headers.get('content-type')
+            });
+
+            if (!response.ok) {
+                return response.json().then(data => {
+                    throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('[POS Session] Summary data loaded', { sessionId });
+            callback(data);
+        })
+        .catch(error => {
+            console.error('[POS Session] Summary fetch error', error);
+            showToast('Gagal mengambil data sesi', 'error');
+        });
+}
+
+/**
+ * Populate close admin modal with session data
+ */
+function populateCloseAdminModal(session) {
+    document.getElementById('sessionCode').textContent = session.terminal?.code || '-';
+    document.getElementById('cashierName').textContent = session.cashier?.name || '-';
+    document.getElementById('openedAt').textContent = formatDateTime(session.opened_at);
+    document.getElementById('openingFloat').textContent = formatCurrency(session.opening_float_total);
+
+    // Calculate session duration
+    if (session.opened_at) {
+        const openedAt = new Date(session.opened_at);
+        const now = new Date();
+        const duration = calculateDuration(openedAt, now);
+        document.getElementById('sessionDuration').textContent = duration;
+    }
+
+    // Store session ID for form submission
+    document.getElementById('closeAdminForm').dataset.sessionId = session.id;
+}
+
+/**
+ * Populate finalize modal with session data
+ */
+function populateFinalizeModal(session) {
+    document.getElementById('finalizeSessionCode').textContent = session.terminal?.code || '-';
+    document.getElementById('finalizeCashierName').textContent = session.cashier?.name || '-';
+    document.getElementById('finalizeOpeningFloat').textContent = formatCurrency(session.opening_float_total);
+
+    // Calculate totals from checkouts
+    const totalSales = calculateTotalSales(session.checkouts);
+    const cashSales = calculateCashSales(session.checkouts);
+    const safeDrops = calculateSafeDrops(session.cashEvents);
+
+    document.getElementById('finalizeTotalSales').textContent = formatCurrency(totalSales);
+    document.getElementById('finalizeCashSales').textContent = formatCurrency(cashSales);
+    document.getElementById('finalizeCashSalesAmount').textContent = formatCurrency(cashSales);
+    document.getElementById('finalizeSafeDrops').textContent = formatCurrency(safeDrops);
+
+    // Calculate expected cash
+    const expectedCash = calculateExpectedCash(session);
+    document.getElementById('finalizeExpectedCash').textContent = formatCurrency(expectedCash);
+    document.getElementById('finalizeVarianceThreshold').textContent = formatCurrency(session.terminal?.policy?.close_variance_approval_threshold || 0);
+
+    // Store session ID and expected cash for calculations
+    const form = document.getElementById('finalizeForm');
+    form.dataset.sessionId = session.id;
+    form.dataset.expectedCash = expectedCash;
+
+    // Reset form
+    form.reset();
+    calculateVariance();
+}
+
+/**
+ * Calculate total sales from checkouts
+ */
+function calculateTotalSales(checkouts) {
+    if (!Array.isArray(checkouts)) return 0;
+    return checkouts.reduce((total, checkout) => {
+        return total + (parseFloat(checkout.grand_total) || 0);
+    }, 0);
+}
+
+/**
+ * Calculate cash sales (only from cash payment method checkouts)
+ */
+function calculateCashSales(checkouts) {
+    if (!Array.isArray(checkouts)) return 0;
+    return checkouts.reduce((total, checkout) => {
+        if (checkout.payment_method?.is_cash) {
+            return total + (parseFloat(checkout.grand_total) || 0);
+        }
+        return total;
+    }, 0);
+}
+
+/**
+ * Calculate total safe drops (withdrawals)
+ */
+function calculateSafeDrops(cashEvents) {
+    if (!Array.isArray(cashEvents)) return 0;
+    return cashEvents.reduce((total, event) => {
+        if (event.event_type === 'SAFE_DROP_OUT') {
+            return total + (parseFloat(event.amount) || 0);
+        }
+        return total;
+    }, 0);
+}
+
+/**
+ * Calculate expected cash total
+ */
+function calculateExpectedCash(session) {
+    const opening = parseFloat(session.opening_float_total) || 0;
+    const cashSales = calculateCashSales(session.checkouts);
+    const safeDrops = calculateSafeDrops(session.cashEvents);
+    return opening + cashSales - safeDrops;
+}
+
+/**
+ * Real-time variance calculation
+ */
+function calculateVariance() {
+    const actualCash = parseFloat(document.getElementById('actualCashReceived').value) || 0;
+    const form = document.getElementById('finalizeForm');
+    const expectedCash = parseFloat(form.dataset.expectedCash) || 0;
+    const variance = actualCash - expectedCash;
+
+    const varianceElement = document.getElementById('finalizeVarianceAmount');
+    const varianceWarning = document.getElementById('varianceWarning');
+    const thresholdText = document.getElementById('finalizeVarianceThreshold').textContent;
+    const threshold = parseFloat(thresholdText.replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0;
+
+    varianceElement.textContent = formatCurrency(variance);
+
+    // Color code the variance
+    if (Math.abs(variance) > threshold) {
+        varianceElement.classList.remove('text-success');
+        varianceElement.classList.add('text-danger');
+        varianceWarning.style.display = 'block';
+    } else {
+        varianceElement.classList.remove('text-danger');
+        varianceElement.classList.add('text-success');
+        varianceWarning.style.display = 'none';
+    }
+}
+
+/**
+ * Submit close admin form
+ */
+function submitCloseAdmin(modal) {
+    const form = document.getElementById('closeAdminForm');
+    const sessionId = form.dataset.sessionId;
+    const reason = document.getElementById('closeAdminReason').value;
+
+    console.log('[POS Session] Closing session as admin', {
+        sessionId,
+        reason: reason || '(none)',
+        timestamp: new Date().toISOString()
+    });
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Memproses...';
+
+    const formData = new FormData();
+    if (reason) formData.append('reason', reason);
+
+    fetch(`/pos/sessions/${sessionId}/close-admin`, {
+        method: 'POST',
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+        },
+        body: formData,
+    })
+        .then(response => {
+            console.log('[POS Session] Close admin response', {
+                status: response.status,
+                statusText: response.statusText,
+                contentType: response.headers.get('content-type')
+            });
+
+            if (!response.ok) {
+                return response.json().then(data => {
+                    throw new Error(data.message || 'Gagal menutup terminal');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('[POS Session] Admin close successful', data);
+            showToast('Terminal berhasil ditutup', 'success');
+            const bsModal = bootstrap.Modal.getInstance(modal);
+            bsModal.hide();
+            // Reload table after short delay
+            setTimeout(() => location.reload(), 1000);
+        })
+        .catch(error => {
+            console.error('[POS Session] Close admin error', error);
+            showToast(error.message || 'Gagal menutup terminal', 'error');
+        })
+        .finally(() => {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        });
+}
+
+/**
+ * Submit finalize form
+ */
+function submitFinalize(modal) {
+    const form = document.getElementById('finalizeForm');
+    const sessionId = form.dataset.sessionId;
+    const actualCash = document.getElementById('actualCashReceived').value;
+    const notes = document.getElementById('finalizeNotes').value;
+
+    if (!actualCash) {
+        console.warn('[POS Session] Finalize attempt without actual cash amount');
+        showToast('Masukkan jumlah kas aktual', 'warning');
+        return;
+    }
+
+    console.log('[POS Session] Finalizing session', {
+        sessionId,
+        actualCash: parseFloat(actualCash),
+        notes: notes || '(none)',
+        timestamp: new Date().toISOString()
+    });
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Memproses...';
+
+    const formData = new FormData();
+    formData.append('actual_cash_received', parseFloat(actualCash));
+    if (notes) formData.append('notes', notes);
+
+    fetch(`/pos/sessions/${sessionId}/finalize`, {
+        method: 'POST',
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+        },
+        body: formData,
+    })
+        .then(response => {
+            console.log('[POS Session] Finalize response', {
+                status: response.status,
+                statusText: response.statusText,
+                contentType: response.headers.get('content-type')
+            });
+
+            if (response.status === 422) {
+                return response.json().then(data => {
+                    if (data.requires_variance_approval) {
+                        throw new Error(
+                            `Varians melebihi batas (${formatCurrency(data.variance_total)}). ` +
+                            `Butuh persetujuan untuk melanjutkan.`
+                        );
+                    }
+                    throw new Error(data.message || 'Finalisasi gagal');
+                });
+            }
+            if (!response.ok) {
+                return response.json().then(data => {
+                    throw new Error(data.message || 'Finalisasi gagal');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('[POS Session] Finalize successful', data);
+            showToast('Sesi berhasil difinalisasi', 'success');
+            const bsModal = bootstrap.Modal.getInstance(modal);
+            bsModal.hide();
+            // Reload table after short delay
+            setTimeout(() => location.reload(), 1000);
+        })
+        .catch(error => {
+            console.error('[POS Session] Finalize error', error);
+            showToast(error.message || 'Gagal menfinalisasi sesi', 'error');
+        })
+        .finally(() => {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        });
+}
+
+/**
+ * Helper function to show toast notifications
+ */
+function showToast(message, type = 'info') {
+    // Check if there's a toast container, if not create one
+    let toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        toastContainer.style.position = 'fixed';
+        toastContainer.style.top = '20px';
+        toastContainer.style.right = '20px';
+        toastContainer.style.zIndex = '9999';
+        document.body.appendChild(toastContainer);
+    }
+
+    const alertClass = {
+        'success': 'alert-success',
+        'error': 'alert-danger',
+        'warning': 'alert-warning',
+        'info': 'alert-info',
+    }[type] || 'alert-info';
+
+    const toast = document.createElement('div');
+    toast.className = `alert ${alertClass} alert-dismissible fade show`;
+    toast.role = 'alert';
+    toast.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+
+    toastContainer.appendChild(toast);
+
+    // Auto dismiss after 5 seconds
+    setTimeout(() => {
+        const bsAlert = new bootstrap.Alert(toast);
+        bsAlert.close();
+    }, 5000);
+}
+
+/**
+ * Format currency value
+ */
+function formatCurrency(value) {
+    const number = parseFloat(value) || 0;
+    return new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(number);
+}
+
+/**
+ * Format date and time
+ */
+function formatDateTime(dateString) {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return new Intl.DateTimeFormat('id-ID', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    }).format(date);
+}
+
+/**
+ * Calculate duration between two dates
+ */
+function calculateDuration(startDate, endDate) {
+    const diffMs = endDate - startDate;
+    const diffMins = Math.floor(diffMs / 60000);
+    const hours = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+
+    if (hours === 0) return `${mins} menit`;
+    if (mins === 0) return `${hours} jam`;
+    return `${hours} jam ${mins} menit`;
+}

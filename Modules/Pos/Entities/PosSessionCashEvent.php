@@ -16,6 +16,8 @@ class PosSessionCashEvent extends BaseModel
 
     public const EVENT_CLOSE_COUNT = 'CLOSE_COUNT';
 
+    public const EVENT_FINALIZE_COUNT = 'FINALIZE_COUNT';
+
     public const DIRECTION_IN = 'IN';
 
     public const DIRECTION_OUT = 'OUT';

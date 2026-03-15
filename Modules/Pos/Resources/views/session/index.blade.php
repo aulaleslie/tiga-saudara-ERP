@@ -34,7 +34,7 @@
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-hover table-striped mb-0">
+                    <table class="table table-hover table-striped mb-0 pos-sessions-table">
                         <thead class="table-light text-nowrap">
                             <tr>
                                 <th>Terminal</th>
@@ -43,21 +43,11 @@
                                 <th>Dibuka</th>
                                 <th>Ditutup</th>
                                 <th class="text-end">Saldo Awal</th>
-                                @if($status === 'OPEN')
-                                    <th class="text-end">Total Penjualan</th>
-                                    <th class="text-end">Kas Ekspektasi</th>
-                                    <th class="text-end">Pengambilan Kas</th>
-                                    <th class="text-end">Trx</th>
-                                    <th>Aktivitas Terakhir</th>
-                                @elseif($status === 'CLOSED')
-                                    <th class="text-end">Total Penjualan</th>
-                                    <th class="text-end">Kas Akhir</th>
-                                    <th class="text-end">Selisih</th>
-                                @else
-                                    <th class="text-end">Total Penjualan</th>
-                                    <th class="text-end">Kas Akhir</th>
-                                    <th class="text-end">Selisih</th>
-                                @endif
+                                <th class="text-end">Total Penjualan</th>
+                                <th class="text-end">Kas</th>
+                                <th class="text-end">Pengambilan Kas</th>
+                                <th class="text-end">Metrik</th>
+                                <th>Aktivitas Terakhir</th>
                                 <th>Aksi</th>
                             </tr>
                         </thead>
@@ -86,48 +76,65 @@
                                         {{ $session->closed_at ? $session->closed_at->format('d/m/Y H:i') : '-' }}
                                     </td>
                                     <td class="text-end">{{ format_currency($session->opening_float_total) }}</td>
+                                    <td class="text-end">{{ format_currency($session->sales_total ?? 0) }}</td>
 
-                                    @if($status === 'OPEN' || ($status === null && $session->status === 'OPEN'))
-                                        <td class="text-end">{{ format_currency($session->sales_total ?? 0) }}</td>
-                                        <td class="text-end">{{ format_currency($session->expected_cash_total) }}</td>
-                                        <td class="text-end">{{ format_currency($session->cash_picked_up_total ?? 0) }}</td>
-                                        <td class="text-end"><span class="badge bg-info">{{ $session->transaction_count ?? 0 }}</span></td>
-                                        <td>{{ $session->last_activity ? \Carbon\Carbon::parse($session->last_activity)->format('H:i') : '-' }}</td>
-                                    @elseif($status === 'CLOSED' || ($status === null && $session->status === 'CLOSED'))
-                                        <td class="text-end">{{ format_currency($session->sales_total ?? 0) }}</td>
-                                        <td class="text-end">{{ format_currency($session->counted_cash_total) }}</td>
-                                        <td class="text-end">
+                                    {{-- Kas column: shows expected for OPEN, counted for CLOSED --}}
+                                    <td class="text-end">
+                                        @if($session->status === 'OPEN')
+                                            {{ format_currency($session->expected_cash_total) }}
+                                        @else
+                                            {{ format_currency($session->counted_cash_total) }}
+                                        @endif
+                                    </td>
+
+                                    <td class="text-end">{{ format_currency($session->cash_picked_up_total ?? 0) }}</td>
+
+                                    {{-- Metrik column: shows transaction count for OPEN, variance for CLOSED --}}
+                                    <td class="text-end">
+                                        @if($session->status === 'OPEN')
+                                            <span class="badge bg-info">{{ $session->transaction_count ?? 0 }}</span>
+                                        @elseif($session->status === 'CLOSED' || $session->status === 'FINALIZED' || $session->status === 'CLOSING')
                                             <span class="{{ $session->variance_total != 0 ? 'text-danger fw-bold' : 'text-success' }}">
                                                 {{ format_currency($session->variance_total) }}
                                             </span>
-                                        </td>
-                                    @else
-                                        <td class="text-end">{{ format_currency($session->sales_total ?? 0) }}</td>
-                                        <td class="text-end">{{ format_currency($session->counted_cash_total) }}</td>
-                                        <td class="text-end">
-                                            <span class="{{ $session->variance_total != 0 ? 'text-danger fw-bold' : 'text-success' }}">
-                                                {{ format_currency($session->variance_total) }}
-                                            </span>
-                                        </td>
-                                    @endif
+                                        @else
+                                            <span class="text-muted">-</span>
+                                        @endif
+                                    </td>
+
+                                    {{-- Aktivitas Terakhir: shows time for OPEN, dash for CLOSED --}}
+                                    <td>
+                                        @if($session->status === 'OPEN')
+                                            {{ $session->last_activity ? \Carbon\Carbon::parse($session->last_activity)->format('H:i') : '-' }}
+                                        @else
+                                            <span class="text-muted">-</span>
+                                        @endif
+                                    </td>
 
                                     <td>
-                                        <div class="dropdown">
-                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                                                Aksi
-                                            </button>
-                                            <ul class="dropdown-menu">
-                                                <li><a class="dropdown-item" href="{{ route('pos.sessions.summary', $session) }}">Detail Ringkasan</a></li>
-                                                @if($session->status === 'OPEN' && auth()->id() == $session->cashier_user_id)
-                                                    <li><a class="dropdown-item text-danger" href="{{ route('pos.sell') }}">Masuk Ke Kasir</a></li>
-                                                @endif
-                                            </ul>
+                                        <div class="btn-group" role="group">
+                                            <a href="{{ route('pos.sessions.summary', $session) }}" class="btn btn-sm btn-outline-secondary" title="Lihat Detail">
+                                                <i class="bi bi-eye"></i> Detail
+                                            </a>
+                                            @if($session->status === 'OPEN')
+                                                @can('pos.sessions.close-admin')
+                                                    <button type="button" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#closeAdminModal" data-session-id="{{ $session->id }}" data-session-code="{{ $session->terminal->code }}" title="Tutup Terminal (Admin)">
+                                                        <i class="bi bi-lock"></i> Tutup
+                                                    </button>
+                                                @endcan
+                                            @elseif($session->status === 'CLOSED')
+                                                @can('pos.supervisor.approval')
+                                                    <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#finalizeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $session->terminal->code }}" title="Finalisasi Sesi">
+                                                        <i class="bi bi-check-circle"></i> Finalisasi
+                                                    </button>
+                                                @endcan
+                                            @endif
                                         </div>
                                     </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="9" class="text-center py-4 text-muted">
+                                    <td colspan="12" class="text-center py-4 text-muted">
                                         Tidak ada data sesi POS ditemukan.
                                     </td>
                                 </tr>
@@ -143,4 +150,48 @@
             @endif
         </div>
     </div>
+
+    {{-- Modals --}}
+    @include('pos::session._close-admin-modal')
+    @include('pos::session._finalize-modal')
 @endsection
+
+@push('styles')
+    <style>
+        /* Normalize POS sessions table columns */
+        .pos-sessions-table {
+            table-layout: fixed;
+            width: 100%;
+        }
+
+        .pos-sessions-table th,
+        .pos-sessions-table td {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Placeholder dashes styling */
+        .pos-sessions-table td .text-muted {
+            opacity: 0.6;
+        }
+
+        /* Ensure action buttons don't wrap */
+        .pos-sessions-table .btn-group {
+            flex-wrap: nowrap;
+            white-space: nowrap;
+        }
+
+        /* Responsive: Allow wrapping on smaller screens */
+        @media (max-width: 768px) {
+            .pos-sessions-table th,
+            .pos-sessions-table td {
+                white-space: normal;
+            }
+        }
+    </style>
+@endpush
+
+@push('scripts')
+    <script src="{{ asset('js/pos-session-handlers.js') }}"></script>
+@endpush

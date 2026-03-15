@@ -22,6 +22,8 @@ use Modules\Pos\Services\PosSessionMonitorService;
 use Modules\Pos\Services\PosSupervisorApprovalService;
 use Modules\Pos\Services\PosRolePolicyService;
 use Modules\Pos\Services\PosSessionSummaryService;
+use Modules\Pos\Services\PosSessionAdminCloseService;
+use Modules\Pos\Services\PosSessionFinalizeService;
 use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\SettingPosPaymentMethod;
 
@@ -154,8 +156,17 @@ class PosSessionController extends Controller
         $settingId = $this->currentSettingId();
         $user = auth()->user();
 
+        \Illuminate\Support\Facades\Log::channel('single')->debug('POS Session Summary: Request received', [
+            'session_id' => $session,
+            'user_id' => $user?->id,
+            'setting_id' => $settingId,
+        ]);
+
         if (! $user) {
-            abort(403, 'Authentication is required.');
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Session Summary: No authenticated user');
+            return response()->json([
+                'message' => 'Authentication is required.',
+            ], 403);
         }
 
         $posSession = PosSession::query()
@@ -165,14 +176,28 @@ class PosSessionController extends Controller
             ->first();
 
         if (! $posSession) {
-            abort(404, 'POS session not found for current setting.');
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Session Summary: Session not found', [
+                'session_id' => $session,
+                'setting_id' => $settingId,
+            ]);
+            return response()->json([
+                'message' => 'POS session not found for current setting.',
+            ], 404);
         }
 
         $isOwner = (int) $posSession->cashier_user_id === (int) $user->id;
         $canViewSessions = $user->can('pos.sessions.view');
 
         if (! $isOwner && ! $canViewSessions) {
-            abort(403, 'Not authorized to view POS session summary.');
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Session Summary: Not authorized', [
+                'session_id' => $session,
+                'user_id' => $user->id,
+                'is_owner' => $isOwner,
+                'can_view_sessions' => $canViewSessions,
+            ]);
+            return response()->json([
+                'message' => 'Not authorized to view POS session summary.',
+            ], 403);
         }
 
         return response()->json(
@@ -230,8 +255,28 @@ class PosSessionController extends Controller
         $settingId = $this->currentSettingId();
         $user = auth()->user();
 
+        \Illuminate\Support\Facades\Log::channel('single')->info('POS Close Session: Request received', [
+            'session_id' => $session,
+            'user_id' => $user?->id,
+            'setting_id' => $settingId,
+            'reason' => $request->input('reason'),
+        ]);
+
         if (! $user) {
-            abort(403, 'Authentication is required.');
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Close Session: No authenticated user');
+            return response()->json([
+                'message' => 'Authentication is required.',
+            ], 403);
+        }
+
+        if (! $user->can('pos.sessions.close')) {
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Close Session: Permission denied', [
+                'user_id' => $user->id,
+                'permission' => 'pos.sessions.close',
+            ]);
+            return response()->json([
+                'message' => 'You do not have permission to close sessions.',
+            ], 403);
         }
 
         $posSession = PosSession::query()
@@ -241,33 +286,51 @@ class PosSessionController extends Controller
             ->first();
 
         if (! $posSession) {
-            abort(404, 'POS session not found for current setting.');
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Close Session: Session not found', [
+                'session_id' => $session,
+                'setting_id' => $settingId,
+            ]);
+            return response()->json([
+                'message' => 'POS session not found for current setting.',
+            ], 404);
         }
 
         try {
+            \Illuminate\Support\Facades\Log::channel('single')->info('POS Close Session: Calling service', [
+                'session_id' => $posSession->id,
+                'user_id' => $user->id,
+            ]);
+
             $result = $sessionCloseService->closeSession(
                 $settingId,
                 (int) $posSession->id,
                 (int) $user->id,
-                (float) $request->input('counted_cash_total'),
-                $request->input('counted_denominations'),
-                $request->filled('notes') ? $request->string('notes')->value() : null,
-                $request->filled('supervisor_identifier') ? $request->string('supervisor_identifier')->value() : null,
-                $request->filled('supervisor_pin') ? $request->string('supervisor_pin')->value() : null
+                $request->filled('reason') ? $request->string('reason')->value() : null
             );
         } catch (AuthorizationException $exception) {
-            abort(403, $exception->getMessage());
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Close Session: Authorization failed', [
+                'session_id' => $session,
+                'user_id' => $user->id,
+                'error' => $exception->getMessage(),
+            ]);
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 403);
         } catch (DomainException $exception) {
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Close Session: Domain error', [
+                'session_id' => $session,
+                'error' => $exception->getMessage(),
+            ]);
             return response()->json([
                 'message' => $exception->getMessage(),
             ], 422);
         }
 
-        if ((bool) ($result['blocked'] ?? false)) {
-            return response()->json($result['payload'], 422);
-        }
-
-        return response()->json($result['payload']);
+        \Illuminate\Support\Facades\Log::channel('single')->info('POS Close Session: Success', [
+            'session_id' => $session,
+            'user_id' => $user->id,
+        ]);
+        return response()->json($result);
     }
 
     private function currentSettingId(): int
@@ -417,5 +480,207 @@ class PosSessionController extends Controller
                 'message' => $exception->getMessage(),
             ], 403);
         }
+    }
+
+    public function closeAdmin(
+        int $session,
+        PosSessionAdminCloseService $adminCloseService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $user = auth()->user();
+
+        \Illuminate\Support\Facades\Log::channel('single')->info('POS Admin Close Session: Request received', [
+            'session_id' => $session,
+            'user_id' => $user?->id,
+            'setting_id' => $settingId,
+            'reason' => request()->input('reason'),
+        ]);
+
+        if (! $user) {
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Admin Close Session: No authenticated user');
+            return response()->json([
+                'message' => 'Authentication is required.',
+            ], 403);
+        }
+
+        if (! $user->can('pos.sessions.close-admin')) {
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Admin Close Session: Permission denied', [
+                'user_id' => $user->id,
+                'permission' => 'pos.sessions.close-admin',
+            ]);
+            return response()->json([
+                'message' => 'You do not have permission to close sessions as admin.',
+            ], 403);
+        }
+
+        $posSession = PosSession::query()
+            ->select(['id', 'setting_id'])
+            ->where('id', $session)
+            ->where('setting_id', $settingId)
+            ->first();
+
+        if (! $posSession) {
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Admin Close Session: Session not found', [
+                'session_id' => $session,
+                'setting_id' => $settingId,
+            ]);
+            return response()->json([
+                'message' => 'POS session not found for current setting.',
+            ], 404);
+        }
+
+        try {
+            \Illuminate\Support\Facades\Log::channel('single')->info('POS Admin Close Session: Calling service', [
+                'session_id' => $posSession->id,
+                'admin_user_id' => $user->id,
+            ]);
+
+            $result = $adminCloseService->closeSessionAsAdmin(
+                $settingId,
+                (int) $posSession->id,
+                (int) $user->id,
+                request()->filled('reason') ? request()->string('reason')->value() : null
+            );
+
+            \Illuminate\Support\Facades\Log::channel('single')->info('POS Admin Close Session: Success', [
+                'session_id' => $session,
+                'admin_user_id' => $user->id,
+            ]);
+            return response()->json($result);
+        } catch (AuthorizationException $exception) {
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Admin Close Session: Authorization failed', [
+                'session_id' => $session,
+                'user_id' => $user->id,
+                'error' => $exception->getMessage(),
+            ]);
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 403);
+        } catch (DomainException $exception) {
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Admin Close Session: Domain error', [
+                'session_id' => $session,
+                'error' => $exception->getMessage(),
+            ]);
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function finalize(
+        int $session,
+        PosSessionFinalizeService $finalizeService
+    ): JsonResponse {
+        $settingId = $this->currentSettingId();
+        $user = auth()->user();
+
+        \Illuminate\Support\Facades\Log::channel('single')->info('POS Finalize Session: Request received', [
+            'session_id' => $session,
+            'user_id' => $user?->id,
+            'setting_id' => $settingId,
+            'actual_cash_received' => request()->input('actual_cash_received'),
+        ]);
+
+        if (! $user) {
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Finalize Session: No authenticated user');
+            return response()->json([
+                'message' => 'Authentication is required.',
+            ], 403);
+        }
+
+        if (! $user->can('pos.supervisor.approval')) {
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Finalize Session: Permission denied', [
+                'user_id' => $user->id,
+                'permission' => 'pos.supervisor.approval',
+            ]);
+            return response()->json([
+                'message' => 'You do not have permission to finalize sessions.',
+            ], 403);
+        }
+
+        $posSession = PosSession::query()
+            ->select(['id', 'setting_id'])
+            ->where('id', $session)
+            ->where('setting_id', $settingId)
+            ->first();
+
+        if (! $posSession) {
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Finalize Session: Session not found', [
+                'session_id' => $session,
+                'setting_id' => $settingId,
+            ]);
+            return response()->json([
+                'message' => 'POS session not found for current setting.',
+            ], 404);
+        }
+
+        // Validate input
+        $actualCashReceived = request()->input('actual_cash_received');
+        if (! is_numeric($actualCashReceived)) {
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Finalize Session: Invalid cash amount', [
+                'session_id' => $session,
+                'actual_cash_received' => $actualCashReceived,
+            ]);
+            return response()->json([
+                'message' => 'Actual cash received must be a valid number.',
+            ], 422);
+        }
+
+        if ((float) $actualCashReceived < 0) {
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Finalize Session: Negative cash amount', [
+                'session_id' => $session,
+                'actual_cash_received' => $actualCashReceived,
+            ]);
+            return response()->json([
+                'message' => 'Actual cash received must be at least zero.',
+            ], 422);
+        }
+
+        try {
+            \Illuminate\Support\Facades\Log::channel('single')->info('POS Finalize Session: Calling service', [
+                'session_id' => $posSession->id,
+                'user_id' => $user->id,
+                'actual_cash_received' => (float) $actualCashReceived,
+            ]);
+
+            $result = $finalizeService->finalizeSession(
+                $settingId,
+                (int) $posSession->id,
+                (int) $user->id,
+                (float) $actualCashReceived,
+                request()->filled('notes') ? request()->string('notes')->value() : null
+            );
+        } catch (AuthorizationException $exception) {
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Finalize Session: Authorization failed', [
+                'session_id' => $session,
+                'user_id' => $user->id,
+                'error' => $exception->getMessage(),
+            ]);
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 403);
+        } catch (DomainException $exception) {
+            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Finalize Session: Domain error', [
+                'session_id' => $session,
+                'error' => $exception->getMessage(),
+            ]);
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        if ((bool) ($result['blocked'] ?? false)) {
+            \Illuminate\Support\Facades\Log::channel('single')->info('POS Finalize Session: Blocked (requires approval)', [
+                'session_id' => $session,
+                'requires_variance_approval' => $result['payload']['requires_variance_approval'] ?? false,
+            ]);
+            return response()->json($result['payload'], 422);
+        }
+
+        \Illuminate\Support\Facades\Log::channel('single')->info('POS Finalize Session: Success', [
+            'session_id' => $session,
+            'user_id' => $user->id,
+        ]);
+        return response()->json($result['payload']);
     }
 }

@@ -47,7 +47,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::post('/pos/sessions/{session}/pickup', [PosSessionController::class, 'pickup'])->name('pos.sessions.pickup');
 });
 
-Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sessions.close']], function () {
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access']], function () {
     Route::post('/pos/sessions/{session}/close', [PosSessionController::class, 'closeFinalize'])->name('pos.sessions.close.finalize');
 });
 
@@ -132,4 +132,12 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::get('/pos/supervisor/approval-requests/data', [PosSupervisorApprovalQueueController::class, 'data'])->name('pos.supervisor.approval-requests.data');
     Route::post('/pos/supervisor/approval-requests/{id}/approve', [PosSupervisorApprovalQueueController::class, 'approve'])->name('pos.supervisor.approval-requests.approve');
     Route::post('/pos/supervisor/approval-requests/{id}/reject', [PosSupervisorApprovalQueueController::class, 'reject'])->name('pos.supervisor.approval-requests.reject');
+});
+
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access']], function () {
+    Route::post('/pos/sessions/{session}/close-admin', [PosSessionController::class, 'closeAdmin'])->name('pos.sessions.close-admin');
+});
+
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access']], function () {
+    Route::post('/pos/sessions/{session}/finalize', [PosSessionController::class, 'finalize'])->name('pos.sessions.finalize');
 });

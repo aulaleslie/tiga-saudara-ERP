@@ -17,6 +17,8 @@ class PosSession extends BaseModel
 
     public const STATUS_CLOSED = 'CLOSED';
 
+    public const STATUS_FINALIZED = 'FINALIZED';
+
     protected $table = 'pos_sessions';
 
     protected $fillable = [
@@ -26,6 +28,7 @@ class PosSession extends BaseModel
         'status',
         'opened_at',
         'closed_at',
+        'finalized_at',
         'opened_by',
         'closed_by',
         'opening_float_total',
@@ -42,6 +45,7 @@ class PosSession extends BaseModel
     protected $casts = [
         'opened_at' => 'datetime',
         'closed_at' => 'datetime',
+        'finalized_at' => 'datetime',
         'close_approved_at' => 'datetime',
         'opening_float_total' => 'decimal:2',
         'expected_cash_total' => 'decimal:2',

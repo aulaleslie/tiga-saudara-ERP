@@ -52,218 +52,97 @@ class POSSessionCloseWorkflowTest extends TestCase
         }
     }
 
-    public function test_close_no_variance_closes_without_supervisor_and_logs_close_count_event(): void
+    public function test_cashier_can_close_session_successfully(): void
+    {
+        [$setting, $cashier, $session] = $this->createOpenSession(100000, 5000);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), []);
+
+        $response->assertOk()
+            ->assertJson([
+                'session_id' => $session->id,
+                'status' => 'CLOSED',
+            ])
+            ->assertJsonStructure([
+                'session_id',
+                'status',
+                'closed_at',
+            ])
+            ->assertJsonMissing('counted_cash_total')
+            ->assertJsonMissing('expected_cash_total')
+            ->assertJsonMissing('variance_total')
+            ->assertJsonMissing('approval_result')
+            ->assertJsonMissing('approval_id');
+
+        $this->assertDatabaseHas('pos_sessions', [
+            'id' => $session->id,
+            'status' => 'CLOSED',
+            'closed_by' => $cashier->id,
+        ]);
+    }
+
+    public function test_cashier_can_close_session_with_optional_reason(): void
     {
         [$setting, $cashier, $session] = $this->createOpenSession(100000, 5000);
 
         $response = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), [
-                'counted_cash_total' => 100000,
-                'counted_denominations' => [
-                    '100000' => 1,
-                ],
-                'notes' => 'Close balanced shift',
+                'reason' => 'Shift ended early',
             ]);
 
         $response->assertOk()
             ->assertJson([
                 'session_id' => $session->id,
                 'status' => 'CLOSED',
-                'counted_cash_total' => 100000.0,
-                'expected_cash_total' => 100000.0,
-                'variance_total' => 0.0,
-                'variance_threshold' => 5000.0,
-                'approval_result' => 'BYPASSED',
-                'approval_id' => null,
-            ])
-            ->assertJsonStructure([
-                'session_id',
-                'status',
-                'counted_cash_total',
-                'expected_cash_total',
-                'variance_total',
-                'variance_threshold',
-                'approval_id',
-                'approval_result',
-                'closed_at',
             ]);
 
         $this->assertDatabaseHas('pos_sessions', [
             'id' => $session->id,
             'status' => 'CLOSED',
             'closed_by' => $cashier->id,
-            'counted_cash_total' => 100000,
-            'variance_total' => 0,
-            'close_approved_by' => null,
-            'active_marker' => null,
-        ]);
-
-        $this->assertDatabaseHas('pos_session_cash_events', [
-            'setting_id' => $setting->id,
-            'pos_session_id' => $session->id,
-            'event_type' => 'CLOSE_COUNT',
-            'direction' => 'NEUTRAL',
-            'amount' => 100000,
-            'performed_by' => $cashier->id,
-            'approved_by' => null,
-            'notes' => 'CLOSE BALANCED SHIFT',
         ]);
     }
 
-    public function test_close_variance_above_threshold_without_supervisor_credentials_is_blocked_and_stays_blind(): void
+    public function test_non_cashier_cannot_close_session(): void
     {
         [$setting, $cashier, $session] = $this->createOpenSession(100000, 1000);
 
-        $response = $this->actingAs($cashier)
-            ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), [
-                'counted_cash_total' => 120000,
-                'notes' => 'Need supervisor approval',
-            ]);
-
-        $response->assertStatus(422)
-            ->assertJson([
-                'message' => 'Supervisor approval is required to close session variance.',
-                'requires_supervisor_approval' => true,
-                'status' => 'CLOSING',
-            ])
-            ->assertJsonMissingPath('expected_cash_total')
-            ->assertJsonMissingPath('variance_total');
-
-        $this->assertDatabaseHas('pos_sessions', [
-            'id' => $session->id,
-            'status' => 'CLOSING',
-            'closed_at' => null,
-            'active_marker' => 1,
-        ]);
-
-        $this->assertDatabaseMissing('pos_session_cash_events', [
-            'pos_session_id' => $session->id,
-            'event_type' => 'CLOSE_COUNT',
-        ]);
-
-        $this->assertDatabaseCount('pos_supervisor_approvals', 0);
-    }
-
-    public function test_close_variance_above_threshold_with_invalid_supervisor_pin_is_rejected_without_close_mutation(): void
-    {
-        [$setting, $cashier, $session] = $this->createOpenSession(100000, 1000);
-
-        $supervisor = $this->createUserForSetting(
+        $otherCashier = $this->createUserForSetting(
             $setting,
-            'POS CLOSE SUPERVISOR INVALID PIN',
-            ['pos.access', 'pos.sessions.close', 'pos.supervisor.approval'],
-            'close.supervisor.invalid.pin@example.com',
-            'supervisor-secret'
+            'POS CLOSE OTHER CASHIER',
+            ['pos.access', 'pos.sell', 'pos.sessions.close']
         );
 
-        $response = $this->actingAs($cashier)
+        $this->actingAs($otherCashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), [
-                'counted_cash_total' => 120000,
-                'supervisor_identifier' => $supervisor->email,
-                'supervisor_pin' => 'wrong-secret',
-            ]);
-
-        $response->assertStatus(422)
-            ->assertJson([
-                'message' => 'Supervisor approval failed for session close.',
-                'requires_supervisor_approval' => true,
-                'status' => 'CLOSING',
-            ]);
+            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), [])
+            ->assertForbidden();
 
         $this->assertDatabaseHas('pos_sessions', [
             'id' => $session->id,
-            'status' => 'CLOSING',
+            'status' => 'OPEN',
             'closed_at' => null,
-            'active_marker' => 1,
-        ]);
-
-        $this->assertDatabaseMissing('pos_session_cash_events', [
-            'pos_session_id' => $session->id,
-            'event_type' => 'CLOSE_COUNT',
-        ]);
-
-        $this->assertDatabaseHas('pos_supervisor_approvals', [
-            'setting_id' => $setting->id,
-            'action_type' => 'SESSION_CLOSE_VARIANCE_APPROVAL',
-            'target_type' => 'pos_session',
-            'target_id' => $session->id,
-            'requested_by' => $cashier->id,
-            'approved_by' => null,
-            'approval_result' => 'REJECTED',
-            'reason' => 'INVALID_CREDENTIALS',
         ]);
     }
 
-    public function test_close_variance_above_threshold_with_valid_supervisor_approval_closes_and_records_approval(): void
+    public function test_close_response_includes_only_session_details(): void
     {
-        [$setting, $cashier, $session] = $this->createOpenSession(100000, 1000);
-
-        $supervisor = $this->createUserForSetting(
-            $setting,
-            'POS CLOSE SUPERVISOR APPROVED',
-            ['pos.access', 'pos.sessions.close', 'pos.supervisor.approval'],
-            'close.supervisor.approved@example.com',
-            'supervisor-secret'
-        );
+        [$setting, $cashier, $session] = $this->createOpenSession(100000, 5000);
 
         $response = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), [
-                'counted_cash_total' => 120000,
-                'counted_denominations' => [
-                    '100000' => 1,
-                    '20000' => 1,
-                ],
-                'notes' => 'Close with variance approved',
-                'supervisor_identifier' => $supervisor->email,
-                'supervisor_pin' => 'supervisor-secret',
-            ]);
+            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), []);
 
-        $response->assertOk()
-            ->assertJson([
-                'session_id' => $session->id,
-                'status' => 'CLOSED',
-                'counted_cash_total' => 120000.0,
-                'expected_cash_total' => 100000.0,
-                'variance_total' => 20000.0,
-                'variance_threshold' => 1000.0,
-                'approval_result' => 'APPROVED',
-            ])
-            ->assertJsonPath('approval_id', fn ($value) => is_int($value) && $value > 0);
+        $response->assertOk();
 
-        $this->assertDatabaseHas('pos_supervisor_approvals', [
-            'setting_id' => $setting->id,
-            'action_type' => 'SESSION_CLOSE_VARIANCE_APPROVAL',
-            'target_type' => 'pos_session',
-            'target_id' => $session->id,
-            'requested_by' => $cashier->id,
-            'approved_by' => $supervisor->id,
-            'approval_result' => 'APPROVED',
-        ]);
-
-        $this->assertDatabaseHas('pos_sessions', [
-            'id' => $session->id,
-            'status' => 'CLOSED',
-            'closed_by' => $cashier->id,
-            'counted_cash_total' => 120000,
-            'variance_total' => 20000,
-            'close_approved_by' => $supervisor->id,
-            'active_marker' => null,
-        ]);
-
-        $this->assertDatabaseHas('pos_session_cash_events', [
-            'setting_id' => $setting->id,
-            'pos_session_id' => $session->id,
-            'event_type' => 'CLOSE_COUNT',
-            'direction' => 'NEUTRAL',
-            'amount' => 120000,
-            'performed_by' => $cashier->id,
-            'approved_by' => $supervisor->id,
-            'notes' => 'CLOSE WITH VARIANCE APPROVED',
-        ]);
+        $data = $response->json();
+        $this->assertArrayHasKey('session_id', $data);
+        $this->assertArrayHasKey('status', $data);
+        $this->assertArrayHasKey('closed_at', $data);
+        $this->assertCount(3, $data);
     }
 
     public function test_close_route_requires_pos_sessions_close_permission(): void
@@ -276,34 +155,8 @@ class POSSessionCloseWorkflowTest extends TestCase
 
         $this->actingAs($cashierWithoutClosePermission)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), [
-                'counted_cash_total' => 100000,
-            ])
+            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), [])
             ->assertForbidden();
-    }
-
-    public function test_only_session_cashier_can_close_even_with_permission(): void
-    {
-        [$setting, $cashier, $session] = $this->createOpenSession(100000, 1000);
-
-        $otherCashier = $this->createUserForSetting(
-            $setting,
-            'POS CLOSE OTHER CASHIER',
-            ['pos.access', 'pos.sell', 'pos.sessions.close']
-        );
-
-        $this->actingAs($otherCashier)
-            ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), [
-                'counted_cash_total' => 100000,
-            ])
-            ->assertForbidden();
-
-        $this->assertDatabaseHas('pos_sessions', [
-            'id' => $session->id,
-            'status' => 'OPEN',
-            'closed_at' => null,
-        ]);
     }
 
     public function test_closed_session_cannot_transact_after_successful_close(): void
@@ -312,9 +165,7 @@ class POSSessionCloseWorkflowTest extends TestCase
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), [
-                'counted_cash_total' => 100000,
-            ])
+            ->postJson(route('pos.sessions.close.finalize', ['session' => $session->id]), [])
             ->assertOk();
 
         $this->actingAs($cashier)
@@ -443,7 +294,6 @@ class POSSessionCloseWorkflowTest extends TestCase
             'close_variance_approval_threshold' => $varianceThreshold,
             'cash_threshold' => 50000,
             'require_pickup_supervisor_approval' => true,
-            'cash_threshold' => 50000,
         ]);
 
         return $terminal;

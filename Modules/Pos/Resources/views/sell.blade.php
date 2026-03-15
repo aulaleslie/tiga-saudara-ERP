@@ -740,6 +740,9 @@
                                             <a class="dropdown-item" href="{{ route('pos.supervisor.approval-requests.index') }}" target="_blank">Antrian Persetujuan</a>
                                         @endcan
                                         <div class="dropdown-divider"></div>
+                                        @can('pos.sessions.close')
+                                            <button type="button" id="pos-close-session-btn" class="dropdown-item">Tutup Sesi</button>
+                                        @endcan
                                         <button type="button" id="pos-cash-pickup-btn" class="dropdown-item">Pengambilan Kas</button>
                                     </div>
                                 </div>
@@ -1212,6 +1215,7 @@
             </div>
         </div>
     </div>
+
 
 @push('page_scripts')
     <script>
@@ -3293,6 +3297,70 @@
                     pickupStep2Error.classList.add('d-none');
                     pickupAmountError.classList.add('d-none');
                     showPickupStep1();
+                });
+            }
+
+            // Close Session Handler
+            const closeSessionBtn = document.getElementById('pos-close-session-btn');
+            let closeSessionData = null;
+
+            if (closeSessionBtn) {
+                closeSessionBtn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    console.log('[POS Session] Close session button clicked');
+                    // Get dropdown menu element with session data attributes
+                    const dropdownMenu = document.querySelector('.dropdown-menu[data-session-id]');
+                    if (dropdownMenu) {
+                        closeSessionData = {
+                            session_id: Number(dropdownMenu.getAttribute('data-session-id')),
+                        };
+
+                        console.log('[POS Session] Closing session', closeSessionData);
+
+                        // Close dropdown if it's open
+                        const dropdownToggle = document.getElementById('pos-nav-menu-dropdown');
+                        if (dropdownToggle && typeof $ !== 'undefined') {
+                            $(dropdownToggle).dropdown('toggle');
+                        }
+
+                        const closeBtn = closeSessionBtn;
+                        closeBtn.disabled = true;
+                        const originalText = closeBtn.innerHTML;
+                        closeBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Memproses...';
+
+                        fetch(`/pos/sessions/${closeSessionData.session_id}/close`, {
+                            method: 'POST',
+                            headers: {
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            },
+                        })
+                            .then(response => {
+                                console.log('[POS Session] Close session response', {
+                                    status: response.status,
+                                    statusText: response.statusText,
+                                });
+
+                                if (!response.ok) {
+                                    return response.json().then(data => {
+                                        throw new Error(data.message || 'Gagal menutup sesi');
+                                    });
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                console.log('[POS Session] Close session successful', data);
+                                alert('Terminal berhasil dirilis. Silakan buka sesi baru atau keluar.');
+                                window.location.href = '{{ route("home") }}';
+                            })
+                            .catch(error => {
+                                console.error('[POS Session] Close session error', error);
+                                alert(error.message || 'Gagal menutup sesi');
+                                closeBtn.disabled = false;
+                                closeBtn.innerHTML = originalText;
+                            });
+                    } else {
+                        console.warn('[POS Session] Dropdown menu not found');
+                    }
                 });
             }
 

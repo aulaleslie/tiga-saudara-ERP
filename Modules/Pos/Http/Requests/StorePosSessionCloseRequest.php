@@ -3,24 +3,29 @@
 namespace Modules\Pos\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Facades\Gate;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
 
 class StorePosSessionCloseRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return Gate::allows('pos.sessions.close');
+        // Authorization is now handled in the controller
+        return true;
     }
 
     public function rules(): array
     {
         return [
-            'counted_cash_total' => ['required', 'numeric', 'min:0'],
-            'counted_denominations' => ['nullable', 'array'],
-            'counted_denominations.*' => ['nullable', 'integer', 'min:0'],
-            'notes' => ['nullable', 'string', 'max:500'],
-            'supervisor_identifier' => ['nullable', 'string', 'max:255'],
-            'supervisor_pin' => ['nullable', 'string', 'max:255'],
+            'reason' => ['nullable', 'string', 'max:500'],
         ];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Validation failed',
+            'errors' => $validator->errors(),
+        ], 422));
     }
 }

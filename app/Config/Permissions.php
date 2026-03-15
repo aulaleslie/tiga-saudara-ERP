@@ -260,6 +260,8 @@ return [
         'pos.sell' => 'Penjualan',
         'pos.sessions.open' => 'Buka Sesi',
         'pos.sessions.close' => 'Tutup Sesi',
+        'pos.sessions.close-admin' => 'Tutup Terminal (Admin)',
+        'pos.sessions.approve-variance' => 'Setujui Varians Kas',
         'pos.sessions.view' => 'Lihat Sesi',
         'pos.safeDrops.create' => 'Buat Setoran',
         'pos.safeDrops.approve' => 'Setujui Setoran',
