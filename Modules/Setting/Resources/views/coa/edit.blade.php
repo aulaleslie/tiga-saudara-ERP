@@ -87,7 +87,7 @@
                                 <div class="col-lg-12 d-flex justify-content-end">
                                     <div class="form-group">
                                         <a href="{{ route('chart-of-account.index') }}" class="btn btn-secondary mr-2">Kembali</a>
-                                        @can("edit_account")
+                                        @can("chartOfAccounts.edit")
                                         <x-button label="Update Akun" icon="bi-check" processing-text="Memproses…" />
                                         @endcan
                                     </div>

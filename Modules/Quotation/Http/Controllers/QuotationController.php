@@ -32,7 +32,7 @@ class QuotationController extends Controller
 
 
     public function create(Request $request) {
-        abort_if(Gate::denies('create_quotations'), 403);
+        abort_if(Gate::denies('quotations.create'), 403);
 
         Cart::instance('quotation')->destroy();
 
@@ -84,7 +84,7 @@ class QuotationController extends Controller
 
 
     public function show(Quotation $quotation) {
-        abort_if(Gate::denies('show_quotations'), 403);
+        abort_if(Gate::denies('quotations.access'), 403);
 
         $customer = Customer::findOrFail($quotation->customer_id);
 
@@ -93,7 +93,7 @@ class QuotationController extends Controller
 
 
     public function edit(Quotation $quotation) {
-        abort_if(Gate::denies('edit_quotations'), 403);
+        abort_if(Gate::denies('quotations.edit'), 403);
 
         $quotation_details = $quotation->quotationDetails;
 

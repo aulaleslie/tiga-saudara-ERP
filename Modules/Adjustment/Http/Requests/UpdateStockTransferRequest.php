@@ -15,7 +15,7 @@ class UpdateStockTransferRequest extends FormRequest
     public function authorize(): bool
     {
         // Check if the user has permission to update stock transfers
-        return Gate::allows('update_transfers');
+        return Gate::allows('stockTransfers.edit');
     }
 
     /**

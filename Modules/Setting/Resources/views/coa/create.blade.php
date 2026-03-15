@@ -90,7 +90,7 @@
                                         <a href="{{ route('chart-of-account.index') }}" class="btn btn-secondary mr-2">
                                             Kembali
                                         </a>
-                                        @can("create_account")
+                                        @can("chartOfAccounts.create")
                                         <x-button label="Tambah Akun" icon="bi-check" processing-text="Memproses…" />
                                         @endcan
                                     </div>

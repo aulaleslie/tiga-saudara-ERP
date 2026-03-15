@@ -59,6 +59,6 @@ class StoreQuotationRequest extends FormRequest
      */
     public function authorize()
     {
-        return Gate::allows('create_quotations');
+        return Gate::allows('quotations.create');
     }
 }

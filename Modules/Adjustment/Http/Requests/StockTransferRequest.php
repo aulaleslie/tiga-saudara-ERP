@@ -15,7 +15,7 @@ class StockTransferRequest extends FormRequest
     public function authorize(): bool
     {
         // Authorize only if the user has permission to create transfers
-        return Gate::allows('create_transfers');
+        return Gate::allows('stockTransfers.create');
     }
 
     /**

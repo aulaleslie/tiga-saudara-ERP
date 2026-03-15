@@ -158,6 +158,13 @@ return [
         'profiles.edit' => 'Ubah Profil',
     ],
 
+    'Quotations' => [
+        'quotations.access' => 'Hak Akses',
+        'quotations.create' => 'Buat',
+        'quotations.edit' => 'Ubah',
+        'quotations.sendMails' => 'Kirim Email',
+    ],
+
     'Purchases' => [
         'purchases.access' => 'Hak Akses',
         'purchases.create' => 'Buat',
@@ -359,6 +366,6 @@ return [
     ],
 
     'Notifications' => [
-        'show_notifications' => 'Tampilkan Notifikasi',
+        'notifications.access' => 'Tampilkan Notifikasi',
     ],
 ];

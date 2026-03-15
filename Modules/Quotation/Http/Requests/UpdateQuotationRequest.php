@@ -59,6 +59,6 @@ class UpdateQuotationRequest extends FormRequest
      */
     public function authorize()
     {
-        return Gate::allows('edit_quotations');
+        return Gate::allows('quotations.edit');
     }
 }
