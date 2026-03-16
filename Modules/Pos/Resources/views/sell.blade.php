@@ -383,6 +383,20 @@
         font-size: 0.9rem;
     }
 
+    /* Task 3.1: Shared qty control strip with stable slot width across reduce/periksa/approved states */
+    .pos-qty-control-strip {
+        /* Reserve fixed minimum space for left slot to prevent jitter when button text/width changes */
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .pos-qty-control-strip .pos-qty-reduce-btn {
+        /* Task 3.1: Stable left slot width across reduce/periksa/approved transitions */
+        flex: 0 0 auto;
+        min-width: 70px;
+    }
+
     .pos-customer-shell {
         height: 100%;
         display: flex;
@@ -1434,6 +1448,30 @@
                 return normalized;
             }
 
+            // Task 1.1: Shared qty-approval state-to-button renderer
+            // Maps normalized approval state to HTML button for rendering in either serial or non-serial rows.
+            // Ensures both row types render equivalent UI for the same approval state.
+            function renderQtyApprovalSlotButton(qtyReduceReq, lineId, currentQty) {
+                if (!qtyReduceReq) {
+                    // No approval request: render reduce button
+                    return `<button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${currentQty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>`;
+                }
+
+                if (qtyReduceReq.status === 'APPROVED') {
+                    // Approved: show proceed button with approved qty
+                    const approvedQty = qtyReduceReq.requested_qty || '?';
+                    return `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.approval_token || ''}" data-approved-qty="${approvedQty}" title="Lanjutkan (qty: ${approvedQty})" aria-label="Lanjutkan">✓ ${approvedQty}</button>`;
+                }
+
+                if (qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
+                    // Pending or other active states: show check approval button
+                    return `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
+                }
+
+                // Rejected or cancelled: render reduce button
+                return `<button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${currentQty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>`;
+            }
+
             async function jsonRequest(url, method, payload) {
                 const options = {
                     method: method || 'GET',
@@ -1872,9 +1910,8 @@
                             </td>
                         `;
                     } else {
-                        // Task 1.2/1.3: For non-privileged users: qty input + serial button + increase button + reduce button + approval buttons
-                        // Use server pending_approvals as primary source, with client cache as transient fallback
-                        // Sort by request_id DESC to get the latest request (defensive against ordering)
+                        // Task 1.4: For non-privileged serial users - use shared qty control strip with serial action on secondary line
+                        // Fetch latest qty-reduce approval from server snapshot
                         const backendQtyReduceReq = (line.pending_approvals || [])
                             .slice()
                             .sort((a, b) => b.request_id - a.request_id)
@@ -1882,69 +1919,35 @@
                         const clientPending = clientPendingApprovals[lineId];
                         const qtyReduceRaw = backendQtyReduceReq || clientPending;
                         const qtyReduceReq = normalizeQtyApprovalState(qtyReduceRaw);
-                        console.log('[SERIAL] QTY_REDUCE approval state: ' + JSON.stringify({
-                            lineId,
-                            pending_approvals: line.pending_approvals,
-                            backendQtyReduceReq,
-                            clientPending,
-                            qtyReduceRaw,
-                            qtyReduceReq,
-                            willRenderButton: !!qtyReduceReq && qtyReduceReq.status && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED'
-                        }));
-                        let approvalButtonHtml = '';
 
-                        if (qtyReduceReq) {
-                            console.log('[SERIAL] qtyReduceReq found for line ' + lineId + ', status=' + qtyReduceReq.status);
-                            // Show approval button when pending or approved (same logic as delete button)
-                            if (qtyReduceReq.status === 'APPROVED') {
-                                const approvedQty = qtyReduceReq.requested_qty || '?';
-                                approvalButtonHtml = `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.approval_token || ''}" data-approved-qty="${approvedQty}" title="Lanjutkan (qty: ${approvedQty})" aria-label="Lanjutkan">✓ ${approvedQty}</button>`;
-                                console.log('[SERIAL] Rendered APPROVED button for line ' + lineId);
-                            } else if (qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
-                                // Pending or other active states: show check approval button
-                                approvalButtonHtml = `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
-                                console.log('[SERIAL] Rendered PENDING button for line ' + lineId + ', request_id=' + qtyReduceReq.request_id);
-                            } else {
-                                console.log('[SERIAL] Status is REJECTED/CANCELLED for line ' + lineId + ', not rendering button');
-                            }
-                        } else {
-                            console.log('[SERIAL] No qtyReduceReq for line ' + lineId + ', not rendering approval button');
-                        }
-
-                        // Build button for approval/reduce - either approval button or reduce button
-                        let reduceButtonHtml = '';
-                        if (qtyReduceReq && qtyReduceReq.status === 'APPROVED') {
-                            reduceButtonHtml = `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.approval_token || ''}" data-approved-qty="${qtyReduceReq.requested_qty || '?'}" title="Lanjutkan (qty: ${qtyReduceReq.requested_qty || '?'})" aria-label="Lanjutkan">✓ ${qtyReduceReq.requested_qty || '?'}</button>`;
-                        } else if (qtyReduceReq && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
-                            reduceButtonHtml = `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
-                        } else {
-                            reduceButtonHtml = `<button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${qty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>`;
-                        }
+                        // Task 1.2: Build shared control strip in order: [Reduce/Periksa slot][qty input][+]
+                        const slotButtonHtml = renderQtyApprovalSlotButton(qtyReduceReq, lineId, qty);
 
                         qtyCell = `
                             <td class="pos-cart-serial-cell align-middle" style="min-width: 200px;">
                                 <div class="d-flex align-items-center flex-wrap" style="gap: 12px;">
                                     <div class="d-flex flex-column align-items-center" style="gap: 2px;">
-                                        <div class="d-flex align-items-center" style="gap: 4px;">
+                                        <div class="d-flex align-items-center pos-qty-control-strip" style="gap: 4px;">
+                                            ${slotButtonHtml}
                                             <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
                                                    type="number" min="1" value="${qty}" data-prev-qty="${qty}"
                                                    data-can-reduce="${canReduceQuantity}"
                                                    style="width: 55px;">
                                             <button type="button" class="btn btn-sm btn-outline-secondary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
-                                            <button type="button"
-                                                    class="btn btn-sm btn-outline-info js-serial-add pos-serial-action"
-                                                    data-line-id="${lineId}"
-                                                    data-product-name="${productName}"
-                                                    title="Atur Serial"
-                                                    aria-label="Atur Serial">
+                                        </div>
+                                        <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
+                                    </div>
+                                    <div class="d-flex align-items-center" style="gap: 4px;">
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-info js-serial-add pos-serial-action"
+                                                data-line-id="${lineId}"
+                                                data-product-name="${productName}"
+                                                title="Atur Serial"
+                                                aria-label="Atur Serial">
                                                 <i class="bi bi-upc-scan" aria-hidden="true"></i>
                                                 <span class="pos-serial-action-label">Serial</span>
                                             </button>
                                         </div>
-                                        <div class="d-flex align-items-center justify-content-center" style="gap: 4px; margin-top: 4px;">
-                                            ${reduceButtonHtml}
-                                        </div>
-                                        <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
                                     </div>
                                     <div class="pos-serial-wrapper flex-grow-1">
                                         ${serialChips}
@@ -1970,9 +1973,7 @@
                             </td>
                         `;
                     } else {
-                        // Task 1.2/1.3: Non-privileged: qty input + increase button only (no direct decrease) + reduce button + approval buttons
-                        // Use server pending_approvals as primary source, with client cache as transient fallback
-                        // Sort by request_id DESC to get the latest request (defensive against ordering)
+                        // Task 1.3: Non-privileged non-serial: use shared control strip [Reduce/Periksa slot][qty input][+]
                         const backendQtyReduceReq = (line.pending_approvals || [])
                             .slice()
                             .sort((a, b) => b.request_id - a.request_id)
@@ -1980,52 +1981,14 @@
                         const clientPending = clientPendingApprovals[lineId];
                         const qtyReduceRaw = backendQtyReduceReq || clientPending;
                         const qtyReduceReq = normalizeQtyApprovalState(qtyReduceRaw);
-                        console.log('[NON-SERIAL] QTY_REDUCE state for line ' + lineId + ': ' + JSON.stringify({
-                            pending_approvals: line.pending_approvals,
-                            backendQtyReduceReq,
-                            clientPending,
-                            qtyReduceRaw,
-                            qtyReduceReq,
-                            willRenderButton: !!qtyReduceReq && qtyReduceReq.status && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED'
-                        }));
-                        let approvalButtonHtml = '';
 
-                        if (qtyReduceReq) {
-                            console.log('[NON-SERIAL] qtyReduceReq found for line ' + lineId + ', status=' + qtyReduceReq.status);
-                            // Show approval button when pending or approved (same logic as delete button)
-                            if (qtyReduceReq.status === 'APPROVED') {
-                                // Show approved qty in button text
-                                const approvedQty = qtyReduceReq.requested_qty || '?';
-                                approvalButtonHtml = `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.approval_token || ''}" data-approved-qty="${approvedQty}" title="Lanjutkan (qty: ${approvedQty})" aria-label="Lanjutkan">✓ ${approvedQty}</button>`;
-                                console.log('[NON-SERIAL] Rendered APPROVED button for line ' + lineId);
-                            } else if (qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
-                                // Pending or other active states: show check approval button
-                                approvalButtonHtml = `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
-                                console.log('[NON-SERIAL] Rendered PENDING button for line ' + lineId + ', request_id=' + qtyReduceReq.request_id);
-                            } else {
-                                console.log('[NON-SERIAL] Status is REJECTED/CANCELLED for line ' + lineId + ', not rendering button');
-                            }
-                        } else {
-                            console.log('[NON-SERIAL] No qtyReduceReq for line ' + lineId + ', not rendering approval button');
-                        }
-
-                        // Build button for left side - either approval button or reduce button
-                        let leftButtonHtml = '';
-                        if (qtyReduceReq && qtyReduceReq.status === 'APPROVED') {
-                            leftButtonHtml = `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.approval_token || ''}" data-approved-qty="${qtyReduceReq.requested_qty || '?'}" title="Lanjutkan (qty: ${qtyReduceReq.requested_qty || '?'})" aria-label="Lanjutkan">✓ ${qtyReduceReq.requested_qty || '?'}</button>`;
-                            console.log('[NON-SERIAL] Set leftButtonHtml to APPROVED for line ' + lineId);
-                        } else if (qtyReduceReq && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
-                            leftButtonHtml = `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
-                            console.log('[NON-SERIAL] Set leftButtonHtml to PENDING for line ' + lineId);
-                        } else {
-                            leftButtonHtml = `<button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${qty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>`;
-                            console.log('[NON-SERIAL] Set leftButtonHtml to REDUCE for line ' + lineId);
-                        }
+                        // Task 1.2: Build shared control strip using canonical renderer
+                        const slotButtonHtml = renderQtyApprovalSlotButton(qtyReduceReq, lineId, qty);
 
                         qtyCell = `
                             <td class="text-center align-middle">
-                                <div class="d-flex align-items-center justify-content-center" style="gap: 4px;">
-                                    ${leftButtonHtml}
+                                <div class="d-flex align-items-center justify-content-center pos-qty-control-strip" style="gap: 4px;">
+                                    ${slotButtonHtml}
                                     <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
                                            type="number" min="1" value="${qty}" data-prev-qty="${qty}"
                                            data-can-reduce="${canReduceQuantity}"
@@ -3044,16 +3007,15 @@
                         // Check approval status
                         await ApprovalManager.checkApproval(button, '⏳ Periksa', pendingRequestId);
 
-                        // Update client-side state based on button attributes after checkApproval
-                        const updatedToken = button.getAttribute('data-approval-token');
-                        if (updatedToken && clientPendingApprovals[lineId]) {
-                            // Approval was approved
-                            clientPendingApprovals[lineId].status = 'APPROVED';
-                            clientPendingApprovals[lineId].token = updatedToken;
-                            renderCart(currentSnapshot);
-                        } else if (!button.hasAttribute('data-approval-pending') && !updatedToken) {
-                            // Approval was rejected or cancelled
-                            delete clientPendingApprovals[lineId];
+                        // Task 2.1: Fetch fresh cart snapshot from server after approval check
+                        // The button state is temporary (set by checkApproval); the snapshot is authoritative
+                        try {
+                            const freshResponse = await jsonRequest(cartShowEndpoint, 'GET');
+                            // Task 2.2 & 2.3: Pass fresh snapshot so line row re-renders with latest approval state
+                            renderCart(freshResponse && freshResponse.cart_snapshot ? freshResponse.cart_snapshot : null);
+                        } catch (error) {
+                            // Task 2.4: Fallback - re-render with current snapshot if refresh fails
+                            console.error('Failed to fetch fresh snapshot after approval check:', error);
                             renderCart(currentSnapshot);
                         }
                     } else if (approvalToken && approvedQty > 0) {
@@ -3066,6 +3028,9 @@
                             if (!response) {
                                 throw new Error('Gagal memperbarui qty.');
                             }
+
+                            // Task 2.3: Clear client-side pending before re-render so we don't show stale state
+                            delete clientPendingApprovals[lineId];
 
                             renderCart(response.cart_snapshot || null);
                             setCartStatus('Qty berhasil diperbarui.', 'text-success');
@@ -3081,8 +3046,6 @@
                                 { qty: approvedQty },
                                 applyQtyUpdate
                             );
-                            // Clear client-side pending after successful application
-                            delete clientPendingApprovals[lineId];
                         } catch (error) {
                             setCartStatus(error.message || 'Gagal memproses pengurangan.', 'text-danger', true);
                         }
