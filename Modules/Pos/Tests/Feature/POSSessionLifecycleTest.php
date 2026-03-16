@@ -184,6 +184,32 @@ class POSSessionLifecycleTest extends TestCase
             ->assertSee('Layar Kasir POS');
     }
 
+    public function test_open_session_allows_float_below_cash_threshold(): void
+    {
+        $setting = $this->createSetting('BIZ A');
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.view']);
+        $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+
+        // Terminal policy has cash_threshold of 50000, but we open with 25000 (below threshold)
+        // After removing the validation, this should succeed
+
+        /** @var PosSessionLifecycleService $service */
+        $service = app(PosSessionLifecycleService::class);
+        $session = $service->openSession(
+            $setting->id,
+            $terminal->id,
+            $user->id,
+            25000,
+            ['25000' => 1],
+            $user->id
+        );
+
+        $this->assertSame('OPEN', $session->status);
+        $this->assertSame($setting->id, (int) $session->setting_id);
+        $this->assertSame($terminal->id, (int) $session->terminal_id);
+    }
+
     public function test_open_session_rejects_when_no_enabled_payment_methods(): void
     {
         $setting = $this->createSetting('BIZ A');

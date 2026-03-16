@@ -44,10 +44,10 @@
 
 - [x] 6.1 Manually test: cashier opens session, adds items to cart, closes session via sell page
 - [x] 6.2 Verify: terminal releases immediately, no modal, no error, redirects to home
-- [ ] 6.3 Manually test: supervisor navigates to sessions index, finds CLOSED session, clicks Finalize button
-- [ ] 6.4 Verify: finalize flow works (shows reconciliation modal, allows variance approval)
-- [ ] 6.5 Verify: no broken links or console errors from removed modal code
-- [ ] 6.6 Run full test suite: all POS tests pass
+- [x] 6.3 Manually test: supervisor navigates to sessions index, finds CLOSED session, clicks Finalize button
+- [x] 6.4 Verify: finalize flow works (shows reconciliation modal, allows variance approval)
+- [x] 6.5 Verify: no broken links or console errors from removed modal code
+- [x] 6.6 Run full test suite: all POS tests pass
 
 ## 7. Documentation & Cleanup
 

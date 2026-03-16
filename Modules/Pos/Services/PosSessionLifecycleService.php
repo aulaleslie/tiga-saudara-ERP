@@ -111,14 +111,6 @@ class PosSessionLifecycleService
             if ($normalizedTerminalId !== null) {
                 $terminal = $this->terminalResolver->resolveForSessionOpen($settingId, $normalizedTerminalId);
 
-                if ($terminal->policy->cash_threshold === null) {
-                    throw new DomainException('Terminal policy not configured: cash_threshold is missing.');
-                }
-
-                if ($openingTotal <= (float) $terminal->policy->cash_threshold) {
-                    throw new DomainException('Opening float total must be greater than terminal cash threshold.');
-                }
-
                 $activeSessionForTerminal = PosSession::query()
                     ->where('setting_id', $settingId)
                     ->where('terminal_id', $normalizedTerminalId)

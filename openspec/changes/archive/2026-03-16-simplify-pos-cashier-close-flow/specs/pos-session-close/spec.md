@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Cashier closes session (simplified)
 The cashier SHALL be able to close their active POS session. Closing releases the terminal for other cashiers to use and transitions the session to a CLOSED state. The close action is purely administrative and does not involve cash counting or variance approval.
@@ -32,10 +32,3 @@ The close action SHALL NOT calculate expected cash, compute variance, or require
 - **WHEN** cashier closes a session
 - **THEN** no supervisor credentials are requested or validated
 - **THEN** the response includes no approval-related fields
-
-## REMOVED Requirements
-
-### Requirement: Variance approval at close
-**Reason**: Variance approval moved to the finalize stage per two-stage settlement design. Close is now pure terminal release.
-
-**Migration**: All cash reconciliation and variance approval now happens via the separate finalize endpoint (`POST /pos/sessions/{id}/finalize`). Supervisors finalize CLOSED sessions to reconcile cash and approve variances.
