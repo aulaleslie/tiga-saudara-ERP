@@ -1803,8 +1803,9 @@
                 const priceError = escapeHtml(line.price_error || '');
 
                 // Pattern 1: Privilege-based quantity control rendering
-                // For non-privileged users: increment-only input + reduce button
-                // For privileged users: standard editable qty input
+                // For non-privileged users: increment-only input + reduce button + approval workflow (shows "Periksa Persetujuan")
+                // For privileged users: standard editable qty input with +/- spinner
+                // NOTE: The approval workflow only renders for users WITHOUT pos.cart.line.reduce permission
                 let qtyCell = '';
                 if (line.serial_number_required === true) {
                     // Serial line: editable qty + serial management
