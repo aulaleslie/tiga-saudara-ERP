@@ -244,7 +244,7 @@ class POSCartReduceQtyWithApprovalTest extends TestCase
     {
         $setting = $this->createSetting('BIZ POS QTY REDUCE', true);
         [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'POS ASYNC 1', []);
-        
+
         $supervisor = $this->createUserForSetting(
             $setting,
             'POS ASYNC 1 SUP',
@@ -265,9 +265,18 @@ class POSCartReduceQtyWithApprovalTest extends TestCase
                  'target_id' => $lineId,
                  'payload' => ['qty' => 2]
              ]);
-        
+
         $res->assertStatus(201);
         $requestId = $res->json('request_id');
+        $res->assertJsonStructure([
+            'request_id',
+            'status',
+            'cart_snapshot'
+        ]);
+        $this->assertNotNull($res->json('cart_snapshot'), 'cart_snapshot should be present');
+        $this->assertIsArray($res->json('cart_snapshot.lines'), 'cart_snapshot.lines should be an array');
+        $this->assertGreaterThan(0, count($res->json('cart_snapshot.lines')), 'cart_snapshot should contain at least one line');
+        $this->assertEquals($lineId, $res->json('cart_snapshot.lines.0.line_id'), 'cart_snapshot should have correct line_id');
 
         // 2. Supervisor Approves
         $this->actingAs($supervisor)->withSession(['setting_id' => $setting->id])
@@ -277,7 +286,7 @@ class POSCartReduceQtyWithApprovalTest extends TestCase
         // 3. Cashier Gets Token
         $statusRes = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
              ->getJson(route('pos.sell.approval-requests.show', ['id' => $requestId]));
-        
+
         $statusRes->assertStatus(200);
         $token = $statusRes->json('approval_token');
 
@@ -289,5 +298,114 @@ class POSCartReduceQtyWithApprovalTest extends TestCase
              ])
              ->assertStatus(200)
              ->assertJsonPath('cart_snapshot.lines.0.qty', 2);
+    }
+
+    // Task 4.1: Test pending qty-approval visibility immediately after request submission
+    public function test_pending_qty_approval_visible_immediately_after_submission(): void
+    {
+        $setting = $this->createSetting('BIZ POS QTY APPROVAL VIS', true);
+        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'QTY VIS TEST', []);
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-VIS-1', 'Visibility Test Product', 10000, $cashier->id);
+
+        // Add product to cart
+        $resStore = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+             ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 5]);
+        $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
+
+        // Submit qty reduction approval request
+        $resApprovalReq = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+             ->postJson(route('pos.sell.approval-requests.store'), [
+                 'action_type' => 'QTY_REDUCE',
+                 'target_type' => 'pos_cart_line',
+                 'target_id' => $lineId,
+                 'payload' => ['qty' => 2]
+             ]);
+
+        $resApprovalReq->assertStatus(201);
+        $requestId = $resApprovalReq->json('request_id');
+
+        // Verify cart_snapshot is present and contains line data with approval metadata
+        $resApprovalReq->assertJsonStructure([
+            'request_id',
+            'status',
+            'cart_snapshot'
+        ]);
+        $this->assertNotNull($resApprovalReq->json('cart_snapshot'), 'cart_snapshot should be present in approval request response');
+        $this->assertIsArray($resApprovalReq->json('cart_snapshot.lines'), 'cart_snapshot.lines should be an array');
+        $this->assertGreaterThan(0, count($resApprovalReq->json('cart_snapshot.lines')), 'cart_snapshot should contain at least one line');
+        $this->assertEquals($lineId, $resApprovalReq->json('cart_snapshot.lines.0.line_id'), 'cart_snapshot line should have correct line_id');
+
+        // Verify pending_approvals is present in the immediate response
+        $linePendingApprovals = $resApprovalReq->json('cart_snapshot.lines.0.pending_approvals');
+        $this->assertIsArray($linePendingApprovals, 'pending_approvals should be an array in immediate response');
+        $this->assertNotEmpty($linePendingApprovals, 'pending_approvals should contain the QTY_REDUCE request');
+
+        $qtyReduceApproval = collect($linePendingApprovals)
+            ->firstWhere('action_type', 'QTY_REDUCE');
+        $this->assertNotNull($qtyReduceApproval, 'QTY_REDUCE approval should be in pending_approvals');
+        $this->assertEquals('PENDING', $qtyReduceApproval['status']);
+        $this->assertEquals($requestId, $qtyReduceApproval['request_id']);
+
+        // Verify that cart snapshot includes pending_approvals with the request
+        $resCartShow = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+             ->getJson(route('pos.sell.cart.show'));
+
+        $resCartShow->assertStatus(200);
+        $pendingApprovals = $resCartShow->json('cart_snapshot.lines.0.pending_approvals');
+        $this->assertNotEmpty($pendingApprovals, 'pending_approvals should not be empty');
+
+        $qtyReduceApproval = collect($pendingApprovals)
+            ->firstWhere('action_type', 'QTY_REDUCE');
+        $this->assertNotNull($qtyReduceApproval, 'QTY_REDUCE approval should exist in pending_approvals');
+        $this->assertEquals('PENDING', $qtyReduceApproval['status']);
+        $this->assertEquals($requestId, $qtyReduceApproval['request_id']);
+    }
+
+    // Task 4.2: Test qty-approval visibility after cart snapshot reload/page refresh
+    public function test_qty_approval_visible_after_cart_reload(): void
+    {
+        $setting = $this->createSetting('BIZ POS QTY RELOAD', true);
+        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'QTY RELOAD TEST', []);
+
+        $supervisor = $this->createUserForSetting(
+            $setting,
+            'QTY RELOAD SUPERVISOR',
+            ['pos.access', 'pos.supervisor.approval', 'pos.cart.line.reduce']
+        );
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-RELOAD-1', 'Reload Test Product', 10000, $cashier->id);
+
+        // Add product to cart
+        $resStore = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+             ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 5]);
+        $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
+
+        // Submit qty reduction approval request
+        $resApprovalReq = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+             ->postJson(route('pos.sell.approval-requests.store'), [
+                 'action_type' => 'QTY_REDUCE',
+                 'target_type' => 'pos_cart_line',
+                 'target_id' => $lineId,
+                 'payload' => ['qty' => 2]
+             ]);
+
+        $requestId = $resApprovalReq->json('request_id');
+
+        // Reload cart (simulating page refresh)
+        $resReload = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+             ->getJson(route('pos.sell.cart.show'));
+
+        $resReload->assertStatus(200);
+
+        // Verify that pending approval is still visible in reloaded cart
+        $pendingApprovals = $resReload->json('cart_snapshot.lines.0.pending_approvals');
+        $this->assertNotEmpty($pendingApprovals, 'pending_approvals should still exist after reload');
+
+        $qtyReduceApproval = collect($pendingApprovals)
+            ->firstWhere('action_type', 'QTY_REDUCE');
+        $this->assertNotNull($qtyReduceApproval, 'QTY_REDUCE approval should remain visible after reload');
+        $this->assertEquals('PENDING', $qtyReduceApproval['status']);
+        $this->assertEquals($requestId, $qtyReduceApproval['request_id']);
     }
 }

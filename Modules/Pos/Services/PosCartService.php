@@ -673,28 +673,45 @@ class PosCartService
         $pendingRequests = PosActionApprovalRequest::query()
             ->where('pos_session_id', $sessionId)
             ->whereIn('status', [PosActionApprovalRequest::STATUS_PENDING, PosActionApprovalRequest::STATUS_APPROVED])
+            ->with('token')
             ->get();
 
         $cartPendingApprovals = [];
         $linePendingApprovals = [];
 
         foreach ($pendingRequests as $req) {
+            $approvalData = [
+                'request_id' => (int) $req->id,
+                'action_type' => $req->action_type,
+                'status' => $req->status,
+            ];
+
+            // Add approval token if approved
+            if ($req->status === PosActionApprovalRequest::STATUS_APPROVED && $req->token) {
+                $approvalData['approval_token'] = $req->token->token_hash;
+                $approvalData['token'] = $req->token->token_hash;
+            }
+
+            // Add request-specific data from payload
+            if ($req->request_payload) {
+                if (isset($req->request_payload['qty'])) {
+                    $approvalData['requested_qty'] = (int) $req->request_payload['qty'];
+                }
+            }
+
+            // Add decision reason if rejected or cancelled
+            if ($req->decision_reason) {
+                $approvalData['decision_reason'] = $req->decision_reason;
+            }
+
             if ($req->action_type === PosActionApprovalRequest::ACTION_CART_CLEAR) {
                 // Cart-wide pending approvals
-                $cartPendingApprovals[] = [
-                    'request_id' => (int) $req->id,
-                    'action_type' => $req->action_type,
-                    'status' => $req->status,
-                ];
+                $cartPendingApprovals[] = $approvalData;
             } else {
                 // Line-specific pending approvals
                 $lineId = (int) $req->target_id;
                 if ($lineId > 0) {
-                    $linePendingApprovals[$lineId][] = [
-                        'request_id' => (int) $req->id,
-                        'action_type' => $req->action_type,
-                        'status' => $req->status,
-                    ];
+                    $linePendingApprovals[$lineId][] = $approvalData;
                 }
             }
         }

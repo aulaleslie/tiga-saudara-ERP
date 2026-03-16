@@ -61,3 +61,10 @@
 - [x] 9.2 Ensure no duplicate event listeners or handler conflicts
 - [x] 9.3 Verify console has no JavaScript errors or warnings
 - [x] 9.4 Clean up any commented-out code or debug statements
+
+## 10. Fix Approval Button Not Showing After "Kirim Permintaan"
+
+- [x] 10.1 Fix bug: "Periksa Persetujuan" button not appearing after approval request submission
+- [x] 10.2 Fetch fresh cart snapshot from server after approval request succeeds (before re-rendering)
+- [x] 10.3 Align qty approval logic with delete button logic (use `if (qtyReduceReq)` instead of conditional status checks)
+- [x] 10.4 Fix both serial and non-serial item approval button rendering to match delete button pattern

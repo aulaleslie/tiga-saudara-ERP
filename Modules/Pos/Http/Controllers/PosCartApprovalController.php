@@ -8,11 +8,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Services\PosApprovalRequestService;
+use Modules\Pos\Services\PosCartService;
 
 class PosCartApprovalController extends Controller
 {
     public function __construct(
-        private readonly PosApprovalRequestService $requestService
+        private readonly PosApprovalRequestService $requestService,
+        private readonly PosCartService $cartService
     ) {
     }
 
@@ -50,9 +52,12 @@ class PosCartApprovalController extends Controller
             ], 422);
         }
 
+        $cartSnapshot = $this->cartService->getSnapshot($settingId, $sessionId);
+
         return response()->json([
             'request_id' => $approvalRequest->id,
             'status'     => $approvalRequest->status,
+            'cart_snapshot' => $cartSnapshot,
         ], 201);
     }
 
