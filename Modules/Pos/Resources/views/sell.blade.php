@@ -794,11 +794,12 @@
                                             <th class="text-right">Harga</th>
                                             <th class="text-center">Qty</th>
                                             <th class="text-right">Sub Total</th>
+                                            <th class="text-center">Aksi</th>
                                         </tr>
                                         </thead>
                                         <tbody id="pos-shell-cart-body">
                                         <tr id="pos-shell-cart-empty-row">
-                                            <td colspan="4" class="text-muted text-center py-4">Keranjang kosong.</td>
+                                            <td colspan="5" class="text-muted text-center py-4">Keranjang kosong.</td>
                                         </tr>
                                         </tbody>
                                     </table>
@@ -1801,9 +1802,11 @@
                                 <div class="d-flex align-items-center flex-wrap" style="gap: 12px;">
                                     <div class="d-flex flex-column align-items-center" style="gap: 2px;">
                                         <div class="d-flex align-items-center" style="gap: 4px;">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary js-qty-decrease" data-line-id="${lineId}" title="Kurangi" aria-label="Kurangi">−</button>
                                             <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
                                                    type="number" min="1" value="${qty}" data-prev-qty="${qty}"
                                                    style="width: 55px;">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
                                             <button type="button"
                                                     class="btn btn-sm btn-outline-info js-serial-add pos-serial-action"
                                                     data-line-id="${lineId}"
@@ -1823,7 +1826,21 @@
                             </td>
                         `;
                     } else {
-                        // For non-privileged users: qty input + serial button + reduce button
+                        // For non-privileged users: qty input + serial button + increase button + reduce button + approval buttons
+                        const clientPending = clientPendingApprovals[lineId];
+                        const backendQtyReduceReq = (line.pending_approvals || []).find(a => a.action_type === 'QTY_REDUCE');
+                        const qtyReduceReq = clientPending || backendQtyReduceReq;
+                        let approvalButtonHtml = '';
+
+                        if (qtyReduceReq && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
+                            if (qtyReduceReq.status === 'APPROVED') {
+                                const approvedQty = qtyReduceReq.requestedQty || qtyReduceReq.payload?.qty || '?';
+                                approvalButtonHtml = `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.token || qtyReduceReq.approval_token || ''}" data-approved-qty="${approvedQty}" title="Lanjutkan (qty: ${approvedQty})" aria-label="Lanjutkan">✓ ${approvedQty}</button>`;
+                            } else {
+                                approvalButtonHtml = `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.requestId || qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
+                            }
+                        }
+
                         qtyCell = `
                             <td class="pos-cart-serial-cell align-middle" style="min-width: 200px;">
                                 <div class="d-flex align-items-center flex-wrap" style="gap: 12px;">
@@ -1833,6 +1850,7 @@
                                                    type="number" min="1" value="${qty}" data-prev-qty="${qty}"
                                                    data-can-reduce="${canReduceQuantity}"
                                                    style="width: 55px;">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
                                             <button type="button"
                                                     class="btn btn-sm btn-outline-info js-serial-add pos-serial-action"
                                                     data-line-id="${lineId}"
@@ -1842,22 +1860,10 @@
                                                 <i class="bi bi-upc-scan" aria-hidden="true"></i>
                                                 <span class="pos-serial-action-label">Serial</span>
                                             </button>
-                                            ${(() => {
-                                                const clientPending = clientPendingApprovals[lineId];
-                                                const backendQtyReduceReq = (line.pending_approvals || []).find(a => a.action_type === 'QTY_REDUCE');
-                                                const qtyReduceReq = clientPending || backendQtyReduceReq;
-                                                let buttons = `<button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${qty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>`;
-
-                                                if (qtyReduceReq && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
-                                                    if (qtyReduceReq.status === 'APPROVED') {
-                                                        const approvedQty = qtyReduceReq.requestedQty || qtyReduceReq.payload?.qty || '?';
-                                                        buttons += `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.token || qtyReduceReq.approval_token || ''}" data-approved-qty="${approvedQty}" title="Lanjutkan (qty: ${approvedQty})" aria-label="Lanjutkan">✓ ${approvedQty}</button>`;
-                                                    } else {
-                                                        buttons += `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.requestId || qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
-                                                    }
-                                                }
-                                                return buttons;
-                                            })()}
+                                        </div>
+                                        <div class="d-flex align-items-center justify-content-center" style="gap: 4px; margin-top: 4px;">
+                                            <button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${qty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>
+                                            ${approvalButtonHtml}
                                         </div>
                                         <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
                                     </div>
@@ -1871,18 +1877,21 @@
                 } else {
                     // Non-serial line
                     if (canReduceQuantity) {
-                        // Privileged: standard editable qty input
+                        // Privileged: spinner with +/- buttons
                         qtyCell = `
                             <td class="text-center align-middle">
-                                <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
-                                       type="number" min="1" value="${qty}" data-prev-qty="${qty}"
-                                       data-can-reduce="${canReduceQuantity}"
-                                       style="width: 60px;">
+                                <div class="d-flex align-items-center justify-content-center" style="gap: 4px;">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary js-qty-decrease" data-line-id="${lineId}" title="Kurangi" aria-label="Kurangi">−</button>
+                                    <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
+                                           type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                           data-can-reduce="${canReduceQuantity}"
+                                           style="width: 60px;">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
+                                </div>
                             </td>
                         `;
                     } else {
-                        // Non-privileged: qty input + reduce button(s)
-                        // Check BOTH client-side pending approvals AND backend data
+                        // Non-privileged: qty input + increase button only (no direct decrease) + reduce button + approval buttons
                         const clientPending = clientPendingApprovals[lineId];
                         const backendQtyReduceReq = (line.pending_approvals || []).find(a => a.action_type === 'QTY_REDUCE');
                         const qtyReduceReq = clientPending || backendQtyReduceReq;
@@ -1902,13 +1911,18 @@
 
                         qtyCell = `
                             <td class="text-center align-middle">
-                                <div class="d-flex align-items-center justify-content-center" style="gap: 4px;">
-                                    <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
-                                           type="number" min="1" value="${qty}" data-prev-qty="${qty}"
-                                           data-can-reduce="${canReduceQuantity}"
-                                           style="width: 60px;">
-                                    <button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${qty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>
-                                    ${approvalButtonHtml}
+                                <div class="d-flex flex-column align-items-center justify-content-center" style="gap: 4px;">
+                                    <div class="d-flex align-items-center" style="gap: 4px;">
+                                        <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
+                                               type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                               data-can-reduce="${canReduceQuantity}"
+                                               style="width: 60px;">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
+                                    </div>
+                                    <div class="d-flex align-items-center justify-content-center" style="gap: 4px;">
+                                        <button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${qty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>
+                                        ${approvalButtonHtml}
+                                    </div>
                                 </div>
                             </td>
                         `;
@@ -1918,6 +1932,19 @@
                 // Phase 3B: Price validity indicator
                 const priceWarning = !priceValid ? `<div class="text-warning small font-weight-bold mb-1">⚠ ${priceError}</div>` : '';
                 const rowClass = !priceValid ? 'bg-warning-light' : '';
+
+                // Phase 3C: Delete button with approval state
+                const removeReq = (line.pending_approvals || []).find(a => a.action_type === 'LINE_REMOVE');
+                let deleteButtonHtml = '';
+                if (removeReq) {
+                    if (removeReq.status === 'APPROVED') {
+                        deleteButtonHtml = `<button type="button" class="btn btn-link text-success p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" data-approval-token="${removeReq.token || removeReq.approval_token || ''}" title="Lanjutkan" aria-label="Lanjutkan">Lanjutkan</button>`;
+                    } else {
+                        deleteButtonHtml = `<button type="button" class="btn btn-link text-warning p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" data-approval-pending="${removeReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
+                    }
+                } else {
+                    deleteButtonHtml = `<button type="button" class="btn btn-link text-danger p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" title="Hapus" aria-label="Hapus">Hapus</button>`;
+                }
 
                 return `
                     <tr data-line-id="${lineId}" class="${rowClass}">
@@ -1930,16 +1957,9 @@
                         ${qtyCell}
                         <td class="text-right align-middle" style="vertical-align: top;">
                             <div class="font-weight-bold mb-1">${formatPrice(line.line_total || 0)}</div>
-                            ${(() => {
-                                const removeReq = (line.pending_approvals || []).find(a => a.action_type === 'LINE_REMOVE');
-                                if (removeReq) {
-                                    if (removeReq.status === 'APPROVED') {
-                                        return `<button type="button" class="btn btn-link text-success p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;" data-approval-pending="${removeReq.request_id}">Lanjutkan</button>`;
-                                    }
-                                    return `<button type="button" class="btn btn-link text-warning p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;" data-approval-pending="${removeReq.request_id}">Periksa</button>`;
-                                }
-                                return `<button type="button" class="btn btn-link text-danger p-0 small js-line-remove" data-original-class="btn btn-link text-danger p-0 small js-line-remove" style="font-size: 0.75rem; text-decoration: none;">Hapus</button>`;
-                            })()}
+                        </td>
+                        <td class="text-center align-middle">
+                            ${deleteButtonHtml}
                         </td>
                     </tr>
                 `;
@@ -2943,6 +2963,36 @@
                             delete clientPendingApprovals[lineId];
                         } catch (error) {
                             setCartStatus(error.message || 'Gagal memproses pengurangan.', 'text-danger', true);
+                        }
+                    }
+                    return;
+                }
+
+                // Handle Quantity Increment button (+ spinner button)
+                if (button.classList.contains('js-qty-increase')) {
+                    const qtyInput = row.querySelector('.js-line-qty');
+                    if (qtyInput) {
+                        const currentQty = Number(qtyInput.value || 0);
+                        const newQty = currentQty + 1;
+                        qtyInput.value = newQty;
+                        qtyInput.setAttribute('data-prev-qty', String(currentQty));
+                        // Trigger change event to handle the update
+                        qtyInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    return;
+                }
+
+                // Handle Quantity Decrement button (- spinner button)
+                if (button.classList.contains('js-qty-decrease')) {
+                    const qtyInput = row.querySelector('.js-line-qty');
+                    if (qtyInput) {
+                        const currentQty = Number(qtyInput.value || 0);
+                        if (currentQty > 1) {
+                            const newQty = currentQty - 1;
+                            qtyInput.value = newQty;
+                            qtyInput.setAttribute('data-prev-qty', String(currentQty));
+                            // Trigger change event to handle the update
+                            qtyInput.dispatchEvent(new Event('change', { bubbles: true }));
                         }
                     }
                     return;
