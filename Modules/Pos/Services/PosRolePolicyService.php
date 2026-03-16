@@ -80,6 +80,7 @@ class PosRolePolicyService
             'requires_terminal_selection' => $this->requiresTerminalSelection($user),
             'can_checkout' => $this->canCheckout($user),
             'can_open_approval_queue' => $user->can('pos.supervisor.approval'),
+            'can_reduce_quantity' => $user->can('pos.cart.line.reduce'),
             'direct_permissions' => [
                 'cart_clear' => $user->can('pos.cart.clear'),
                 'line_remove' => $user->can('pos.cart.line.remove'),

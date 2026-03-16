@@ -499,4 +499,137 @@ class POSCartReduceQtyWithApprovalTest extends TestCase
         );
         $this->assertEquals('PENDING', $latestQtyApproval['status']);
     }
+
+    // Test 3.1: Capability payload includes boolean can_reduce_quantity
+    public function test_capability_payload_includes_can_reduce_quantity(): void
+    {
+        $setting = $this->createSetting('BIZ POS CAPABILITY TEST', true);
+        [$cashierWithReduceQty] = $this->createCashierAndOpenSession($setting, 'CAPABILITY TEST', ['pos.cart.line.reduce']);
+        $cashierWithoutReduceQty = $this->createUserForSetting(
+            $setting,
+            'CAPABILITY TEST NO REDUCE',
+            ['pos.access', 'pos.sell', 'pos.sessions.open']
+        );
+
+        $rolePolicyService = app(\Modules\Pos\Services\PosRolePolicyService::class);
+
+        // Test privileged user
+        $capsPrivileged = $rolePolicyService->capabilityFlags($cashierWithReduceQty);
+        $this->assertIsArray($capsPrivileged, 'capabilityFlags should return an array');
+        $this->assertArrayHasKey('can_reduce_quantity', $capsPrivileged, 'Capability payload must include can_reduce_quantity key');
+        $this->assertIsBool($capsPrivileged['can_reduce_quantity'], 'can_reduce_quantity must be a boolean');
+        $this->assertTrue($capsPrivileged['can_reduce_quantity'], 'can_reduce_quantity should be true for privileged user');
+
+        // Test non-privileged user
+        $capsNonPrivileged = $rolePolicyService->capabilityFlags($cashierWithoutReduceQty);
+        $this->assertIsArray($capsNonPrivileged, 'capabilityFlags should return an array');
+        $this->assertArrayHasKey('can_reduce_quantity', $capsNonPrivileged, 'Capability payload must include can_reduce_quantity key');
+        $this->assertIsBool($capsNonPrivileged['can_reduce_quantity'], 'can_reduce_quantity must be a boolean');
+        $this->assertFalse($capsNonPrivileged['can_reduce_quantity'], 'can_reduce_quantity should be false for non-privileged user');
+    }
+
+    // Test 3.2: can_reduce_quantity matches direct_permissions.qty_reduce
+    public function test_can_reduce_quantity_matches_direct_permissions_qty_reduce(): void
+    {
+        $setting = $this->createSetting('BIZ POS CAPABILITY CONSISTENCY TEST', true);
+        [$cashierWithReduceQty] = $this->createCashierAndOpenSession($setting, 'CAPABILITY CONSISTENCY TEST', ['pos.cart.line.reduce']);
+        $cashierWithoutReduceQty = $this->createUserForSetting(
+            $setting,
+            'CAPABILITY CONSISTENCY TEST NO REDUCE',
+            ['pos.access', 'pos.sell', 'pos.sessions.open']
+        );
+
+        $rolePolicyService = app(\Modules\Pos\Services\PosRolePolicyService::class);
+
+        // Test privileged user
+        $capsPrivileged = $rolePolicyService->capabilityFlags($cashierWithReduceQty);
+        $this->assertEquals(
+            $capsPrivileged['can_reduce_quantity'],
+            $capsPrivileged['direct_permissions']['qty_reduce'],
+            'can_reduce_quantity must match direct_permissions.qty_reduce for privileged user'
+        );
+
+        // Test non-privileged user
+        $capsNonPrivileged = $rolePolicyService->capabilityFlags($cashierWithoutReduceQty);
+        $this->assertEquals(
+            $capsNonPrivileged['can_reduce_quantity'],
+            $capsNonPrivileged['direct_permissions']['qty_reduce'],
+            'can_reduce_quantity must match direct_permissions.qty_reduce for non-privileged user'
+        );
+    }
+
+    // Test 3.3: Non-privileged pending qty-reduction remains actionable via Periksa Persetujuan
+    public function test_non_privileged_pending_qty_reduction_is_actionable(): void
+    {
+        $setting = $this->createSetting('BIZ POS NON-PRIV QTY TEST', true);
+        // Create non-privileged cashier (no pos.cart.line.reduce permission)
+        $cashier = $this->createUserForSetting(
+            $setting,
+            'NON-PRIV QTY CASHIER',
+            ['pos.access', 'pos.sell', 'pos.sessions.open']
+        );
+
+        $supervisor = $this->createUserForSetting(
+            $setting,
+            'NON-PRIV QTY SUPERVISOR',
+            ['pos.access', 'pos.supervisor.approval', 'pos.cart.line.reduce']
+        );
+
+        // Create and open session for cashier
+        $terminal = $this->createTerminalForSetting($setting);
+        $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
+        $session = PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $cashier->id,
+            'status' => PosSession::STATUS_OPEN,
+            'opened_at' => now(),
+            'opened_by' => $cashier->id,
+            'opening_float_total' => 100000,
+            'expected_cash_total' => 100000,
+            'active_marker' => 1,
+        ]);
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-NON-PRIV-1', 'Non-Priv Test Product', 10000, $cashier->id);
+
+        // 1. Add product to cart (as non-privileged cashier)
+        $resStore = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id, 'pos_session_id' => $session->id])
+            ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 10]);
+
+        $resStore->assertStatus(200);
+        $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
+
+        // 2. Submit qty reduction approval request (as non-privileged cashier)
+        $resApprovalRequest = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id, 'pos_session_id' => $session->id])
+            ->postJson(route('pos.sell.approval-requests.store'), [
+                'action_type' => 'QTY_REDUCE',
+                'target_type' => 'pos_cart_line',
+                'target_id' => $lineId,
+                'payload' => ['qty' => 5]
+            ]);
+
+        $resApprovalRequest->assertStatus(201);
+        $requestId = $resApprovalRequest->json('request_id');
+
+        // 3. Verify pending QTY_REDUCE is visible in cart snapshot
+        $cartSnapshot = $resApprovalRequest->json('cart_snapshot');
+        $pendingApprovals = $cartSnapshot['lines'][0]['pending_approvals'];
+        $qtyReduceApproval = collect($pendingApprovals)->firstWhere('action_type', 'QTY_REDUCE');
+
+        $this->assertNotNull($qtyReduceApproval, 'QTY_REDUCE approval must be in pending_approvals');
+        $this->assertEquals('PENDING', $qtyReduceApproval['status'], 'QTY_REDUCE status must be PENDING');
+        $this->assertEquals($requestId, $qtyReduceApproval['request_id']);
+
+        // 4. Verify cart reload still shows pending approval
+        $resCarthShow = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id, 'pos_session_id' => $session->id])
+            ->getJson(route('pos.sell.cart.show'));
+
+        $resCarthShow->assertStatus(200);
+        $reloadedApprovals = $resCarthShow->json('cart_snapshot.lines.0.pending_approvals');
+        $reloadedQtyReduce = collect($reloadedApprovals)->firstWhere('action_type', 'QTY_REDUCE');
+
+        $this->assertNotNull($reloadedQtyReduce, 'QTY_REDUCE approval must persist after cart reload');
+        $this->assertEquals('PENDING', $reloadedQtyReduce['status']);
+        $this->assertEquals($requestId, $reloadedQtyReduce['request_id']);
+    }
 }

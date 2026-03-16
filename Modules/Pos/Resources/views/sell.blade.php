@@ -1321,7 +1321,11 @@
             const roleCapabilities = @json($roleCapabilities ?? []);
             console.log('[INIT] roleCapabilities: ' + JSON.stringify(roleCapabilities));
             const canCheckoutByRole = Boolean(roleCapabilities && roleCapabilities.can_checkout !== false);
-            const canReduceQuantity = Boolean(roleCapabilities && roleCapabilities.can_reduce_quantity !== false);
+            const canReduceQuantity = Boolean(
+              typeof roleCapabilities?.can_reduce_quantity === 'boolean' ? roleCapabilities.can_reduce_quantity :
+              typeof roleCapabilities?.direct_permissions?.qty_reduce === 'boolean' ? roleCapabilities.direct_permissions.qty_reduce :
+              false
+            );
             console.log('[INIT] canReduceQuantity: ' + canReduceQuantity + ' (can_reduce_quantity: ' + roleCapabilities?.can_reduce_quantity + ')');
 
             if (!searchInput || !statusElement || !cartBody || !searchEndpoint || !cartShowEndpoint) {
