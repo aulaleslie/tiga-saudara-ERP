@@ -1319,8 +1319,10 @@
             const cartLinesBaseUrl = @json(url('/pos/sell/cart/lines'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             const roleCapabilities = @json($roleCapabilities ?? []);
+            console.log('[INIT] roleCapabilities: ' + JSON.stringify(roleCapabilities));
             const canCheckoutByRole = Boolean(roleCapabilities && roleCapabilities.can_checkout !== false);
             const canReduceQuantity = Boolean(roleCapabilities && roleCapabilities.can_reduce_quantity !== false);
+            console.log('[INIT] canReduceQuantity: ' + canReduceQuantity + ' (can_reduce_quantity: ' + roleCapabilities?.can_reduce_quantity + ')');
 
             if (!searchInput || !statusElement || !cartBody || !searchEndpoint || !cartShowEndpoint) {
                 return;
@@ -1412,15 +1414,20 @@
             // Normalizes approval objects from mixed sources (client cache and server snapshot)
             // into a canonical shape for consistent rendering
             function normalizeQtyApprovalState(approvalObj) {
-                if (!approvalObj) return null;
+                if (!approvalObj) {
+                    console.log('[normalizeQtyApprovalState] Input is null/undefined');
+                    return null;
+                }
 
-                return {
+                const normalized = {
                     request_id: approvalObj.request_id || approvalObj.requestId,
                     status: String(approvalObj.status || '').toUpperCase(),
                     requested_qty: approvalObj.requestedQty || approvalObj.payload?.qty || approvalObj.requested_qty,
                     token: approvalObj.token || approvalObj.approval_token,
                     approval_token: approvalObj.approval_token || approvalObj.token
                 };
+                console.log('[normalizeQtyApprovalState] Input: ' + JSON.stringify(approvalObj) + ' → Normalized: ' + JSON.stringify(normalized));
+                return normalized;
             }
 
             async function jsonRequest(url, method, payload) {
@@ -1536,7 +1543,9 @@
                             reason: reasonInput.trim() || null,
                         };
                         const res = await jsonRequest('/pos/sell/approval-requests', 'POST', reqPayload);
+                        console.log('[requestApproval] Response received:', {request_id: res?.request_id, has_cart_snapshot: !!res?.cart_snapshot, cart_snapshot: res?.cart_snapshot});
                         if (res && res.request_id) {
+                            console.log('[requestApproval] Success! Request ID:', res.request_id);
                             btn.setAttribute('data-approval-pending', res.request_id);
                             btn.setAttribute('data-approval-request-id', res.request_id);
                             if (btn.tagName === 'BUTTON') {
@@ -1550,8 +1559,20 @@
                             }
                             // Render cart with snapshot to update approval state
                             if (res.cart_snapshot) {
+                                console.log('[requestApproval] Calling renderCart with snapshot');
+                                console.log('[requestApproval] Snapshot lines:', res.cart_snapshot.lines);
+                                res.cart_snapshot.lines.forEach((line, idx) => {
+                                    console.log(`[requestApproval] Line ${idx} (line_id=${line.line_id}):`, JSON.stringify({
+                                        product_name: line.product_name,
+                                        pending_approvals: line.pending_approvals
+                                    }));
+                                });
                                 renderCart(res.cart_snapshot);
+                            } else {
+                                console.log('[requestApproval] WARNING: No cart_snapshot in response!');
                             }
+                        } else {
+                            console.log('[requestApproval] No request_id in response:', res);
                         }
                     } catch (error) {
                         setCartStatus(error.message || 'Gagal meminta persetujuan.', 'text-danger');
@@ -1788,8 +1809,7 @@
             }
 
             function buildLineRow(line) {
-                console.log('Building row for line:', line);
-                console.log("I'm called");
+                console.log('Building row for line:', JSON.stringify(line));
                 const serialBadge = line.serial_number_required
                     ? '<span class="badge badge-warning ml-1">Perlu Serial</span>'
                     : '';
@@ -1850,22 +1870,41 @@
                     } else {
                         // Task 1.2/1.3: For non-privileged users: qty input + serial button + increase button + reduce button + approval buttons
                         // Use server pending_approvals as primary source, with client cache as transient fallback
-                        const backendQtyReduceReq = (line.pending_approvals || []).find(a => a.action_type === 'QTY_REDUCE');
+                        // Sort by request_id DESC to get the latest request (defensive against ordering)
+                        const backendQtyReduceReq = (line.pending_approvals || [])
+                            .slice()
+                            .sort((a, b) => b.request_id - a.request_id)
+                            .find(a => a.action_type === 'QTY_REDUCE');
                         const clientPending = clientPendingApprovals[lineId];
                         const qtyReduceRaw = backendQtyReduceReq || clientPending;
                         const qtyReduceReq = normalizeQtyApprovalState(qtyReduceRaw);
-                        console.log('QTY_REDUCE approval state:', {lineId, pending_approvals: line.pending_approvals, qtyReduceRaw, qtyReduceReq});
+                        console.log('[SERIAL] QTY_REDUCE approval state: ' + JSON.stringify({
+                            lineId,
+                            pending_approvals: line.pending_approvals,
+                            backendQtyReduceReq,
+                            clientPending,
+                            qtyReduceRaw,
+                            qtyReduceReq,
+                            willRenderButton: !!qtyReduceReq && qtyReduceReq.status && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED'
+                        }));
                         let approvalButtonHtml = '';
 
                         if (qtyReduceReq) {
+                            console.log('[SERIAL] qtyReduceReq found for line ' + lineId + ', status=' + qtyReduceReq.status);
                             // Show approval button when pending or approved (same logic as delete button)
                             if (qtyReduceReq.status === 'APPROVED') {
                                 const approvedQty = qtyReduceReq.requested_qty || '?';
                                 approvalButtonHtml = `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.approval_token || ''}" data-approved-qty="${approvedQty}" title="Lanjutkan (qty: ${approvedQty})" aria-label="Lanjutkan">✓ ${approvedQty}</button>`;
+                                console.log('[SERIAL] Rendered APPROVED button for line ' + lineId);
                             } else if (qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
                                 // Pending or other active states: show check approval button
                                 approvalButtonHtml = `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
+                                console.log('[SERIAL] Rendered PENDING button for line ' + lineId + ', request_id=' + qtyReduceReq.request_id);
+                            } else {
+                                console.log('[SERIAL] Status is REJECTED/CANCELLED for line ' + lineId + ', not rendering button');
                             }
+                        } else {
+                            console.log('[SERIAL] No qtyReduceReq for line ' + lineId + ', not rendering approval button');
                         }
 
                         // Build button for approval/reduce - either approval button or reduce button
@@ -1929,32 +1968,54 @@
                     } else {
                         // Task 1.2/1.3: Non-privileged: qty input + increase button only (no direct decrease) + reduce button + approval buttons
                         // Use server pending_approvals as primary source, with client cache as transient fallback
-                        const backendQtyReduceReq = (line.pending_approvals || []).find(a => a.action_type === 'QTY_REDUCE');
+                        // Sort by request_id DESC to get the latest request (defensive against ordering)
+                        const backendQtyReduceReq = (line.pending_approvals || [])
+                            .slice()
+                            .sort((a, b) => b.request_id - a.request_id)
+                            .find(a => a.action_type === 'QTY_REDUCE');
                         const clientPending = clientPendingApprovals[lineId];
                         const qtyReduceRaw = backendQtyReduceReq || clientPending;
                         const qtyReduceReq = normalizeQtyApprovalState(qtyReduceRaw);
+                        console.log('[NON-SERIAL] QTY_REDUCE state for line ' + lineId + ': ' + JSON.stringify({
+                            pending_approvals: line.pending_approvals,
+                            backendQtyReduceReq,
+                            clientPending,
+                            qtyReduceRaw,
+                            qtyReduceReq,
+                            willRenderButton: !!qtyReduceReq && qtyReduceReq.status && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED'
+                        }));
                         let approvalButtonHtml = '';
 
                         if (qtyReduceReq) {
+                            console.log('[NON-SERIAL] qtyReduceReq found for line ' + lineId + ', status=' + qtyReduceReq.status);
                             // Show approval button when pending or approved (same logic as delete button)
                             if (qtyReduceReq.status === 'APPROVED') {
                                 // Show approved qty in button text
                                 const approvedQty = qtyReduceReq.requested_qty || '?';
                                 approvalButtonHtml = `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.approval_token || ''}" data-approved-qty="${approvedQty}" title="Lanjutkan (qty: ${approvedQty})" aria-label="Lanjutkan">✓ ${approvedQty}</button>`;
+                                console.log('[NON-SERIAL] Rendered APPROVED button for line ' + lineId);
                             } else if (qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
                                 // Pending or other active states: show check approval button
                                 approvalButtonHtml = `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
+                                console.log('[NON-SERIAL] Rendered PENDING button for line ' + lineId + ', request_id=' + qtyReduceReq.request_id);
+                            } else {
+                                console.log('[NON-SERIAL] Status is REJECTED/CANCELLED for line ' + lineId + ', not rendering button');
                             }
+                        } else {
+                            console.log('[NON-SERIAL] No qtyReduceReq for line ' + lineId + ', not rendering approval button');
                         }
 
                         // Build button for left side - either approval button or reduce button
                         let leftButtonHtml = '';
                         if (qtyReduceReq && qtyReduceReq.status === 'APPROVED') {
                             leftButtonHtml = `<button type="button" class="btn btn-sm btn-success js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-token="${qtyReduceReq.approval_token || ''}" data-approved-qty="${qtyReduceReq.requested_qty || '?'}" title="Lanjutkan (qty: ${qtyReduceReq.requested_qty || '?'})" aria-label="Lanjutkan">✓ ${qtyReduceReq.requested_qty || '?'}</button>`;
+                            console.log('[NON-SERIAL] Set leftButtonHtml to APPROVED for line ' + lineId);
                         } else if (qtyReduceReq && qtyReduceReq.status !== 'REJECTED' && qtyReduceReq.status !== 'CANCELLED') {
                             leftButtonHtml = `<button type="button" class="btn btn-sm btn-warning js-check-qty-approval pos-qty-reduce-btn" data-line-id="${lineId}" data-approval-pending="${qtyReduceReq.request_id}" title="Periksa Persetujuan" aria-label="Periksa Persetujuan">Periksa</button>`;
+                            console.log('[NON-SERIAL] Set leftButtonHtml to PENDING for line ' + lineId);
                         } else {
                             leftButtonHtml = `<button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${qty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>`;
+                            console.log('[NON-SERIAL] Set leftButtonHtml to REDUCE for line ' + lineId);
                         }
 
                         qtyCell = `
@@ -1977,7 +2038,11 @@
                 const rowClass = !priceValid ? 'bg-warning-light' : '';
 
                 // Phase 3C: Delete button with approval state
-                const removeReq = (line.pending_approvals || []).find(a => a.action_type === 'LINE_REMOVE');
+                // Sort by request_id DESC to get the latest request (defensive against ordering)
+                const removeReq = (line.pending_approvals || [])
+                    .slice()
+                    .sort((a, b) => b.request_id - a.request_id)
+                    .find(a => a.action_type === 'LINE_REMOVE');
                 let deleteButtonHtml = '';
                 if (removeReq) {
                     if (removeReq.status === 'APPROVED') {
@@ -2009,6 +2074,16 @@
             }
 
             function renderCart(snapshot) {
+                console.log('[renderCart] Called with snapshot: ' + JSON.stringify({
+                    hasSnapshot: !!snapshot,
+                    lines: snapshot?.lines?.length || 0,
+                    lineIds: snapshot?.lines?.map(l => l.line_id) || [],
+                    cartItems: snapshot?.lines?.map(l => ({
+                        line_id: l.line_id,
+                        product_name: l.product_name,
+                        pending_approvals_count: l.pending_approvals?.length || 0
+                    })) || []
+                }));
                 currentSnapshot = snapshot || null;
                 const lines = snapshot && Array.isArray(snapshot.lines) ? snapshot.lines : [];
 

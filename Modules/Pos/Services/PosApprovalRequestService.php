@@ -26,23 +26,38 @@ class PosApprovalRequestService
     ): PosActionApprovalRequest {
         $this->assertSupportedAction($actionType);
 
-        PosActionApprovalRequest::query()
-            ->where('requested_by', $requester->id)
-            ->where('action_type', $actionType)
-            ->where('target_id', $targetId)
-            ->where('status', PosActionApprovalRequest::STATUS_PENDING)
-            ->update(['status' => PosActionApprovalRequest::STATUS_CANCELLED]);
+        // Cancel any existing PENDING or APPROVED requests for the same action+target from this user
+        // This prevents stale approvals from showing in the cart when a new request is created
+        return \Illuminate\Support\Facades\DB::transaction(function () use (
+            $settingId,
+            $sessionId,
+            $requester,
+            $actionType,
+            $targetType,
+            $targetId,
+            $payload
+        ) {
+            PosActionApprovalRequest::query()
+                ->where('requested_by', $requester->id)
+                ->where('action_type', $actionType)
+                ->where('target_id', $targetId)
+                ->whereIn('status', [
+                    PosActionApprovalRequest::STATUS_PENDING,
+                    PosActionApprovalRequest::STATUS_APPROVED,
+                ])
+                ->update(['status' => PosActionApprovalRequest::STATUS_CANCELLED]);
 
-        return PosActionApprovalRequest::create([
-            'setting_id' => $settingId,
-            'pos_session_id' => $sessionId,
-            'action_type' => $actionType,
-            'target_type' => $targetType,
-            'target_id' => $targetId,
-            'request_payload' => $payload,
-            'requested_by' => $requester->id,
-            'status' => PosActionApprovalRequest::STATUS_PENDING,
-        ]);
+            return PosActionApprovalRequest::create([
+                'setting_id' => $settingId,
+                'pos_session_id' => $sessionId,
+                'action_type' => $actionType,
+                'target_type' => $targetType,
+                'target_id' => $targetId,
+                'request_payload' => $payload,
+                'requested_by' => $requester->id,
+                'status' => PosActionApprovalRequest::STATUS_PENDING,
+            ]);
+        });
     }
 
     public function checkStatus(int $requestId, User $requester): array

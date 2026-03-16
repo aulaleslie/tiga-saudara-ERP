@@ -57,6 +57,20 @@ Alternatives considered:
 - Modify renderer to accept both wrapped and unwrapped payloads.
 : Rejected to keep one stable contract and reduce hidden branching.
 
+## Root Cause Analysis (Updated)
+
+Investigation revealed a multi-request scenario that breaks the approval flow:
+
+1. **Backend deduplication gap**: `PosApprovalRequestService::createRequest()` only cancelled `STATUS_PENDING` requests when creating a new one. If a user had already received approval (request in `STATUS_APPROVED`) but hadn't used the token yet, submitting a new request would leave the old `APPROVED` record in the database.
+
+2. **Snapshot includes all pending/approved**: `PosCartService::buildSnapshot()` fetches `whereIn('status', [STATUS_PENDING, STATUS_APPROVED])`, so both old and new requests appear in `line.pending_approvals`.
+
+3. **Frontend picks first, not latest**: The code used `.find(a => a.action_type === 'QTY_REDUCE')` which returns the first match. With no ordering guarantee from the database query, this could be the stale APPROVED entry (request_id 31) instead of the new PENDING one (request_id 32), causing the wrong button to render or no button at all.
+
+**Fixes applied:**
+- **Backend**: `createRequest()` now cancels both `STATUS_PENDING` and `STATUS_APPROVED` requests for the same action+target, wrapped in a transaction.
+- **Frontend**: `.find()` calls now sort by `request_id DESC` before finding, ensuring we always use the latest request regardless of database order.
+
 ## Risks / Trade-offs
 
 - [Risk] Serial and non-serial row render paths can drift again in future edits.

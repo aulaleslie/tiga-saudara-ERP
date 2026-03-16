@@ -408,4 +408,95 @@ class POSCartReduceQtyWithApprovalTest extends TestCase
         $this->assertEquals('PENDING', $qtyReduceApproval['status']);
         $this->assertEquals($requestId, $qtyReduceApproval['request_id']);
     }
+
+    // Test: Submit second qty approval request on same line while first is approved (multi-request scenario)
+    public function test_second_qty_reduction_request_cancels_previous_approved_request(): void
+    {
+        $setting = $this->createSetting('BIZ POS QTY MULTI-REQUEST', true);
+        [$cashier, $location, $session] = $this->createCashierAndOpenSession($setting, 'QTY MULTI TEST', []);
+
+        $supervisor = $this->createUserForSetting(
+            $setting,
+            'QTY MULTI SUPERVISOR',
+            ['pos.access', 'pos.supervisor.approval', 'pos.cart.line.reduce']
+        );
+
+        $product = $this->createStockedProduct($setting, $location, 'SKU-MULTI-1', 'Multi-Request Test Product', 10000, $cashier->id);
+
+        // 1. Add product to cart
+        $resStore = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+             ->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 10]);
+        $lineId = $resStore->json('cart_snapshot.lines.0.line_id');
+
+        // 2. Submit first qty reduction approval request
+        $res1stRequest = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+             ->postJson(route('pos.sell.approval-requests.store'), [
+                 'action_type' => 'QTY_REDUCE',
+                 'target_type' => 'pos_cart_line',
+                 'target_id' => $lineId,
+                 'payload' => ['qty' => 5]
+             ]);
+
+        $res1stRequest->assertStatus(201);
+        $requestId1 = $res1stRequest->json('request_id');
+
+        // 3. Supervisor approves the first request
+        $this->actingAs($supervisor)->withSession(['setting_id' => $setting->id])
+             ->postJson(route('pos.supervisor.approval-requests.approve', ['id' => $requestId1]))
+             ->assertStatus(200);
+
+        // 4. Verify first request is now APPROVED
+        $status1 = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+             ->getJson(route('pos.sell.approval-requests.show', ['id' => $requestId1]));
+        $status1->assertStatus(200);
+        $status1->assertJsonPath('status', PosActionApprovalRequest::STATUS_APPROVED);
+
+        // 5. Cashier submits SECOND qty reduction request on same line (without using first token)
+        $res2ndRequest = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+             ->postJson(route('pos.sell.approval-requests.store'), [
+                 'action_type' => 'QTY_REDUCE',
+                 'target_type' => 'pos_cart_line',
+                 'target_id' => $lineId,
+                 'payload' => ['qty' => 3]
+             ]);
+
+        $res2ndRequest->assertStatus(201);
+        $requestId2 = $res2ndRequest->json('request_id');
+
+        // 6. Verify first request is NOW CANCELLED in the database
+        $firstRequest = PosActionApprovalRequest::find($requestId1);
+        $this->assertEquals(
+            PosActionApprovalRequest::STATUS_CANCELLED,
+            $firstRequest->status,
+            'First APPROVED request should be CANCELLED when second request is created'
+        );
+
+        // 7. Verify second request is PENDING
+        $secondRequest = PosActionApprovalRequest::find($requestId2);
+        $this->assertEquals(
+            PosActionApprovalRequest::STATUS_PENDING,
+            $secondRequest->status,
+            'Second request should be PENDING'
+        );
+
+        // 8. Verify cart_snapshot.pending_approvals contains ONLY the second request (no duplicates)
+        $cartSnapshot = $res2ndRequest->json('cart_snapshot');
+        $linePendingApprovals = $cartSnapshot['lines'][0]['pending_approvals'];
+        $qtyReduceApprovals = collect($linePendingApprovals)->filter(fn ($a) => $a['action_type'] === 'QTY_REDUCE')->all();
+
+        $this->assertCount(
+            1,
+            $qtyReduceApprovals,
+            'Should have exactly ONE QTY_REDUCE in pending_approvals, not two'
+        );
+
+        // 9. Verify it's the second (newer) request
+        $latestQtyApproval = reset($qtyReduceApprovals);
+        $this->assertEquals(
+            $requestId2,
+            $latestQtyApproval['request_id'],
+            'pending_approvals should contain the latest request_id (second request)'
+        );
+        $this->assertEquals('PENDING', $latestQtyApproval['status']);
+    }
 }
