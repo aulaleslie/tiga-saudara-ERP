@@ -33,5 +33,5 @@
 ## 6. Validate End-to-End Behavior
 
 - [x] 6.1 Run relevant POS feature tests for supervised cart actions and qty reduction.
-- [ ] 6.2 Manually validate row layout consistency for serial and non-serial items in the sell UI.
-- [ ] 6.3 Manually validate that `Periksa` and approved transitions are correct without full page refresh.
+- [x] 6.2 Manually validate row layout consistency for serial and non-serial items in the sell UI.
+- [x] 6.3 Manually validate that `Periksa` and approved transitions are correct without full page refresh.

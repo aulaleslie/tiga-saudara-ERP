@@ -287,8 +287,10 @@
     }
 
     .pos-cart-qty {
-        width: 70px;
-        margin: 0 auto;
+        width: 55px !important;
+        margin: 0 !important;
+        padding: 0.25rem 0.375rem !important;
+        flex: 0 0 auto;
     }
 
     /* Phase 4: Serial UI Refinement */
@@ -391,10 +393,66 @@
         gap: 4px;
     }
 
-    .pos-qty-control-strip .pos-qty-reduce-btn {
-        /* Task 3.1: Stable left slot width across reduce/periksa/approved transitions */
+    /* Qty reduce/check buttons - square 32x32 for consistency everywhere */
+    .pos-qty-reduce-btn {
         flex: 0 0 auto;
-        min-width: 70px;
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 0.75rem !important;
+        border-radius: 0.25rem !important;
+        line-height: 1 !important;
+    }
+
+    .pos-qty-control-strip .pos-qty-reduce-btn {
+        /* Ensure flex alignment in strip context */
+        flex: 0 0 auto;
+    }
+
+    /* Task 2.1-2.3: Spinner button styling with semantic colors and fill-on-hover */
+    .pos-qty-control-strip .btn.btn-sm.btn-outline-danger.js-qty-decrease,
+    .pos-qty-control-strip .btn.btn-sm.btn-outline-primary.js-qty-increase {
+        flex: 0 0 auto;
+        width: 32px !important;
+        height: 32px !important;
+        padding: 0 !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.875rem;
+        border-radius: 0.25rem !important;
+        transition: all 0.15s ease-in-out;
+    }
+
+    .btn.btn-sm.btn-outline-danger.js-qty-decrease {
+        color: #dc3545 !important;
+        border-color: #dc3545 !important;
+    }
+
+    .btn.btn-sm.btn-outline-danger.js-qty-decrease:hover,
+    .btn.btn-sm.btn-outline-danger.js-qty-decrease:focus {
+        background-color: #dc3545 !important;
+        color: #fff !important;
+        border-color: #dc3545 !important;
+    }
+
+    .btn.btn-sm.btn-outline-primary.js-qty-increase {
+        color: #007bff !important;
+        border-color: #007bff !important;
+    }
+
+    .btn.btn-sm.btn-outline-primary.js-qty-increase:hover,
+    .btn.btn-sm.btn-outline-primary.js-qty-increase:focus {
+        background-color: #007bff !important;
+        color: #fff !important;
+        border-color: #007bff !important;
     }
 
     .pos-customer-shell {
@@ -1454,7 +1512,7 @@
             function renderQtyApprovalSlotButton(qtyReduceReq, lineId, currentQty) {
                 if (!qtyReduceReq) {
                     // No approval request: render reduce button
-                    return `<button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${currentQty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>`;
+                    return `<button type="button" class="btn btn-sm btn-outline-warning js-reduce-qty pos-qty-reduce-btn" data-line-id="${lineId}" data-current-qty="${currentQty}" title="Kurangi Jumlah" aria-label="Kurangi Jumlah">-</button>`;
                 }
 
                 if (qtyReduceReq.status === 'APPROVED') {
@@ -1879,28 +1937,38 @@
                         </div>
                     `).join('');
 
+                    // Fetch latest qty-reduce approval from server snapshot (shared for both paths)
+                    const backendQtyReduceReq = (line.pending_approvals || [])
+                        .slice()
+                        .sort((a, b) => b.request_id - a.request_id)
+                        .find(a => a.action_type === 'QTY_REDUCE');
+                    const clientPending = clientPendingApprovals[lineId];
+                    const qtyReduceRaw = backendQtyReduceReq || clientPending;
+                    const qtyReduceReq = normalizeQtyApprovalState(qtyReduceRaw);
+
                     // For privileged users: full qty control with serial button
                     if (canReduceQuantity) {
+                        // Privileged serial: direct decrease button, then qty, then increase, then serial action
                         qtyCell = `
                             <td class="pos-cart-serial-cell align-middle" style="min-width: 200px;">
-                                <div class="d-flex align-items-center flex-wrap" style="gap: 12px;">
-                                    <div class="d-flex flex-column align-items-center" style="gap: 2px;">
-                                        <div class="d-flex align-items-center" style="gap: 4px;">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary js-qty-decrease" data-line-id="${lineId}" title="Kurangi" aria-label="Kurangi">−</button>
-                                            <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
-                                                   type="number" min="1" value="${qty}" data-prev-qty="${qty}"
-                                                   style="width: 55px;">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
-                                            <button type="button"
-                                                    class="btn btn-sm btn-outline-info js-serial-add pos-serial-action"
-                                                    data-line-id="${lineId}"
-                                                    data-product-name="${productName}"
-                                                    title="Atur Serial"
-                                                    aria-label="Atur Serial">
-                                                <i class="bi bi-upc-scan" aria-hidden="true"></i>
-                                                <span class="pos-serial-action-label">Serial</span>
-                                            </button>
-                                        </div>
+                                <div class="d-flex flex-column align-items-center" style="gap: 2px;">
+                                    <div class="d-flex align-items-center pos-qty-control-strip">
+                                        <button type="button" class="btn btn-sm btn-outline-danger js-qty-decrease" data-line-id="${lineId}" title="Kurangi" aria-label="Kurangi">−</button>
+                                        <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
+                                               type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                               style="width: 55px;">
+                                        <button type="button" class="btn btn-sm btn-outline-primary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
+                                    </div>
+                                    <div class="d-flex align-items-center" style="gap: 4px;">
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-info js-serial-add pos-serial-action"
+                                                data-line-id="${lineId}"
+                                                data-product-name="${productName}"
+                                                title="Atur Serial"
+                                                aria-label="Atur Serial">
+                                            <i class="bi bi-upc-scan" aria-hidden="true"></i>
+                                            <span class="pos-serial-action-label">Serial</span>
+                                        </button>
                                         <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
                                     </div>
                                     <div class="pos-serial-wrapper flex-grow-1">
@@ -1910,32 +1978,20 @@
                             </td>
                         `;
                     } else {
-                        // Task 1.4: For non-privileged serial users - use shared qty control strip with serial action on secondary line
-                        // Fetch latest qty-reduce approval from server snapshot
-                        const backendQtyReduceReq = (line.pending_approvals || [])
-                            .slice()
-                            .sort((a, b) => b.request_id - a.request_id)
-                            .find(a => a.action_type === 'QTY_REDUCE');
-                        const clientPending = clientPendingApprovals[lineId];
-                        const qtyReduceRaw = backendQtyReduceReq || clientPending;
-                        const qtyReduceReq = normalizeQtyApprovalState(qtyReduceRaw);
-
-                        // Task 1.2: Build shared control strip in order: [Reduce/Periksa slot][qty input][+]
+                        // Non-privileged serial: use shared control strip [Reduce/Periksa slot][qty input][+]
+                        // Build shared control strip in order: [Reduce/Periksa slot][qty input][+]
                         const slotButtonHtml = renderQtyApprovalSlotButton(qtyReduceReq, lineId, qty);
 
                         qtyCell = `
                             <td class="pos-cart-serial-cell align-middle" style="min-width: 200px;">
-                                <div class="d-flex align-items-center flex-wrap" style="gap: 12px;">
-                                    <div class="d-flex flex-column align-items-center" style="gap: 2px;">
-                                        <div class="d-flex align-items-center pos-qty-control-strip" style="gap: 4px;">
-                                            ${slotButtonHtml}
-                                            <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
-                                                   type="number" min="1" value="${qty}" data-prev-qty="${qty}"
-                                                   data-can-reduce="${canReduceQuantity}"
-                                                   style="width: 55px;">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
-                                        </div>
-                                        <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
+                                <div class="d-flex flex-column align-items-center" style="gap: 2px;">
+                                    <div class="d-flex align-items-center pos-qty-control-strip">
+                                        ${slotButtonHtml}
+                                        <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
+                                               type="number" min="1" value="${qty}" data-prev-qty="${qty}"
+                                               data-can-reduce="${canReduceQuantity}"
+                                               style="width: 55px;">
+                                        <button type="button" class="btn btn-sm btn-outline-primary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
                                     </div>
                                     <div class="d-flex align-items-center" style="gap: 4px;">
                                         <button type="button"
@@ -1944,10 +2000,10 @@
                                                 data-product-name="${productName}"
                                                 title="Atur Serial"
                                                 aria-label="Atur Serial">
-                                                <i class="bi bi-upc-scan" aria-hidden="true"></i>
-                                                <span class="pos-serial-action-label">Serial</span>
-                                            </button>
-                                        </div>
+                                            <i class="bi bi-upc-scan" aria-hidden="true"></i>
+                                            <span class="pos-serial-action-label">Serial</span>
+                                        </button>
+                                        <small class="text-muted font-weight-bold" style="font-size: 0.65rem;">${assignedCount}/${qty} Serial</small>
                                     </div>
                                     <div class="pos-serial-wrapper flex-grow-1">
                                         ${serialChips}
@@ -1957,43 +2013,42 @@
                         `;
                     }
                 } else {
-                    // Non-serial line
+                    // Non-serial line: fetch approval state once for both paths
+                    const backendQtyReduceReq = (line.pending_approvals || [])
+                        .slice()
+                        .sort((a, b) => b.request_id - a.request_id)
+                        .find(a => a.action_type === 'QTY_REDUCE');
+                    const clientPending = clientPendingApprovals[lineId];
+                    const qtyReduceRaw = backendQtyReduceReq || clientPending;
+                    const qtyReduceReq = normalizeQtyApprovalState(qtyReduceRaw);
+
                     if (canReduceQuantity) {
-                        // Privileged: spinner with +/- buttons
+                        // Privileged non-serial: direct decrease, qty, increase in centered strip
                         qtyCell = `
                             <td class="text-center align-middle">
-                                <div class="d-flex align-items-center justify-content-center" style="gap: 4px;">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary js-qty-decrease" data-line-id="${lineId}" title="Kurangi" aria-label="Kurangi">−</button>
+                                <div class="d-flex align-items-center justify-content-center pos-qty-control-strip">
+                                    <button type="button" class="btn btn-sm btn-outline-danger js-qty-decrease" data-line-id="${lineId}" title="Kurangi" aria-label="Kurangi">−</button>
                                     <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
                                            type="number" min="1" value="${qty}" data-prev-qty="${qty}"
                                            data-can-reduce="${canReduceQuantity}"
-                                           style="width: 60px;">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
+                                           style="width: 55px;">
+                                    <button type="button" class="btn btn-sm btn-outline-primary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
                                 </div>
                             </td>
                         `;
                     } else {
-                        // Task 1.3: Non-privileged non-serial: use shared control strip [Reduce/Periksa slot][qty input][+]
-                        const backendQtyReduceReq = (line.pending_approvals || [])
-                            .slice()
-                            .sort((a, b) => b.request_id - a.request_id)
-                            .find(a => a.action_type === 'QTY_REDUCE');
-                        const clientPending = clientPendingApprovals[lineId];
-                        const qtyReduceRaw = backendQtyReduceReq || clientPending;
-                        const qtyReduceReq = normalizeQtyApprovalState(qtyReduceRaw);
-
-                        // Task 1.2: Build shared control strip using canonical renderer
+                        // Non-privileged non-serial: use shared control strip [Reduce/Periksa slot][qty input][+]
                         const slotButtonHtml = renderQtyApprovalSlotButton(qtyReduceReq, lineId, qty);
 
                         qtyCell = `
                             <td class="text-center align-middle">
-                                <div class="d-flex align-items-center justify-content-center pos-qty-control-strip" style="gap: 4px;">
+                                <div class="d-flex align-items-center justify-content-center pos-qty-control-strip">
                                     ${slotButtonHtml}
                                     <input class="form-control form-control-sm text-center pos-cart-qty js-line-qty"
                                            type="number" min="1" value="${qty}" data-prev-qty="${qty}"
                                            data-can-reduce="${canReduceQuantity}"
-                                           style="width: 60px;">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
+                                           style="width: 55px;">
+                                    <button type="button" class="btn btn-sm btn-outline-primary js-qty-increase" data-line-id="${lineId}" title="Tambah" aria-label="Tambah">+</button>
                                 </div>
                             </td>
                         `;
