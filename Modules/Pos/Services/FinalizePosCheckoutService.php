@@ -319,12 +319,20 @@ class FinalizePosCheckoutService
 
         $normalized = $this->paymentNormalizationService->normalize($settingId, $paymentsPayload);
 
+        // Extract first payment method and reference for ledger persistence.
+        // Multi-payment checkouts must have a primary payment method on the pos_checkouts record
+        // for compatibility with the posting adapter and reporting queries.
+        $firstPayment = $normalized['payments'][0] ?? null;
+
         return [
             'is_multi_payment' => true,
             'payments' => $normalized['payments'],
             'amount_paid' => round($normalized['total_amount_minor_units'] / 100, 2),
             'total_cash_minor_units' => $normalized['total_cash_minor_units'],
             'canonical_payment_hash' => $this->paymentNormalizationService->getCanonicalPaymentHash($normalized['payments']),
+            'payment_method_id' => $firstPayment['payment_method_id'] ?? null,
+            'reference' => $firstPayment['reference'] ?? null,
+            'is_cash' => $firstPayment['is_cash'] ?? false,
         ];
     }
 
@@ -599,9 +607,17 @@ class FinalizePosCheckoutService
 
                 $actualTaxTotal = (float) ($postingResult['actual_tax_total'] ?? $lockedCheckout->tax_total);
                 $actualGrandTotal = (float) ($postingResult['actual_grand_total'] ?? $lockedCheckout->grand_total);
-                $actualChangeTotal = $payment['is_cash']
-                    ? round(max(0, $paidTotal - $actualGrandTotal), 2)
-                    : 0.0;
+
+                // Calculate actual change: for multi-payment use cash totals, for single-payment use is_cash flag
+                if ((bool) ($payment['is_multi_payment'] ?? false)) {
+                    $totalCashMinor = (int) ($payment['total_cash_minor_units'] ?? 0);
+                    $totalCash = $totalCashMinor / 100;
+                    $actualChangeTotal = round(max(0, $totalCash - $actualGrandTotal), 2);
+                } else {
+                    $actualChangeTotal = $payment['is_cash']
+                        ? round(max(0, $paidTotal - $actualGrandTotal), 2)
+                        : 0.0;
+                }
 
                 $receiptNumber = $this->receiptNumberGenerator->generate($settingId);
 
