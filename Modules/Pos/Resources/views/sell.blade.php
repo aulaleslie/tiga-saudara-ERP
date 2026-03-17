@@ -1030,6 +1030,99 @@
         </div>
     </div>
 
+    <!-- Task 3.1 & 3.2: Staged Payment Modal - Multi-stage sequential payment flow -->
+    <div class="modal fade" id="pos-staged-checkout-modal" tabindex="-1" role="dialog" aria-labelledby="pos-staged-checkout-modal-label" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="pos-staged-checkout-modal-label">Pembayaran Bertahap</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Tutup">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body p-4">
+                    <!-- Error Alert -->
+                    <div id="staged-payment-error" class="alert alert-danger d-none"></div>
+
+                    <!-- Task 3.3: Payment Chain Display -->
+                    <div class="mb-4">
+                        <label class="small font-weight-bold text-muted d-block mb-2">Pembayaran Sudah Diproses</label>
+                        <div id="staged-payment-chain" class="d-flex flex-wrap gap-2">
+                            <p class="text-muted small mb-0">Belum ada pembayaran</p>
+                        </div>
+                    </div>
+
+                    <!-- Remainder Display -->
+                    <div class="alert alert-info mb-4">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="font-weight-bold">Sisa Pembayaran:</span>
+                            <span id="staged-remainder-amount" class="h4 mb-0 text-danger">Rp0</span>
+                        </div>
+                    </div>
+
+                    <!-- Task 3.2: Payment Method Selection -->
+                    <div class="form-group mb-3">
+                        <label class="font-weight-bold d-block mb-2">Metode Pembayaran</label>
+                        <div class="position-relative">
+                            <input type="text" id="staged-method-search" class="form-control"
+                                   placeholder="Pilih atau cari metode pembayaran..." autocomplete="off">
+                            <div id="staged-method-results" class="list-group position-absolute w-100"
+                                 style="top: 100%; left: 0; right: 0; z-index: 1000; max-height: 250px; overflow-y: auto; display: none;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Amount Input -->
+                    <div class="form-group mb-3">
+                        <label for="staged-amount-input" class="font-weight-bold">Jumlah Pembayaran (Rp)</label>
+                        <input type="number" id="staged-amount-input" class="form-control form-control-lg"
+                               placeholder="0" step="1" min="0">
+                    </div>
+
+                    <!-- Task 3.5 & 3.6: EDC Reference Input (Conditional) -->
+                    <div id="staged-edc-reference-container" class="form-group mb-3" style="display: none;">
+                        <label for="staged-edc-reference" class="font-weight-bold">Nomor Referensi EDC</label>
+                        <input type="text" id="staged-edc-reference" class="form-control"
+                               placeholder="Masukkan nomor referensi (alphanumeric, max 20 karakter)"
+                               maxlength="20">
+                        <small class="form-text text-muted">Format: Alphanumeric, maksimal 20 karakter</small>
+                    </div>
+
+                    <!-- Processing Spinner -->
+                    <div id="staged-payment-spinner" class="text-center" style="display: none;">
+                        <div class="spinner-border mb-3" role="status">
+                            <span class="sr-only">Memproses...</span>
+                        </div>
+                        <p class="text-muted">Memproses pembayaran... Jangan tutup atau muat ulang halaman.</p>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary btn-lg" data-dismiss="modal">Batal</button>
+                    <button type="button" id="staged-payment-submit" class="btn btn-primary btn-lg px-5" disabled>
+                        Lanjut Pembayaran
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task 6.4 & 6.5: Gratitude Modal -->
+    <div class="modal fade" id="pos-gratitude-modal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+            <div class="modal-content text-center py-5">
+                <div class="modal-body">
+                    <div class="mb-4">
+                        <i class="fas fa-hand-holding-heart text-primary fa-5x"></i>
+                    </div>
+                    <h4 class="mb-3 font-weight-bold">Jangan Lupa Ucapkan Terima Kasih!</h4>
+                    <p id="gratitude-change-amount" class="h5 mb-4 text-success"></p>
+                    <button type="button" class="btn btn-primary btn-lg btn-block" data-dismiss="modal">
+                        Lanjut Jualan
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="pos-success-modal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static">
         <div class="modal-dialog modal-sm" role="document">
             <div class="modal-content text-center py-4">
@@ -1274,6 +1367,8 @@
 
 
 @push('page_scripts')
+    <!-- Task 3.1: Include staged payment module -->
+    <script src="{{ asset('js/pos-staged-payment.js') }}"></script>
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');
@@ -3885,7 +3980,17 @@
 
             if (btnCheckout) {
                 btnCheckout.addEventListener('click', function () {
-                    openPaymentModal();
+                    // Task 7.1: Open staged payment modal instead of legacy modal
+                    if (currentSnapshot && currentSnapshot.totals && typeof PosStagedPayment !== 'undefined') {
+                        // Use new staged payment flow
+                        const saleId = currentSnapshot.sale_id;
+                        if (saleId) {
+                            PosStagedPayment.openModal(saleId);
+                        }
+                    } else {
+                        // Fallback to legacy payment modal
+                        openPaymentModal();
+                    }
                 });
             }
 
@@ -3971,6 +4076,34 @@
 
             refreshCart();
         })();
+
+        // Task 3.1: Initialize Staged Payment Module
+        document.addEventListener('DOMContentLoaded', function () {
+            if (typeof PosStagedPayment !== 'undefined') {
+                PosStagedPayment.initialize({
+                    modalElement: document.getElementById('pos-staged-checkout-modal'),
+                    methodSearchInput: document.getElementById('staged-method-search'),
+                    methodResults: document.getElementById('staged-method-results'),
+                    paymentChainList: document.getElementById('staged-payment-chain'),
+                    remainderLabel: document.getElementById('staged-remainder-amount'),
+                    amountInput: document.getElementById('staged-amount-input'),
+                    edcRefInput: document.getElementById('staged-edc-reference'),
+                    edcRefContainer: document.getElementById('staged-edc-reference-container'),
+                    submitButton: document.getElementById('staged-payment-submit'),
+                    spinner: document.getElementById('staged-payment-spinner'),
+                    errorAlert: document.getElementById('staged-payment-error'),
+                });
+
+                // Load payment methods
+                if (typeof window.POS_PAYMENT_METHODS !== 'undefined') {
+                    PosStagedPayment.setPaymentMethods(window.POS_PAYMENT_METHODS);
+                }
+
+                // Optional: Hook into existing checkout button if needed
+                // For now, the old payment modal remains available
+                // Future: Replace old modal with staged payment flow
+            }
+        });
     </script>
 @endpush
 @endsection

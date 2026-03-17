@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Modules\Sale\Http\Controllers\GlobalSalesSearchController;
+use Modules\Sale\Http\Controllers\PosCheckoutController;
 
 /*
 |--------------------------------------------------------------------------
@@ -16,6 +17,18 @@ use Modules\Sale\Http\Controllers\GlobalSalesSearchController;
 
 Route::middleware('auth:api')->get('/sale', function (Request $request) {
     return $request->user();
+});
+
+// POS Checkout Routes - Multi-stage Sequential Payments
+Route::middleware('auth:sanctum')->prefix('pos/sell/checkout')->group(function () {
+    Route::post('/stage-payment', [PosCheckoutController::class, 'stagePayment'])
+        ->name('api.pos.checkout.stage-payment');
+
+    Route::get('/payment-chain', [PosCheckoutController::class, 'getPaymentChain'])
+        ->name('api.pos.checkout.payment-chain');
+
+    Route::post('/validate-edc-reference', [PosCheckoutController::class, 'validateEdcReference'])
+        ->name('api.pos.checkout.validate-edc-reference');
 });
 
 // Global Menu (Serial Number Search) Routes

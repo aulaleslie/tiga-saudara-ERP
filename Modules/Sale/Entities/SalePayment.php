@@ -17,9 +17,23 @@ class SalePayment extends BaseModel implements HasMedia
 
     protected $guarded = [];
 
+    protected $fillable = [
+        'sale_id',
+        'payment_method_id',
+        'amount',
+        'date',
+        'reference',
+        'payment_method',
+        'note',
+        'stage_order',
+        'edc_reference',
+        'idempotency_key',
+    ];
+
     protected $casts = [
         'amount' => 'decimal:2',
         'date' => 'date',
+        'stage_order' => 'integer',
     ];
 
     public function sale(): BelongsTo

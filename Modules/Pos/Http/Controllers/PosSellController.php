@@ -494,12 +494,29 @@ class PosSellController extends Controller
         }
 
         try {
+            // Task 7.3: Check for pre-committed multi-stage payments in session
+            $paymentPayload = is_array($request->input('payment')) ? $request->input('payment') : [];
+            $saleId = (int) $request->input('sale_id', 0);
+
+            // If no payments in request, check if there's a staged payment chain in session
+            if (empty($paymentPayload) && $saleId > 0) {
+                $sessionKey = "payment_chain_{$saleId}";
+                $sessionPaymentChain = $request->session()->get($sessionKey);
+
+                if ($sessionPaymentChain && !empty($sessionPaymentChain['payments'])) {
+                    // Convert session payment chain to payment payload format
+                    $paymentPayload = [
+                        'payments' => $sessionPaymentChain['payments'],
+                    ];
+                }
+            }
+
             $result = $finalizeService->finalize(
                 $settingId,
                 $activeSession,
                 (int) $user->id,
                 (string) $request->input('idempotency_key'),
-                is_array($request->input('payment')) ? $request->input('payment') : [],
+                $paymentPayload,
                 $request->input('client_context')
             );
         } catch (PosCheckoutValidationException $exception) {
@@ -524,6 +541,12 @@ class PosSellController extends Controller
                 'code' => $exception->errorCode(),
                 'message' => 'Checkout posting failed due to an internal error.',
             ], 500);
+        }
+
+        // Task 7.4: Clear session payment chain after successful finalization
+        if ((int) $result['http_status'] === 201 && $saleId > 0) {
+            $sessionKey = "payment_chain_{$saleId}";
+            $request->session()->forget($sessionKey);
         }
 
         return response()->json($result['payload'], (int) $result['http_status'], [], JSON_PRESERVE_ZERO_FRACTION);
