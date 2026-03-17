@@ -757,17 +757,35 @@ class FinalizePosCheckoutService
 
             throw $exception;
         } catch (Throwable $exception) {
-            $this->markCheckoutFailed(
-                checkoutId: $checkoutId,
-                failureCode: 'POSTING_FAILURE',
-                failureMessage: $exception->getMessage(),
-                metadata: [
-                    'setting_id' => $settingId,
-                    'session_id' => $sessionId,
-                    'idempotency_key' => $idempotencyKey,
-                    'exception_class' => $exception::class,
-                ]
-            );
+            $failureMetadata = [
+                'setting_id' => $settingId,
+                'session_id' => $sessionId,
+                'idempotency_key' => $idempotencyKey,
+                'exception_class' => $exception::class,
+                'exception_file' => $exception->getFile(),
+                'exception_line' => $exception->getLine(),
+            ];
+
+            try {
+                $this->markCheckoutFailed(
+                    checkoutId: $checkoutId,
+                    failureCode: 'POSTING_FAILURE',
+                    failureMessage: $exception->getMessage(),
+                    metadata: $failureMetadata
+                );
+            } catch (Throwable $markFailedEx) {
+                Log::error('Failed to mark checkout as failed.', [
+                    'checkout_id' => $checkoutId,
+                    'marking_exception' => $markFailedEx::class,
+                    'marking_message' => $markFailedEx->getMessage(),
+                    'marking_file' => $markFailedEx->getFile(),
+                    'marking_line' => $markFailedEx->getLine(),
+                    'original_exception' => $exception::class,
+                    'original_message' => $exception->getMessage(),
+                    'original_file' => $exception->getFile(),
+                    'original_line' => $exception->getLine(),
+                ]);
+            }
 
             Log::error('POS checkout finalization failed.', [
                 'setting_id' => $settingId,
@@ -776,6 +794,9 @@ class FinalizePosCheckoutService
                 'checkout_id' => $checkoutId,
                 'exception' => $exception::class,
                 'message' => $exception->getMessage(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+                'trace' => $exception->getTraceAsString(),
             ]);
 
             throw new PosCheckoutPostingException(
