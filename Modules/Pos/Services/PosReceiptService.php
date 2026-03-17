@@ -4,6 +4,7 @@ namespace Modules\Pos\Services;
 
 use Carbon\Carbon;
 use Modules\Pos\Entities\PosCheckout;
+use Modules\Pos\Entities\PosCheckoutPayment;
 use Modules\Pos\Entities\PosReceiptPrintLog;
 
 class PosReceiptService
@@ -19,8 +20,9 @@ class PosReceiptService
             'cashier',
             'paymentMethod',
             'sale.saleDetails',
+            'payments.method', // Task 5.3: Load multi-payment details
         ]);
-        
+
         $setting = $checkout->setting;
         $sale = $checkout->sale;
         $session = $checkout->session;
@@ -33,12 +35,29 @@ class PosReceiptService
                     'product_name' => $detail->product_name,
                     'qty' => $detail->quantity,
                     'price' => $detail->unit_price,
-                    'discount' => ($detail->product_discount_type === 'percentage') 
+                    'discount' => ($detail->product_discount_type === 'percentage')
                                 ? ($detail->unit_price * ($detail->product_discount_amount / 100))
                                 : $detail->product_discount_amount,
                     'sub_total' => $detail->sub_total,
                 ];
             }
+        }
+
+        // Task 5.3: Build payment breakdown for mixed-method payments
+        $paymentMethod = $checkout->paymentMethod?->name ?? '-';
+        $amountPaid = $checkout->paid_total;
+        $paymentBreakdown = [];
+
+        if ($checkout->payments && $checkout->payments->count() > 0) {
+            // Multi-payment: show breakdown
+            foreach ($checkout->payments as $payment) {
+                $paymentBreakdown[] = [
+                    'method_name' => $payment->method?->name ?? 'Unknown',
+                    'amount' => $payment->amount_paid,
+                ];
+            }
+            // Use first method as primary for backward compatibility, but override with breakdown
+            $paymentMethod = $checkout->payments->first()?->method?->name ?? $paymentMethod;
         }
 
         return [
@@ -54,8 +73,9 @@ class PosReceiptService
             'discount' => $checkout->discount_total,
             'tax' => $checkout->tax_total,
             'grand_total' => $checkout->grand_total,
-            'payment_method' => $checkout->paymentMethod?->name ?? '-',
-            'amount_paid' => $checkout->paid_total,
+            'payment_method' => $paymentMethod,
+            'amount_paid' => $amountPaid,
+            'payment_breakdown' => $paymentBreakdown, // Task 5.3: Multi-payment breakdown
             'change' => $checkout->change_total,
             'footer_text' => $setting->footer_text ?? 'Terima Kasih',
             'currency_symbol' => $setting->currency ? $setting->currency->symbol : 'Rp',

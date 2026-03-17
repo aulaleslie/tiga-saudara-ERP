@@ -15,7 +15,8 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         private readonly InlinePosCheckoutPostingAdapter $inlinePostingAdapter,
         private readonly PosCheckoutSplitPlannerService $splitPlanner,
         private readonly PosCheckoutPaymentSplitService $paymentSplitService,
-        private readonly PosCheckoutGroupCustomerResolverService $groupCustomerResolver
+        private readonly PosCheckoutGroupCustomerResolverService $groupCustomerResolver,
+        private readonly ?\Modules\Pos\Services\PosCheckoutOwnershipPriorityAllocationService $ownershipAllocationService = null
     ) {
     }
 
@@ -38,13 +39,27 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             );
         }
 
-        $paymentAllocations = $this->paymentSplitService->allocate(
-            array_map(static fn (array $group): array => [
-                'split_key' => (string) ($group['split_key'] ?? ''),
-                'grand_total' => (float) ($group['grand_total'] ?? 0),
-            ], $groups),
-            $checkoutGrandTotal
-        );
+        // Determine payment allocation strategy: multi-payment ownership-priority or simple proportional
+        $payment = is_array($context['payment'] ?? null) ? $context['payment'] : [];
+        $isMultiPayment = (bool) ($payment['is_multi_payment'] ?? false);
+
+        if ($isMultiPayment && $this->ownershipAllocationService) {
+            // Multi-payment: use ownership-priority allocation
+            $paymentAllocations = $this->allocateMultiPayment(
+                $payment,
+                $groups,
+                (int) ($context['setting_id'] ?? 0)
+            );
+        } else {
+            // Legacy single-payment: use simple proportional allocation
+            $paymentAllocations = $this->paymentSplitService->allocate(
+                array_map(static fn (array $group): array => [
+                    'split_key' => (string) ($group['split_key'] ?? ''),
+                    'grand_total' => (float) ($group['grand_total'] ?? 0),
+                ], $groups),
+                $checkoutGrandTotal
+            );
+        }
 
         $splitGroups = [];
         $sales = [];
@@ -173,6 +188,46 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'groups' => $splitGroups,
             ],
         ];
+    }
+
+    /**
+     * Allocate multi-payment across split groups using ownership-priority logic.
+     *
+     * @param  array{payments: array, is_multi_payment: bool}  $payment
+     * @param  array<int, array>  $groups
+     * @param  int  $terminalSettingId
+     * @return array<string, float>
+     */
+    private function allocateMultiPayment(array $payment, array $groups, int $terminalSettingId): array
+    {
+        $allocationResult = $this->ownershipAllocationService->allocate([
+            'payments' => array_map(static fn (array $p) => [
+                'payment_method_id' => (int) $p['payment_method_id'],
+                'amount_minor_units' => (int) $p['amount_minor_units'],
+                'is_cash' => (bool) $p['is_cash'],
+            ], $payment['payments'] ?? []),
+            'groups' => array_map(static fn (array $g) => [
+                'split_key' => (string) ($g['split_key'] ?? ''),
+                'source_setting_id' => (int) ($g['source_setting_id'] ?? 0),
+                'grand_total_minor' => $this->toMinor((float) ($g['grand_total'] ?? 0)),
+            ], $groups),
+            'terminal_setting_id' => $terminalSettingId,
+        ]);
+
+        // Convert allocations from array of {payment_index, split_key, allocated_amount_minor_units}
+        // to array of {split_key => allocated_amount} for compatibility with existing code
+        $allocations = [];
+        foreach ($groups as $group) {
+            $allocations[(string) ($group['split_key'] ?? '')] = 0.0;
+        }
+
+        foreach ($allocationResult['allocations'] ?? [] as $allocation) {
+            $splitKey = (string) ($allocation['split_key'] ?? '');
+            $amountMinor = (int) ($allocation['allocated_amount_minor_units'] ?? 0);
+            $allocations[$splitKey] = ($allocations[$splitKey] ?? 0) + $this->fromMinor($amountMinor);
+        }
+
+        return $allocations;
     }
 
     private function toMinor(float $value): int

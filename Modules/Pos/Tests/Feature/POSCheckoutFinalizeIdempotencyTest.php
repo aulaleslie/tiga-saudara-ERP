@@ -526,7 +526,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         $this->assertSame(110000.0, $expectedCash);
     }
 
-    private function createCheckoutContext(string $name): array
+    protected function createCheckoutContext(string $name): array
     {
         $setting = $this->createSetting($name);
         $cashier = $this->createUserForSetting($setting, $name . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
@@ -555,7 +555,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         ];
     }
 
-    private function createSetting(string $name): Setting
+    protected function createSetting(string $name): Setting
     {
         $suffix = $this->sequence++;
 
@@ -576,7 +576,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         ]);
     }
 
-    private function createUserForSetting(Setting $setting, string $roleName, array $permissions): User
+    protected function createUserForSetting(Setting $setting, string $roleName, array $permissions): User
     {
         $role = Role::firstOrCreate(['name' => strtoupper($roleName) . '-' . $setting->id]);
         $role->syncPermissions($permissions);
@@ -588,7 +588,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         return $user;
     }
 
-    private function createTerminalForSetting(Setting $setting): PosTerminal
+    protected function createTerminalForSetting(Setting $setting): PosTerminal
     {
         $index = $this->sequence++;
 
@@ -619,7 +619,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         return $terminal;
     }
 
-    private function assignDefaultWalkInCustomer(Setting $setting): Customer
+    protected function assignDefaultWalkInCustomer(Setting $setting): Customer
     {
         $customer = Customer::factory()->create([
             'setting_id' => $setting->id,
@@ -632,7 +632,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         return $customer;
     }
 
-    private function createStockedProduct(
+    protected function createStockedProduct(
         Setting $setting,
         Location $location,
         string $code,
@@ -700,7 +700,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         return $product;
     }
 
-    private function createSerialNumber(Product $product, Location $location, string $serialNumber, ?int $taxId): ProductSerialNumber
+    protected function createSerialNumber(Product $product, Location $location, string $serialNumber, ?int $taxId): ProductSerialNumber
     {
         return ProductSerialNumber::query()->create([
             'product_id' => $product->id,
@@ -714,7 +714,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     /**
      * @return array
      */
-    private function seedPaymentMethods(Setting $setting, bool $enableForSetting = false): array
+    protected function seedPaymentMethods(Setting $setting, bool $enableForSetting = false): array
     {
         $index = $this->sequence++;
         $methods = [];
@@ -787,7 +787,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         return $methods;
     }
 
-    private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
+    protected function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
     {
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -798,7 +798,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             ->assertOk();
     }
 
-    private function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
+    protected function selectCustomerInCart(User $cashier, Setting $setting, Customer $customer): void
     {
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -811,7 +811,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function cartSnapshot(User $cashier, Setting $setting): array
+    protected function cartSnapshot(User $cashier, Setting $setting): array
     {
         return $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -823,7 +823,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function finalize(User $cashier, Setting $setting, array $payload)
+    protected function finalize(User $cashier, Setting $setting, array $payload)
     {
         return $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
@@ -834,7 +834,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
      * @param  array<string, mixed>  $snapshot
      * @param  array<string, mixed>  $payment
      */
-    private function payloadHash(
+    protected function payloadHash(
         int $settingId,
         int $sessionId,
         int $terminalId,
@@ -870,7 +870,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     /**
      * @return mixed
      */
-    private function canonicalize(mixed $value): mixed
+    protected function canonicalize(mixed $value): mixed
     {
         if (! is_array($value)) {
             return $value;
@@ -892,7 +892,7 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
      * @param  array<string, mixed>  $snapshotPart
      * @return array<string, mixed>
      */
-    private function normalizeSnapshotForHash(array $snapshotPart): array
+    protected function normalizeSnapshotForHash(array $snapshotPart): array
     {
         $encoded = json_encode($snapshotPart);
         if (! is_string($encoded)) {

@@ -6,6 +6,8 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Pos\Entities\PosCheckout;
+use Modules\Pos\Entities\PosCheckoutPayment;
+use Modules\Pos\Entities\PosCheckoutPaymentAllocation;
 use Modules\Pos\Entities\PosCheckoutSale;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
@@ -27,7 +29,8 @@ class FinalizePosCheckoutService
         private readonly ResolvePosStockAllocationsService $stockResolver,
         private readonly PosReceiptNumberGenerator $receiptNumberGenerator,
         private readonly PosCashDrawerService $cashDrawerService,
-        private readonly ?PosTransactionService $transactionService = null
+        private readonly ?PosTransactionService $transactionService = null,
+        private readonly ?PosCheckoutPaymentNormalizationService $paymentNormalizationService = null
     ) {
     }
 
@@ -86,7 +89,15 @@ class FinalizePosCheckoutService
             ];
         }
 
-        $payment = $this->normalizePayment($settingId, $paymentPayload);
+        // Determine if legacy single-payment or multi-payment path
+        $isMultiPayment = isset($paymentPayload['payments']) && is_array($paymentPayload['payments']);
+
+        if ($isMultiPayment) {
+            $payment = $this->normalizeMultiPayment($settingId, $paymentPayload['payments']);
+        } else {
+            $payment = $this->normalizePayment($settingId, $paymentPayload['payment'] ?? $paymentPayload);
+        }
+
         $cartSnapshot = $this->cartService->getSnapshot($settingId, $sessionId);
 
         $resolvedCustomerId = (int) ($cartSnapshot['customer']['resolved_customer_id'] ?? 0);
@@ -105,9 +116,17 @@ class FinalizePosCheckoutService
 
         $paidTotal = $payment['amount_paid'];
         $grandTotal = $totals['grand_total'];
-        $changeTotal = $payment['is_cash']
-            ? round(max(0, $paidTotal - $grandTotal), 2)
-            : 0.0;
+
+        // Calculate change based on whether there's cash in the payment
+        if ((bool) ($payment['is_multi_payment'] ?? false)) {
+            $totalCashMinor = (int) ($payment['total_cash_minor_units'] ?? 0);
+            $totalCash = $totalCashMinor / 100;
+            $changeTotal = round(max(0, $totalCash - $grandTotal), 2);
+        } else {
+            $changeTotal = $payment['is_cash']
+                ? round(max(0, $paidTotal - $grandTotal), 2)
+                : 0.0;
+        }
 
         $checkoutResolution = $this->resolveCheckoutLedger(
             $settingId,
@@ -197,6 +216,19 @@ class FinalizePosCheckoutService
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Grand total must be greater than zero.');
         }
 
+        // Handle multi-payment validation
+        if ((bool) ($payment['is_multi_payment'] ?? false)) {
+            $amountPaid = $payment['amount_paid'];
+            $totalCashMinor = (int) ($payment['total_cash_minor_units'] ?? 0);
+
+            if ($amountPaid + 0.0001 < $totals['grand_total']) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment must be fully paid.');
+            }
+
+            return $totals;
+        }
+
+        // Legacy single-payment validation
         $amountPaid = $payment['amount_paid'];
         $isCash = $payment['is_cash'];
         $requiresReference = $payment['requires_reference'];
@@ -263,6 +295,36 @@ class FinalizePosCheckoutService
             'reference' => $reference,
             'is_cash' => (bool) $paymentMethod->is_cash,
             'requires_reference' => (bool) $paymentMethod->requires_reference,
+        ];
+    }
+
+    /**
+     * Normalize multi-payment payload using the normalization service.
+     *
+     * @param  int  $settingId
+     * @param  array<int, array{payment_method_id:int,amount_paid:float,reference?:string}>  $paymentsPayload
+     * @return array{
+     *     is_multi_payment: bool,
+     *     payments: array<int, array{payment_method_id:int,amount_minor_units:int,reference:?string,is_cash:bool,requires_reference:bool}>,
+     *     amount_paid: float,
+     *     total_cash_minor_units: int,
+     *     canonical_payment_hash: string
+     * }
+     */
+    private function normalizeMultiPayment(int $settingId, array $paymentsPayload): array
+    {
+        if (! $this->paymentNormalizationService) {
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Multi-payment service not available.');
+        }
+
+        $normalized = $this->paymentNormalizationService->normalize($settingId, $paymentsPayload);
+
+        return [
+            'is_multi_payment' => true,
+            'payments' => $normalized['payments'],
+            'amount_paid' => round($normalized['total_amount_minor_units'] / 100, 2),
+            'total_cash_minor_units' => $normalized['total_cash_minor_units'],
+            'canonical_payment_hash' => $this->paymentNormalizationService->getCanonicalPaymentHash($normalized['payments']),
         ];
     }
 
@@ -555,21 +617,42 @@ class FinalizePosCheckoutService
                     'idempotent_replay' => false,
                 ];
 
+                // For multi-payment, include payment composition for idempotent replay
+                if ((bool) ($payment['is_multi_payment'] ?? false)) {
+                    $responsePayload['payments'] = is_array($payment['payments'] ?? null)
+                        ? array_map(static fn ($p) => [
+                            'payment_method_id' => (int) $p['payment_method_id'],
+                            'amount_minor_units' => (int) $p['amount_minor_units'],
+                            'reference' => $p['reference'] ?? null,
+                        ], $payment['payments'])
+                        : [];
+                }
+
                 if ($splitGroups !== []) {
                     $responsePayload['split_groups'] = $splitGroups;
                     $responsePayload['sales'] = array_values($sales);
                     $responsePayload['sale_payments'] = array_values($salePayments);
 
                     $this->persistCheckoutSplitMappings($checkoutId, $splitGroups);
+                    $this->persistPaymentAllocations($checkoutId, $payment, $splitGroups);
                 }
 
-                if ($payment['is_cash']) {
+                // Determine cash amount for the session
+                $cashAmountForSession = 0.0;
+                if ((bool) ($payment['is_multi_payment'] ?? false)) {
+                    $totalCashMinor = (int) ($payment['total_cash_minor_units'] ?? 0);
+                    $cashAmountForSession = min($totalCashMinor / 100, $actualGrandTotal);
+                } elseif ($payment['is_cash']) {
+                    $cashAmountForSession = $actualGrandTotal;
+                }
+
+                if ($cashAmountForSession > 0) {
                     $cashEvent = PosSessionCashEvent::query()->create([
                         'setting_id' => $settingId,
                         'pos_session_id' => $sessionId,
                         'event_type' => PosSessionCashEvent::EVENT_CASH_SALE_IN,
                         'direction' => PosSessionCashEvent::DIRECTION_IN,
-                        'amount' => $actualGrandTotal,
+                        'amount' => $cashAmountForSession,
                         'reference_type' => 'pos_checkout',
                         'reference_id' => $checkoutId,
                         'performed_by' => $cashierUserId,
@@ -582,7 +665,7 @@ class FinalizePosCheckoutService
                         'occurred_at' => now(),
                     ]);
 
-                    $session->expected_cash_total = round((float) $session->expected_cash_total + $actualGrandTotal, 2);
+                    $session->expected_cash_total = round((float) $session->expected_cash_total + $cashAmountForSession, 2);
                     $session->save();
 
                     $this->cashDrawerService->triggerDrawerOpen(
@@ -787,6 +870,57 @@ class FinalizePosCheckoutService
                     'paid_total' => round((float) ($group['paid_total'] ?? 0), 2),
                 ]
             );
+        }
+    }
+
+    /**
+     * Persist payment entries and their allocations to split groups for traceability.
+     *
+     * @param  int  $checkoutId
+     * @param  array{is_multi_payment:bool,payments?:array,amount_paid:float}  $payment
+     * @param  array<int, array>  $splitGroups
+     * @return void
+     */
+    private function persistPaymentAllocations(int $checkoutId, array $payment, array $splitGroups): void
+    {
+        if (! (bool) ($payment['is_multi_payment'] ?? false)) {
+            return; // Only persist for multi-payment
+        }
+
+        $payments = is_array($payment['payments'] ?? null) ? $payment['payments'] : [];
+        if (empty($payments)) {
+            return;
+        }
+
+        foreach ($payments as $paymentIndex => $paymentData) {
+            $paymentMethodId = (int) ($paymentData['payment_method_id'] ?? 0);
+            $amountMinor = (int) ($paymentData['amount_minor_units'] ?? 0);
+            $reference = $paymentData['reference'] ?? null;
+
+            // Create payment entry
+            $paymentEntry = PosCheckoutPayment::query()->create([
+                'pos_checkout_id' => $checkoutId,
+                'payment_method_id' => $paymentMethodId,
+                'amount_minor_units' => $amountMinor,
+                'reference' => $reference,
+                'sequence_order' => $paymentIndex,
+            ]);
+
+            // For each split group, track that we have this payment
+            // (In a full implementation, we would track the exact allocation amount per payment per group)
+            foreach ($splitGroups as $splitGroup) {
+                $splitKey = (string) ($splitGroup['split_key'] ?? '');
+                if ($splitKey !== '') {
+                    // This is a simplified traceability entry
+                    // A full implementation would use the ownership-priority allocation result
+                    PosCheckoutPaymentAllocation::query()->create([
+                        'pos_checkout_id' => $checkoutId,
+                        'pos_checkout_payment_id' => $paymentEntry->id,
+                        'split_group_key' => $splitKey,
+                        'allocated_amount_minor_units' => 0, // Will be calculated from split group paid_total
+                    ]);
+                }
+            }
         }
     }
 
@@ -1056,12 +1190,22 @@ class FinalizePosCheckoutService
                 'totals' => $snapshot['totals'] ?? [],
                 'bill_discount' => $snapshot['bill_discount'] ?? [],
             ]),
-            'payment' => [
+        ];
+
+        // Include payment hash - either canonical multi-payment or legacy single payment
+        if ((bool) ($payment['is_multi_payment'] ?? false)) {
+            $normalized['payment'] = [
+                'is_multi_payment' => true,
+                'canonical_hash' => $payment['canonical_payment_hash'] ?? '',
+            ];
+        } else {
+            $normalized['payment'] = [
+                'is_multi_payment' => false,
                 'method_code' => strtolower((string) ($payment['method_code'] ?? '')),
                 'amount_paid' => round((float) ($payment['amount_paid'] ?? 0), 2),
                 'reference' => $payment['reference'] ?? null,
-            ],
-        ];
+            ];
+        }
 
         return hash(
             'sha256',

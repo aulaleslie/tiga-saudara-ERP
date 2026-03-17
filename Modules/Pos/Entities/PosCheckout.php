@@ -122,4 +122,14 @@ class PosCheckout extends BaseModel
     {
         return $this->hasMany(PosCheckoutSale::class, 'pos_checkout_id', 'id');
     }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(PosCheckoutPayment::class, 'pos_checkout_id')->orderBy('sequence_order');
+    }
+
+    public function paymentAllocations(): HasMany
+    {
+        return $this->hasMany(PosCheckoutPaymentAllocation::class, 'pos_checkout_id');
+    }
 }

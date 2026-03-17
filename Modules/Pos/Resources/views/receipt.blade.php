@@ -124,10 +124,21 @@
                 <td class="totals-label" style="font-size: 14px; padding-top: 5px;"><strong>TOTAL</strong></td>
                 <td class="totals-value" style="font-size: 14px; padding-top: 5px;"><strong>{{ format_currency($receiptData['grand_total']) }}</strong></td>
             </tr>
-            <tr>
-                <td class="totals-label" style="padding-top: 5px;">BAYAR ({{ $receiptData['payment_method'] }})</td>
-                <td class="totals-value" style="padding-top: 5px;">{{ format_currency($receiptData['amount_paid']) }}</td>
-            </tr>
+            @if(!empty($receiptData['payment_breakdown']) && count($receiptData['payment_breakdown']) > 0)
+                <!-- Task 5.3: Multi-payment breakdown -->
+                @foreach($receiptData['payment_breakdown'] as $payment)
+                <tr>
+                    <td class="totals-label" style="padding-top: 3px;">BAYAR ({{ $payment['method_name'] }})</td>
+                    <td class="totals-value" style="padding-top: 3px;">{{ format_currency($payment['amount']) }}</td>
+                </tr>
+                @endforeach
+            @else
+                <!-- Single payment (backward compatibility) -->
+                <tr>
+                    <td class="totals-label" style="padding-top: 5px;">BAYAR ({{ $receiptData['payment_method'] }})</td>
+                    <td class="totals-value" style="padding-top: 5px;">{{ format_currency($receiptData['amount_paid']) }}</td>
+                </tr>
+            @endif
             @if($receiptData['change'] > 0)
             <tr>
                 <td class="totals-label">KEMBALI</td>

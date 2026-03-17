@@ -29,13 +29,28 @@ class PosReconciliationService
         $sessionIds = $sessions->pluck('id')->toArray();
 
         // 1. Get POS Checkout Totals
+        // Task 5.5: Use payment entries for cash/non-cash source of truth for multi-payment support
         $checkoutTotals = PosCheckout::query()
-            ->leftJoin('payment_methods', 'pos_checkouts.payment_method_id', '=', 'payment_methods.id')
             ->select([
                 'pos_checkouts.pos_session_id',
                 DB::raw('SUM(pos_checkouts.grand_total) as pos_checkout_total'),
-                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 1 THEN pos_checkouts.grand_total ELSE 0 END) as pos_cash_sales_total"),
-                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 0 THEN pos_checkouts.grand_total ELSE 0 END) as pos_non_cash_sales_total")
+                // Task 5.5: Aggregate cash/non-cash from payment entries
+                DB::raw(<<<'SQL'
+                    SUM(COALESCE((
+                        SELECT SUM(pcp.amount_paid)
+                        FROM pos_checkout_payments AS pcp
+                        INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
+                        WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 1
+                    ), 0)) as pos_cash_sales_total
+                SQL),
+                DB::raw(<<<'SQL'
+                    SUM(COALESCE((
+                        SELECT SUM(pcp.amount_paid)
+                        FROM pos_checkout_payments AS pcp
+                        INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
+                        WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 0
+                    ), 0)) as pos_non_cash_sales_total
+                SQL),
             ])
             ->whereIn('pos_checkouts.pos_session_id', $sessionIds)
             ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)

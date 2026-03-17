@@ -10,11 +10,11 @@ class PosReportingService
 {
     /**
      * @return array<int, array{date:string, transactions_count:int, subtotal:float, discount_total:float, tax_total:float, grand_total:float, cash_total:float, non_cash_total:float}>
+     * Task 5.4: Updated to aggregate cash/non-cash from payment entries for multi-payment support
      */
     public function getDailySalesSummary(int $settingId, string $dateFrom, string $dateTo): array
     {
         $query = PosCheckout::query()
-            ->leftJoin('payment_methods', 'pos_checkouts.payment_method_id', '=', 'payment_methods.id')
             ->select([
                 DB::raw('DATE(finalized_at) as date'),
                 DB::raw('COUNT(pos_checkouts.id) as transactions_count'),
@@ -22,8 +22,23 @@ class PosReportingService
                 DB::raw('SUM(discount_total) as discount_total'),
                 DB::raw('SUM(tax_total) as tax_total'),
                 DB::raw('SUM(grand_total) as grand_total'),
-                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 1 THEN grand_total ELSE 0 END) as cash_total"),
-                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 0 THEN grand_total ELSE 0 END) as non_cash_total"),
+                // Task 5.4: Use payment entries for cash/non-cash calculation
+                DB::raw(<<<'SQL'
+                    SUM(COALESCE((
+                        SELECT SUM(pcp.amount_paid)
+                        FROM pos_checkout_payments AS pcp
+                        INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
+                        WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 1
+                    ), 0)) as cash_total
+                SQL),
+                DB::raw(<<<'SQL'
+                    SUM(COALESCE((
+                        SELECT SUM(pcp.amount_paid)
+                        FROM pos_checkout_payments AS pcp
+                        INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
+                        WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 0
+                    ), 0)) as non_cash_total
+                SQL),
             ])
             ->where('pos_checkouts.setting_id', $settingId)
             ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)
@@ -49,18 +64,33 @@ class PosReportingService
 
     /**
      * @return array<int, array{cashier_name:string, transactions_count:int, grand_total:float, cash_total:float, non_cash_total:float, average_basket:float}>
+     * Task 5.4: Use payment entries for cash/non-cash aggregation
      */
     public function getCashierSummary(int $settingId, string $dateFrom, string $dateTo): array
     {
         $query = PosCheckout::query()
             ->with('cashier:id,name')
-            ->leftJoin('payment_methods', 'pos_checkouts.payment_method_id', '=', 'payment_methods.id')
             ->select([
                 'pos_checkouts.cashier_user_id',
                 DB::raw('COUNT(pos_checkouts.id) as transactions_count'),
                 DB::raw('SUM(pos_checkouts.grand_total) as grand_total'),
-                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 1 THEN pos_checkouts.grand_total ELSE 0 END) as cash_total"),
-                DB::raw("SUM(CASE WHEN payment_methods.is_cash = 0 THEN pos_checkouts.grand_total ELSE 0 END) as non_cash_total"),
+                // Task 5.4: Aggregate cash/non-cash from payment entries
+                DB::raw(<<<'SQL'
+                    SUM(COALESCE((
+                        SELECT SUM(pcp.amount_paid)
+                        FROM pos_checkout_payments AS pcp
+                        INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
+                        WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 1
+                    ), 0)) as cash_total
+                SQL),
+                DB::raw(<<<'SQL'
+                    SUM(COALESCE((
+                        SELECT SUM(pcp.amount_paid)
+                        FROM pos_checkout_payments AS pcp
+                        INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
+                        WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 0
+                    ), 0)) as non_cash_total
+                SQL),
             ])
             ->where('pos_checkouts.setting_id', $settingId)
             ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)
@@ -86,15 +116,19 @@ class PosReportingService
 
     /**
      * @return array<int, array{payment_method_label:string, transactions_count:int, grand_total:float}>
+     * Task 5.4: Aggregate payment methods from pos_checkout_payments for multi-payment support.
+     * This means a single checkout can contribute to multiple payment methods if it uses multiple payment types.
      */
     public function getPaymentMethodSummary(int $settingId, string $dateFrom, string $dateTo): array
     {
-        $query = PosCheckout::query()
-            ->leftJoin('payment_methods', 'pos_checkouts.payment_method_id', '=', 'payment_methods.id')
+        // Task 5.4: Query from payment_entries which may have multiple rows per checkout
+        $query = DB::table('pos_checkout_payments')
+            ->join('pos_checkouts', 'pos_checkout_payments.pos_checkout_id', '=', 'pos_checkouts.id')
+            ->join('payment_methods', 'pos_checkout_payments.payment_method_id', '=', 'payment_methods.id')
             ->select([
                 DB::raw("payment_methods.name as payment_method_label"),
-                DB::raw('COUNT(pos_checkouts.id) as transactions_count'),
-                DB::raw('SUM(pos_checkouts.grand_total) as grand_total'),
+                DB::raw('COUNT(DISTINCT pos_checkouts.id) as transactions_count'),
+                DB::raw('SUM(pos_checkout_payments.amount_paid) as grand_total'),
             ])
             ->where('pos_checkouts.setting_id', $settingId)
             ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)

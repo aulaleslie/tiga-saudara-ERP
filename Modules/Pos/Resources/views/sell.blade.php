@@ -981,60 +981,43 @@
                         <div class="col-lg-5 p-4">
                             <div id="pos-checkout-error" class="alert alert-danger d-none"></div>
 
+                            <!-- Task 4.1: Payment Composer Section -->
                             <div class="form-group mb-3">
                                 <label class="font-weight-bold d-block mb-2">Metode Pembayaran</label>
-                                <!-- Phase 3D: Searchable dropdown instead of static buttons -->
+                                <!-- Payment method search/picker -->
                                 <div class="position-relative">
-                                    <input type="text" id="pos-checkout-method-search" class="form-control" 
+                                    <input type="text" id="pos-checkout-method-search" class="form-control"
                                            placeholder="Cari metode pembayaran..." autocomplete="off">
-                                    <div id="pos-checkout-method-results" class="list-group position-absolute w-100" 
+                                    <div id="pos-checkout-method-results" class="list-group position-absolute w-100"
                                          style="top: 100%; left: 0; right: 0; z-index: 1000; max-height: 200px; overflow-y: auto; display: none;"></div>
                                 </div>
-                                <input type="hidden" id="pos-checkout-method-id" value="">
-                                <input type="text" id="pos-checkout-method-label" class="form-control-plaintext font-weight-bold text-uppercase mt-2" readonly value="(Pilih Metode)">
+                            </div>
+
+                            <!-- Task 4.1: Payment rows list -->
+                            <div id="pos-checkout-payments-list" class="mb-3" style="max-height: 250px; overflow-y: auto;">
+                                <!-- Payment rows rendered here -->
+                            </div>
+
+                            <!-- Task 4.1: Order Summary -->
+                            <div class="form-group row mb-2">
+                                <label class="col-sm-5 col-form-label font-weight-bold">Total Belanja</label>
+                                <div class="col-sm-7">
+                                    <input type="text" id="pos-checkout-total-label" class="form-control-plaintext font-weight-bold text-primary" readonly value="Rp0">
+                                </div>
                             </div>
 
                             <div class="form-group row mb-2">
-                                <label class="col-sm-4 col-form-label font-weight-bold">Total Akhir</label>
-                                <div class="col-sm-8">
-                                    <input type="text" id="pos-checkout-total-label" class="form-control-plaintext font-weight-bold h4 mb-0 text-primary" readonly value="Rp0">
+                                <label class="col-sm-5 col-form-label font-weight-bold">Total Dibayar</label>
+                                <div class="col-sm-7">
+                                    <input type="text" id="pos-checkout-amount-paid-summary" class="form-control-plaintext font-weight-bold text-info" readonly value="Rp0">
                                 </div>
                             </div>
 
-                            <hr class="my-3">
-
-                            <div class="form-group mb-3">
-                                <label for="pos-checkout-amount-paid" class="font-weight-bold">Jumlah Bayar</label>
-                                <div class="input-group">
-                                    <div class="input-group-prepend">
-                                        <span class="input-group-text font-weight-bold bg-white h5 mb-0">Rp</span>
-                                    </div>
-                                    <input type="number" id="pos-checkout-amount-paid" class="form-control form-control-lg font-weight-bold text-right" step="0.01" min="0" style="font-size: 1.4rem;">
+                            <div class="form-group row mb-2 bg-light p-2 rounded">
+                                <label class="col-sm-5 col-form-label font-weight-bold">Sisa / Kembalian</label>
+                                <div class="col-sm-7">
+                                    <input type="text" id="pos-checkout-remaining-label" class="form-control-plaintext font-weight-bold h5 mb-0 text-right" readonly value="Rp0">
                                 </div>
-                            </div>
-
-                            <div id="pos-checkout-presets-wrapper" class="mb-3">
-                                <div class="d-flex flex-wrap" style="gap: 8px;">
-                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="uang-pas">Uang Pas</button>
-                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="50000">50.000</button>
-                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="100000">100.000</button>
-                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="150000">150.000</button>
-                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="200000">200.000</button>
-                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="250000">250.000</button>
-                                    <button type="button" class="btn btn-outline-secondary js-preset-amount" data-amount="500000">500.000</button>
-                                </div>
-                            </div>
-
-                            <div id="pos-checkout-change-wrapper" class="form-group row mb-2 bg-light p-2 rounded">
-                                <label class="col-sm-4 col-form-label font-weight-bold">Kembalian</label>
-                                <div class="col-sm-8">
-                                    <input type="text" id="pos-checkout-change-label" class="form-control-plaintext font-weight-bold text-success h4 mb-0 text-right" readonly value="Rp0">
-                                </div>
-                            </div>
-
-                            <div id="pos-checkout-reference-wrapper" class="form-group d-none">
-                                <label for="pos-checkout-reference" class="font-weight-bold">Referensi / No. Transaksi</label>
-                                <input type="text" id="pos-checkout-reference" class="form-control form-control-lg" placeholder="Masukkan referensi pembayaran">
                             </div>
                         </div>
                     </div>
@@ -1330,16 +1313,12 @@
             const checkoutMethodId = document.getElementById('pos-checkout-method-id');
             const checkoutMethodSearch = document.getElementById('pos-checkout-method-search');
             const checkoutMethodResults = document.getElementById('pos-checkout-method-results');
-            const checkoutMethodButtons = Array.from(document.querySelectorAll('.js-payment-method'));
             const checkoutTotalLabel = document.getElementById('pos-checkout-total-label');
-            const checkoutAmountPaid = document.getElementById('pos-checkout-amount-paid');
-            const checkoutChangeLabel = document.getElementById('pos-checkout-change-label');
-            const checkoutChangeWrapper = document.getElementById('pos-checkout-change-wrapper');
-            const checkoutReference = document.getElementById('pos-checkout-reference');
-            const checkoutReferenceWrapper = document.getElementById('pos-checkout-reference-wrapper');
-            const checkoutPresetsWrapper = document.getElementById('pos-checkout-presets-wrapper');
+            const checkoutAmountPaidSummary = document.getElementById('pos-checkout-amount-paid-summary');
+            const checkoutRemainingLabel = document.getElementById('pos-checkout-remaining-label');
             const checkoutSubmit = document.getElementById('pos-checkout-submit');
             const checkoutError = document.getElementById('pos-checkout-error');
+            const checkoutPaymentsList = document.getElementById('pos-checkout-payments-list');
 
             const checkoutReceiptLines = document.getElementById('pos-checkout-receipt-lines');
             const checkoutReceiptTotal = document.getElementById('pos-checkout-receipt-total');
@@ -1409,7 +1388,9 @@
             let latestCustomerRequestId = 0;
             let currentSnapshot = null;
             let cachedPaymentMethods = [];
-            let selectedPaymentMethod = null;
+
+            // Task 4.1: Payment composer state (multiple payment rows)
+            let checkoutPayments = []; // Array of {id, method, amount, reference, errors}
 
             const idrFormatter = new Intl.NumberFormat('id-ID', {
                 style: 'currency',
@@ -1484,6 +1465,192 @@
                     .replace(/>/g, '&gt;')
                     .replace(/"/g, '&quot;')
                     .replace(/'/g, '&#039;');
+            }
+
+            // Task 4.1: Payment composer - add a payment row
+            function addPaymentRow(method) {
+                const paymentId = 'payment-' + Date.now();
+                const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
+
+                const newPayment = {
+                    id: paymentId,
+                    method: method,
+                    amount: 0,
+                    reference: '',
+                    errors: []
+                };
+
+                checkoutPayments.push(newPayment);
+                checkoutMethodSearch.value = '';
+                if (checkoutMethodResults) {
+                    checkoutMethodResults.style.display = 'none';
+                }
+
+                renderPaymentsList();
+                updatePaymentSummary();
+            }
+
+            // Task 4.1: Payment composer - render all payment rows
+            function renderPaymentsList() {
+                if (!checkoutPaymentsList) return;
+
+                checkoutPaymentsList.innerHTML = '';
+                const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
+
+                checkoutPayments.forEach((payment, index) => {
+                    const methodName = payment.method ? escapeHtml(payment.method.name || 'Unknown') : 'Unknown';
+                    const isCash = payment.method && payment.method.is_cash === true;
+                    const requiresReference = payment.method && payment.method.requires_reference === true;
+
+                    const row = document.createElement('div');
+                    row.className = 'card mb-2 p-3';
+                    row.style.backgroundColor = '#f8f9fa';
+
+                    let referenceHtml = '';
+                    if (requiresReference) {
+                        const refValue = escapeHtml(payment.reference || '');
+                        referenceHtml = `
+                            <div class="form-group mb-2">
+                                <label class="small font-weight-bold mb-1">Referensi</label>
+                                <input type="text" class="form-control form-control-sm js-payment-reference"
+                                       data-payment-id="${payment.id}" placeholder="Masukkan referensi"
+                                       value="${refValue}">
+                            </div>
+                        `;
+                    }
+
+                    row.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <strong>${methodName}</strong>
+                                ${payment.errors.length > 0 ? '<div class="small text-danger mt-1">' + payment.errors.join('; ') + '</div>' : ''}
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-danger js-remove-payment"
+                                    data-payment-id="${payment.id}" aria-label="Hapus">×</button>
+                        </div>
+                        <div class="form-group mb-2">
+                            <label class="small font-weight-bold mb-1">Jumlah (Rp)</label>
+                            <input type="number" class="form-control form-control-sm js-payment-amount"
+                                   data-payment-id="${payment.id}" step="1" min="0"
+                                   value="${payment.amount}" placeholder="0">
+                        </div>
+                        ${referenceHtml}
+                    `;
+
+                    checkoutPaymentsList.appendChild(row);
+                });
+
+                // Add event listeners for payment rows
+                document.querySelectorAll('.js-payment-amount').forEach(el => {
+                    el.addEventListener('change', function () {
+                        const paymentId = this.dataset.paymentId;
+                        const amount = Number(this.value || 0);
+                        const payment = checkoutPayments.find(p => p.id === paymentId);
+                        if (payment) {
+                            payment.amount = amount;
+                            updatePaymentSummary();
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.js-payment-reference').forEach(el => {
+                    el.addEventListener('change', function () {
+                        const paymentId = this.dataset.paymentId;
+                        const reference = this.value.trim();
+                        const payment = checkoutPayments.find(p => p.id === paymentId);
+                        if (payment) {
+                            payment.reference = reference;
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.js-remove-payment').forEach(el => {
+                    el.addEventListener('click', function () {
+                        const paymentId = this.dataset.paymentId;
+                        checkoutPayments = checkoutPayments.filter(p => p.id !== paymentId);
+                        renderPaymentsList();
+                        updatePaymentSummary();
+                    });
+                });
+            }
+
+            // Task 4.1: Update summary display
+            function updatePaymentSummary() {
+                const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
+                const totalPaid = checkoutPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+                const remaining = grandTotal - totalPaid;
+
+                if (checkoutAmountPaidSummary) {
+                    checkoutAmountPaidSummary.value = formatPrice(totalPaid);
+                }
+
+                if (checkoutRemainingLabel) {
+                    checkoutRemainingLabel.value = formatPrice(remaining);
+                    checkoutRemainingLabel.classList.remove('text-success', 'text-danger', 'text-warning');
+                    if (remaining > 0) {
+                        checkoutRemainingLabel.classList.add('text-danger');
+                    } else if (remaining < 0) {
+                        checkoutRemainingLabel.classList.add('text-success');
+                    } else {
+                        checkoutRemainingLabel.classList.add('text-warning');
+                    }
+                }
+
+                // Enable/disable submit button based on validation
+                validatePaymentComposer();
+            }
+
+            // Task 4.3: Validate payment composer
+            function validatePaymentComposer() {
+                const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
+                const totalPaid = checkoutPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+                let isValid = true;
+                let errorMsg = '';
+
+                // Check if we have any payments
+                if (checkoutPayments.length === 0) {
+                    isValid = false;
+                    errorMsg = 'Tambahkan minimal satu metode pembayaran.';
+                } else {
+                    // Validate each payment row
+                    checkoutPayments.forEach((payment, index) => {
+                        payment.errors = [];
+
+                        if (!payment.amount || payment.amount <= 0) {
+                            payment.errors.push('Jumlah harus lebih dari 0');
+                            isValid = false;
+                        }
+
+                        if (payment.method && payment.method.requires_reference && !payment.reference) {
+                            payment.errors.push('Referensi wajib diisi');
+                            isValid = false;
+                        }
+                    });
+
+                    // Check if total paid matches grand total
+                    if (isValid && totalPaid !== grandTotal) {
+                        isValid = false;
+                        const diff = grandTotal - totalPaid;
+                        if (diff > 0) {
+                            errorMsg = 'Total pembayaran kurang ' + formatPrice(diff);
+                        } else {
+                            errorMsg = 'Total pembayaran lebih ' + formatPrice(Math.abs(diff));
+                        }
+                    }
+
+                    renderPaymentsList();
+                }
+
+                if (checkoutError) {
+                    checkoutError.textContent = errorMsg;
+                    checkoutError.classList.toggle('d-none', !errorMsg && isValid);
+                }
+
+                if (checkoutSubmit) {
+                    checkoutSubmit.disabled = !isValid;
+                }
+
+                return isValid;
             }
 
             // Task 1.1: Canonical quantity-approval state mapper
@@ -3639,40 +3806,9 @@
                 checkoutMethodResults.style.display = 'block';
             }
 
-            // Phase 3D: Select a specific payment method
+            // Task 4.2: Select payment method and add to composer (not replace)
             function selectPaymentMethod(method) {
-                selectedPaymentMethod = method;
-                checkoutMethodId.value = method.id || '';
-                checkoutMethodLabel.value = escapeHtml(method.name || 'Unknown');
-                checkoutMethodSearch.value = '';
-                
-                if (checkoutMethodResults) {
-                    checkoutMethodResults.style.display = 'none';
-                }
-
-                // Use the method's is_cash flag to toggle UI
-                const isCash = method.is_cash === true;
-                const requiresReference = method.requires_reference === true;
-                const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
-
-                if (isCash) {
-                    checkoutAmountPaid.readOnly = false;
-                    checkoutChangeWrapper.classList.remove('d-none');
-                    checkoutReferenceWrapper.classList.add('d-none');
-                    if (checkoutPresetsWrapper) checkoutPresetsWrapper.classList.remove('d-none');
-                    checkoutAmountPaid.value = grandTotal.toFixed(2);
-                    updateChange(grandTotal, grandTotal);
-                } else {
-                    checkoutAmountPaid.readOnly = true;
-                    checkoutChangeWrapper.classList.add('d-none');
-                    if (requiresReference) {
-                        checkoutReferenceWrapper.classList.remove('d-none');
-                    } else {
-                        checkoutReferenceWrapper.classList.add('d-none');
-                    }
-                    if (checkoutPresetsWrapper) checkoutPresetsWrapper.classList.add('d-none');
-                    checkoutAmountPaid.value = grandTotal.toFixed(2);
-                }
+                addPaymentRow(method);
             }
 
             function openPaymentModal() {
@@ -3682,25 +3818,20 @@
                 if (grandTotal <= 0) return;
 
                 checkoutTotalLabel.value = formatPrice(grandTotal);
-                checkoutReference.value = '';
                 checkoutError.classList.add('d-none');
                 checkoutError.textContent = '';
 
+                // Task 4.1: Reset payment composer
+                checkoutPayments = [];
+                renderPaymentsList();
+                updatePaymentSummary();
+
                 renderReceiptPreview(currentSnapshot);
-                
-                // Phase 3D: Load payment methods before showing modal
+
+                // Load payment methods before showing modal
                 (async () => {
                     const loaded = await loadPaymentMethods();
-                    if (loaded && cachedPaymentMethods.length > 0) {
-                        // Auto-select first method or first cash method
-                        const firstMethod = cachedPaymentMethods.find(m => m.is_cash === true) || cachedPaymentMethods[0];
-                        if (firstMethod) {
-                            selectPaymentMethod(firstMethod);
-                        }
-                        if (checkoutSubmit) checkoutSubmit.disabled = false;
-                    } else {
-                        checkoutMethodId.value = '';
-                        checkoutMethodLabel.value = '(Metode Tidak Tersedia)';
+                    if (!loaded || cachedPaymentMethods.length === 0) {
                         checkoutError.textContent = 'Tidak ada metode pembayaran yang diaktifkan untuk unit ini. Atur di Konfigurasi Pembayaran POS.';
                         checkoutError.classList.remove('d-none');
                         if (checkoutSubmit) checkoutSubmit.disabled = true;
@@ -3711,11 +3842,7 @@
                 setTimeout(() => checkoutMethodSearch.focus(), 200);
             }
 
-            function updateChange(amountPaid, grandTotal) {
-                const change = Math.max(0, amountPaid - grandTotal);
-                checkoutChangeLabel.value = formatPrice(change);
-            }
-
+            // Task 4.2: Payment method search handler for composer
             // Phase 3D: Add payment method search input handler
             if (checkoutMethodSearch) {
                 checkoutMethodSearch.addEventListener('input', function () {
@@ -3756,77 +3883,17 @@
                 }
             });
 
-            if (checkoutMethodButtons.length > 0) {
-                // Phase 3D: Old static button handlers removed - replaced with dynamic dropdown
-                // checkoutMethodButtons.forEach((button) => {
-                //     button.addEventListener('click', function () {
-                //         const method = String(this.getAttribute('data-method') || 'cash');
-                //         setPaymentMethod(method);
-                //     });
-                // });
-            }
-
-            if (checkoutPresetsWrapper) {
-                checkoutPresetsWrapper.addEventListener('click', function (event) {
-                    const target = event.target.closest('.js-preset-amount');
-                    if (!target) {
-                        return;
-                    }
-
-                    const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
-                    const dataAmount = target.getAttribute('data-amount');
-
-                    let amountToFill = 0;
-                    if (dataAmount === 'uang-pas') {
-                        amountToFill = grandTotal;
-                    } else {
-                        amountToFill = Number(dataAmount);
-                    }
-
-                    checkoutAmountPaid.value = amountToFill.toFixed(2);
-                    updateChange(amountToFill, grandTotal);
-                });
-            }
-
-            if (checkoutAmountPaid) {
-                checkoutAmountPaid.addEventListener('input', function () {
-                    const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
-                    const amountPaid = Number(this.value || 0);
-                    updateChange(amountPaid, grandTotal);
-                });
-            }
-
             if (btnCheckout) {
                 btnCheckout.addEventListener('click', function () {
                     openPaymentModal();
                 });
             }
 
+            // Task 4.4: Checkout submit with multi-payment payload
             if (checkoutSubmit) {
                 checkoutSubmit.addEventListener('click', async function () {
-                    // Phase 3D: Use selectedPaymentMethod for validation and payload
-                    if (!selectedPaymentMethod) {
-                        checkoutError.textContent = 'Pilih metode pembayaran terlebih dahulu.';
-                        checkoutError.classList.remove('d-none');
-                        return;
-                    }
-
-                    const method = selectedPaymentMethod;
-                    const amountPaid = Number(checkoutAmountPaid.value || 0);
-                    const reference = checkoutReference.value.trim();
-                    const grandTotal = currentSnapshot && currentSnapshot.totals ? Number(currentSnapshot.totals.grand_total || 0) : 0;
-
-                    // Phase 3D: Validation using is_cash flag
-                    if (method.is_cash === true && amountPaid < grandTotal) {
-                        checkoutError.textContent = 'Pembayaran ' + escapeHtml(method.name) + ' harus mencukupi total belanja.';
-                        checkoutError.classList.remove('d-none');
-                        return;
-                    }
-
-                    // Phase 3D: Validation using requires_reference flag
-                    if (method.requires_reference === true && !reference) {
-                        checkoutError.textContent = 'Referensi pembayaran wajib diisi untuk ' + escapeHtml(method.name) + '.';
-                        checkoutError.classList.remove('d-none');
+                    // Validate before submit
+                    if (!validatePaymentComposer()) {
                         return;
                     }
 
@@ -3835,13 +3902,22 @@
                     checkoutError.classList.add('d-none');
 
                     try {
-                        // Phase 5a: Send only payment_method_id in request
+                        // Task 4.4: Build payments[] array payload (multi-payment support)
+                        // Also include legacy payment field for fallback compatibility
+                        const payments = checkoutPayments.map(p => ({
+                            payment_method_id: p.method.id,
+                            amount_paid: Number(p.amount),
+                            reference: p.reference || null
+                        }));
+
                         const payload = {
                             idempotency_key: generateIdempotencyKey(),
+                            payments: payments,
+                            // Legacy compatibility: use first payment method as fallback
                             payment: {
-                                payment_method_id: method.id,
-                                amount_paid: amountPaid,
-                                reference: reference || null
+                                payment_method_id: checkoutPayments[0]?.method?.id,
+                                amount_paid: checkoutPayments[0]?.amount || 0,
+                                reference: checkoutPayments[0]?.reference || null
                             }
                         };
 

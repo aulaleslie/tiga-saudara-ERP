@@ -45,14 +45,31 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             throw new PosCheckoutValidationException('CUSTOMER_UNRESOLVED', 'Customer could not be resolved for checkout.');
         }
 
-        $paymentReference = isset($payment['reference']) ? trim((string) $payment['reference']) : null;
+        // Handle both single-payment and multi-payment contexts
+        $isMultiPayment = (bool) ($payment['is_multi_payment'] ?? false);
+
+        if ($isMultiPayment) {
+            // For multi-payment: use first payment method for sale_payment row
+            $payments = is_array($payment['payments'] ?? null) ? $payment['payments'] : [];
+            if (empty($payments)) {
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payments array is empty.');
+            }
+            $firstPayment = $payments[0];
+            $paymentMethodId = (int) ($firstPayment['payment_method_id'] ?? 0);
+            $paymentReference = $firstPayment['reference'] ?? null;
+        } else {
+            // For single-payment: use existing logic
+            $paymentReference = isset($payment['reference']) ? trim((string) $payment['reference']) : null;
+            $paymentMethodId = (int) ($payment['payment_method_id'] ?? 0);
+        }
+
+        $paymentReference = isset($paymentReference) ? trim((string) $paymentReference) : null;
         $paymentReference = $paymentReference !== '' ? $paymentReference : null;
-        
-        $paymentMethodId = (int) ($payment['payment_method_id'] ?? 0);
+
         if ($paymentMethodId <= 0) {
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method is required.');
         }
-        
+
         $paymentMethod = PaymentMethod::query()->find($paymentMethodId);
         if (! $paymentMethod) {
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method not found.');
