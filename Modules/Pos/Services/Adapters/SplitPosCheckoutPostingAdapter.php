@@ -206,7 +206,7 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'amount_minor_units' => (int) $p['amount_minor_units'],
                 'is_cash' => (bool) $p['is_cash'],
             ], $payment['payments'] ?? []),
-            'groups' => array_map(static fn (array $g) => [
+            'groups' => array_map(fn (array $g) => [
                 'split_key' => (string) ($g['split_key'] ?? ''),
                 'source_setting_id' => (int) ($g['source_setting_id'] ?? 0),
                 'grand_total_minor' => $this->toMinor((float) ($g['grand_total'] ?? 0)),
