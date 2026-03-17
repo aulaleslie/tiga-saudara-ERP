@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Multi-stage payment flow uses cart token for session tracking
 The system SHALL track payment chains using cart-scoped session keys `payment_chain_{cart_token}` instead of `payment_chain_{sale_id}`. This allows the flow to operate before Sales are created.
