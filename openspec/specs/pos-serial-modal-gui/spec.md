@@ -39,12 +39,15 @@ The POS system MUST use an in-app modal for serial number entry and management i
 - **AND** on success the cart snapshot and modal serial list MUST refresh to reflect the removal.
 
 ### Requirement: Improved Serial Chip Layout
-Serial tags (chips) in the cart line must be visually optimized for space and clarity.
+Serial-required cart rows MUST present serial management UI in a centered stacked qty-cell layout so quantity and serial actions remain visually grouped and scannable.
 
-#### Scenario: Chip Alignment
-- **WHEN** multiple serials are attached to a line item
-- **THEN** they should be displayed in a wrapped flex container
-- **AND** they must be vertically aligned with the quantity controls.
+#### Scenario: Center-aligned stacked serial qty cell
+- **WHEN** a serial-required cart row is rendered
+- **THEN** the qty cell MUST show three centered layers in order: compact spinner row, serial-action row, and serial-chip row.
+
+#### Scenario: Wrapped serial chips remain centered under serial controls
+- **WHEN** multiple serial chips are attached to a serial-required line
+- **THEN** chips MUST wrap within the qty cell and remain center-aligned beneath the serial-action row.
 
 ### Requirement: Visible Serial Action Affordance
 Serial-required cart lines MUST provide a clearly visible control to open serial management even when Font Awesome assets are unavailable.

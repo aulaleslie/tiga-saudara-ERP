@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Improved Serial Chip Layout
+### Requirement: Improved Serial Chip Layout (Updated)
 Serial-required cart rows MUST present serial management UI in a centered stacked qty-cell layout so quantity and serial actions remain visually grouped and scannable.
 
 #### Scenario: Center-aligned stacked serial qty cell
