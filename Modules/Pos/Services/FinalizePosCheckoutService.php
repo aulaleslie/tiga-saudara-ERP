@@ -963,7 +963,8 @@ class FinalizePosCheckoutService
             $checkout->status = PosCheckout::STATUS_FAILED;
             $checkout->failure_code = $failureCode;
             $checkout->failure_message = $failureMessage;
-            $checkout->metadata = $this->mergeMetadata($checkout->metadata, [
+            $currentMetadata = is_array($checkout->metadata) ? $checkout->metadata : [];
+            $checkout->metadata = array_merge($currentMetadata, [
                 'failure' => $metadata,
                 'failed_at' => now()->toISOString(),
             ]);
