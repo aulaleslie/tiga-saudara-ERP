@@ -13,7 +13,8 @@ class PosCartSessionStore
      *     bill_discount_type:string,
      *     bill_discount_value:float,
      *     selected_customer_id:int|null,
-     *     active_transaction_id:int|null
+     *     active_transaction_id:int|null,
+     *     staged_payment_token:string|null
      * }
      */
     public function getCart(int $settingId, int $sessionId): array
@@ -43,6 +44,9 @@ class PosCartSessionStore
             'active_transaction_id' => isset($stored['active_transaction_id'])
                 ? (int) $stored['active_transaction_id']
                 : null,
+            'staged_payment_token' => isset($stored['staged_payment_token'])
+                ? (string) $stored['staged_payment_token']
+                : null,
         ];
     }
 
@@ -55,7 +59,8 @@ class PosCartSessionStore
      *     bill_discount_type?:string,
      *     bill_discount_value?:float|int|string,
      *     selected_customer_id?:int|null,
-     *     active_transaction_id?:int|null
+     *     active_transaction_id?:int|null,
+     *     staged_payment_token?:string|null
      * }  $cart
      */
     public function putCart(int $settingId, int $sessionId, array $cart): void
@@ -75,6 +80,9 @@ class PosCartSessionStore
             'active_transaction_id' => isset($cart['active_transaction_id'])
                 ? (int) $cart['active_transaction_id']
                 : null,
+            'staged_payment_token' => isset($cart['staged_payment_token'])
+                ? (string) $cart['staged_payment_token']
+                : null,
         ]);
     }
 
@@ -92,7 +100,8 @@ class PosCartSessionStore
      *     bill_discount_type:string,
      *     bill_discount_value:float,
      *     selected_customer_id:int|null,
-     *     active_transaction_id:int|null
+     *     active_transaction_id:int|null,
+     *     staged_payment_token:string|null
      * }
      */
     public function emptyCart(int $settingId, int $sessionId): array
@@ -106,6 +115,7 @@ class PosCartSessionStore
             'bill_discount_value' => 0.0,
             'selected_customer_id' => null,
             'active_transaction_id' => null,
+            'staged_payment_token' => null,
         ];
     }
 

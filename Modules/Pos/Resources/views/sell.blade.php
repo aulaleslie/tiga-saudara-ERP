@@ -1036,7 +1036,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="pos-staged-checkout-modal-label">Pembayaran Bertahap</h5>
-                    <button type="button" class="close" data-dismiss="modal" aria-label="Tutup">
+                    <button type="button" id="staged-payment-close-btn" class="close" aria-label="Tutup">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
@@ -1115,7 +1115,7 @@
                     </div>
                     <h4 class="mb-3 font-weight-bold">Jangan Lupa Ucapkan Terima Kasih!</h4>
                     <p id="gratitude-change-amount" class="h5 mb-4 text-success"></p>
-                    <button type="button" class="btn btn-primary btn-lg btn-block" data-dismiss="modal">
+                    <button type="button" id="pos-gratitude-continue-btn" class="btn btn-primary btn-lg btn-block">
                         Lanjut Jualan
                     </button>
                 </div>
@@ -3980,16 +3980,32 @@
 
             if (btnCheckout) {
                 btnCheckout.addEventListener('click', function () {
-                    // Task 7.1: Open staged payment modal instead of legacy modal
-                    if (currentSnapshot && currentSnapshot.totals && typeof PosStagedPayment !== 'undefined') {
-                        // Use new staged payment flow
-                        const saleId = currentSnapshot.sale_id;
-                        if (saleId) {
-                            PosStagedPayment.openModal(saleId);
+                    console.log('[CHECKOUT] Button clicked', { currentSnapshot, PosStagedPayment: typeof PosStagedPayment });
+
+                    // Wire to staged payment flow using cart token and grand total
+                    if (currentSnapshot && currentSnapshot.totals) {
+                        // Generate token if it doesn't exist yet
+                        let cartToken = currentSnapshot.staged_payment_token;
+                        if (!cartToken) {
+                            cartToken = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                                const r = Math.random() * 16 | 0;
+                                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                                return v.toString(16);
+                            });
+                            currentSnapshot.staged_payment_token = cartToken;
+                            console.log('[CHECKOUT] Generated new token:', cartToken);
+                        }
+
+                        const grandTotal = currentSnapshot.totals.grand_total || 0;
+                        console.log('[CHECKOUT] Opening modal with token:', cartToken, 'grandTotal:', grandTotal);
+
+                        if (typeof PosStagedPayment !== 'undefined') {
+                            PosStagedPayment.openModal(cartToken, grandTotal);
+                        } else {
+                            console.error('[CHECKOUT] PosStagedPayment module not loaded');
                         }
                     } else {
-                        // Fallback to legacy payment modal
-                        openPaymentModal();
+                        console.warn('[CHECKOUT] No snapshot or totals available');
                     }
                 });
             }
@@ -4074,11 +4090,7 @@
                 });
             }
 
-            refreshCart();
-        })();
-
-        // Task 3.1: Initialize Staged Payment Module
-        document.addEventListener('DOMContentLoaded', function () {
+            // Initialize Staged Payment Module
             if (typeof PosStagedPayment !== 'undefined') {
                 PosStagedPayment.initialize({
                     modalElement: document.getElementById('pos-staged-checkout-modal'),
@@ -4097,13 +4109,100 @@
                 // Load payment methods
                 if (typeof window.POS_PAYMENT_METHODS !== 'undefined') {
                     PosStagedPayment.setPaymentMethods(window.POS_PAYMENT_METHODS);
+                } else {
+                    // Fallback: load payment methods from API
+                    PosStagedPayment.loadPaymentMethods();
                 }
 
-                // Optional: Hook into existing checkout button if needed
-                // For now, the old payment modal remains available
-                // Future: Replace old modal with staged payment flow
+                // Set onComplete callback to trigger finalize
+                PosStagedPayment.setOnComplete(async function(changeAmount) {
+                    const gratitudeModal = document.getElementById('pos-gratitude-modal');
+                    const gratitudeBtn = document.getElementById('pos-gratitude-continue-btn');
+
+                    if (gratitudeBtn) {
+                        gratitudeBtn.addEventListener('click', async function(e) {
+                            e.preventDefault();
+
+                            // Call finalize endpoint
+                            try {
+                                const response = await fetch('/pos/sell/checkout/finalize', {
+                                    method: 'POST',
+                                    headers: {
+                                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                                        'Content-Type': 'application/json',
+                                    },
+                                    body: JSON.stringify({
+                                        cart_token: currentSnapshot?.staged_payment_token,
+                                        idempotency_key: 'FINALIZE-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                                    }),
+                                });
+
+                                const data = await response.json();
+
+                                if (response.ok && response.status === 201) {
+                                    // Success: close modal, open receipt, refresh cart
+                                    $(gratitudeModal).modal('hide');
+
+                                    // Open receipt in new tab
+                                    if (data.payload?.checkout?.id) {
+                                        window.open(`/pos/sell/checkout/${data.payload.checkout.id}/receipt`, '_blank');
+                                    }
+
+                                    // Refresh cart to clear it
+                                    await refreshCart();
+                                } else {
+                                    // Show error
+                                    alert('Gagal menyelesaikan pembayaran: ' + (data.message || 'Kesalahan tidak diketahui'));
+                                }
+                            } catch (error) {
+                                alert('Terjadi kesalahan: ' + error.message);
+                            }
+                        });
+                    }
+                });
+
+                // Wire close button to clear payment chain
+                const closeBtn = document.getElementById('staged-payment-close-btn');
+                if (closeBtn) {
+                    closeBtn.addEventListener('click', async function() {
+                        if (currentSnapshot?.staged_payment_token) {
+                            try {
+                                await fetch('/pos/sell/checkout/payment-chain', {
+                                    method: 'DELETE',
+                                    headers: {
+                                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                                        'Content-Type': 'application/json',
+                                    },
+                                    body: JSON.stringify({
+                                        cart_token: currentSnapshot.staged_payment_token,
+                                    }),
+                                });
+                            } catch (error) {
+                                console.error('Error clearing payment chain:', error);
+                            }
+                        }
+                        document.getElementById('pos-staged-checkout-modal').modal('hide');
+                    });
+                }
+
+                // Check for reload recovery on page load
+                if (currentSnapshot && currentSnapshot.staged_payment_token) {
+                    fetch(`/pos/sell/checkout/payment-chain?cart_token=${encodeURIComponent(currentSnapshot.staged_payment_token)}`)
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.has_chain && data.payment_chain) {
+                                PosStagedPayment.openModal(
+                                    currentSnapshot.staged_payment_token,
+                                    currentSnapshot.totals?.grand_total || 0
+                                );
+                            }
+                        })
+                        .catch(e => console.error('Reload recovery error:', e));
+                }
             }
-        });
+
+            refreshCart();
+        })();
     </script>
 @endpush
 @endsection

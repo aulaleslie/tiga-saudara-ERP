@@ -22,6 +22,7 @@ window.PosStagedPayment = (function () {
     let currentSaleId = null;
     let paymentChain = null;
     let currentStageData = null;
+    let onCompleteCallback = null;
 
     // DOM elements
     let stagedModalElement = null;
@@ -42,6 +43,8 @@ window.PosStagedPayment = (function () {
 
     // Task 3.1: Initialize state machine
     function initialize(config = {}) {
+        console.log('[PosStagedPayment] Initializing with config:', config);
+
         state = States.IDLE;
         paymentChain = null;
         currentStageData = null;
@@ -59,6 +62,13 @@ window.PosStagedPayment = (function () {
         stagedSubmitButton = config.submitButton || document.getElementById('staged-payment-submit');
         stagedProcessingSpinner = config.spinner || document.getElementById('staged-payment-spinner');
         stagedErrorAlert = config.errorAlert || document.getElementById('staged-payment-error');
+
+        console.log('[PosStagedPayment] DOM elements cached:', {
+            modalElement: !!stagedModalElement,
+            methodSearchInput: !!stagedMethodSearchInput,
+            paymentChainList: !!stagedPaymentChainList,
+            submitButton: !!stagedSubmitButton,
+        });
 
         setupEventListeners();
     }
@@ -97,36 +107,42 @@ window.PosStagedPayment = (function () {
         });
     }
 
-    // Task 5.1 & 5.2: Open modal and check for reload recovery
-    async function openModal(saleId) {
-        if (!saleId) return;
+    // Task 5.1 & 5.2: Open modal with cart token and grand total
+    async function openModal(cartToken, grandTotal) {
+        console.log('[PosStagedPayment] openModal called with:', { cartToken, grandTotal });
 
-        currentSaleId = saleId;
+        if (!cartToken || grandTotal === null || grandTotal === undefined) {
+            console.warn('[PosStagedPayment] Invalid parameters, returning');
+            return;
+        }
+
         state = States.SELECTING_METHOD;
         clearErrors();
 
         // Try to recover payment chain from session
-        const recovered = await checkReloadRecovery(saleId);
+        const recovered = await checkReloadRecovery(cartToken, grandTotal);
         if (!recovered) {
-            // Start fresh
-            await initializeNewPaymentChain(saleId);
+            // Start fresh with provided grand total
+            initializeNewPaymentChain(cartToken, grandTotal);
         }
 
         if (stagedModalElement) {
+            console.log('[PosStagedPayment] Showing modal');
             $(stagedModalElement).modal('show');
+        } else {
+            console.error('[PosStagedPayment] Modal element not found');
         }
     }
 
     // Task 5.3: Check and recover payment chain from session
-    async function checkReloadRecovery(saleId) {
+    async function checkReloadRecovery(cartToken, grandTotal) {
         try {
-            const response = await fetch('/api/pos/sell/checkout/payment-chain', {
+            const response = await fetch(`/pos/sell/checkout/payment-chain?cart_token=${encodeURIComponent(cartToken)}`, {
                 method: 'GET',
                 headers: {
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ sale_id: saleId }),
             });
 
             if (!response.ok) return false;
@@ -136,10 +152,9 @@ window.PosStagedPayment = (function () {
 
             // Recover payment chain from session
             paymentChain = {
-                sale_id: data.sale_id,
-                remainder: data.remainder,
-                total_committed: data.total_committed,
-                payments: data.payment_chain || [],
+                cart_token: cartToken,
+                remainder: data.payment_chain.remainder || 0,
+                payments: data.payment_chain.payments || [],
             };
 
             renderPaymentChain();
@@ -151,33 +166,16 @@ window.PosStagedPayment = (function () {
         }
     }
 
-    // Initialize fresh payment chain for new transaction
-    async function initializeNewPaymentChain(saleId) {
-        try {
-            // Fetch sale to get due_amount
-            const response = await fetch(`/api/sales/${saleId}`, {
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                },
-            });
+    // Initialize fresh payment chain with provided grand total
+    function initializeNewPaymentChain(cartToken, grandTotal) {
+        paymentChain = {
+            cart_token: cartToken,
+            remainder: Number(grandTotal) || 0,
+            payments: [],
+        };
 
-            if (!response.ok) throw new Error('Failed to load sale');
-
-            const sale = await response.json();
-            const dueAmount = Number(sale.due_amount || 0);
-
-            paymentChain = {
-                sale_id: saleId,
-                remainder: dueAmount,
-                total_committed: 0,
-                payments: [],
-            };
-
-            renderPaymentChain();
-            updateRemainderDisplay();
-        } catch (error) {
-            showError('Gagal memuat data transaksi: ' + error.message);
-        }
+        renderPaymentChain();
+        updateRemainderDisplay();
     }
 
     // Task 3.4: Render payment chain UI (list of committed payments)
@@ -369,14 +367,14 @@ window.PosStagedPayment = (function () {
         try {
             const amount = Number(stagedAmountInput.value);
             const payload = {
-                sale_id: currentSaleId,
+                cart_token: paymentChain.cart_token,
                 payment_method_id: selectedPaymentMethod.id,
                 amount: amount,
                 edc_reference: stagedEdcReferenceInput?.value.trim() || null,
-                idempotency_key: generateIdempotencyKey(),
+                grand_total: paymentChain.remainder + amount,
             };
 
-            const response = await fetch('/api/pos/sell/checkout/stage-payment', {
+            const response = await fetch('/pos/sell/checkout/stage-payment', {
                 method: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
@@ -387,25 +385,25 @@ window.PosStagedPayment = (function () {
 
             const data = await response.json();
 
-            if (!data.success) {
+            if (!response.ok) {
                 showError(data.message || 'Gagal memproses pembayaran');
                 return;
             }
 
-            // Task 4.3: Update payment chain with new payment
-            paymentChain.payments = data.payment_chain || [];
+            // Update payment chain with new payment
+            paymentChain.payments = data.payment_chain.payments || [];
             paymentChain.remainder = data.remainder || 0;
-            paymentChain.total_committed = data.total_committed || 0;
 
-            // Task 4.3 & 4.4: Check remainder and proceed
+            // Check remainder and proceed
             if (data.remainder > 0) {
                 // More payments needed
                 resetStageForm();
                 renderPaymentChain();
                 updateRemainderDisplay();
             } else if (data.remainder === 0) {
-                // Payment complete
-                handlePaymentComplete(data.overpayment);
+                // Payment complete, calculate change
+                const changeAmount = Math.abs(data.remainder);
+                handlePaymentComplete(changeAmount);
             } else {
                 // Overpayment - show change
                 handlePaymentComplete(Math.abs(data.remainder));
@@ -489,6 +487,11 @@ window.PosStagedPayment = (function () {
         showGratitudeModal(changeAmount);
     }
 
+    // Public API: set callback to be invoked when all payment stages are complete
+    function setOnComplete(callback) {
+        onCompleteCallback = callback;
+    }
+
     // Task 6.4 & 6.5: Show gratitude modal
     function showGratitudeModal(changeAmount) {
         const modal = document.getElementById('pos-gratitude-modal');
@@ -525,18 +528,22 @@ window.PosStagedPayment = (function () {
             }
 
             // Fallback: try to load from API
-            const response = await fetch('/api/payment-methods', {
+            const response = await fetch('/pos/sell/payment-methods/search', {
                 headers: {
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                    'Content-Type': 'application/json',
                 },
             });
 
             if (response.ok) {
                 const data = await response.json();
                 cachedPaymentMethods = data.methods || [];
+                console.log('[PosStagedPayment] Loaded payment methods:', cachedPaymentMethods);
+            } else {
+                console.error('[PosStagedPayment] Failed to load payment methods:', response.status);
             }
         } catch (error) {
-            console.error('Failed to load payment methods:', error);
+            console.error('[PosStagedPayment] Failed to load payment methods:', error);
         }
     }
 
@@ -581,6 +588,7 @@ window.PosStagedPayment = (function () {
     return {
         initialize,
         openModal,
+        setOnComplete,
         loadPaymentMethods,
         printReceipt,
         setPaymentMethods: function (methods) {

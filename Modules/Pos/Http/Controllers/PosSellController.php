@@ -469,6 +469,122 @@ class PosSellController extends Controller
         return response()->json($result);
     }
 
+    public function stagePayment(Request $request): JsonResponse
+    {
+        $settingId = $this->currentSettingId();
+        $activeSession = $request->attributes->get('pos_active_session');
+        $user = $request->user();
+
+        if (! $activeSession instanceof PosSession) {
+            abort(403, 'Active POS session context is required.');
+        }
+
+        if (! $user) {
+            abort(403, 'Authentication is required.');
+        }
+
+        $validated = $request->validate([
+            'cart_token' => ['required', 'string', 'uuid'],
+            'payment_method_id' => ['required', 'integer', 'min:1'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'edc_reference' => ['nullable', 'string', 'max:255'],
+            'grand_total' => ['required', 'numeric', 'min:0.01'],
+        ]);
+
+        $cartToken = $validated['cart_token'];
+        $paymentMethodId = (int) $validated['payment_method_id'];
+        $amount = (float) $validated['amount'];
+        $edcReference = $validated['edc_reference'] ?? null;
+        $grandTotal = (float) $validated['grand_total'];
+
+        try {
+            $sessionKey = "payment_chain_{$cartToken}";
+
+            // Initialize chain if not exists
+            if (! $request->session()->has($sessionKey)) {
+                $request->session()->put($sessionKey, [
+                    'payments' => [],
+                    'remainder' => $grandTotal,
+                    'staged_at' => now()->toIso8601String(),
+                ]);
+            }
+
+            $chain = $request->session()->get($sessionKey);
+            $remainder = (float) ($chain['remainder'] ?? 0);
+
+            // Validate amount doesn't exceed remainder
+            if ($amount > $remainder) {
+                return response()->json([
+                    'code' => 'AMOUNT_EXCEEDS_REMAINDER',
+                    'message' => "Amount exceeds remaining balance of {$remainder}.",
+                ], 422);
+            }
+
+            // Add payment to chain
+            $chain['payments'][] = [
+                'method_id' => $paymentMethodId,
+                'amount' => $amount,
+                'edc_reference' => $edcReference,
+                'stage_order' => count($chain['payments']) + 1,
+                'created_at' => now()->toIso8601String(),
+            ];
+
+            // Update remainder
+            $chain['remainder'] = round($remainder - $amount, 2);
+            $request->session()->put($sessionKey, $chain);
+
+            return response()->json([
+                'payment_chain' => $chain,
+                'remainder' => $chain['remainder'],
+            ], 201);
+        } catch (DomainException $exception) {
+            return response()->json([
+                'code' => 'STAGE_PAYMENT_ERROR',
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function getPaymentChain(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'cart_token' => ['required', 'string', 'uuid'],
+        ]);
+
+        $cartToken = $validated['cart_token'];
+        $sessionKey = "payment_chain_{$cartToken}";
+
+        $chain = $request->session()->get($sessionKey);
+
+        if (! $chain) {
+            return response()->json([
+                'has_chain' => false,
+                'payment_chain' => null,
+            ]);
+        }
+
+        return response()->json([
+            'has_chain' => true,
+            'payment_chain' => $chain,
+        ]);
+    }
+
+    public function resetPaymentChain(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'cart_token' => ['required', 'string', 'uuid'],
+        ]);
+
+        $cartToken = $validated['cart_token'];
+        $sessionKey = "payment_chain_{$cartToken}";
+
+        $request->session()->forget($sessionKey);
+
+        return response()->json([
+            'message' => 'Payment chain cleared.',
+        ], 200);
+    }
+
     public function checkoutFinalize(
         StorePosCheckoutFinalizeRequest $request,
         FinalizePosCheckoutService $finalizeService,
@@ -494,19 +610,29 @@ class PosSellController extends Controller
         }
 
         try {
-            // Task 7.3: Check for pre-committed multi-stage payments in session
+            // Check for pre-committed multi-stage payments in session (keyed by cart_token)
             $paymentPayload = is_array($request->input('payment')) ? $request->input('payment') : [];
-            $saleId = (int) $request->input('sale_id', 0);
+            $cartToken = (string) $request->input('cart_token', '');
 
             // If no payments in request, check if there's a staged payment chain in session
-            if (empty($paymentPayload) && $saleId > 0) {
-                $sessionKey = "payment_chain_{$saleId}";
+            if (empty($paymentPayload) && ! empty($cartToken)) {
+                $sessionKey = "payment_chain_{$cartToken}";
                 $sessionPaymentChain = $request->session()->get($sessionKey);
 
                 if ($sessionPaymentChain && !empty($sessionPaymentChain['payments'])) {
-                    // Convert session payment chain to payment payload format
+                    // Map session payment chain fields from method_id/amount to payment_method_id/amount_paid
+                    $mappedPayments = [];
+                    foreach ($sessionPaymentChain['payments'] as $payment) {
+                        $mappedPayments[] = [
+                            'payment_method_id' => $payment['method_id'] ?? null,
+                            'amount_paid' => $payment['amount'] ?? 0,
+                            'edc_reference' => $payment['edc_reference'] ?? null,
+                            'stage_order' => $payment['stage_order'] ?? null,
+                        ];
+                    }
+
                     $paymentPayload = [
-                        'payments' => $sessionPaymentChain['payments'],
+                        'payments' => $mappedPayments,
                     ];
                 }
             }
@@ -543,9 +669,9 @@ class PosSellController extends Controller
             ], 500);
         }
 
-        // Task 7.4: Clear session payment chain after successful finalization
-        if ((int) $result['http_status'] === 201 && $saleId > 0) {
-            $sessionKey = "payment_chain_{$saleId}";
+        // Clear session payment chain after successful finalization
+        if ((int) $result['http_status'] === 201 && ! empty($cartToken)) {
+            $sessionKey = "payment_chain_{$cartToken}";
             $request->session()->forget($sessionKey);
         }
 

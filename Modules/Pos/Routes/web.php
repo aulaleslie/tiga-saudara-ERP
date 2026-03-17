@@ -76,6 +76,14 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
         ->name('pos.sell.cart.lines.price-override');
     Route::delete('/pos/sell/cart', [PosSellController::class, 'cartClear'])->name('pos.sell.cart.clear');
     Route::patch('/pos/sell/cart/customer', [PosSellController::class, 'cartUpdateCustomer'])->name('pos.sell.cart.customer.update');
+
+    Route::post('/pos/sell/checkout/stage-payment', [PosSellController::class, 'stagePayment'])
+        ->name('pos.sell.checkout.stage-payment');
+    Route::get('/pos/sell/checkout/payment-chain', [PosSellController::class, 'getPaymentChain'])
+        ->name('pos.sell.checkout.payment-chain');
+    Route::delete('/pos/sell/checkout/payment-chain', [PosSellController::class, 'resetPaymentChain'])
+        ->name('pos.sell.checkout.payment-chain.reset');
+
     Route::post('/pos/sell/checkout/finalize', [PosSellController::class, 'checkoutFinalize'])
         ->name('pos.sell.checkout.finalize');
 
