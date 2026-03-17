@@ -512,11 +512,22 @@ class PosSellController extends Controller
             $chain = $request->session()->get($sessionKey);
             $remainder = (float) ($chain['remainder'] ?? 0);
 
-            // Validate amount doesn't exceed remainder
-            if ($amount > $remainder) {
+            // Get payment method to check if cash (cash can overpay, non-cash cannot)
+            $paymentMethod = \Modules\Setting\Entities\PaymentMethod::find($paymentMethodId);
+            if (! $paymentMethod) {
+                return response()->json([
+                    'code' => 'INVALID_PAYMENT_METHOD',
+                    'message' => 'Payment method not found.',
+                ], 422);
+            }
+
+            // Validate amount based on payment method type
+            // Non-cash: amount cannot exceed remainder (no overpayment)
+            // Cash: amount can exceed remainder (overpayment allowed)
+            if (! $paymentMethod->is_cash && $amount > $remainder) {
                 return response()->json([
                     'code' => 'AMOUNT_EXCEEDS_REMAINDER',
-                    'message' => "Amount exceeds remaining balance of {$remainder}.",
+                    'message' => "Non-cash payment cannot exceed remaining balance of {$remainder}.",
                 ], 422);
             }
 
@@ -611,7 +622,13 @@ class PosSellController extends Controller
 
         try {
             // Check for pre-committed multi-stage payments in session (keyed by cart_token)
-            $paymentPayload = is_array($request->input('payment')) ? $request->input('payment') : [];
+            // Support both legacy single-payment ('payment') and multi-payment ('payments') paths
+            $paymentPayload = [];
+            if (is_array($request->input('payment'))) {
+                $paymentPayload = $request->input('payment');
+            } elseif (is_array($request->input('payments'))) {
+                $paymentPayload = ['payments' => $request->input('payments')];
+            }
             $cartToken = (string) $request->input('cart_token', '');
 
             // If no payments in request, check if there's a staged payment chain in session

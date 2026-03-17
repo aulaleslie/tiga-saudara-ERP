@@ -61,7 +61,7 @@ class PosCheckoutPaymentNormalizationService
             if ($paymentMethod['requires_reference'] && (!$reference || $reference === '')) {
                 throw new PosCheckoutValidationException(
                     'PAYMENT_INVALID',
-                    "Payment #{$index}: payment method {$paymentMethod['code']} requires a reference number."
+                    "Payment #{$index}: payment method {$paymentMethod['name']} requires a reference number."
                 );
             }
 
@@ -131,7 +131,7 @@ class PosCheckoutPaymentNormalizationService
      * Fetch enabled payment methods for a setting.
      *
      * @param  int  $settingId
-     * @return array<int, array{id:int,code:string,is_cash:bool,requires_reference:bool}>
+     * @return array<int, array{id:int,name:string,is_cash:bool,requires_reference:bool}>
      */
     private function fetchPaymentMethods(int $settingId): array
     {
@@ -141,7 +141,7 @@ class PosCheckoutPaymentNormalizationService
             ->where('setting_pos_payment_methods.is_enabled', true)
             ->select(
                 'payment_methods.id',
-                'payment_methods.code',
+                'payment_methods.name',
                 'payment_methods.is_cash',
                 'payment_methods.requires_reference'
             )
@@ -151,7 +151,7 @@ class PosCheckoutPaymentNormalizationService
         foreach ($methods as $method) {
             $methodsById[(int) $method->id] = [
                 'id' => (int) $method->id,
-                'code' => (string) $method->code,
+                'name' => (string) $method->name,
                 'is_cash' => (bool) $method->is_cash,
                 'requires_reference' => (bool) $method->requires_reference,
             ];

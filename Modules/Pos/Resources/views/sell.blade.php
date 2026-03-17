@@ -1064,18 +1064,31 @@
                     <div class="form-group mb-3">
                         <label class="font-weight-bold d-block mb-2">Metode Pembayaran</label>
                         <div class="position-relative">
+                            <!-- Task 1.1: Ensure payment method input has opaque white background with visible border
+                                 Uses !important to override Bootstrap modal CSS that may render background as transparent.
+                                 This ensures cashiers can clearly see and interact with the payment method dropdown. -->
                             <input type="text" id="staged-method-search" class="form-control"
+                                   style="background-color: #fff !important; border: 1px solid #dee2e6 !important; color: #212529 !important;"
                                    placeholder="Pilih atau cari metode pembayaran..." autocomplete="off">
                             <div id="staged-method-results" class="list-group position-absolute w-100"
-                                 style="top: 100%; left: 0; right: 0; z-index: 1000; max-height: 250px; overflow-y: auto; display: none;"></div>
+                                 style="top: 100%; left: 0; right: 0; z-index: 1000; max-height: 250px; overflow-y: auto; display: none; background-color: #fff !important; border: 1px solid #dee2e6 !important;"></div>
                         </div>
                     </div>
 
                     <!-- Amount Input -->
                     <div class="form-group mb-3">
                         <label for="staged-amount-input" class="font-weight-bold">Jumlah Pembayaran (Rp)</label>
-                        <input type="number" id="staged-amount-input" class="form-control form-control-lg"
-                               placeholder="0" step="1" min="0">
+                        <input type="text" id="staged-amount-input" class="form-control form-control-lg"
+                               placeholder="0" inputmode="numeric">
+                    </div>
+
+                    <!-- Quick-Add Buttons -->
+                    <div class="mb-3 d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="1000">+1.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="5000">+5.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="10000">+10.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="50000">+50.000</button>
+                        <button type="button" class="btn btn-sm btn-warning js-quick-add-remainder">Sisa</button>
                     </div>
 
                     <!-- Task 3.5 & 3.6: EDC Reference Input (Conditional) -->
@@ -4119,12 +4132,17 @@
                     const gratitudeModal = document.getElementById('pos-gratitude-modal');
                     const gratitudeBtn = document.getElementById('pos-gratitude-continue-btn');
 
+                    console.log('[GRATITUDE SETUP] Button found:', !!gratitudeBtn, 'Button element:', gratitudeBtn);
+
                     if (gratitudeBtn) {
                         gratitudeBtn.addEventListener('click', async function(e) {
+                            console.log('[GRATITUDE] Button clicked!');
                             e.preventDefault();
 
                             // Call finalize endpoint
                             try {
+                                console.log('[GRATITUDE] Finalizing with cart_token:', currentSnapshot?.staged_payment_token);
+
                                 const response = await fetch('/pos/sell/checkout/finalize', {
                                     method: 'POST',
                                     headers: {
@@ -4138,23 +4156,27 @@
                                 });
 
                                 const data = await response.json();
+                                console.log('[GRATITUDE] Finalize response:', { status: response.status, ok: response.ok, data });
 
                                 if (response.ok && response.status === 201) {
                                     // Success: close modal, open receipt, refresh cart
                                     $(gratitudeModal).modal('hide');
 
-                                    // Open receipt in new tab
-                                    if (data.payload?.checkout?.id) {
-                                        window.open(`/pos/sell/checkout/${data.payload.checkout.id}/receipt`, '_blank');
+                                    // Open receipt in new tab - check for checkout ID in different possible locations
+                                    const checkoutId = data.payload?.checkout?.id || data.checkout?.id || data.pos_checkout_id;
+                                    if (checkoutId) {
+                                        window.open(`/pos/sell/checkout/${checkoutId}/receipt`, '_blank');
                                     }
 
                                     // Refresh cart to clear it
                                     await refreshCart();
                                 } else {
                                     // Show error
+                                    console.error('[GRATITUDE] Finalize failed:', data);
                                     alert('Gagal menyelesaikan pembayaran: ' + (data.message || 'Kesalahan tidak diketahui'));
                                 }
                             } catch (error) {
+                                console.error('[GRATITUDE] Error during finalize:', error);
                                 alert('Terjadi kesalahan: ' + error.message);
                             }
                         });

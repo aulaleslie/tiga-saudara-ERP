@@ -843,6 +843,9 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
         array $snapshot,
         array $payment
     ): string {
+        // Check if this is a multi-payment or single-payment
+        $isMultiPayment = isset($payment['payments']) && is_array($payment['payments']);
+
         $normalized = [
             'setting_id' => $settingId,
             'pos_session_id' => $sessionId,
@@ -854,12 +857,45 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
                 'totals' => $snapshot['totals'] ?? [],
                 'bill_discount' => $snapshot['bill_discount'] ?? [],
             ]),
-            'payment' => [
+        ];
+
+        // Include payment hash - either canonical multi-payment or legacy single payment
+        if ($isMultiPayment) {
+            // For multi-payment, compute canonical hash from payments array (must match PosCheckoutPaymentNormalizationService::getCanonicalPaymentHash)
+            $canonical = [];
+            foreach ($payment['payments'] ?? [] as $p) {
+                // Convert amount_paid (in units) to amount_minor_units (in cents) to match service logic
+                $amountMinorUnits = (int) round(((float) ($p['amount_paid'] ?? 0)) * 100);
+                $canonical[] = [
+                    (int) $p['payment_method_id'],
+                    $amountMinorUnits,
+                    $p['reference'] ?? '',
+                ];
+            }
+            // Sort by payment_method_id, then amount for deterministic ordering (must match service)
+            usort($canonical, function (array $a, array $b) {
+                if ($a[0] !== $b[0]) {
+                    return $a[0] <=> $b[0];
+                }
+                if ($a[1] !== $b[1]) {
+                    return $a[1] <=> $b[1];
+                }
+                return strcmp($a[2], $b[2]);
+            });
+            $canonicalHash = hash('sha256', json_encode($canonical));
+
+            $normalized['payment'] = [
+                'is_multi_payment' => true,
+                'canonical_hash' => $canonicalHash,
+            ];
+        } else {
+            $normalized['payment'] = [
+                'is_multi_payment' => false,
                 'method_code' => strtolower((string) ($payment['method_code'] ?? '')),
                 'amount_paid' => round((float) ($payment['amount_paid'] ?? 0), 2),
                 'reference' => $payment['reference'] ?? null,
-            ],
-        ];
+            ];
+        }
 
         return hash(
             'sha256',

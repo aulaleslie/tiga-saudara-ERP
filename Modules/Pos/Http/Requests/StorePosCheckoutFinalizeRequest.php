@@ -16,13 +16,21 @@ class StorePosCheckoutFinalizeRequest extends FormRequest
     {
         $legacyPayment = $this->input('payment');
         $multiPayments = $this->input('payments');
+        $cartToken = $this->input('cart_token');
         $hasLegacyPayment = $legacyPayment !== null && is_array($legacyPayment);
         $hasMultiPayments = $multiPayments !== null && is_array($multiPayments);
+        $hasCartToken = ! empty($cartToken);
 
         $rules = [
             'idempotency_key' => ['required', 'string', 'max:100'],
+            'cart_token' => ['nullable', 'string', 'uuid'],
             'client_context' => ['nullable', 'array'],
         ];
+
+        // If cart_token is provided, we'll fetch payments from session, so payment fields are optional
+        if ($hasCartToken) {
+            return $rules;
+        }
 
         // Support legacy single-payment path
         if ($hasLegacyPayment && ! $hasMultiPayments) {

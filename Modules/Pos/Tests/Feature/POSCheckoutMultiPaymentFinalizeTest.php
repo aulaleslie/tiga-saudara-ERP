@@ -3,6 +3,7 @@
 namespace Modules\Pos\Tests\Feature;
 
 use Illuminate\Support\Facades\DB;
+use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosSessionCashEvent;
 
 /**

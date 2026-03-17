@@ -20,7 +20,7 @@ class PosReceiptService
             'cashier',
             'paymentMethod',
             'sale.saleDetails',
-            'payments.method', // Task 5.3: Load multi-payment details
+            'payments.paymentMethod', // Task 5.3: Load multi-payment details
         ]);
 
         $setting = $checkout->setting;
@@ -52,12 +52,12 @@ class PosReceiptService
             // Multi-payment: show breakdown
             foreach ($checkout->payments as $payment) {
                 $paymentBreakdown[] = [
-                    'method_name' => $payment->method?->name ?? 'Unknown',
+                    'method_name' => $payment->paymentMethod?->name ?? 'Unknown',
                     'amount' => $payment->amount_paid,
                 ];
             }
             // Use first method as primary for backward compatibility, but override with breakdown
-            $paymentMethod = $checkout->payments->first()?->method?->name ?? $paymentMethod;
+            $paymentMethod = $checkout->payments->first()?->paymentMethod?->name ?? $paymentMethod;
         }
 
         return [

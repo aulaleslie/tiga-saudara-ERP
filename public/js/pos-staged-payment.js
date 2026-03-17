@@ -71,6 +71,10 @@ window.PosStagedPayment = (function () {
         });
 
         setupEventListeners();
+
+        // Task 5.1 & 5.2: Initialize formatters
+        setupAmountInputFormatter();
+        setupQuickAddButtons();
     }
 
     // Task 3.2: Setup event listeners
@@ -151,8 +155,10 @@ window.PosStagedPayment = (function () {
             if (!data.has_chain) return false;
 
             // Recover payment chain from session
+            // Task 1.4: Restore original_grand_total from session
             paymentChain = {
                 cart_token: cartToken,
+                original_grand_total: data.payment_chain.original_grand_total || Number(grandTotal) || 0,
                 remainder: data.payment_chain.remainder || 0,
                 payments: data.payment_chain.payments || [],
             };
@@ -167,10 +173,13 @@ window.PosStagedPayment = (function () {
     }
 
     // Initialize fresh payment chain with provided grand total
+    // Task 1.1 & 1.3: Store original_grand_total separately from remainder
     function initializeNewPaymentChain(cartToken, grandTotal) {
+        const originalGrandTotal = Number(grandTotal) || 0;
         paymentChain = {
             cart_token: cartToken,
-            remainder: Number(grandTotal) || 0,
+            original_grand_total: originalGrandTotal,  // Store at initialization, NEVER change
+            remainder: originalGrandTotal,              // Running balance, updates each stage
             payments: [],
         };
 
@@ -178,7 +187,7 @@ window.PosStagedPayment = (function () {
         updateRemainderDisplay();
     }
 
-    // Task 3.4: Render payment chain UI (list of committed payments)
+    // Task 4.1-4.4: Render payment chain UI with multi-line structure
     function renderPaymentChain() {
         if (!stagedPaymentChainList) return;
 
@@ -192,12 +201,21 @@ window.PosStagedPayment = (function () {
         const list = document.createElement('div');
         paymentChain.payments.forEach((payment, index) => {
             const item = document.createElement('div');
-            item.className = 'badge badge-success mr-2 mb-2 p-2';
-            item.innerHTML = `
-                ✓ <strong>${escapeHtml(payment.method_name)}</strong>
-                ${formatPrice(payment.amount)}
-                ${payment.edc_reference ? ` (${escapeHtml(payment.edc_reference)})` : ''}
-            `;
+            item.className = 'badge badge-success mr-2 mb-2 p-3';
+            item.style.whiteSpace = 'normal';
+            item.style.display = 'inline-block';
+            item.style.minWidth = '150px';
+
+            // Task 4.2 & 4.3: Multi-line structure with formatting
+            let content = `<div style="text-align: left;">`;
+            content += `<div style="font-weight: bold; margin-bottom: 0.25rem;">✓ ${escapeHtml(payment.method_name)}</div>`;
+            content += `<div style="font-size: 0.9rem; margin-bottom: 0.25rem;">${formatPrice(payment.amount)}</div>`;
+            if (payment.edc_reference) {
+                content += `<div style="font-size: 0.75rem; opacity: 0.8;">Ref: ${escapeHtml(payment.edc_reference)}</div>`;
+            }
+            content += `</div>`;
+
+            item.innerHTML = content;
             list.appendChild(item);
         });
 
@@ -282,6 +300,9 @@ window.PosStagedPayment = (function () {
             item.className = 'list-group-item list-group-item-action';
             item.textContent = method.name;
             item.dataset.methodId = method.id;
+            // Ensure dropdown items have opaque white background in modal context
+            item.style.backgroundColor = '#fff !important';
+            item.style.color = '#212529 !important';
             item.addEventListener('click', (e) => {
                 e.preventDefault();
                 selectPaymentMethod(method);
@@ -333,20 +354,35 @@ window.PosStagedPayment = (function () {
     // Task 4.1 & 4.2: Validate current stage
     function updateStageValidation() {
         let isValid = true;
+        const remainder = paymentChain?.remainder || 0;
 
-        if (!selectedPaymentMethod) {
-            isValid = false;
-        }
-
-        const amount = Number(stagedAmountInput?.value || 0);
-        if (amount <= 0) {
-            isValid = false;
-        }
-
-        if (selectedPaymentMethod && !selectedPaymentMethod.is_cash && selectedPaymentMethod.requires_reference) {
-            const reference = stagedEdcReferenceInput?.value.trim() || '';
-            if (!reference) {
+        // If remainder is 0, allow finalization without additional payment entry
+        if (remainder === 0) {
+            // Payment is complete, button should be enabled to finalize
+            isValid = true;
+        } else {
+            // Need to add more payments
+            if (!selectedPaymentMethod) {
                 isValid = false;
+            }
+
+            const amount = Number(stagedAmountInput?.dataset.rawValue || 0);
+            if (amount <= 0) {
+                isValid = false;
+            }
+
+            // Task 2.4: Call validation function to check method-specific amount rules
+            if (isValid && selectedPaymentMethod && paymentChain) {
+                if (!validateAmountForMethod(amount, paymentChain.remainder, selectedPaymentMethod)) {
+                    isValid = false;
+                }
+            }
+
+            if (selectedPaymentMethod && !selectedPaymentMethod.is_cash && selectedPaymentMethod.requires_reference) {
+                const reference = stagedEdcReferenceInput?.value.trim() || '';
+                if (!reference) {
+                    isValid = false;
+                }
             }
         }
 
@@ -359,20 +395,32 @@ window.PosStagedPayment = (function () {
     async function submitStagePayment(event) {
         event.preventDefault();
 
+        const remainder = paymentChain?.remainder || 0;
+
+        // If remainder is 0, finalize checkout instead of adding another payment
+        if (remainder === 0) {
+            await finalizeCheckout();
+            return;
+        }
+
         if (!validateBeforeSubmit()) return;
 
         setProcessing(true);
         clearErrors();
 
         try {
-            const amount = Number(stagedAmountInput.value);
+            // Task 2.5: Use raw value from dataset instead of formatted input.value
+            const amount = Number(stagedAmountInput.dataset.rawValue || stagedAmountInput.value);
+            // Task 1.2: Send original grand total instead of (remainder + amount)
             const payload = {
                 cart_token: paymentChain.cart_token,
                 payment_method_id: selectedPaymentMethod.id,
                 amount: amount,
                 edc_reference: stagedEdcReferenceInput?.value.trim() || null,
-                grand_total: paymentChain.remainder + amount,
+                grand_total: paymentChain.original_grand_total,  // Send original, not (remainder + amount)
             };
+
+            console.log('[PosStagedPayment] Submitting stage payment:', payload);
 
             const response = await fetch('/pos/sell/checkout/stage-payment', {
                 method: 'POST',
@@ -384,6 +432,7 @@ window.PosStagedPayment = (function () {
             });
 
             const data = await response.json();
+            console.log('[PosStagedPayment] Stage payment response:', { status: response.status, ok: response.ok, data });
 
             if (!response.ok) {
                 showError(data.message || 'Gagal memproses pembayaran');
@@ -394,6 +443,8 @@ window.PosStagedPayment = (function () {
             paymentChain.payments = data.payment_chain.payments || [];
             paymentChain.remainder = data.remainder || 0;
 
+            console.log('[PosStagedPayment] Updated chain:', { remainder: paymentChain.remainder, payments: paymentChain.payments.length });
+
             // Check remainder and proceed
             if (data.remainder > 0) {
                 // More payments needed
@@ -403,21 +454,38 @@ window.PosStagedPayment = (function () {
             } else if (data.remainder === 0) {
                 // Payment complete, calculate change
                 const changeAmount = Math.abs(data.remainder);
+                console.log('[PosStagedPayment] Payment complete! Change:', changeAmount);
                 handlePaymentComplete(changeAmount);
             } else {
                 // Overpayment - show change
+                console.log('[PosStagedPayment] Overpayment! Change:', Math.abs(data.remainder));
                 handlePaymentComplete(Math.abs(data.remainder));
             }
         } catch (error) {
+            console.error('[PosStagedPayment] Error:', error);
             showError('Terjadi kesalahan: ' + error.message);
         } finally {
             setProcessing(false);
         }
     }
 
+    // Task 2.1: Create validateAmountForMethod() function that checks is_cash flag
+    function validateAmountForMethod(amount, remainder, method) {
+        if (!method) return false;
+
+        // Task 2.2: Cash validation rule - amount >= remainder (allow overpayment)
+        if (method.is_cash) {
+            return amount >= remainder;
+        }
+
+        // Task 2.3: Non-cash validation rule - amount <= remainder (no overpayment)
+        return amount <= remainder;
+    }
+
     // Task 4.4: Validate before payment submission
     function validateBeforeSubmit() {
-        const amount = Number(stagedAmountInput?.value || 0);
+        // Task 2.5: Use raw value from dataset
+        const amount = Number(stagedAmountInput?.dataset.rawValue || stagedAmountInput?.value || 0);
         const remainder = paymentChain?.remainder || 0;
 
         if (amount <= 0) {
@@ -425,20 +493,31 @@ window.PosStagedPayment = (function () {
             return false;
         }
 
-        if (amount > remainder && remainder > 0) {
-            showError(`Jumlah pembayaran tidak boleh lebih dari sisa ${formatPrice(remainder)}`);
-            return false;
+        // Task 2.4 & 2.5: Call validation function with method-specific error messages
+        if (selectedPaymentMethod) {
+            if (!validateAmountForMethod(amount, remainder, selectedPaymentMethod)) {
+                if (selectedPaymentMethod.is_cash) {
+                    showError(`Jumlah pembayaran tunai harus minimal ${formatPrice(remainder)} untuk melunasi`);
+                } else {
+                    showError(`Jumlah pembayaran tidak boleh lebih dari sisa ${formatPrice(remainder)}`);
+                }
+                return false;
+            }
         }
 
         if (selectedPaymentMethod && !selectedPaymentMethod.is_cash && selectedPaymentMethod.requires_reference) {
             const reference = stagedEdcReferenceInput?.value.trim() || '';
             if (!reference) {
                 showError('Nomor referensi EDC wajib diisi');
+                // Task 3.3: Ensure EDC reference field gets focus when error occurs
+                if (stagedEdcReferenceInput) stagedEdcReferenceInput.focus();
                 return false;
             }
 
             if (!/^[a-zA-Z0-9]{1,20}$/.test(reference)) {
                 showError('Format nomor referensi tidak valid');
+                // Task 3.3: Ensure EDC reference field gets focus when error occurs
+                if (stagedEdcReferenceInput) stagedEdcReferenceInput.focus();
                 return false;
             }
         }
@@ -450,7 +529,10 @@ window.PosStagedPayment = (function () {
     function resetStageForm() {
         selectedPaymentMethod = null;
         if (stagedMethodSearchInput) stagedMethodSearchInput.value = '';
-        if (stagedAmountInput) stagedAmountInput.value = '';
+        if (stagedAmountInput) {
+            stagedAmountInput.value = '';
+            stagedAmountInput.dataset.rawValue = '';
+        }
         if (stagedEdcReferenceInput) stagedEdcReferenceInput.value = '';
         updateEdcReferenceVisibility();
         updateStageValidation();
@@ -475,9 +557,58 @@ window.PosStagedPayment = (function () {
         if (closeButton) closeButton.style.display = isProcessing ? 'none' : 'block';
     }
 
+    // Finalize checkout when all payments are received
+    async function finalizeCheckout() {
+        if (!paymentChain) {
+            showError('Payment chain is missing');
+            return;
+        }
+
+        setProcessing(true);
+        clearErrors();
+
+        try {
+            const payload = {
+                cart_token: paymentChain.cart_token,
+                idempotency_key: `FINALIZE-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            };
+
+            console.log('[PosStagedPayment] Finalizing checkout:', payload);
+
+            const response = await fetch('/pos/sell/checkout/finalize', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const data = await response.json();
+            console.log('[PosStagedPayment] Finalize response:', { status: response.status, ok: response.ok, data });
+
+            if (!response.ok) {
+                showError(data.message || 'Gagal menyelesaikan pembayaran');
+                return;
+            }
+
+            // Get change amount from response
+            const changeAmount = Math.abs(data.change_total || 0);
+            console.log('[PosStagedPayment] Checkout finalized! Change:', changeAmount);
+
+            handlePaymentComplete(changeAmount);
+        } catch (error) {
+            console.error('[PosStagedPayment] Finalize error:', error);
+            showError('Terjadi kesalahan saat menyelesaikan pembayaran: ' + error.message);
+        } finally {
+            setProcessing(false);
+        }
+    }
+
     // Task 6.5: Handle payment completion
     function handlePaymentComplete(changeAmount) {
         state = States.COMPLETE;
+        console.log('[PosStagedPayment] Payment complete, change:', changeAmount);
 
         if (stagedModalElement) {
             $(stagedModalElement).modal('hide');
@@ -485,16 +616,24 @@ window.PosStagedPayment = (function () {
 
         // Show gratitude modal with change amount
         showGratitudeModal(changeAmount);
+
+        // Invoke the completion callback if registered
+        if (onCompleteCallback) {
+            console.log('[PosStagedPayment] Calling onCompleteCallback');
+            onCompleteCallback(changeAmount);
+        }
     }
 
     // Public API: set callback to be invoked when all payment stages are complete
     function setOnComplete(callback) {
+        console.log('[PosStagedPayment] setOnComplete callback registered');
         onCompleteCallback = callback;
     }
 
     // Task 6.4 & 6.5: Show gratitude modal
     function showGratitudeModal(changeAmount) {
         const modal = document.getElementById('pos-gratitude-modal');
+        console.log('[PosStagedPayment] Showing gratitude modal:', !!modal, 'changeAmount:', changeAmount);
         if (!modal) return;
 
         const changeLabel = modal.querySelector('#gratitude-change-amount');
@@ -506,6 +645,7 @@ window.PosStagedPayment = (function () {
             }
         }
 
+        console.log('[PosStagedPayment] Calling modal.show()');
         $(modal).modal('show');
     }
 
@@ -582,6 +722,77 @@ window.PosStagedPayment = (function () {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // Task 2.1: Format number for display with Indonesian thousand separators
+    function formatNumberForDisplay(num) {
+        const parsed = Number(num) || 0;
+        return new Intl.NumberFormat('id-ID').format(parsed);
+    }
+
+    // Task 2.2 & 2.3: Setup amount input formatter with real-time formatting
+    // This formatter maintains numeric accuracy by storing raw values separately from display
+    // The !important override in input styling ensures white background visibility in the modal
+    function setupAmountInputFormatter() {
+        if (!stagedAmountInput) return;
+
+        stagedAmountInput.addEventListener('input', function (e) {
+            // Strip non-digits from input to get raw numeric value
+            const rawValue = this.value.replace(/\D/g, '');
+
+            // Store raw numeric value in dataset attribute for form submission
+            // This ensures the backend receives accurate numeric values (no formatted strings)
+            this.dataset.rawValue = rawValue;
+
+            // Display formatted value with thousand separators (Indonesian locale)
+            // User sees: 150000 → 150.000 but backend receives: 150000
+            if (rawValue) {
+                this.value = formatNumberForDisplay(rawValue);
+            } else {
+                this.value = '';
+            }
+
+            // Trigger validation after formatting to update button state
+            updateStageValidation();
+        });
+    }
+
+    // Task 3.4 & 3.5 & 3.6: Setup quick-add buttons
+    function setupQuickAddButtons() {
+        const quickAddButtons = document.querySelectorAll('.js-quick-add');
+        const quickAddRemainderBtn = document.querySelector('.js-quick-add-remainder');
+
+        // Task 3.5: Handle increment buttons
+        quickAddButtons.forEach(button => {
+            button.addEventListener('click', function () {
+                const amount = Number(this.dataset.amount) || 0;
+                const currentRaw = Number(stagedAmountInput.dataset.rawValue || 0);
+                const newRaw = currentRaw + amount;
+
+                // Update raw value and display formatted
+                stagedAmountInput.dataset.rawValue = newRaw;
+                stagedAmountInput.value = formatNumberForDisplay(newRaw);
+
+                // Trigger validation
+                updateStageValidation();
+            });
+        });
+
+        // Task 3.6: Handle remainder button
+        if (quickAddRemainderBtn) {
+            quickAddRemainderBtn.addEventListener('click', function () {
+                if (!paymentChain) return;
+
+                const remainder = Number(paymentChain.remainder) || 0;
+
+                // Fill with exact remainder
+                stagedAmountInput.dataset.rawValue = remainder;
+                stagedAmountInput.value = formatNumberForDisplay(remainder);
+
+                // Trigger validation
+                updateStageValidation();
+            });
+        }
     }
 
     // Public API
