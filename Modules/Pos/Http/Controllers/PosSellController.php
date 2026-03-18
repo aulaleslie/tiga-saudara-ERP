@@ -643,7 +643,7 @@ class PosSellController extends Controller
                         $mappedPayments[] = [
                             'payment_method_id' => $payment['method_id'] ?? null,
                             'amount_paid' => $payment['amount'] ?? 0,
-                            'edc_reference' => $payment['edc_reference'] ?? null,
+                            'reference' => $payment['edc_reference'] ?? null,
                             'stage_order' => $payment['stage_order'] ?? null,
                         ];
                     }

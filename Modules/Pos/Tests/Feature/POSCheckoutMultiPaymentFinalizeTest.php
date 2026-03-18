@@ -52,7 +52,7 @@ class POSCheckoutMultiPaymentFinalizeTest extends POSCheckoutFinalizeIdempotency
             ->assertJsonPath('change_total', 0.0);
 
         // Task 6.1: Verify payment entries were created
-        $checkout = PosCheckout::where('idempotency_key', 'MP-MIXED-001')->first();
+        $checkout = PosCheckout::where('idempotency_key', strtolower('MP-MIXED-001'))->first();
         $this->assertNotNull($checkout);
         $this->assertEquals(2, $checkout->payments()->count());
 

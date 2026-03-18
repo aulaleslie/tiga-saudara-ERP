@@ -43,13 +43,52 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $payment = is_array($context['payment'] ?? null) ? $context['payment'] : [];
         $isMultiPayment = (bool) ($payment['is_multi_payment'] ?? false);
 
+        // Extract original (reordered) payment array for slicing
+        $reorderedPayments = [];
+        if ($isMultiPayment && $this->ownershipAllocationService) {
+            // Need to reorder payments the same way allocation service does (non-cash first, then cash)
+            $allPayments = $payment['payments'] ?? [];
+            $nonCash = [];
+            $cash = [];
+            foreach ($allPayments as $p) {
+                if ((bool) ($p['is_cash'] ?? false)) {
+                    $cash[] = $p;
+                } else {
+                    $nonCash[] = $p;
+                }
+            }
+            $reorderedPayments = array_merge($nonCash, $cash);
+        }
+
         if ($isMultiPayment && $this->ownershipAllocationService) {
             // Multi-payment: use ownership-priority allocation
-            $paymentAllocations = $this->allocateMultiPayment(
-                $payment,
-                $groups,
-                (int) ($context['setting_id'] ?? 0)
-            );
+            $allocationResult = $this->ownershipAllocationService->allocate([
+                'payments' => array_map(static fn (array $p) => [
+                    'payment_method_id' => (int) $p['payment_method_id'],
+                    'amount_minor_units' => (int) $p['amount_minor_units'],
+                    'is_cash' => (bool) $p['is_cash'],
+                ], $reorderedPayments),
+                'groups' => array_map(fn (array $g) => [
+                    'split_key' => (string) ($g['split_key'] ?? ''),
+                    'source_setting_id' => (int) ($g['source_setting_id'] ?? 0),
+                    'grand_total_minor' => $this->toMinor((float) ($g['grand_total'] ?? 0)),
+                ], $groups),
+                'terminal_setting_id' => (int) ($context['setting_id'] ?? 0),
+            ]);
+
+            // Extract per-group payment slices
+            $paymentSlices = $this->slicePaymentsPerGroup($allocationResult['allocations'] ?? [], $reorderedPayments);
+
+            // Convert allocations to flat map for paid_total calculation
+            $paymentAllocations = [];
+            foreach ($groups as $group) {
+                $paymentAllocations[(string) ($group['split_key'] ?? '')] = 0.0;
+            }
+            foreach ($allocationResult['allocations'] ?? [] as $allocation) {
+                $splitKey = (string) ($allocation['split_key'] ?? '');
+                $amountMinor = (int) ($allocation['allocated_amount_minor_units'] ?? 0);
+                $paymentAllocations[$splitKey] = ($paymentAllocations[$splitKey] ?? 0) + $this->fromMinor($amountMinor);
+            }
         } else {
             // Legacy single-payment: use simple proportional allocation
             $paymentAllocations = $this->paymentSplitService->allocate(
@@ -59,6 +98,7 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 ], $groups),
                 $checkoutGrandTotal
             );
+            $paymentSlices = [];
         }
 
         $splitGroups = [];
@@ -101,6 +141,25 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 ],
             ];
             $groupContext['allocations'] = is_array($group['allocations'] ?? null) ? $group['allocations'] : [];
+
+            // Task 3.2 & 3.3: Inject per-group payment slices into groupContext for multi-payment
+            if ($isMultiPayment && isset($paymentSlices[$splitKey])) {
+                // Create a new payment array for this group with only its allocated payments
+                $groupPayment = is_array($payment) ? $payment : [];
+                $groupPayment['payments'] = $paymentSlices[$splitKey];
+                // Preserve required fields from original payment
+                $groupPayment['is_multi_payment'] = true;
+                $groupPayment['amount_paid'] = (float) ($payment['amount_paid'] ?? 0);
+                $groupPayment['total_cash_minor_units'] = (int) ($payment['total_cash_minor_units'] ?? 0);
+                // Use first payment's method and reference for backward compatibility
+                if (isset($paymentSlices[$splitKey][0])) {
+                    $firstPayment = $paymentSlices[$splitKey][0];
+                    $groupPayment['payment_method_id'] = (int) ($firstPayment['payment_method_id'] ?? 0);
+                    $groupPayment['reference'] = $firstPayment['reference'] ?? null;
+                    $groupPayment['is_cash'] = (bool) ($firstPayment['is_cash'] ?? false);
+                }
+                $groupContext['payment'] = $groupPayment;
+            }
 
             $result = $this->inlinePostingAdapter->post($groupContext);
             $dispatchIds = array_values(array_map(
@@ -191,43 +250,74 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
     }
 
     /**
-     * Allocate multi-payment across split groups using ownership-priority logic.
+     * Extract per-group payment slices from the allocation matrix.
      *
-     * @param  array{payments: array, is_multi_payment: bool}  $payment
-     * @param  array<int, array>  $groups
-     * @param  int  $terminalSettingId
-     * @return array<string, float>
+     * Returns an array where each group gets only the payment methods allocated to it,
+     * with amounts already determined by the allocation matrix.
+     *
+     * @param  array<int, array{payment_index:int,split_key:string,allocated_amount_minor_units:int}>  $allocations
+     * @param  array<int, array{payment_method_id:int,amount_minor_units:int,is_cash:bool,reference?:string}>  $originalPayments
+     * @return array<string, array<int, array{payment_method_id:int,amount_minor_units:int,is_cash:bool,reference?:string}>>
      */
-    private function allocateMultiPayment(array $payment, array $groups, int $terminalSettingId): array
+    private function slicePaymentsPerGroup(array $allocations, array $originalPayments): array
     {
-        $allocationResult = $this->ownershipAllocationService->allocate([
-            'payments' => array_map(static fn (array $p) => [
-                'payment_method_id' => (int) $p['payment_method_id'],
-                'amount_minor_units' => (int) $p['amount_minor_units'],
-                'is_cash' => (bool) $p['is_cash'],
-            ], $payment['payments'] ?? []),
-            'groups' => array_map(fn (array $g) => [
-                'split_key' => (string) ($g['split_key'] ?? ''),
-                'source_setting_id' => (int) ($g['source_setting_id'] ?? 0),
-                'grand_total_minor' => $this->toMinor((float) ($g['grand_total'] ?? 0)),
-            ], $groups),
-            'terminal_setting_id' => $terminalSettingId,
-        ]);
+        $slices = [];
 
-        // Convert allocations from array of {payment_index, split_key, allocated_amount_minor_units}
-        // to array of {split_key => allocated_amount} for compatibility with existing code
-        $allocations = [];
-        foreach ($groups as $group) {
-            $allocations[(string) ($group['split_key'] ?? '')] = 0.0;
-        }
-
-        foreach ($allocationResult['allocations'] ?? [] as $allocation) {
+        // Group allocations by split_key
+        $allocationsByGroup = [];
+        foreach ($allocations as $allocation) {
             $splitKey = (string) ($allocation['split_key'] ?? '');
+            $paymentIndex = (int) ($allocation['payment_index'] ?? 0);
             $amountMinor = (int) ($allocation['allocated_amount_minor_units'] ?? 0);
-            $allocations[$splitKey] = ($allocations[$splitKey] ?? 0) + $this->fromMinor($amountMinor);
+
+            if (!isset($allocationsByGroup[$splitKey])) {
+                $allocationsByGroup[$splitKey] = [];
+            }
+
+            $allocationsByGroup[$splitKey][] = [
+                'payment_index' => $paymentIndex,
+                'amount_minor_units' => $amountMinor,
+            ];
         }
 
-        return $allocations;
+        // Build per-group payment slices
+        foreach ($allocationsByGroup as $splitKey => $groupAllocations) {
+            $slices[$splitKey] = [];
+
+            // Group allocations by payment_index to collect all amounts for a single payment method
+            $allocationsByPaymentIndex = [];
+            foreach ($groupAllocations as $alloc) {
+                $paymentIndex = (int) ($alloc['payment_index'] ?? 0);
+                $amountMinor = (int) ($alloc['amount_minor_units'] ?? 0);
+
+                if (!isset($allocationsByPaymentIndex[$paymentIndex])) {
+                    $allocationsByPaymentIndex[$paymentIndex] = 0;
+                }
+
+                $allocationsByPaymentIndex[$paymentIndex] += $amountMinor;
+            }
+
+            // Create payment entries from allocations
+            foreach ($allocationsByPaymentIndex as $paymentIndex => $totalAmountMinor) {
+                if ($totalAmountMinor <= 0) {
+                    continue;
+                }
+
+                $originalPayment = $originalPayments[$paymentIndex] ?? null;
+                if (!$originalPayment) {
+                    continue;
+                }
+
+                $slices[$splitKey][] = [
+                    'payment_method_id' => (int) ($originalPayment['payment_method_id'] ?? 0),
+                    'amount_minor_units' => $totalAmountMinor,
+                    'is_cash' => (bool) ($originalPayment['is_cash'] ?? false),
+                    'reference' => $originalPayment['reference'] ?? null,
+                ];
+            }
+        }
+
+        return $slices;
     }
 
     private function toMinor(float $value): int

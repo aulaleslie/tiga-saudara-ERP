@@ -361,20 +361,55 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'is_tax_included' => $totalPostedTaxTotal > 0,
         ]);
 
-        $salePayment = SalePayment::query()->create([
-            'sale_id' => $sale->id,
-            'amount' => $totalPostedGrandTotal,
-            'date' => now()->toDateString(),
-            'reference' => $sale->reference,
-            'payment_method' => strtoupper($paymentMethod->name ?? 'CUSTOM'),
-            'note' => $paymentReference,
-            'payment_method_id' => $paymentMethodId,
-        ]);
+        // Create SalePayment(s)
+        $lastSalePaymentId = null;
+
+        if ($isMultiPayment) {
+            // Create one SalePayment per payment method
+            $payments = is_array($payment['payments'] ?? null) ? $payment['payments'] : [];
+
+            foreach ($payments as $paymentEntry) {
+                $entryAmount = (float) ($paymentEntry['amount_minor_units'] ?? 0) / 100;
+
+                // Task 3.4: Skip creating SalePayment for any payment entry with amount ≤ 0
+                if ($entryAmount <= 0) {
+                    continue;
+                }
+
+                $entryPaymentMethodId = (int) ($paymentEntry['payment_method_id'] ?? 0);
+                $entryPaymentMethod = PaymentMethod::query()->find($entryPaymentMethodId);
+
+                $salePayment = SalePayment::query()->create([
+                    'sale_id' => $sale->id,
+                    'amount' => $entryAmount,
+                    'date' => now()->toDateString(),
+                    'reference' => $sale->reference,
+                    'payment_method' => strtoupper($entryPaymentMethod?->name ?? 'CUSTOM'),
+                    'note' => $paymentEntry['reference'] ?? null,
+                    'payment_method_id' => $entryPaymentMethodId,
+                ]);
+
+                $lastSalePaymentId = (int) $salePayment->id;
+            }
+        } else {
+            // Single-payment: keep existing logic (one SalePayment per sale)
+            $salePayment = SalePayment::query()->create([
+                'sale_id' => $sale->id,
+                'amount' => $totalPostedGrandTotal,
+                'date' => now()->toDateString(),
+                'reference' => $sale->reference,
+                'payment_method' => strtoupper($paymentMethod->name ?? 'CUSTOM'),
+                'note' => $paymentReference,
+                'payment_method_id' => $paymentMethodId,
+            ]);
+
+            $lastSalePaymentId = (int) $salePayment->id;
+        }
 
         return [
             'sale_id' => (int) $sale->id,
             'dispatch_ids' => [(int) $dispatch->id],
-            'sale_payment_id' => (int) $salePayment->id,
+            'sale_payment_id' => $lastSalePaymentId,
             'receipt_number' => (string) $sale->reference,
             'actual_tax_total' => (float) $totalPostedTaxTotal,
             'actual_grand_total' => (float) $totalPostedGrandTotal,

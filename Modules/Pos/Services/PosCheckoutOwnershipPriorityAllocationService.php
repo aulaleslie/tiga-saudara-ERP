@@ -9,6 +9,12 @@ class PosCheckoutOwnershipPriorityAllocationService
     /**
      * Allocate multi-payment across split groups with ownership-priority logic.
      *
+     * Allocation strategy:
+     * - Cash payments: allocated to non-terminal-owned groups first (respects ownership),
+     *   then overflow to terminal-owned groups proportionally.
+     * - Non-cash payments: allocated to terminal-owned groups first,
+     *   then overflow to other groups proportionally.
+     *
      * @param  array{
      *     payments: array<int, array{payment_method_id:int,amount_minor_units:int,is_cash:bool}>,
      *     groups: array<int, array{
@@ -54,7 +60,7 @@ class PosCheckoutOwnershipPriorityAllocationService
             $checkoutGrandTotalMinor += $grandTotalMinor;
         }
 
-        // Track which groups are terminal-owned
+        // Track which groups are terminal-owned vs non-terminal-owned
         $terminalOwnedGroups = array_filter(
             $groups,
             fn(array $g) => (int) ($g['source_setting_id'] ?? 0) === $terminalSettingId
@@ -62,6 +68,12 @@ class PosCheckoutOwnershipPriorityAllocationService
         $terminalOwnedKeys = array_map(
             fn(array $g) => (string) ($g['split_key'] ?? ''),
             $terminalOwnedGroups
+        );
+
+        // Non-terminal-owned groups (all other groups)
+        $nonTerminalOwnedKeys = array_filter(
+            array_map(fn(array $g) => (string) ($g['split_key'] ?? ''), $groups),
+            fn(string $key) => !in_array($key, $terminalOwnedKeys)
         );
 
         $allocations = [];
@@ -76,16 +88,27 @@ class PosCheckoutOwnershipPriorityAllocationService
             }
 
             if ($isCash) {
-                // Cash: allocate to remaining balances proportionally
-                $this->allocateProportionally(
+                // Cash: allocate to non-terminal-owned groups first (ownership priority)
+                $remainingAmount = $this->allocateToGroups(
                     $paymentIndex,
                     $paymentAmountMinor,
+                    $nonTerminalOwnedKeys,
                     $groupBalances,
                     $allocations
                 );
+
+                // Cash overflow: allocate remaining proportionally
+                if ($remainingAmount > 0) {
+                    $this->allocateProportionally(
+                        $paymentIndex,
+                        $remainingAmount,
+                        $groupBalances,
+                        $allocations
+                    );
+                }
             } else {
                 // Non-cash: allocate to terminal-owned groups first
-                $remainingAmount = $this->allocateToTerminalOwned(
+                $remainingAmount = $this->allocateToGroups(
                     $paymentIndex,
                     $paymentAmountMinor,
                     $terminalOwnedKeys,
@@ -147,25 +170,25 @@ class PosCheckoutOwnershipPriorityAllocationService
     }
 
     /**
-     * Allocate non-cash payment to terminal-owned groups first.
+     * Allocate payment to specific group keys first.
      *
      * @param  int  $paymentIndex
      * @param  int  $paymentAmountMinor
-     * @param  array<string, int>  $terminalOwnedKeys
+     * @param  array<string>  $groupKeys  Group split keys to allocate to
      * @param  array<string, int>  &$groupBalances
      * @param  array<int, array>  &$allocations
      * @return int  Remaining amount not allocated
      */
-    private function allocateToTerminalOwned(
+    private function allocateToGroups(
         int $paymentIndex,
         int $paymentAmountMinor,
-        array $terminalOwnedKeys,
+        array $groupKeys,
         array &$groupBalances,
         array &$allocations
     ): int {
         $remainingAmount = $paymentAmountMinor;
 
-        foreach ($terminalOwnedKeys as $splitKey) {
+        foreach ($groupKeys as $splitKey) {
             if ($remainingAmount <= 0) {
                 break;
             }

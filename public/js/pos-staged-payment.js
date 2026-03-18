@@ -93,7 +93,10 @@ window.PosStagedPayment = (function () {
         }
 
         if (stagedEdcReferenceInput) {
-            stagedEdcReferenceInput.addEventListener('input', validateEdcReferenceRealtime);
+            stagedEdcReferenceInput.addEventListener('input', function(event) {
+                validateEdcReferenceRealtime(event);
+                updateStageValidation();
+            });
         }
 
         if (stagedSubmitButton) {
@@ -237,29 +240,14 @@ window.PosStagedPayment = (function () {
         }
     }
 
-    // Task 3.6: Real-time EDC reference validation
-    async function validateEdcReferenceRealtime(event) {
+    // Task 3.6: Real-time EDC reference validation - only check "not empty"
+    function validateEdcReferenceRealtime(event) {
         const reference = event.target.value.trim();
-        if (!reference) return;
 
-        try {
-            const response = await fetch('/api/pos/sell/checkout/validate-edc-reference', {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ reference }),
-            });
-
-            const data = await response.json();
-            if (!data.valid) {
-                stagedEdcReferenceInput.classList.add('is-invalid');
-            } else {
-                stagedEdcReferenceInput.classList.remove('is-invalid');
-            }
-        } catch (error) {
-            console.error('EDC reference validation error:', error);
+        if (!reference) {
+            stagedEdcReferenceInput.classList.add('is-invalid');
+        } else {
+            stagedEdcReferenceInput.classList.remove('is-invalid');
         }
     }
 
@@ -513,13 +501,6 @@ window.PosStagedPayment = (function () {
                 if (stagedEdcReferenceInput) stagedEdcReferenceInput.focus();
                 return false;
             }
-
-            if (!/^[a-zA-Z0-9]{1,20}$/.test(reference)) {
-                showError('Format nomor referensi tidak valid');
-                // Task 3.3: Ensure EDC reference field gets focus when error occurs
-                if (stagedEdcReferenceInput) stagedEdcReferenceInput.focus();
-                return false;
-            }
         }
 
         return true;
@@ -639,7 +620,7 @@ window.PosStagedPayment = (function () {
         const changeLabel = modal.querySelector('#gratitude-change-amount');
         if (changeLabel) {
             if (changeAmount > 0) {
-                changeLabel.textContent = `Kembalian: ${formatPrice(changeAmount)}`;
+                changeLabel.textContent = `Total Kembalian: ${formatPrice(changeAmount)}`;
             } else {
                 changeLabel.textContent = '';
             }

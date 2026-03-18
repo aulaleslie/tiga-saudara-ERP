@@ -20,14 +20,14 @@ class POSCheckoutOwnershipPriorityAllocationTest extends TestCase
     }
 
     /**
-     * Scenario 1: Non-cash < Terminal-owner share
-     * Cash should fill remaining balances proportionally.
+     * Scenario 1: Non-cash < Terminal-owner share, Cash goes to non-terminal-owned first
+     * Cash should fill non-terminal-owned groups first, then overflow proportionally.
      */
     public function test_non_cash_less_than_terminal_owner_share()
     {
         // Total: 30000 + 30000 = 60000
-        // Payments: 1000 non-cash + 50000 cash = 51000 (should be 60000)
-        // Let's use: 1000 non-cash + 59000 cash = 60000
+        // Payments: 1000 non-cash + 59000 cash = 60000
+        // Setting1 is terminal-owned, Setting2 is non-terminal-owned
         $context = [
             'terminal_setting_id' => 1,
             'payments' => [
@@ -35,8 +35,8 @@ class POSCheckoutOwnershipPriorityAllocationTest extends TestCase
                 ['payment_method_id' => 1, 'amount_minor_units' => 5900000, 'is_cash' => true],    // 59000 cash
             ],
             'groups' => [
-                ['split_key' => 'setting1', 'source_setting_id' => 1, 'grand_total_minor' => 3000000],
-                ['split_key' => 'setting2', 'source_setting_id' => 2, 'grand_total_minor' => 3000000],
+                ['split_key' => 'setting1', 'source_setting_id' => 1, 'grand_total_minor' => 3000000],  // Terminal-owned
+                ['split_key' => 'setting2', 'source_setting_id' => 2, 'grand_total_minor' => 3000000],  // Non-terminal-owned
             ],
         ];
 
@@ -51,15 +51,15 @@ class POSCheckoutOwnershipPriorityAllocationTest extends TestCase
         $setting2NonCash = $this->getPaymentGroupAllocation($allocations, 0, 'setting2');
         $this->assertEquals(0, $setting2NonCash);
 
-        // Cash (59000 = 5900000 minor units) should split proportionally: Setting1 needs 29000, Setting2 needs 30000
-        // Ratio: 29000:30000
-        // Setting1 gets: 5900000 × (29/59) = 2900000
-        // Setting2 gets: 5900000 × (30/59) = 3000000
+        // Cash (59000 = 5900000 minor units) should go to non-terminal-owned first (setting2 needs 30000)
+        // Then overflow proportionally to remaining groups
+        // Setting2 gets 30000 from cash, then need 29000 more from cash
+        // Remaining: 59000 - 30000 = 29000 goes proportionally to setting1
         $setting1Cash = $this->getPaymentGroupAllocation($allocations, 1, 'setting1');
         $setting2Cash = $this->getPaymentGroupAllocation($allocations, 1, 'setting2');
 
-        $this->assertEquals(2900000, $setting1Cash);
-        $this->assertEquals(3000000, $setting2Cash);
+        $this->assertEquals(2900000, $setting1Cash);   // 29000
+        $this->assertEquals(3000000, $setting2Cash);   // 30000
 
         // Validate totals
         $this->assertEquals(3000000, 100000 + $setting1Cash);  // setting1 total
@@ -71,13 +71,14 @@ class POSCheckoutOwnershipPriorityAllocationTest extends TestCase
     }
 
     /**
-     * Scenario 2: Non-cash > Terminal-owner share
-     * Non-cash overflow should be allocated proportionally.
+     * Scenario 2: Non-cash > Terminal-owner share, Cash goes to non-terminal-owned first
+     * Non-cash overflow should be allocated proportionally. Cash goes to non-terminal first.
      */
     public function test_non_cash_greater_than_terminal_owner_share()
     {
         // Total: 30000 + 30000 = 60000
         // Payments: 50000 non-cash + 10000 cash = 60000
+        // Setting1 is terminal-owned, Setting2 is non-terminal-owned
         $context = [
             'terminal_setting_id' => 1,
             'payments' => [
@@ -85,8 +86,8 @@ class POSCheckoutOwnershipPriorityAllocationTest extends TestCase
                 ['payment_method_id' => 1, 'amount_minor_units' => 1000000, 'is_cash' => true],  // 10000 cash
             ],
             'groups' => [
-                ['split_key' => 'setting1', 'source_setting_id' => 1, 'grand_total_minor' => 3000000],
-                ['split_key' => 'setting2', 'source_setting_id' => 2, 'grand_total_minor' => 3000000],
+                ['split_key' => 'setting1', 'source_setting_id' => 1, 'grand_total_minor' => 3000000],  // Terminal-owned
+                ['split_key' => 'setting2', 'source_setting_id' => 2, 'grand_total_minor' => 3000000],  // Non-terminal-owned
             ],
         ];
 
@@ -101,7 +102,7 @@ class POSCheckoutOwnershipPriorityAllocationTest extends TestCase
         $setting2NonCash = $this->getPaymentGroupAllocation($allocations, 0, 'setting2');
         $this->assertEquals(2000000, $setting2NonCash);
 
-        // Cash (10000) goes to setting2 (still needs 10000)
+        // Cash (10000): goes to non-terminal-owned first (setting2 still needs 10000)
         $setting1Cash = $this->getPaymentGroupAllocation($allocations, 1, 'setting1');
         $setting2Cash = $this->getPaymentGroupAllocation($allocations, 1, 'setting2');
 
