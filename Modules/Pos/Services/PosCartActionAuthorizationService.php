@@ -9,8 +9,7 @@ use Modules\Pos\Entities\PosActionApprovalRequest;
 class PosCartActionAuthorizationService
 {
     public function __construct(
-        private readonly PosApprovalTokenService $tokenService,
-        private readonly PosRolePolicyService $rolePolicyService
+        private readonly PosApprovalTokenService $tokenService
     ) {
     }
 
@@ -28,12 +27,6 @@ class PosCartActionAuthorizationService
         };
 
         $hasDirectPermission = $user->can($permission);
-        if ($actionType === PosActionApprovalRequest::ACTION_PRICE_OVERRIDE && $hasDirectPermission) {
-            $role = $this->rolePolicyService->detectRole($user);
-            if (in_array($role, [PosRolePolicyService::ROLE_FLOOR_STAFF, PosRolePolicyService::ROLE_CASHIER_STAFF], true)) {
-                $hasDirectPermission = false;
-            }
-        }
 
         if ($hasDirectPermission) {
             return [

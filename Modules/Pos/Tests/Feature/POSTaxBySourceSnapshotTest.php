@@ -57,6 +57,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.checkout.payment',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -74,7 +75,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         // 2. Setup Terminal Business (Non-PKP Borrower)
         $borrowerSetting = $this->createSetting('TERMINAL-NON-PKP-BIZ', false);
         $terminal = $this->createTerminalForSetting($borrowerSetting, $sourceLocation->id);
-        $cashier = $this->createUserForSetting($borrowerSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $cashier = $this->createUserForSetting($borrowerSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment']);
         $customer = $this->assignDefaultWalkInCustomer($borrowerSetting);
         $methods = $this->seedPaymentMethods($borrowerSetting);
         $this->assignSaleLocation($borrowerSetting, $sourceLocation);
@@ -135,7 +136,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         // 2. Setup Terminal Business (PKP Borrower)
         $borrowerSetting = $this->createSetting('TERMINAL-PKP-BIZ', true);
         $terminal = $this->createTerminalForSetting($borrowerSetting, $sourceLocation->id);
-        $cashier = $this->createUserForSetting($borrowerSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $cashier = $this->createUserForSetting($borrowerSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment']);
         $customer = $this->assignDefaultWalkInCustomer($borrowerSetting);
         $methods = $this->seedPaymentMethods($borrowerSetting);
         $this->assignSaleLocation($borrowerSetting, $sourceLocation);
@@ -198,7 +199,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         // 2. Setup Terminal Business (PKP)
         $terminalSetting = $this->createSetting('TERMINAL-BIZ', true);
         $terminal = $this->createTerminalForSetting($terminalSetting, $locPKP->id);
-        $cashier = $this->createUserForSetting($terminalSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $cashier = $this->createUserForSetting($terminalSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment']);
         $customer = $this->assignDefaultWalkInCustomer($terminalSetting);
         $methods = $this->seedPaymentMethods($terminalSetting);
         
@@ -276,7 +277,7 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $setting = $this->createSetting('STABILITY-BIZ', true);
         $location = $this->createLocation($setting, 'LOC-1');
         $terminal = $this->createTerminalForSetting($setting, $location->id);
-        $cashier = $this->createUserForSetting($setting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $cashier = $this->createUserForSetting($setting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment']);
         $customer = $this->assignDefaultWalkInCustomer($setting);
         $methods = $this->seedPaymentMethods($setting);
         $this->assignSaleLocation($setting, $location);

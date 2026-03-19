@@ -148,7 +148,13 @@ class PosSessionController extends Controller
 
         toast('POS session opened successfully.', 'success');
 
-        return redirect()->route('pos.sell');
+        // Redirect based on user permissions
+        $user = auth()->user();
+        if ($user->can('pos.sell')) {
+            return redirect()->route('pos.sell');
+        }
+
+        return redirect()->route('pos.sessions.index');
     }
 
     public function summary(int $session, PosSessionSummaryService $sessionSummaryService): JsonResponse
@@ -660,13 +666,21 @@ class PosSessionController extends Controller
                 'message' => $exception->getMessage(),
             ], 403);
         } catch (DomainException $exception) {
+            $message = $exception->getMessage();
+            $payload = [
+                'message' => $message,
+            ];
+
+            if (str_contains(strtolower($message), 'terminal policy is missing')) {
+                $payload['error_code'] = 'terminal_policy_missing';
+            }
+
             \Illuminate\Support\Facades\Log::channel('single')->warning('POS Finalize Session: Domain error', [
                 'session_id' => $session,
-                'error' => $exception->getMessage(),
+                'error' => $message,
             ]);
-            return response()->json([
-                'message' => $exception->getMessage(),
-            ], 422);
+
+            return response()->json($payload, 422);
         }
 
         if ((bool) ($result['blocked'] ?? false)) {

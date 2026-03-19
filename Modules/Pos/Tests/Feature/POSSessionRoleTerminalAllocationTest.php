@@ -40,15 +40,17 @@ class POSSessionRoleTerminalAllocationTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.sessions.require-terminal',
+            'pos.checkout.payment',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
     }
 
-    public function test_floor_staff_can_open_session_without_terminal_selection(): void
+    public function test_user_without_terminal_required_permission_can_open_session_without_terminal(): void
     {
-        $setting = $this->createSetting('ROLE FLOOR SETTING');
-        $user = $this->createUserForSetting($setting, 'Floor Staff', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $setting = $this->createSetting('PERM NO TERMINAL REQUIRED');
+        $user = $this->createUserForSetting($setting, 'Permission Helper', ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $this->createTerminalForSetting($setting);
         $this->enablePaymentMethodForSetting($setting);
 
@@ -58,41 +60,26 @@ class POSSessionRoleTerminalAllocationTest extends TestCase
             $setting->id,
             null,
             $user->id,
-            100000,
-            ['100000' => 1],
-            $user->id
-        );
-
-        $this->assertSame('OPEN', $session->status);
-        $this->assertNull($session->terminal_id);
-    }
-
-    public function test_store_manager_can_open_session_without_terminal_selection(): void
-    {
-        $setting = $this->createSetting('ROLE MANAGER SETTING');
-        $user = $this->createUserForSetting($setting, 'Store Manager', ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $this->createTerminalForSetting($setting);
-        $this->enablePaymentMethodForSetting($setting);
-
-        /** @var PosSessionLifecycleService $service */
-        $service = app(PosSessionLifecycleService::class);
-        $session = $service->openSession(
-            $setting->id,
+            0,
             null,
-            $user->id,
-            100000,
-            ['100000' => 1],
             $user->id
         );
 
         $this->assertSame('OPEN', $session->status);
         $this->assertNull($session->terminal_id);
+        $this->assertSame(0.0, (float) $session->opening_float_total);
     }
 
-    public function test_cashier_role_requires_terminal_selection(): void
+    public function test_user_with_terminal_required_permission_must_select_terminal(): void
     {
-        $setting = $this->createSetting('ROLE CASHIER SETTING');
-        $user = $this->createUserForSetting($setting, 'Cashier Staff', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $setting = $this->createSetting('PERM TERMINAL REQUIRED');
+        $user = $this->createUserForSetting($setting, 'Random Label', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.require-terminal',
+            'pos.checkout.payment',
+        ]);
         $this->createTerminalForSetting($setting);
         $this->enablePaymentMethodForSetting($setting);
 
@@ -100,7 +87,7 @@ class POSSessionRoleTerminalAllocationTest extends TestCase
         $service = app(PosSessionLifecycleService::class);
 
         $this->expectException(DomainException::class);
-        $this->expectExceptionMessage('Terminal selection is required for cashier sessions.');
+        $this->expectExceptionMessage('Pilih terminal sebelum membuka sesi POS.');
 
         $service->openSession(
             $setting->id,
@@ -112,11 +99,31 @@ class POSSessionRoleTerminalAllocationTest extends TestCase
         );
     }
 
-    public function test_session_conflict_messages_are_actionable_for_user_and_terminal_collisions(): void
+    public function test_non_terminal_session_reuse_and_conflict_messages_remain_consistent_after_permission_refactor(): void
     {
-        $setting = $this->createSetting('ROLE CONFLICT SETTING');
-        $cashierA = $this->createUserForSetting($setting, 'Cashier A', ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $cashierB = $this->createUserForSetting($setting, 'Cashier B', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $setting = $this->createSetting('PERM CONFLICT COVERAGE');
+
+        $helper = $this->createUserForSetting($setting, 'Helper Bundle', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+
+        $cashierA = $this->createUserForSetting($setting, 'Cashier A Any Name', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.require-terminal',
+            'pos.checkout.payment',
+        ]);
+
+        $cashierB = $this->createUserForSetting($setting, 'Cashier B Any Name', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.require-terminal',
+            'pos.checkout.payment',
+        ]);
 
         $terminalA = $this->createTerminalForSetting($setting);
         $terminalB = $this->createTerminalForSetting($setting);
@@ -124,6 +131,11 @@ class POSSessionRoleTerminalAllocationTest extends TestCase
 
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
+
+        $helperFirst = $service->openSession($setting->id, null, $helper->id, 0, null, $helper->id);
+        $helperSecond = $service->openSession($setting->id, null, $helper->id, 0, null, $helper->id);
+        $this->assertSame((int) $helperFirst->id, (int) $helperSecond->id);
+
         $service->openSession($setting->id, $terminalA->id, $cashierA->id, 100000, ['100000' => 1], $cashierA->id);
 
         try {

@@ -53,10 +53,19 @@
                         </thead>
                         <tbody>
                             @forelse($sessions as $session)
+                                @php
+                                    $nonTerminalLabel = 'Non-Terminal';
+                                    $terminalCodeLabel = $session->terminal?->code ?? $nonTerminalLabel;
+                                @endphp
                                 <tr>
                                     <td>
-                                        <strong>{{ $session->terminal->code }}</strong><br>
-                                        <small class="text-muted">{{ $session->terminal->name }}</small>
+                                        @if($session->terminal)
+                                            <strong>{{ $session->terminal->code }}</strong><br>
+                                            <small class="text-muted">{{ $session->terminal->name }}</small>
+                                        @else
+                                            <strong>{{ $nonTerminalLabel }}</strong><br>
+                                            <small class="text-muted">Sesi tanpa terminal</small>
+                                        @endif
                                     </td>
                                     <td>{{ $session->cashier->name }}</td>
                                     <td>
@@ -118,13 +127,13 @@
                                             </a>
                                             @if($session->status === 'OPEN')
                                                 @can('pos.sessions.close-admin')
-                                                    <button type="button" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#closeAdminModal" data-session-id="{{ $session->id }}" data-session-code="{{ $session->terminal->code }}" title="Tutup Terminal (Admin)">
+                                                    <button type="button" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#closeAdminModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Tutup Terminal (Admin)">
                                                         <i class="bi bi-lock"></i> Tutup
                                                     </button>
                                                 @endcan
-                                            @elseif($session->status === 'CLOSED')
+                                            @elseif($session->status === 'CLOSED' && $session->terminal)
                                                 @can('pos.supervisor.approval')
-                                                    <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#finalizeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $session->terminal->code }}" title="Finalisasi Sesi">
+                                                    <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#finalizeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Finalisasi Sesi">
                                                         <i class="bi bi-check-circle"></i> Finalisasi
                                                     </button>
                                                 @endcan

@@ -9,6 +9,7 @@ use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\SettingSaleLocation;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -39,6 +40,7 @@ class POSOpeningFloatCaptureTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.sessions.require-terminal',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -47,8 +49,14 @@ class POSOpeningFloatCaptureTest extends TestCase
     public function test_it_opens_session_with_total_and_denominations_and_records_open_float_event(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.require-terminal',
+        ]);
         $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: true);
+        $this->enablePaymentMethodForSetting($setting);
 
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -94,8 +102,14 @@ class POSOpeningFloatCaptureTest extends TestCase
     public function test_it_allows_total_only_input_when_terminal_policy_allows_it(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.require-terminal',
+        ]);
         $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: true);
+        $this->enablePaymentMethodForSetting($setting);
 
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -124,6 +138,7 @@ class POSOpeningFloatCaptureTest extends TestCase
         $setting = $this->createSetting('BIZ A');
         $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $terminal = $this->createTerminalForSetting($setting, true, 150000);
+        $this->enablePaymentMethodForSetting($setting);
 
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -144,6 +159,7 @@ class POSOpeningFloatCaptureTest extends TestCase
         $setting = $this->createSetting('BIZ A');
         $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $terminal = $this->createTerminalForSetting($setting, true, null);
+        $this->enablePaymentMethodForSetting($setting);
 
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -164,6 +180,7 @@ class POSOpeningFloatCaptureTest extends TestCase
         $setting = $this->createSetting('BIZ A');
         $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
         $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: true);
+        $this->enablePaymentMethodForSetting($setting);
 
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
@@ -185,10 +202,13 @@ class POSOpeningFloatCaptureTest extends TestCase
     public function test_open_session_routes_require_pos_sessions_open_permission(): void
     {
         $setting = $this->createSetting('BIZ A');
-        Location::create([
+        $location = Location::create([
             'name' => 'SESSION OPEN LOC ' . $setting->id,
             'setting_id' => $setting->id,
         ]);
+        $this->enableSaleLocationForSetting($setting, $location);
+        $this->enablePaymentMethodForSetting($setting);
+
         $userWithoutPermission = $this->createUserForSetting($setting, ['pos.access', 'pos.sell']);
 
         $this->actingAs($userWithoutPermission)
@@ -203,6 +223,52 @@ class POSOpeningFloatCaptureTest extends TestCase
             ->get(route('pos.sessions.create'))
             ->assertOk()
             ->assertSee('Buka Sesi POS');
+    }
+
+    public function test_user_with_terminal_required_permission_must_submit_terminal(): void
+    {
+        $setting = $this->createSetting('BIZ TERMINAL REQUIRED');
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.require-terminal',
+        ]);
+        $this->createTerminalForSetting($setting, allowTotalOnly: true);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->from(route('pos.sessions.create'))
+            ->post(route('pos.sessions.store'), [
+                'opening_float_total' => '100000',
+            ]);
+
+        $response->assertRedirect(route('pos.sessions.create'));
+        $response->assertSessionHasErrors(['terminal_id']);
+    }
+
+    public function test_user_without_terminal_required_permission_can_open_without_terminal_and_float_is_zero(): void
+    {
+        $setting = $this->createSetting('BIZ TERMINAL OPTIONAL');
+        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $this->createTerminalForSetting($setting, allowTotalOnly: true);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.sessions.store'), [
+                'notes' => 'Helper non-terminal open',
+            ]);
+
+        $response->assertRedirect(route('pos.sell'));
+        $this->assertDatabaseHas('pos_sessions', [
+            'setting_id' => $setting->id,
+            'cashier_user_id' => $user->id,
+            'terminal_id' => null,
+            'opening_float_total' => 0,
+            'expected_cash_total' => 0,
+        ]);
     }
 
     private function createSetting(string $name): Setting
@@ -260,5 +326,45 @@ class POSOpeningFloatCaptureTest extends TestCase
         ]);
 
         return $terminal;
+    }
+
+    private function enablePaymentMethodForSetting(Setting $setting): void
+    {
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'name' => 'Cash Account ' . $setting->id . '-' . bin2hex(random_bytes(4)),
+            'account_number' => '1101-' . $setting->id . '-' . bin2hex(random_bytes(4)),
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+        ]);
+
+        $paymentMethod = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Cash',
+            'coa_id' => $coa->id,
+            'is_cash' => true,
+        ]);
+
+        \Modules\Setting\Entities\SettingPosPaymentMethod::updateOrCreate(
+            [
+                'setting_id' => $setting->id,
+                'payment_method_id' => $paymentMethod->id,
+            ],
+            [
+                'is_enabled' => true,
+            ]
+        );
+    }
+
+    private function enableSaleLocationForSetting(Setting $setting, Location $location): void
+    {
+        SettingSaleLocation::updateOrCreate(
+            [
+                'setting_id' => $setting->id,
+                'location_id' => $location->id,
+            ],
+            [
+                'is_enabled' => true,
+                'position' => 1,
+            ]
+        );
     }
 }

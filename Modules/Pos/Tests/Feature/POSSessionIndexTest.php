@@ -41,6 +41,8 @@ class POSSessionIndexTest extends TestCase
             'pos.sessions.view',
             'pos.sessions.open',
             'pos.sell',
+            'pos.sessions.close-admin',
+            'pos.supervisor.approval',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -116,12 +118,13 @@ class POSSessionIndexTest extends TestCase
     {
         $setting = $this->createSetting('BIZ INDEX D');
         $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sessions.view']);
-        $terminal = $this->createTerminal($setting);
+        $openTerminal = $this->createTerminalWithCode($setting, 'OPEN-TRM');
+        $closedTerminal = $this->createTerminalWithCode($setting, 'CLOSED-TRM');
 
         // Open session
         PosSession::create([
             'setting_id' => $setting->id,
-            'terminal_id' => $terminal->id,
+            'terminal_id' => $openTerminal->id,
             'cashier_user_id' => $user->id,
             'status' => 'OPEN',
             'opened_at' => now(),
@@ -132,7 +135,7 @@ class POSSessionIndexTest extends TestCase
         // Closed session
         PosSession::create([
             'setting_id' => $setting->id,
-            'terminal_id' => $terminal->id,
+            'terminal_id' => $closedTerminal->id,
             'cashier_user_id' => $user->id,
             'status' => 'CLOSED',
             'opened_at' => now()->subDay(),
@@ -146,15 +149,16 @@ class POSSessionIndexTest extends TestCase
             ->get(route('pos.sessions.index', ['status' => 'OPEN']));
 
         $response->assertSee('AKTIF');
-        $response->assertDontSee('SELESAI');
+        $response->assertSee('OPEN-TRM');
+        $response->assertDontSee('CLOSED-TRM');
 
         // Filter for CLOSED
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
             ->get(route('pos.sessions.index', ['status' => 'CLOSED']));
 
-        $response->assertSee('SELESAI');
-        $response->assertDontSee('AKTIF');
+        $response->assertSee('CLOSED-TRM');
+        $response->assertDontSee('OPEN-TRM');
     }
 
     public function test_index_supports_terminal_id_filtering(): void
@@ -203,6 +207,117 @@ class POSSessionIndexTest extends TestCase
         $response->assertSee('TRM-02');
         $response->assertDontSee('TRM-01');
         $response->assertSee('Terminal: TRM-02');
+    }
+
+    public function test_index_renders_for_open_non_terminal_session_with_admin_permission(): void
+    {
+        $setting = $this->createSetting('BIZ INDEX F');
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sessions.view',
+            'pos.sessions.close-admin',
+        ]);
+
+        $session = $this->createNonTerminalSession($setting, $user, 'OPEN');
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.index'));
+
+        $response->assertOk();
+        $response->assertSee('Non-Terminal');
+        $response->assertSee('data-session-id="' . $session->id . '"', false);
+        $response->assertSee('data-session-code="Non-Terminal"', false);
+    }
+
+    public function test_index_shows_admin_close_action_for_open_non_terminal_session(): void
+    {
+        $setting = $this->createSetting('BIZ INDEX G');
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sessions.view',
+            'pos.sessions.close-admin',
+        ]);
+
+        $session = $this->createNonTerminalSession($setting, $user, 'OPEN');
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.index'));
+
+        $response->assertOk();
+        $response->assertSee('data-bs-target="#closeAdminModal" data-session-id="' . $session->id . '"', false);
+    }
+
+    public function test_index_keeps_identical_table_structure_for_terminal_and_non_terminal_rows(): void
+    {
+        $setting = $this->createSetting('BIZ INDEX H');
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sessions.view',
+            'pos.sessions.close-admin',
+        ]);
+        $terminal = $this->createTerminal($setting);
+
+        $terminalSession = PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $user->id,
+            'status' => 'OPEN',
+            'opened_at' => now(),
+            'opened_by' => $user->id,
+            'opening_float_total' => 100000,
+            'active_marker' => 1,
+        ]);
+        $nonTerminalSession = $this->createNonTerminalSession($setting, $user, 'OPEN');
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.index'));
+
+        $response->assertOk();
+
+        $html = $response->getContent();
+        $terminalRow = $this->extractSessionTableRow($html, $terminalSession->id);
+        $nonTerminalRow = $this->extractSessionTableRow($html, $nonTerminalSession->id);
+
+        $this->assertSame(12, substr_count($terminalRow, '<td'));
+        $this->assertSame(12, substr_count($nonTerminalRow, '<td'));
+    }
+
+    public function test_index_hides_finalize_for_closed_non_terminal_and_shows_for_terminal_session(): void
+    {
+        $setting = $this->createSetting('BIZ INDEX I');
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sessions.view',
+            'pos.supervisor.approval',
+        ]);
+        $terminal = $this->createTerminal($setting);
+
+        $terminalSession = PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $user->id,
+            'status' => 'CLOSED',
+            'opened_at' => now()->subHours(4),
+            'closed_at' => now()->subHour(),
+            'opened_by' => $user->id,
+            'closed_by' => $user->id,
+            'opening_float_total' => 100000,
+            'counted_cash_total' => 100000,
+            'variance_total' => 0,
+        ]);
+
+        $nonTerminalSession = $this->createNonTerminalSession($setting, $user, 'CLOSED');
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.index'));
+
+        $response->assertOk();
+        $response->assertSee('data-bs-target="#finalizeModal" data-session-id="' . $terminalSession->id . '"', false);
+        $response->assertDontSee('data-bs-target="#finalizeModal" data-session-id="' . $nonTerminalSession->id . '"', false);
     }
 
     private function createTerminalWithCode(Setting $setting, string $code): PosTerminal
@@ -277,5 +392,37 @@ class POSSessionIndexTest extends TestCase
         ]);
 
         return $terminal;
+    }
+
+    private function createNonTerminalSession(Setting $setting, User $user, string $status): PosSession
+    {
+        return PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => null,
+            'cashier_user_id' => $user->id,
+            'status' => $status,
+            'opened_at' => now()->subHours(3),
+            'closed_at' => $status === 'CLOSED' ? now()->subHours(1) : null,
+            'opened_by' => $user->id,
+            'closed_by' => $status === 'CLOSED' ? $user->id : null,
+            'opening_float_total' => 100000,
+            'counted_cash_total' => $status === 'CLOSED' ? 100000 : null,
+            'variance_total' => 0,
+            'active_marker' => null,
+        ]);
+    }
+
+    private function extractSessionTableRow(string $html, int $sessionId): string
+    {
+        preg_match_all('/<tr>[\s\S]*?<\/tr>/', $html, $matches);
+
+        $needle = 'data-session-id="' . $sessionId . '"';
+        foreach ($matches[0] ?? [] as $row) {
+            if (str_contains($row, $needle)) {
+                return $row;
+            }
+        }
+
+        $this->fail('Failed to locate table row for session id ' . $sessionId);
     }
 }

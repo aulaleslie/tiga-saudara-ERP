@@ -6,68 +6,43 @@ use App\Models\User;
 
 class PosRolePolicyService
 {
-    public const ROLE_FLOOR_STAFF = 'floor_staff';
+    public const PROFILE_HELPER = 'helper_handoff';
 
-    public const ROLE_CASHIER_STAFF = 'cashier_staff';
+    public const PROFILE_CASHIER = 'cashier_checkout';
 
-    public const ROLE_STORE_MANAGER = 'store_manager';
+    public const PROFILE_MANAGER = 'manager_supervisor';
 
-    public const ROLE_UNKNOWN = 'unknown';
+    public const PROFILE_GENERIC = 'generic_pos';
 
     /**
-     * Detect the current POS operating role from role naming + permission fallback.
+     * Determine a descriptive POS profile from explicit permissions only.
+     * This value is informational and must not be used as an auth fallback.
      */
     public function detectRole(User $user): string
     {
-        $roleName = strtolower((string) $user->getRoleNames()->first());
-
-        if ($roleName !== '') {
-            if (str_contains($roleName, 'floor')) {
-                return self::ROLE_FLOOR_STAFF;
-            }
-
-            if (str_contains($roleName, 'cashier') || str_contains($roleName, 'kasir')) {
-                return self::ROLE_CASHIER_STAFF;
-            }
-
-            if (str_contains($roleName, 'manager')) {
-                return self::ROLE_STORE_MANAGER;
-            }
-        }
-
-        if ($user->can('pos.supervisor.approval') && $user->can('pos.overrides.price')) {
-            return self::ROLE_STORE_MANAGER;
-        }
-
-        if ($user->can('pos.sell') && $user->can('pos.sessions.open')) {
-            return self::ROLE_CASHIER_STAFF;
-        }
-
-        return self::ROLE_UNKNOWN;
-    }
-
-    /**
-     * Cashier role must choose a terminal; floor/manager may open without terminal selection.
-     */
-    public function requiresTerminalSelection(User $user): bool
-    {
-        return $this->detectRole($user) === self::ROLE_CASHIER_STAFF;
-    }
-
-    /**
-     * Floor staff is handoff-oriented and cannot finalize payment.
-     */
-    public function canCheckout(User $user): bool
-    {
-        if (! $user->can('pos.sell')) {
-            return false;
+        if ($user->can('pos.supervisor.approval')) {
+            return self::PROFILE_MANAGER;
         }
 
         if ($user->can('pos.checkout.payment')) {
-            return true;
+            return self::PROFILE_CASHIER;
         }
 
-        return $this->detectRole($user) !== self::ROLE_FLOOR_STAFF;
+        if ($user->can('pos.sell') && $user->can('pos.transactions.save')) {
+            return self::PROFILE_HELPER;
+        }
+
+        return self::PROFILE_GENERIC;
+    }
+
+    public function requiresTerminalSelection(User $user): bool
+    {
+        return $user->can('pos.sessions.require-terminal');
+    }
+
+    public function canCheckout(User $user): bool
+    {
+        return $user->can('pos.checkout.payment');
     }
 
     /**
@@ -75,10 +50,14 @@ class PosRolePolicyService
      */
     public function capabilityFlags(User $user): array
     {
+        $canCheckout = $this->canCheckout($user);
+
         return [
             'role' => $this->detectRole($user),
             'requires_terminal_selection' => $this->requiresTerminalSelection($user),
-            'can_checkout' => $this->canCheckout($user),
+            'can_checkout' => $canCheckout,
+            'can_use_payment_flow' => $canCheckout,
+            'can_search_payment_methods' => $canCheckout,
             'can_open_approval_queue' => $user->can('pos.supervisor.approval'),
             'can_reduce_quantity' => $user->can('pos.cart.line.reduce'),
             'direct_permissions' => [

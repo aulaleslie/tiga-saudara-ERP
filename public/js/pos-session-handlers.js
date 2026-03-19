@@ -3,18 +3,25 @@
  * Handles admin force-close and supervisor finalization modal interactions
  */
 
+const NON_TERMINAL_LABEL = 'Non-Terminal';
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize close admin modal
     const closeAdminModal = document.getElementById('closeAdminModal');
     if (closeAdminModal) {
         closeAdminModal.addEventListener('show.bs.modal', function(event) {
             const button = event.relatedTarget;
-            const sessionId = button.dataset.sessionId;
-            const sessionCode = button.dataset.sessionCode;
+            const sessionId = button?.dataset?.sessionId;
+            const sessionCode = button?.dataset?.sessionCode || NON_TERMINAL_LABEL;
+
+            if (!sessionId) {
+                console.warn('[POS Session] Missing session id on close-admin trigger');
+                return;
+            }
 
             // Fetch session data and populate modal
             fetchSessionData(sessionId, function(session) {
-                populateCloseAdminModal(session);
+                populateCloseAdminModal(session, sessionCode);
             });
         });
 
@@ -30,11 +37,17 @@ document.addEventListener('DOMContentLoaded', function() {
     if (finalizeModal) {
         finalizeModal.addEventListener('show.bs.modal', function(event) {
             const button = event.relatedTarget;
-            const sessionId = button.dataset.sessionId;
+            const sessionId = button?.dataset?.sessionId;
+            const sessionCode = button?.dataset?.sessionCode || NON_TERMINAL_LABEL;
+
+            if (!sessionId) {
+                console.warn('[POS Session] Missing session id on finalize trigger');
+                return;
+            }
 
             // Fetch session data and populate modal
             fetchSessionData(sessionId, function(session) {
-                populateFinalizeModal(session);
+                populateFinalizeModal(session, sessionCode);
             });
         });
 
@@ -85,8 +98,8 @@ function fetchSessionData(sessionId, callback) {
 /**
  * Populate close admin modal with session data
  */
-function populateCloseAdminModal(session) {
-    document.getElementById('sessionCode').textContent = session.terminal?.code || '-';
+function populateCloseAdminModal(session, fallbackSessionCode = NON_TERMINAL_LABEL) {
+    document.getElementById('sessionCode').textContent = session.terminal?.code || fallbackSessionCode || NON_TERMINAL_LABEL;
     document.getElementById('cashierName').textContent = session.cashier?.name || '-';
     document.getElementById('openedAt').textContent = formatDateTime(session.opened_at);
     document.getElementById('openingFloat').textContent = formatCurrency(session.opening_float_total);
@@ -106,8 +119,8 @@ function populateCloseAdminModal(session) {
 /**
  * Populate finalize modal with session data
  */
-function populateFinalizeModal(session) {
-    document.getElementById('finalizeSessionCode').textContent = session.terminal?.code || '-';
+function populateFinalizeModal(session, fallbackSessionCode = NON_TERMINAL_LABEL) {
+    document.getElementById('finalizeSessionCode').textContent = session.terminal?.code || fallbackSessionCode || NON_TERMINAL_LABEL;
     document.getElementById('finalizeCashierName').textContent = session.cashier?.name || '-';
     document.getElementById('finalizeOpeningFloat').textContent = formatCurrency(session.opening_float_total);
 

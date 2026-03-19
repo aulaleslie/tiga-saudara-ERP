@@ -56,7 +56,6 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::get('/pos/sell/products/search', [PosSellController::class, 'search'])->name('pos.sell.products.search');
     Route::get('/pos/sell/customers/search', [PosSellController::class, 'customerSearch'])->name('pos.sell.customers.search');
     Route::post('/pos/sell/customers', [PosSellController::class, 'customerStore'])->name('pos.sell.customers.store');
-    Route::get('/pos/sell/payment-methods/search', [PosSellController::class, 'paymentMethodSearch'])->name('pos.sell.payment-methods.search');
 
     Route::post('/pos/sell/approval-requests', [PosCartApprovalController::class, 'store'])->name('pos.sell.approval-requests.store');
     Route::get('/pos/sell/approval-requests/{id}', [PosCartApprovalController::class, 'show'])->name('pos.sell.approval-requests.show');
@@ -77,15 +76,19 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::delete('/pos/sell/cart', [PosSellController::class, 'cartClear'])->name('pos.sell.cart.clear');
     Route::patch('/pos/sell/cart/customer', [PosSellController::class, 'cartUpdateCustomer'])->name('pos.sell.cart.customer.update');
 
-    Route::post('/pos/sell/checkout/stage-payment', [PosSellController::class, 'stagePayment'])
-        ->name('pos.sell.checkout.stage-payment');
-    Route::get('/pos/sell/checkout/payment-chain', [PosSellController::class, 'getPaymentChain'])
-        ->name('pos.sell.checkout.payment-chain');
-    Route::delete('/pos/sell/checkout/payment-chain', [PosSellController::class, 'resetPaymentChain'])
-        ->name('pos.sell.checkout.payment-chain.reset');
+    Route::group(['middleware' => ['can:pos.checkout.payment']], function () {
+        Route::get('/pos/sell/payment-methods/search', [PosSellController::class, 'paymentMethodSearch'])->name('pos.sell.payment-methods.search');
 
-    Route::post('/pos/sell/checkout/finalize', [PosSellController::class, 'checkoutFinalize'])
-        ->name('pos.sell.checkout.finalize');
+        Route::post('/pos/sell/checkout/stage-payment', [PosSellController::class, 'stagePayment'])
+            ->name('pos.sell.checkout.stage-payment');
+        Route::get('/pos/sell/checkout/payment-chain', [PosSellController::class, 'getPaymentChain'])
+            ->name('pos.sell.checkout.payment-chain');
+        Route::delete('/pos/sell/checkout/payment-chain', [PosSellController::class, 'resetPaymentChain'])
+            ->name('pos.sell.checkout.payment-chain.reset');
+
+        Route::post('/pos/sell/checkout/finalize', [PosSellController::class, 'checkoutFinalize'])
+            ->name('pos.sell.checkout.finalize');
+    });
 
     Route::get('/pos/sell/checkout/{checkout}/receipt', [PosSellController::class, 'receiptView'])
         ->name('pos.sell.checkout.receipt');

@@ -1,31 +1,70 @@
-# POS Role Action Permission Matrix
+# POS Permission Bundle Matrix
 
-This document defines the server-enforced POS action policy used by `PosRolePolicyService`
-and cart/session authorization flows.
+This document defines the permission-driven POS bundle model used by runtime authorization.
 
-## Roles
+## Live Bundles
 
-- `Floor Staff`
-- `Cashier Staff`
-- `Store Manager`
+### Helper / Handoff Operator
 
-## Core Actions
+Required permissions:
 
-| Action | Permission Key | Floor Staff | Cashier Staff | Store Manager |
-| --- | --- | --- | --- | --- |
-| Open session without terminal selection | role policy | Allowed | Not allowed | Allowed |
-| Open session with terminal selection | `pos.sessions.open` | Allowed | Required | Allowed |
-| Clear cart | `pos.cart.clear` | Approval flow if no direct permission | Approval flow if no direct permission | Direct if permission |
-| Remove line | `pos.cart.line.remove` | Approval flow if no direct permission | Approval flow if no direct permission | Direct if permission |
-| Reduce quantity | `pos.cart.line.reduce` | Approval flow if no direct permission | Approval flow if no direct permission | Direct if permission |
-| Override line price | `pos.overrides.price` | Approval flow | Approval flow | Direct if permission |
-| Finalize checkout payment | `pos.sell` + role policy | Not allowed | Allowed | Allowed |
-| Open supervisor queue | `pos.supervisor.approval` | If granted | If granted | If granted |
+- `pos.access`
+- `pos.sell`
+- `pos.sessions.open`
+- `pos.transactions.save`
+- `pos.transactions.load` (if draft continuation is required)
 
-## Notes
+Must NOT have:
 
-- Backend authorization is authoritative; UI capability states mirror backend outcomes.
-- Restricted actions use request/check/execute flow with deterministic states:
-  `pending`, `approved`, `rejected`.
-- Approved execution tokens are single-use.
-- Cancelling after approval invalidates the issued token and leaves cart state unchanged.
+- `pos.checkout.payment`
+- `pos.sessions.require-terminal`
+
+Expected behavior:
+
+- Can open session without terminal
+- Can enter POS shell
+- Can use `Simpan dan Buka Baru`
+- Cannot search payment methods, stage payment, or finalize checkout
+
+### Cashier / Checkout Operator
+
+Required permissions:
+
+- `pos.access`
+- `pos.sell`
+- `pos.sessions.open`
+- `pos.sessions.require-terminal`
+- `pos.checkout.payment`
+- `pos.transactions.save`
+
+Expected behavior:
+
+- Must select terminal + opening float on session open
+- Can stage payment, recover/reset payment chain, and finalize checkout
+- Can still use `Simpan dan Buka Baru`
+
+### Manager / Supervisor POS
+
+Required permissions:
+
+- Cashier bundle
+- `pos.supervisor.approval`
+- `pos.sessions.view`
+- Direct cart-action permissions as needed:
+  - `pos.cart.clear`
+  - `pos.cart.line.remove`
+  - `pos.cart.line.reduce`
+  - `pos.overrides.price`
+
+Expected behavior:
+
+- All cashier flow permissions
+- Can access supervisor queue
+- Direct privileged cart actions follow explicit direct permissions
+
+## Core Policy Notes
+
+- Terminal requirement is controlled only by `pos.sessions.require-terminal`.
+- Payment flow access is controlled only by `pos.checkout.payment`.
+- `pos.sell` controls POS shell/cart access, not payment authority.
+- Price override direct bypass is controlled only by `pos.overrides.price`.

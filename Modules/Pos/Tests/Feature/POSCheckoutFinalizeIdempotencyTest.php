@@ -63,6 +63,8 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.checkout.payment',
+            'pos.sessions.require-terminal',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -529,7 +531,13 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
     protected function createCheckoutContext(string $name): array
     {
         $setting = $this->createSetting($name);
-        $cashier = $this->createUserForSetting($setting, $name . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $cashier = $this->createUserForSetting($setting, $name . '-cashier', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.require-terminal',
+            'pos.checkout.payment',
+        ]);
         $terminal = $this->createTerminalForSetting($setting);
         $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
         $methods = $this->seedPaymentMethods($setting, true);

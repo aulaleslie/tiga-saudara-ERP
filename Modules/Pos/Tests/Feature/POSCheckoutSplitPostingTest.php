@@ -60,6 +60,7 @@ class POSCheckoutSplitPostingTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.checkout.payment',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -249,6 +250,7 @@ class POSCheckoutSplitPostingTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.checkout.payment',
         ]);
         $sourceLocation = Location::create([
             'name' => 'SPLIT SOURCE LOC ' . $this->sequence++,

@@ -102,6 +102,7 @@ class POSTransactionVisibilityAndMutabilityTest extends PosTransactionFeatureTes
         $cashier = $this->createUserForSetting($setting, 'Txn Checkout Cashier', [
             'pos.access',
             'pos.sell',
+            'pos.checkout.payment',
             'pos.sessions.open',
             'pos.transactions.view',
         ]);

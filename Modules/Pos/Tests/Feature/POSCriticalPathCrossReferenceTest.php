@@ -53,6 +53,7 @@ class POSCriticalPathCrossReferenceTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.checkout.payment',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -100,7 +101,12 @@ class POSCriticalPathCrossReferenceTest extends TestCase
     private function createCheckoutContext(string $name): array
     {
         $setting = $this->createSetting($name);
-        $cashier = $this->createUserForSetting($setting, $name . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $cashier = $this->createUserForSetting($setting, $name . '-cashier', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+        ]);
         $terminal = $this->createTerminalForSetting($setting);
         $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
 

@@ -129,6 +129,10 @@ class PosSellController extends Controller
 
     public function paymentMethodSearch(Request $request, PosPaymentMethodSearchService $searchService): JsonResponse
     {
+        if ($denied = $this->ensureCheckoutPermission($request)) {
+            return $denied;
+        }
+
         $validated = $request->validate([
             'q' => ['nullable', 'string', 'max:255'],
         ]);
@@ -471,16 +475,15 @@ class PosSellController extends Controller
 
     public function stagePayment(Request $request): JsonResponse
     {
+        if ($denied = $this->ensureCheckoutPermission($request)) {
+            return $denied;
+        }
+
         $settingId = $this->currentSettingId();
         $activeSession = $request->attributes->get('pos_active_session');
-        $user = $request->user();
 
         if (! $activeSession instanceof PosSession) {
             abort(403, 'Active POS session context is required.');
-        }
-
-        if (! $user) {
-            abort(403, 'Authentication is required.');
         }
 
         $validated = $request->validate([
@@ -558,6 +561,10 @@ class PosSellController extends Controller
 
     public function getPaymentChain(Request $request): JsonResponse
     {
+        if ($denied = $this->ensureCheckoutPermission($request)) {
+            return $denied;
+        }
+
         $validated = $request->validate([
             'cart_token' => ['required', 'string', 'uuid'],
         ]);
@@ -582,6 +589,10 @@ class PosSellController extends Controller
 
     public function resetPaymentChain(Request $request): JsonResponse
     {
+        if ($denied = $this->ensureCheckoutPermission($request)) {
+            return $denied;
+        }
+
         $validated = $request->validate([
             'cart_token' => ['required', 'string', 'uuid'],
         ]);
@@ -601,6 +612,10 @@ class PosSellController extends Controller
         FinalizePosCheckoutService $finalizeService,
         PosRolePolicyService $rolePolicyService
     ): JsonResponse {
+        if ($denied = $this->ensureCheckoutPermission($request)) {
+            return $denied;
+        }
+
         $settingId = $this->currentSettingId();
         $activeSession = $request->attributes->get('pos_active_session');
         $user = $request->user();
@@ -615,8 +630,8 @@ class PosSellController extends Controller
 
         if (! $rolePolicyService->canCheckout($user)) {
             return response()->json([
-                'code' => 'CHECKOUT_NOT_ALLOWED',
-                'message' => 'Peran Anda tidak diizinkan menyelesaikan pembayaran.',
+                'code' => 'CHECKOUT_PERMISSION_REQUIRED',
+                'message' => 'Anda tidak memiliki izin untuk menyelesaikan pembayaran POS.',
             ], 403);
         }
 
@@ -747,5 +762,25 @@ class PosSellController extends Controller
         }
 
         abort(403, 'Active POS session context is required.');
+    }
+
+    private function ensureCheckoutPermission(Request $request): ?JsonResponse
+    {
+        $user = $request->user();
+        if (! $user) {
+            return response()->json([
+                'code' => 'UNAUTHENTICATED',
+                'message' => 'Authentication is required.',
+            ], 403);
+        }
+
+        if (! $user->can('pos.checkout.payment')) {
+            return response()->json([
+                'code' => 'CHECKOUT_PERMISSION_REQUIRED',
+                'message' => 'Anda tidak memiliki izin untuk mengakses alur pembayaran POS.',
+            ], 403);
+        }
+
+        return null;
     }
 }

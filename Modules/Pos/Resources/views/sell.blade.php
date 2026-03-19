@@ -733,6 +733,7 @@
             : '-';
         $terminalLabelShort = \Illuminate\Support\Str::limit($terminalLabelFull, 30);
         $posTransactionsEnabled = (bool) (settings()->pos_transactions_enabled ?? false);
+        $canCheckoutFlow = (bool) (($roleCapabilities['can_checkout'] ?? false) === true);
     @endphp
 
     <div class="pos-lock-screen" aria-live="polite">
@@ -933,7 +934,14 @@
                                             Simpan dan Buka Baru
                                         </button>
                                     @endif
-                                    <button id="pos-checkout-final" class="btn btn-primary btn-lg flex-grow-1" type="button" disabled>
+                                    <button id="pos-checkout-final"
+                                            class="btn btn-primary btn-lg flex-grow-1"
+                                            type="button"
+                                            disabled
+                                            @if(! $canCheckoutFlow)
+                                                data-permission-locked="1"
+                                                title="Membutuhkan izin pos.checkout.payment untuk membuka pembayaran."
+                                            @endif>
                                         Pilih Pembayaran
                                     </button>
                                 </div>
@@ -1479,7 +1487,7 @@
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             const roleCapabilities = @json($roleCapabilities ?? []);
             console.log('[INIT] roleCapabilities: ' + JSON.stringify(roleCapabilities));
-            const canCheckoutByRole = Boolean(roleCapabilities && roleCapabilities.can_checkout !== false);
+            const canCheckoutByRole = Boolean(roleCapabilities && roleCapabilities.can_checkout === true);
             const canReduceQuantity = Boolean(
               typeof roleCapabilities?.can_reduce_quantity === 'boolean' ? roleCapabilities.can_reduce_quantity :
               typeof roleCapabilities?.direct_permissions?.qty_reduce === 'boolean' ? roleCapabilities.direct_permissions.qty_reduce :
@@ -2458,7 +2466,7 @@
                  }
 
                  if (!canCheckoutByRole && hasItems) {
-                     setCartStatus('Peran Anda tidak dapat menyelesaikan pembayaran. Gunakan "Simpan dan Buka Baru" untuk handoff.', 'text-muted');
+                     setCartStatus('Anda dapat menyimpan draft, tetapi pembayaran membutuhkan izin pos.checkout.payment.', 'text-muted');
                  }
              }
  
@@ -3993,6 +4001,11 @@
 
             if (btnCheckout) {
                 btnCheckout.addEventListener('click', function () {
+                    if (!canCheckoutByRole) {
+                        setCartStatus('Anda tidak memiliki izin pembayaran POS.', 'text-danger');
+                        return;
+                    }
+
                     console.log('[CHECKOUT] Button clicked', { currentSnapshot, PosStagedPayment: typeof PosStagedPayment });
 
                     // Wire to staged payment flow using cart token and grand total
@@ -4104,7 +4117,7 @@
             }
 
             // Initialize Staged Payment Module
-            if (typeof PosStagedPayment !== 'undefined') {
+            if (canCheckoutByRole && typeof PosStagedPayment !== 'undefined') {
                 PosStagedPayment.initialize({
                     modalElement: document.getElementById('pos-staged-checkout-modal'),
                     methodSearchInput: document.getElementById('staged-method-search'),

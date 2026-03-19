@@ -53,6 +53,7 @@ class POSPaymentValidationRulesTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.checkout.payment',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -363,7 +364,7 @@ class POSPaymentValidationRulesTest extends TestCase
         ]);
 
         $role = Role::create(['name' => 'CASHIER-' . $name . '-' . $this->sequence++, 'guard_name' => 'web']);
-        $role->syncPermissions(['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $role->syncPermissions(['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment']);
 
         $cashier = User::factory()->create();
         $cashier->assignRole($role);

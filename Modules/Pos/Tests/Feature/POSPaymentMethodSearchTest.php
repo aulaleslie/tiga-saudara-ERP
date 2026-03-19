@@ -45,6 +45,7 @@ class POSPaymentMethodSearchTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.checkout.payment',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -53,12 +54,40 @@ class POSPaymentMethodSearchTest extends TestCase
     public function test_search_requires_active_session(): void
     {
         $setting = $this->createSetting('PAYMENT METHOD SEARCH NO SESSION');
-        $cashier = $this->createUserForSetting($setting, 'PAYMENT METHOD CASHIER NO SESSION', ['pos.access', 'pos.sell']);
+        $cashier = $this->createUserForSetting($setting, 'PAYMENT METHOD CASHIER NO SESSION', ['pos.access', 'pos.sell', 'pos.checkout.payment']);
 
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->getJson(route('pos.sell.payment-methods.search'))
             ->assertRedirect(route('pos.sessions.create'));
+    }
+
+    public function test_search_is_forbidden_without_checkout_permission(): void
+    {
+        $setting = $this->createSetting('PAYMENT METHOD NO CHECKOUT');
+        $cashier = $this->createUserForSetting($setting, 'PAYMENT METHOD NO CHECKOUT', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+
+        $terminal = $this->createTerminalForSetting($setting);
+        PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $cashier->id,
+            'status' => PosSession::STATUS_OPEN,
+            'opened_at' => now(),
+            'opened_by' => $cashier->id,
+            'opening_float_total' => 100000,
+            'expected_cash_total' => 100000,
+            'active_marker' => 1,
+        ]);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.payment-methods.search'))
+            ->assertForbidden();
     }
 
     public function test_returns_only_enabled_methods(): void
@@ -207,7 +236,7 @@ class POSPaymentMethodSearchTest extends TestCase
         $cashier = $this->createUserForSetting(
             $setting,
             $roleSuffix . ' CASHIER',
-            ['pos.access', 'pos.sell', 'pos.sessions.open']
+            ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment']
         );
 
         $terminal = $this->createTerminalForSetting($setting);

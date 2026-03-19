@@ -9,7 +9,7 @@ class StorePosCheckoutFinalizeRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return Gate::allows('pos.sell');
+        return Gate::allows('pos.checkout.payment');
     }
 
     public function rules(): array

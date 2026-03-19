@@ -52,7 +52,7 @@ class PosSessionLifecycleService
 
             $requiresTerminalSelection = $this->rolePolicyService->requiresTerminalSelection($cashier);
             if ($requiresTerminalSelection && $normalizedTerminalId === null) {
-                throw new DomainException('Terminal selection is required for cashier sessions.');
+                throw new DomainException('Pilih terminal sebelum membuka sesi POS.');
             }
 
             $hasConfiguredSaleLocations = SettingSaleLocation::query()
@@ -73,9 +73,11 @@ class PosSessionLifecycleService
                 throw new DomainException('Configure at least one payment method before opening a POS session.');
             }
 
-            $openingTotal = round($openingFloatTotal, 2);
+            $openingTotal = $normalizedTerminalId !== null
+                ? round($openingFloatTotal, 2)
+                : 0;
 
-            if ($openingTotal <= 0) {
+            if ($normalizedTerminalId !== null && $openingTotal <= 0) {
                 throw new DomainException('Opening float total must be greater than zero.');
             }
 
@@ -110,6 +112,23 @@ class PosSessionLifecycleService
 
             if ($normalizedTerminalId !== null) {
                 $terminal = $this->terminalResolver->resolveForSessionOpen($settingId, $normalizedTerminalId);
+                $terminalPolicy = $terminal->policy;
+
+                if ((bool) ($terminalPolicy?->require_opening_float ?? false)) {
+                    $thresholdValue = $terminalPolicy?->cash_threshold;
+
+                    if ($thresholdValue === null) {
+                        throw new DomainException(
+                            'Terminal cash threshold must be configured before opening a POS session.'
+                        );
+                    }
+
+                    if ($openingTotal <= (float) $thresholdValue) {
+                        throw new DomainException(
+                            'Opening float total must be greater than terminal cash threshold.'
+                        );
+                    }
+                }
 
                 $activeSessionForTerminal = PosSession::query()
                     ->where('setting_id', $settingId)

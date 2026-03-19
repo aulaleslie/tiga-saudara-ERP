@@ -53,6 +53,7 @@ class POSWsCRegressionTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'pos.checkout.payment',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -205,7 +206,7 @@ class POSWsCRegressionTest extends TestCase
         $cashier = $this->createUserForSetting(
             $setting,
             $roleSuffix . ' CASHIER',
-            ['pos.access', 'pos.sell', 'pos.sessions.open']
+            ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment']
         );
 
         $terminal = $this->createTerminalForSetting($setting);

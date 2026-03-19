@@ -48,6 +48,7 @@ abstract class PosTransactionFeatureTestCase extends TestCase
         foreach ([
             'pos.access',
             'pos.sell',
+            'pos.checkout.payment',
             'pos.sessions.open',
             'pos.sessions.view',
             'pos.cart.clear',
