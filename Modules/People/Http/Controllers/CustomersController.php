@@ -146,35 +146,52 @@ class CustomersController extends Controller
         // Assign the setting_id from the session
         $settingId = session('setting_id');
 
-        // Create the customer
-        Customer::create([
-            'setting_id' => $settingId,
-            'payment_term_id' => $request->payment_term_id, // Menyimpan payment_term_id
-            'contact_name' => $request->contact_name,
-            'customer_name' => $request->customer_name ?? '',
-            'customer_phone' => $request->customer_phone,
-            'customer_email' => $request->customer_email ?? '',
-            'identity' => $request->identity,
-            'identity_number' => $request->identity_number,
-            'npwp' => $request->npwp,
-            'billing_address' => $request->billing_address,
-            'shipping_address' => $request->shipping_address,
-            'city' => $request->city ?? '',
-            'country' => $request->country ?? '',
-            'address' => $request->address ?? '',
-            'additional_info' => $request->additional_info ?? '',
+        try {
+            \Illuminate\Support\Facades\Log::debug('Attempting to create customer', [
+                'payload' => $request->all(),
+                'setting_id' => $settingId
+            ]);
 
-            // Optional Bank information
-            'bank_name' => $request->bank_name,
-            'bank_branch' => $request->bank_branch,
-            'account_number' => $request->account_number,
-            'account_holder' => $request->account_holder,
-            'tier' => $request->tier,
-        ]);
+            // Create the customer
+            Customer::create([
+                'setting_id' => $settingId,
+                'payment_term_id' => $request->payment_term_id, // Menyimpan payment_term_id
+                'contact_name' => $request->contact_name,
+                'customer_name' => $request->customer_name ?? '',
+                'customer_phone' => $request->customer_phone,
+                'customer_email' => $request->customer_email ?? '',
+                'identity' => $request->identity,
+                'identity_number' => $request->identity_number,
+                'npwp' => $request->npwp,
+                'billing_address' => $request->billing_address,
+                'shipping_address' => $request->shipping_address,
+                'city' => $request->city ?? '',
+                'country' => $request->country ?? '',
+                'address' => $request->address ?? '',
+                'additional_info' => $request->additional_info ?? '',
 
-        toast('Pelanggan Ditambahkan!', 'success');
+                // Optional Bank information
+                'bank_name' => $request->bank_name,
+                'bank_branch' => $request->bank_branch,
+                'account_number' => $request->account_number,
+                'account_holder' => $request->account_holder,
+                'tier' => $request->tier,
+            ]);
 
-        return redirect()->route('customers.index');
+            toast('Pelanggan Ditambahkan!', 'success');
+
+            return redirect()->route('customers.index');
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Customer creation failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'payload' => $request->all(),
+                'setting_id' => $settingId
+            ]);
+
+            toast('Gagal menyimpan pelanggan. Silakan hubungi administrator.', 'error');
+            return redirect()->back()->withInput();
+        }
     }
 
 
@@ -282,28 +299,47 @@ class CustomersController extends Controller
             'tier' => 'nullable|in:WHOLESALER,RESELLER',
         ]);
 
-        $customer->update([
-            'contact_name' => $request->contact_name,
-            'customer_phone' => $request->customer_phone,
-            'payment_term_id' => $request->payment_term_id, // Menyimpan payment_term_id
-            'customer_email' => $request->customer_email ?? '',
-            'identity' => $request->identity,
-            'identity_number' => $request->identity_number,
-            'fax' => $request->fax,
-            'npwp' => $request->npwp,
-            'billing_address' => $request->billing_address,
-            'shipping_address' => $request->shipping_address,
-            'bank_name' => $request->bank_name,
-            'bank_branch' => $request->bank_branch,
-            'account_number' => $request->account_number,
-            'account_holder' => $request->account_holder,
-            'additional_info' => $request->additional_info,
-            'tier' => $request->tier,
-        ]);
+        try {
+            \Illuminate\Support\Facades\Log::debug('Attempting to update customer', [
+                'customer_id' => $customer->id,
+                'payload' => $request->all(),
+                'setting_id' => $settingId
+            ]);
 
-        toast('Data Pelanggan Diperbaharui!', 'info');
+            $customer->update([
+                'contact_name' => $request->contact_name,
+                'customer_phone' => $request->customer_phone,
+                'payment_term_id' => $request->payment_term_id, // Menyimpan payment_term_id
+                'customer_email' => $request->customer_email ?? '',
+                'identity' => $request->identity,
+                'identity_number' => $request->identity_number,
+                'fax' => $request->fax,
+                'npwp' => $request->npwp,
+                'billing_address' => $request->billing_address,
+                'shipping_address' => $request->shipping_address,
+                'bank_name' => $request->bank_name,
+                'bank_branch' => $request->bank_branch,
+                'account_number' => $request->account_number,
+                'account_holder' => $request->account_holder,
+                'additional_info' => $request->additional_info,
+                'tier' => $request->tier,
+            ]);
 
-        return redirect()->route('customers.index');
+            toast('Data Pelanggan Diperbaharui!', 'info');
+
+            return redirect()->route('customers.index');
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Customer update failed', [
+                'customer_id' => $customer->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'payload' => $request->all(),
+                'setting_id' => $settingId
+            ]);
+
+            toast('Gagal memperbaharui pelanggan. Silakan hubungi administrator.', 'error');
+            return redirect()->back()->withInput();
+        }
     }
 
 
