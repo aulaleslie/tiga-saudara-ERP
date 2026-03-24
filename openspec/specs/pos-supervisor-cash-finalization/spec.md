@@ -7,11 +7,12 @@ TBD - created by archiving change pos-two-stage-settlement. Update Purpose after
 
 Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from cashiers and finalize POS sessions by entering the actual amount of cash received. The system SHALL calculate expected cash from session data, compute variance (actual - expected), and gate finalization on variance approval if variance exceeds the terminal's threshold. Finalization transitions the session from CLOSED to FINALIZED status.
 
-#### Scenario: Finalize action visible for CLOSED sessions
-
+#### Scenario: Finalize action visibility and guidance
 - **WHEN** an authenticated user with `pos.supervisor.approval` permission views the `/pos/sessions` index
-- **THEN** the user SHALL see a "Finalize" action button for each CLOSED session (status = CLOSED)
-- **AND** clicking "Finalize" SHALL open a modal displaying full session reconciliation details
+- **THEN** the user SHALL see a "Finalize" action button for CLOSED sessions
+- **AND** the user SHALL see a DISABLED "Finalize" action button for OPEN sessions
+- **AND** the disabled button SHALL have a tooltip: "Tutup terminal terlebih dahulu sebelum finalisasi" (or similar)
+- **AND** clicking "Finalize" for a CLOSED session SHALL open a modal displaying full session reconciliation details
 
 #### Scenario: Finalization modal shows full reconciliation details
 
@@ -45,14 +46,14 @@ Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from 
 - **AND** the response SHALL include `status: 'FINALIZED'`, `finalized_at` timestamp, `variance_total`, and `approval_result: 'BYPASSED'`
 - **AND** the UI SHALL show success message "Session finalized successfully"
 
-#### Scenario: Finalize with variance exceeding threshold - approval required
-
+#### Scenario: Finalize with variance exceeding threshold - interactive approval
 - **WHEN** supervisor enters actual cash amount and |variance| > terminal policy's close_variance_approval_threshold
 - **AND** supervisor clicks "Finalize"
-- **THEN** the system SHALL check if the supervisor has `pos.sessions.approve-variance` permission
-- **AND** IF supervisor has permission: session SHALL immediately transition to FINALIZED with `approval_result: 'SELF_APPROVED'`
-- **AND** IF supervisor does NOT have permission: the response SHALL return HTTP 422 with message "Variance approval required" and `requires_variance_approval: true`
-- **AND** the system SHALL create a variance approval record (or use existing approval queue) for an authorized approver
+- **AND** the supervisor DOES NOT have `pos.sessions.approve-variance` permission
+- **THEN** the modal SHALL transition to an "Approval Required" state
+- **AND** the modal SHALL present a supervisor authentication form (Email/Password or Identifier/PIN)
+- **AND** if valid authorized supervisor credentials are provided, the session SHALL transition to FINALIZED
+- **AND** the event's metadata SHALL record the ID of the supervisor who provided the override
 
 #### Scenario: User without supervisor permission cannot finalize
 
