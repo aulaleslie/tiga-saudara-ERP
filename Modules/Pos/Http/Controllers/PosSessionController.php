@@ -296,10 +296,11 @@ class PosSessionController extends Controller
         return response()->json($result);
     }
 
-    public function closeFinalize(
+    public function close(
         int $session,
         StorePosSessionCloseRequest $request,
-        PosSessionCloseService $sessionCloseService
+        PosSessionCloseService $sessionCloseService,
+        PosSessionAdminCloseService $adminCloseService
     ): JsonResponse {
         $settingId = $this->currentSettingId();
         $user = auth()->user();
@@ -318,18 +319,8 @@ class PosSessionController extends Controller
             ], 403);
         }
 
-        if (! $user->can('pos.sessions.close')) {
-            \Illuminate\Support\Facades\Log::channel('single')->error('POS Close Session: Permission denied', [
-                'user_id' => $user->id,
-                'permission' => 'pos.sessions.close',
-            ]);
-            return response()->json([
-                'message' => 'You do not have permission to close sessions.',
-            ], 403);
-        }
-
         $posSession = PosSession::query()
-            ->select(['id', 'setting_id'])
+            ->select(['id', 'setting_id', 'cashier_user_id'])
             ->where('id', $session)
             ->where('setting_id', $settingId)
             ->first();
@@ -344,18 +335,60 @@ class PosSessionController extends Controller
             ], 404);
         }
 
-        try {
-            \Illuminate\Support\Facades\Log::channel('single')->info('POS Close Session: Calling service', [
-                'session_id' => $posSession->id,
-                'user_id' => $user->id,
-            ]);
+        // Check if user has admin close permission
+        $hasAdminPermission = $user->can('pos.sessions.close-admin');
 
-            $result = $sessionCloseService->closeSession(
-                $settingId,
-                (int) $posSession->id,
-                (int) $user->id,
-                $request->filled('reason') ? $request->string('reason')->value() : null
-            );
+        // Check if user is the session owner
+        $isSessionOwner = (int) $posSession->cashier_user_id === (int) $user->id;
+
+        // Determine which service to use based on permissions and ownership
+        try {
+            if ($hasAdminPermission) {
+                // Admin can close any session
+                \Illuminate\Support\Facades\Log::channel('single')->info('POS Close Session: Using admin close', [
+                    'session_id' => $posSession->id,
+                    'admin_user_id' => $user->id,
+                ]);
+
+                $result = $adminCloseService->closeSessionAsAdmin(
+                    $settingId,
+                    (int) $posSession->id,
+                    (int) $user->id,
+                    $request->filled('reason') ? $request->string('reason')->value() : null
+                );
+            } elseif ($user->can('pos.sessions.close')) {
+                // Non-admin user can only close their own session
+                if (! $isSessionOwner) {
+                    \Illuminate\Support\Facades\Log::channel('single')->error('POS Close Session: Not session owner', [
+                        'session_id' => $session,
+                        'user_id' => $user->id,
+                        'session_cashier_id' => $posSession->cashier_user_id,
+                    ]);
+                    return response()->json([
+                        'message' => 'You do not have permission to close this session.',
+                    ], 403);
+                }
+
+                \Illuminate\Support\Facades\Log::channel('single')->info('POS Close Session: Using standard close', [
+                    'session_id' => $posSession->id,
+                    'user_id' => $user->id,
+                ]);
+
+                $result = $sessionCloseService->closeSession(
+                    $settingId,
+                    (int) $posSession->id,
+                    (int) $user->id,
+                    $request->filled('reason') ? $request->string('reason')->value() : null
+                );
+            } else {
+                \Illuminate\Support\Facades\Log::channel('single')->error('POS Close Session: Permission denied', [
+                    'user_id' => $user->id,
+                    'permissions' => ['pos.sessions.close', 'pos.sessions.close-admin'],
+                ]);
+                return response()->json([
+                    'message' => 'You do not have permission to close sessions.',
+                ], 403);
+            }
         } catch (AuthorizationException $exception) {
             \Illuminate\Support\Facades\Log::channel('single')->error('POS Close Session: Authorization failed', [
                 'session_id' => $session,
@@ -531,90 +564,6 @@ class PosSessionController extends Controller
         }
     }
 
-    public function closeAdmin(
-        int $session,
-        PosSessionAdminCloseService $adminCloseService
-    ): JsonResponse {
-        $settingId = $this->currentSettingId();
-        $user = auth()->user();
-
-        \Illuminate\Support\Facades\Log::channel('single')->info('POS Admin Close Session: Request received', [
-            'session_id' => $session,
-            'user_id' => $user?->id,
-            'setting_id' => $settingId,
-            'reason' => request()->input('reason'),
-        ]);
-
-        if (! $user) {
-            \Illuminate\Support\Facades\Log::channel('single')->error('POS Admin Close Session: No authenticated user');
-            return response()->json([
-                'message' => 'Authentication is required.',
-            ], 403);
-        }
-
-        if (! $user->can('pos.sessions.close-admin')) {
-            \Illuminate\Support\Facades\Log::channel('single')->error('POS Admin Close Session: Permission denied', [
-                'user_id' => $user->id,
-                'permission' => 'pos.sessions.close-admin',
-            ]);
-            return response()->json([
-                'message' => 'You do not have permission to close sessions as admin.',
-            ], 403);
-        }
-
-        $posSession = PosSession::query()
-            ->select(['id', 'setting_id'])
-            ->where('id', $session)
-            ->where('setting_id', $settingId)
-            ->first();
-
-        if (! $posSession) {
-            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Admin Close Session: Session not found', [
-                'session_id' => $session,
-                'setting_id' => $settingId,
-            ]);
-            return response()->json([
-                'message' => 'POS session not found for current setting.',
-            ], 404);
-        }
-
-        try {
-            \Illuminate\Support\Facades\Log::channel('single')->info('POS Admin Close Session: Calling service', [
-                'session_id' => $posSession->id,
-                'admin_user_id' => $user->id,
-            ]);
-
-            $result = $adminCloseService->closeSessionAsAdmin(
-                $settingId,
-                (int) $posSession->id,
-                (int) $user->id,
-                request()->filled('reason') ? request()->string('reason')->value() : null
-            );
-
-            \Illuminate\Support\Facades\Log::channel('single')->info('POS Admin Close Session: Success', [
-                'session_id' => $session,
-                'admin_user_id' => $user->id,
-            ]);
-            return response()->json($result);
-        } catch (AuthorizationException $exception) {
-            \Illuminate\Support\Facades\Log::channel('single')->error('POS Admin Close Session: Authorization failed', [
-                'session_id' => $session,
-                'user_id' => $user->id,
-                'error' => $exception->getMessage(),
-            ]);
-            return response()->json([
-                'message' => $exception->getMessage(),
-            ], 403);
-        } catch (DomainException $exception) {
-            \Illuminate\Support\Facades\Log::channel('single')->warning('POS Admin Close Session: Domain error', [
-                'session_id' => $session,
-                'error' => $exception->getMessage(),
-            ]);
-            return response()->json([
-                'message' => $exception->getMessage(),
-            ], 422);
-        }
-    }
 
     public function finalize(
         int $session,

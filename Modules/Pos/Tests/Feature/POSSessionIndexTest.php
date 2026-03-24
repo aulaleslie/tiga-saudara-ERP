@@ -246,7 +246,7 @@ class POSSessionIndexTest extends TestCase
             ->get(route('pos.sessions.index'));
 
         $response->assertOk();
-        $response->assertSee('data-bs-target="#closeAdminModal" data-session-id="' . $session->id . '"', false);
+        $response->assertSee('data-bs-target="#closeModal" data-session-id="' . $session->id . '"', false);
     }
 
     public function test_index_keeps_identical_table_structure_for_terminal_and_non_terminal_rows(): void

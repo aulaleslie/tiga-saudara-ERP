@@ -77,16 +77,11 @@
 
                         <div class="mt-4 pt-4 d-grid gap-2">
                             @if($status === 'OPEN')
-                                @can('pos.sessions.close')
+                                @if(auth()->user()->can('pos.sessions.close') || auth()->user()->can('pos.sessions.close-admin'))
                                     <button type="button" class="btn btn-danger py-2 shadow-sm" data-toggle="modal" data-target="#closeModal" data-session-id="{{ $session_id }}" style="border-radius: 10px;">
                                         <i class="bi bi-power me-2"></i>Tutup Sesi
                                     </button>
-                                @endcan
-                                @can('pos.sessions.close-admin')
-                                    <button type="button" class="btn btn-warning py-2 shadow-sm" data-toggle="modal" data-target="#closeAdminModal" data-session-id="{{ $session_id }}" style="border-radius: 10px;">
-                                        <i class="bi bi-lock-fill me-2"></i>Tutup Sesi (Admin)
-                                    </button>
-                                @endcan
+                                @endif
                             @elseif($status === 'CLOSED')
                                 @can('pos.supervisor.approval')
                                     <button type="button" class="btn btn-success py-2 shadow-sm" data-toggle="modal" data-target="#finalizeModal" data-session-id="{{ $session_id }}" style="border-radius: 10px;">
@@ -215,7 +210,6 @@
     </div>
 
     @include('pos::session._close-modal')
-    @include('pos::session._close-admin-modal')
     @include('pos::session._finalize-modal')
 
 @endsection

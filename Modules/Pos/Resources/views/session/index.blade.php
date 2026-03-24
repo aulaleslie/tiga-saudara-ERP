@@ -126,11 +126,11 @@
                                                 <i class="bi bi-eye"></i> Detail
                                             </a>
                                             @if($session->status === 'OPEN')
-                                                @can('pos.sessions.close-admin')
-                                                    <button type="button" class="btn btn-sm btn-outline-warning" data-toggle="modal" data-target="#closeAdminModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Tutup Terminal (Admin)">
-                                                        <i class="bi bi-lock"></i> Tutup
+                                                @if(auth()->user()->can('pos.sessions.close') || auth()->user()->can('pos.sessions.close-admin'))
+                                                    <button type="button" class="btn btn-sm btn-outline-danger" data-toggle="modal" data-target="#closeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Tutup Sesi">
+                                                        <i class="bi bi-power"></i> Tutup
                                                     </button>
-                                                @endcan
+                                                @endif
                                                 @can('pos.supervisor.approval')
                                                     @if($session->terminal)
                                                         <button type="button" class="btn btn-sm btn-outline-success disabled" data-bs-toggle="tooltip" title="Tutup terminal terlebih dahulu sebelum finalisasi">
@@ -168,7 +168,7 @@
     </div>
 
     {{-- Modals --}}
-    @include('pos::session._close-admin-modal')
+    @include('pos::session._close-modal')
     @include('pos::session._finalize-modal')
 @endsection
 

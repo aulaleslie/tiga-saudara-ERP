@@ -1,8 +1,5 @@
-# pos-admin-force-close Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change pos-two-stage-settlement. Update Purpose after archive.
-## Requirements
 ### Requirement: Admin force-close OPEN terminals
 Admin users (with `pos.sessions.close-admin` permission) SHALL be able to immediately close OPEN POS sessions without waiting for the cashier to count cash, releasing the terminal for use by other cashiers. The force-close action SHALL transition the session from OPEN directly to CLOSED status and create a cash event recording the close action. **Super Admin users SHALL be able to perform this action even if not assigned to the terminal's business setting.**
 
@@ -44,4 +41,3 @@ Admin users (with `pos.sessions.close-admin` permission) SHALL be able to immedi
 - **WHEN** admin initiates force-close on a session
 - **THEN** the session record SHALL be locked with SELECT FOR UPDATE during the close operation
 - **AND** concurrent requests to modify the same session SHALL wait or fail gracefully
-

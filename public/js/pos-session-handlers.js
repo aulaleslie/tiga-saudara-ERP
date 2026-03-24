@@ -6,32 +6,6 @@
 const NON_TERMINAL_LABEL = 'Non-Terminal';
 
 document.addEventListener('DOMContentLoaded', function () {
-    // Initialize close admin modal
-    const closeAdminModal = document.getElementById('closeAdminModal');
-    if (closeAdminModal) {
-        closeAdminModal.addEventListener('show.bs.modal', function (event) {
-            const button = event.relatedTarget;
-            const sessionId = button?.dataset?.sessionId;
-            const sessionCode = button?.dataset?.sessionCode || NON_TERMINAL_LABEL;
-
-            if (!sessionId) {
-                console.warn('[POS Session] Missing session id on close-admin trigger');
-                return;
-            }
-
-            // Fetch session data and populate modal
-            fetchSessionData(sessionId, function (session) {
-                populateCloseAdminModal(session, sessionCode);
-            });
-        });
-
-        // Handle form submission
-        document.getElementById('closeAdminForm').addEventListener('submit', function (e) {
-            e.preventDefault();
-            submitCloseAdmin(closeAdminModal);
-        });
-    }
-
     // Initialize finalize modal
     const finalizeModal = document.getElementById('finalizeModal');
     if (finalizeModal) {
@@ -110,27 +84,6 @@ function fetchSessionData(sessionId, callback) {
             console.error('[POS Session] Summary fetch error', error);
             showToast('Gagal mengambil data sesi', 'error');
         });
-}
-
-/**
- * Populate close admin modal with session data
- */
-function populateCloseAdminModal(session, fallbackSessionCode = NON_TERMINAL_LABEL) {
-    document.getElementById('sessionCode').textContent = session.terminal?.code || fallbackSessionCode || NON_TERMINAL_LABEL;
-    document.getElementById('cashierName').textContent = session.cashier?.name || '-';
-    document.getElementById('openedAt').textContent = formatDateTime(session.opened_at);
-    document.getElementById('openingFloat').textContent = formatCurrency(session.opening_float_total);
-
-    // Calculate session duration
-    if (session.opened_at) {
-        const openedAt = new Date(session.opened_at);
-        const now = new Date();
-        const duration = calculateDuration(openedAt, now);
-        document.getElementById('sessionDuration').textContent = duration;
-    }
-
-    // Store session ID for form submission
-    document.getElementById('closeAdminForm').dataset.sessionId = session.id;
 }
 
 /**
@@ -244,66 +197,6 @@ function calculateVariance() {
         varianceElement.classList.add('text-success');
         varianceWarning.style.display = 'none';
     }
-}
-
-/**
- * Submit close admin form
- */
-function submitCloseAdmin(modal) {
-    const form = document.getElementById('closeAdminForm');
-    const sessionId = form.dataset.sessionId;
-    const reason = document.getElementById('closeAdminReason').value;
-
-    console.log('[POS Session] Closing session as admin', {
-        sessionId,
-        reason: reason || '(none)',
-        timestamp: new Date().toISOString()
-    });
-
-    const submitBtn = form.querySelector('button[type="submit"]');
-    const originalText = submitBtn.innerHTML;
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Memproses...';
-
-    const formData = new FormData();
-    if (reason) formData.append('reason', reason);
-
-    fetch(`/pos/sessions/${sessionId}/close-admin`, {
-        method: 'POST',
-        headers: {
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-        },
-        body: formData,
-    })
-        .then(response => {
-            console.log('[POS Session] Close admin response', {
-                status: response.status,
-                statusText: response.statusText,
-                contentType: response.headers.get('content-type')
-            });
-
-            if (!response.ok) {
-                return response.json().then(data => {
-                    throw new Error(data.message || 'Gagal menutup terminal');
-                });
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log('[POS Session] Admin close successful', data);
-            showToast('Terminal berhasil ditutup', 'success');
-            $(modal).modal('hide');
-            // Reload table after short delay
-            setTimeout(() => location.reload(), 1000);
-        })
-        .catch(error => {
-            console.error('[POS Session] Close admin error', error);
-            showToast(error.message || 'Gagal menutup terminal', 'error');
-        })
-        .finally(() => {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalText;
-        });
 }
 
 /**
