@@ -157,7 +157,7 @@ class PosSessionController extends Controller
         return redirect()->route('pos.sessions.index');
     }
 
-    public function summary(int $session, PosSessionSummaryService $sessionSummaryService): JsonResponse
+    public function summary(int $session, PosSessionSummaryService $sessionSummaryService): JsonResponse|\Illuminate\View\View
     {
         $settingId = $this->currentSettingId();
         $user = auth()->user();
@@ -206,9 +206,52 @@ class PosSessionController extends Controller
             ], 403);
         }
 
-        return response()->json(
-            $sessionSummaryService->getSummary($posSession->id, (int) $user->id, $settingId)
-        );
+        $summary = $sessionSummaryService->getSummary($posSession->id, (int) $user->id, $settingId);
+
+        if (request()->header('Accept') === 'application/json' || request()->wantsJson()) {
+            return response()->json($summary);
+        }
+
+        return view('pos::session.summary', $summary);
+    }
+
+    /**
+     * Get detailed information for a specific checkout in a session
+     */
+    public function checkoutDetail(int $session, int $checkout): JsonResponse
+    {
+        $settingId = $this->currentSettingId();
+        $user = auth()->user();
+
+        if (! $user) {
+            return response()->json(['message' => 'Authentication is required.'], 403);
+        }
+
+        $posCheckout = PosCheckout::query()
+            ->with([
+                'transaction.lines.product',
+                'transaction.lines.serials',
+                'customer',
+                'cashier',
+                'paymentMethod',
+                'payments.paymentMethod',
+            ])
+            ->where('id', $checkout)
+            ->where('pos_session_id', $session)
+            ->where('setting_id', $settingId)
+            ->first();
+
+        if (! $posCheckout) {
+            return response()->json(['message' => 'Checkout record not found.'], 404);
+        }
+
+        // Authorization: owner or pos.sessions.view
+        $isOwner = (int) $posCheckout->cashier_user_id === (int) $user->id;
+        if (! $isOwner && ! $user->can('pos.sessions.view')) {
+            return response()->json(['message' => 'Not authorized to view checkout details.'], 403);
+        }
+
+        return response()->json($posCheckout);
     }
 
     public function safeDrop(

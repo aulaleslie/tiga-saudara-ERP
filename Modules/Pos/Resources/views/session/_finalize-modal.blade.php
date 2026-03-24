@@ -5,7 +5,9 @@
                 <h5 class="modal-title" id="finalizeModalLabel">
                     <i class="bi bi-check-circle"></i> Finalisasi Sesi POS
                 </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
             </div>
             <form id="finalizeForm">
                 <div class="modal-body">
@@ -132,7 +134,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
                     <button type="submit" class="btn btn-success" id="finalizeSubmitBtn">
                         <i class="bi bi-check-circle"></i> Finalisasi Sesi
                     </button>

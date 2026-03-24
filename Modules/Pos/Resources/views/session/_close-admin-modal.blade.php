@@ -5,13 +5,17 @@
                 <h5 class="modal-title" id="closeAdminModalLabel">
                     <i class="bi bi-lock"></i> Tutup Terminal (Admin)
                 </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
             </div>
             <form id="closeAdminForm">
                 <div class="modal-body">
                     <div class="alert alert-warning alert-dismissible fade show" role="alert">
                         <strong>Perhatian!</strong> Tindakan ini akan segera menutup terminal tanpa menunggu pencatatan kas kasir.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
                     </div>
 
                     <div class="row mb-3">
@@ -48,7 +52,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
                     <button type="submit" class="btn btn-warning">
                         <i class="bi bi-lock"></i> Tutup Terminal
                     </button>

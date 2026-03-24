@@ -127,7 +127,7 @@
                                             </a>
                                             @if($session->status === 'OPEN')
                                                 @can('pos.sessions.close-admin')
-                                                    <button type="button" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#closeAdminModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Tutup Terminal (Admin)">
+                                                    <button type="button" class="btn btn-sm btn-outline-warning" data-toggle="modal" data-target="#closeAdminModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Tutup Terminal (Admin)">
                                                         <i class="bi bi-lock"></i> Tutup
                                                     </button>
                                                 @endcan
@@ -140,7 +140,7 @@
                                                 @endcan
                                             @elseif($session->status === 'CLOSED' && $session->terminal)
                                                 @can('pos.supervisor.approval')
-                                                    <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#finalizeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Finalisasi Sesi">
+                                                    <button type="button" class="btn btn-sm btn-outline-success" data-toggle="modal" data-target="#finalizeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Finalisasi Sesi">
                                                         <i class="bi bi-check-circle"></i> Finalisasi
                                                     </button>
                                                 @endcan

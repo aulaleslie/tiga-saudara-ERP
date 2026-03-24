@@ -111,4 +111,23 @@ class PosSession extends BaseModel
     {
         return in_array($status, [self::STATUS_OPEN, self::STATUS_CLOSING], true) ? 1 : null;
     }
+
+    public function getDurationAttribute(): ?string
+    {
+        if (! $this->opened_at) {
+            return null;
+        }
+
+        $end = $this->closed_at ?: now();
+        $diff = $this->opened_at->diff($end);
+
+        $hours = $diff->h + ($diff->days * 24);
+        $minutes = $diff->i;
+
+        if ($hours > 0) {
+            return sprintf('%d jam %d menit', $hours, $minutes);
+        }
+
+        return sprintf('%d menit', $minutes);
+    }
 }

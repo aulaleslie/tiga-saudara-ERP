@@ -62,6 +62,23 @@ document.addEventListener('DOMContentLoaded', function () {
             calculateVariance();
         });
     }
+
+    // Initialize standard close modal
+    const closeModal = document.getElementById('closeModal');
+    if (closeModal) {
+        closeModal.addEventListener('show.bs.modal', function (event) {
+            const button = event.relatedTarget;
+            const sessionId = button?.dataset?.sessionId;
+            const form = document.getElementById('closeSessionForm');
+            form.dataset.sessionId = sessionId;
+        });
+
+        // Handle form submission
+        document.getElementById('closeSessionForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            submitClose(closeModal);
+        });
+    }
 });
 
 /**
@@ -275,14 +292,67 @@ function submitCloseAdmin(modal) {
         .then(data => {
             console.log('[POS Session] Admin close successful', data);
             showToast('Terminal berhasil ditutup', 'success');
-            const bsModal = bootstrap.Modal.getInstance(modal);
-            bsModal.hide();
+            $(modal).modal('hide');
             // Reload table after short delay
             setTimeout(() => location.reload(), 1000);
         })
         .catch(error => {
             console.error('[POS Session] Close admin error', error);
             showToast(error.message || 'Gagal menutup terminal', 'error');
+        })
+        .finally(() => {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        });
+}
+
+/**
+ * Submit standard close form
+ */
+function submitClose(modal) {
+    const form = document.getElementById('closeSessionForm');
+    const sessionId = form.dataset.sessionId;
+    const reason = document.getElementById('close_reason').value;
+
+    console.log('[POS Session] Closing session', {
+        sessionId,
+        reason: reason || '(none)',
+        timestamp: new Date().toISOString()
+    });
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Memproses...';
+
+    const formData = new FormData();
+    if (reason) formData.append('reason', reason);
+
+    fetch(`/pos/sessions/${sessionId}/close`, {
+        method: 'POST',
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+        },
+        body: formData,
+    })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(data => {
+                    throw new Error(data.message || 'Gagal menutup sesi');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('[POS Session] Close successful', data);
+            showToast('Sesi berhasil ditutup', 'success');
+            $(modal).modal('hide');
+            // Reload table after short delay
+            setTimeout(() => location.reload(), 1000);
+        })
+        .catch(error => {
+            console.error('[POS Session] Close error', error);
+            showToast(error.message || 'Gagal menutup sesi', 'error');
         })
         .finally(() => {
             submitBtn.disabled = false;
@@ -387,9 +457,8 @@ function submitFinalize(modal) {
         })
         .then(data => {
             console.log('[POS Session] Finalize successful', data);
-            showToast('Sesi berhasil difinalisasi', 'success');
-            const bsModal = bootstrap.Modal.getInstance(modal);
-            bsModal.hide();
+            showToast('Sesi berhasil ditfinalizekan', 'success');
+            $(modal).modal('hide');
             // Reload table after short delay
             setTimeout(() => location.reload(), 1000);
         })

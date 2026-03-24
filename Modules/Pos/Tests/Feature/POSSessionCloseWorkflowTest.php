@@ -70,11 +70,11 @@ class POSSessionCloseWorkflowTest extends TestCase
                 'status',
                 'closed_at',
             ])
-            ->assertJsonMissing('counted_cash_total')
-            ->assertJsonMissing('expected_cash_total')
-            ->assertJsonMissing('variance_total')
-            ->assertJsonMissing('approval_result')
-            ->assertJsonMissing('approval_id');
+            ->assertJsonMissing(['counted_cash_total'])
+            ->assertJsonMissing(['expected_cash_total'])
+            ->assertJsonMissing(['variance_total'])
+            ->assertJsonMissing(['approval_result'])
+            ->assertJsonMissing(['approval_id']);
 
         $this->assertDatabaseHas('pos_sessions', [
             'id' => $session->id,

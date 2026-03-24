@@ -21,6 +21,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access']], function () {
     Route::get('/pos/sessions/{session}/summary', [PosSessionController::class, 'summary'])->name('pos.sessions.summary');
+    Route::get('/pos/sessions/{session}/checkouts/{checkout}', [PosSessionController::class, 'checkoutDetail'])->name('pos.sessions.checkout-detail');
 });
 
 

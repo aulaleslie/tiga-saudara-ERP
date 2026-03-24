@@ -24,6 +24,12 @@ class PosSessionSummaryService
      *     is_threshold_breached:bool,
      *     events_count:int,
      *     calculated_at:string,
+     *     sales_total:float,
+     *     duration:string|null,
+     *     terminal_code:string|null,
+     *     terminal_name:string|null,
+     *     total_transactions_count:int,
+     *     total_transactions_amount:float,
      *     transactions:array,
      *     cash_events:array
      * }
@@ -35,7 +41,7 @@ class PosSessionSummaryService
         }
 
         $session = PosSession::query()
-            ->with('terminal.policy', 'cashEvents.performer', 'cashEvents.approver')
+            ->with(['terminal.policy', 'cashEvents.performer', 'cashEvents.approver'])
             ->where('id', $sessionId)
             ->where('setting_id', $settingId)
             ->first();
@@ -64,7 +70,7 @@ class PosSessionSummaryService
             ->where('status', \Modules\Pos\Entities\PosCheckout::STATUS_POSTED)
             ->orderBy('finalized_at', 'desc');
 
-        $transactions = $checkoutQuery
+        $transactions = (clone $checkoutQuery)
             ->limit(50)
             ->get()
             ->map(function ($checkout) {
@@ -80,11 +86,12 @@ class PosSessionSummaryService
             ->values()
             ->toArray();
 
-        // Calculate sales total
-        $salesTotal = \Modules\Pos\Entities\PosCheckout::query()
-            ->where('pos_session_id', $sessionId)
-            ->where('status', \Modules\Pos\Entities\PosCheckout::STATUS_POSTED)
-            ->sum('grand_total');
+        // Calculate transaction aggregates (total for this session)
+        $totalTransactionsCount = (clone $checkoutQuery)->count();
+        $totalTransactionsAmount = (clone $checkoutQuery)->sum('grand_total');
+
+        // Calculate sales total (already available from sum above, but let's keep it explicit if needed)
+        $salesTotal = round((float) $totalTransactionsAmount, 2);
 
         // Load cash event timeline
         $cashEvents = $session->cashEvents
@@ -116,7 +123,12 @@ class PosSessionSummaryService
             'is_threshold_breached' => $expectedCashTotal > $threshold,
             'events_count' => (int) $calculation['events_count'],
             'calculated_at' => (string) $calculation['calculated_at'],
-            'sales_total' => round((float) $salesTotal, 2),
+            'sales_total' => $salesTotal,
+            'duration' => $session->duration,
+            'terminal_code' => $session->terminal?->code,
+            'terminal_name' => $session->terminal?->name,
+            'total_transactions_count' => (int) $totalTransactionsCount,
+            'total_transactions_amount' => round((float) $totalTransactionsAmount, 2),
             'transactions' => $transactions,
             'cash_events' => $cashEvents,
         ];
