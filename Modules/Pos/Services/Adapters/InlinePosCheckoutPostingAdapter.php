@@ -34,7 +34,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $totals = is_array($cartSnapshot['totals'] ?? null) ? $cartSnapshot['totals'] : [];
 
         if ($settingId <= 0 || $cashierUserId <= 0 || $customerId <= 0) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Checkout posting context is not valid.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Konteks posting checkout tidak valid.');
         }
 
         $customer = Customer::query()
@@ -42,7 +42,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             ->first();
 
         if (! $customer) {
-            throw new PosCheckoutValidationException('CUSTOMER_UNRESOLVED', 'Customer could not be resolved for checkout.');
+            throw new PosCheckoutValidationException('CUSTOMER_UNRESOLVED', 'Pelanggan tidak dapat ditentukan untuk checkout.');
         }
 
         // Handle both single-payment and multi-payment contexts
@@ -52,7 +52,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             // For multi-payment: use first payment method for sale_payment row
             $payments = is_array($payment['payments'] ?? null) ? $payment['payments'] : [];
             if (empty($payments)) {
-                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payments array is empty.');
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Array pembayaran kosong.');
             }
             $firstPayment = $payments[0];
             $paymentMethodId = (int) ($firstPayment['payment_method_id'] ?? 0);
@@ -67,12 +67,12 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $paymentReference = $paymentReference !== '' ? $paymentReference : null;
 
         if ($paymentMethodId <= 0) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method is required.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran diperlukan.');
         }
 
         $paymentMethod = PaymentMethod::query()->find($paymentMethodId);
         if (! $paymentMethod) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method not found.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran tidak ditemukan.');
         }
 
         $grandTotal = round((float) ($totals['grand_total'] ?? 0), 2);
@@ -120,12 +120,12 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $taxId = $taxId > 0 ? $taxId : null;
 
             if ($productId <= 0 || $qty <= 0) {
-                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Checkout line is invalid.');
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Baris checkout tidak valid.');
             }
 
             $product = Product::query()->whereKey($productId)->lockForUpdate()->first();
             if (! $product) {
-                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Product is not available for posting.');
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Produk tidak tersedia untuk posting.');
             }
 
             // Handle serial assignments
@@ -136,7 +136,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
             if ($isSerialTracked) {
                 if (count($assignedSerials) !== $qty) {
-                    throw new PosCheckoutValidationException('SERIAL_INVALID', "Serial tracked product $productId requires $qty serials, but " . count($assignedSerials) . " assigned.");
+                    throw new PosCheckoutValidationException('SERIAL_INVALID', "Produk terlacak seri $productId memerlukan $qty seri, tetapi " . count($assignedSerials) . " yang diberikan.");
                 }
 
                 $serialRecords = ProductSerialNumber::query()
@@ -147,7 +147,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
                 foreach ($assignedSerials as $sn) {
                     if (! isset($serialRecords[$sn])) {
-                        throw new PosCheckoutValidationException('SERIAL_INVALID', "Serial $sn not found for product $productId.");
+                        throw new PosCheckoutValidationException('SERIAL_INVALID', "Seri $sn tidak ditemukan untuk produk $productId.");
                     }
                     $serialIds[] = (int) $serialRecords[$sn]->id;
                 }
@@ -192,13 +192,13 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 if ($lineAllocations === []) {
                     throw new PosCheckoutValidationException(
                         'STOCK_UNAVAILABLE',
-                        'Stock allocation for checkout line is missing.'
+                        'Stok alokasi untuk baris checkout tidak ditemukan.'
                     );
                 }
 
                 $totalAllocated = array_sum(array_column($lineAllocations, 'allocated_qty'));
                 if ((int) $totalAllocated !== $qty) {
-                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Allocated quantity does not match line quantity.');
+                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Kuantitas yang dialokasikan tidak sesuai dengan kuantitas baris.');
                 }
             }
 
@@ -260,19 +260,19 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     ->first();
 
                 if (! $stock) {
-                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Product stock is unavailable at source location.');
+                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok produk tidak tersedia di lokasi sumber.');
                 }
 
                 if ((int) $stock->quantity < $chunkQty) {
-                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient stock at source location.');
+                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok tidak cukup di lokasi sumber.');
                 }
 
                 if ($effectiveTaxId !== null && (int) $stock->quantity_tax < $chunkQty) {
-                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient taxed stock at source location.');
+                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok pajak tidak cukup di lokasi sumber.');
                 }
 
                 if ($effectiveTaxId === null && (int) $stock->quantity_non_tax < $chunkQty) {
-                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Insufficient non-tax stock at source location.');
+                    throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', 'Stok non-pajak tidak cukup di lokasi sumber.');
                 }
 
                 $assignedSerialsForChunk = $chunk['serial_numbers'] ?? null;

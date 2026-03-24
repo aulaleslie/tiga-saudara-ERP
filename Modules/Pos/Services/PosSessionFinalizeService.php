@@ -123,12 +123,12 @@ class PosSessionFinalizeService
 
                     if (! $approvalResult['approved']) {
                         $reason = $approvalResult['reason'] ?? 'UNKNOWN';
-                        $errorMessage = 'Invalid supervisor credentials or missing permission for variance override.';
+                        $errorMessage = 'Kredensial supervisor tidak valid atau izin untuk penggantian varian tidak ada.';
                         
                         if ($reason === 'MISSING_PERMISSION') {
-                            $errorMessage = 'Provided supervisor does not have permission to approve variance (pos.sessions.approve-variance).';
+                            $errorMessage = 'Supervisor yang disediakan tidak memiliki izin untuk menyetujui varian (pos.sessions.approve-variance).';
                         } elseif ($reason === 'INVALID_CREDENTIALS') {
-                            $errorMessage = 'Invalid supervisor identifier or password.';
+                            $errorMessage = 'Pengenal supervisor atau kata sandi tidak valid.';
                         }
 
                         throw new DomainException($errorMessage);
@@ -148,7 +148,7 @@ class PosSessionFinalizeService
                         return [
                             'blocked' => true,
                             'payload' => [
-                                'message' => 'Variance approval permission required to finalize session with variance exceeding threshold.',
+                                'message' => 'Izin persetujuan varian diperlukan untuk menyelesaikan sesi dengan varian melebihi ambang batas.',
                                 'requires_variance_approval' => true,
                                 'status' => PosSession::STATUS_CLOSED,
                                 'variance_total' => $varianceTotal,

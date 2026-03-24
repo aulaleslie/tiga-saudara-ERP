@@ -47,7 +47,7 @@ class LoginController extends Controller
             Auth::logout();
 
             return back()->with([
-                'account_deactivated' => 'Your account is deactivated! Please contact the Super Admin.'
+                'account_deactivated' => 'Akun Anda telah dinonaktifkan! Silakan hubungi Super Admin.'
             ]);
         }
 
@@ -85,7 +85,7 @@ class LoginController extends Controller
             // Ensure the user is active
             if ($user->is_active != 1) {
                 return response()->json([
-                    'message' => 'Your account is deactivated! Please contact the Super Admin.',
+                    'message' => 'Akun Anda telah dinonaktifkan! Silakan hubungi Super Admin.',
                 ], 403);
             }
 
@@ -93,14 +93,14 @@ class LoginController extends Controller
             $token = $user->createToken('api-token')->plainTextToken;
 
             return response()->json([
-                'message' => 'Login successful',
+                'message' => 'Login berhasil',
                 'token' => $token,
                 'user' => $user,
             ]);
         }
 
         return response()->json([
-            'message' => 'Invalid credentials',
+            'message' => 'Kredensial tidak valid',
         ], 401);
     }
 
@@ -110,7 +110,7 @@ class LoginController extends Controller
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([
-            'message' => 'Logged out successfully',
+            'message' => 'Berhasil keluar',
         ]);
     }
 }

@@ -54,7 +54,7 @@ class PosCartService
     public function addLine(int $settingId, int $sessionId, int $productId, int $qty = 1, ?int $conversionId = null): array
     {
         if ($qty < 1) {
-            throw new DomainException('Quantity must be at least 1.');
+            throw new DomainException('Kuantitas harus minimal 1.');
         }
 
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
@@ -71,7 +71,7 @@ class PosCartService
                 ->first();
 
             if (! $conversion) {
-                throw new DomainException('Conversion unit not found for this product.');
+                throw new DomainException('Unit konversi tidak ditemukan untuk produk ini.');
             }
         }
 
@@ -147,7 +147,7 @@ class PosCartService
             $newQty = $baseQty + $qty;
 
             if ($newQty > $availableQty) {
-                throw new DomainException('Requested quantity exceeds available stock for configured sales locations.');
+                throw new DomainException('Kuantitas yang diminta melebihi stok tersedia untuk lokasi penjualan yang dikonfigurasi.');
             }
 
             $cart['lines'][$existingLineId] = array_merge($existingLine, [
@@ -159,7 +159,7 @@ class PosCartService
             $newLineId = $cart['next_line_id']++;
 
             if ($qty > $availableQty) {
-                throw new DomainException('Requested quantity exceeds available stock for configured sales locations.');
+                throw new DomainException('Kuantitas yang diminta melebihi stok tersedia untuk lokasi penjualan yang dikonfigurasi.');
             }
 
             $cart['lines'][$newLineId] = [
@@ -221,12 +221,12 @@ class PosCartService
         }
 
         if ($line === null) {
-            throw new DomainException('Cart line was not found.');
+            throw new DomainException('Baris keranjang tidak ditemukan.');
         }
 
         $qty = (int) ($payload['qty'] ?? $line['qty']);
         if ($qty < 1) {
-            throw new DomainException('Quantity must be at least 1.');
+            throw new DomainException('Kuantitas harus minimal 1.');
         }
 
         // Backend validation: Enforce quantity reduction approval for non-privileged users
@@ -300,7 +300,7 @@ class PosCartService
         }
 
         if ($line === null) {
-            throw new DomainException('Cart line was not found.');
+            throw new DomainException('Baris keranjang tidak ditemukan.');
         }
 
         // Check if this would violate loaded transaction empty constraint
@@ -346,7 +346,7 @@ class PosCartService
                 ->exists();
 
             if (! $isValidCustomer) {
-                throw new DomainException('Selected customer is not valid.');
+                throw new DomainException('Pelanggan yang dipilih tidak valid.');
             }
         }
 
@@ -436,11 +436,11 @@ class PosCartService
         ?User $user = null
     ): array {
         if ($unitPrice <= 0) {
-            throw new DomainException('Unit price must be greater than zero.');
+            throw new DomainException('Harga satuan harus lebih besar dari nol.');
         }
 
         if (! $user) {
-            throw new DomainException('Authentication is required.');
+            throw new DomainException('Otentikasi diperlukan.');
         }
 
         $cart = $this->cartSessionStore->getCart($settingId, $sessionId);
@@ -462,7 +462,7 @@ class PosCartService
         }
 
         if ($line === null) {
-            throw new DomainException('Cart line was not found.');
+            throw new DomainException('Baris keranjang tidak ditemukan.');
         }
 
         $authorization = $this->actionAuthorizationService->authorize(
@@ -476,7 +476,7 @@ class PosCartService
 
         if ($approvedRequest instanceof PosActionApprovalRequest) {
             if ((int) $approvedRequest->target_id !== $lineId) {
-                throw new DomainException('TOKEN_INVALID_OR_EXPIRED');
+                throw new DomainException('TOKEN_TIDAK_VALID_ATAU_KEDALUWARSA');
             }
 
             $requestedUnitPrice = round((float) ($approvedRequest->request_payload['unit_price'] ?? 0), 2);
@@ -497,7 +497,7 @@ class PosCartService
         }
 
         if ($targetUnitPrice <= 0) {
-            throw new DomainException('Unit price must be greater than zero.');
+            throw new DomainException('Harga satuan harus lebih besar dari nol.');
         }
 
         $cart['lines'][$lineId] = array_merge($line, [
@@ -535,11 +535,11 @@ class PosCartService
         }
 
         if ($line === null) {
-            throw new DomainException('Cart line was not found.');
+            throw new DomainException('Baris keranjang tidak ditemukan.');
         }
 
         if (! (bool) ($line['serial_number_required'] ?? false)) {
-            throw new DomainException('This product does not require serial numbers.');
+            throw new DomainException('Produk ini tidak memerlukan nomor seri.');
         }
 
         $qty = (int) ($line['qty'] ?? 0);

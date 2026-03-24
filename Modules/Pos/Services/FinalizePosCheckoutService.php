@@ -61,19 +61,19 @@ class FinalizePosCheckoutService
         ?array $clientContext = null
     ): array {
         if ($settingId <= 0 || $cashierUserId <= 0) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Checkout context is invalid.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Konteks checkout tidak valid.');
         }
 
         $sessionId = (int) $activeSession->id;
         $terminalId = (int) $activeSession->terminal_id;
 
         if ($sessionId <= 0 || $terminalId <= 0) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Active POS session context is invalid.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Konteks sesi POS yang aktif tidak valid.');
         }
 
         $normalizedIdempotencyKey = $this->normalizeIdempotencyKey($idempotencyKey);
         if ($normalizedIdempotencyKey === '') {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Idempotency key is required.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Kunci idempotency diperlukan.');
         }
 
         $postedCheckout = PosCheckout::query()
@@ -191,11 +191,11 @@ class FinalizePosCheckoutService
     ): array {
         $lines = is_array($cartSnapshot['lines'] ?? null) ? $cartSnapshot['lines'] : [];
         if ($lines === []) {
-            throw new PosCheckoutValidationException('CART_EMPTY', 'Cart must contain at least one line item.');
+            throw new PosCheckoutValidationException('CART_EMPTY', 'Keranjang harus berisi setidaknya satu item baris.');
         }
 
         if (! $resolvedCustomerId) {
-            throw new PosCheckoutValidationException('CUSTOMER_UNRESOLVED', 'Customer is not resolved for checkout.');
+            throw new PosCheckoutValidationException('CUSTOMER_UNRESOLVED', 'Pelanggan belum ditentukan untuk checkout.');
         }
 
         $settingId = (int) ($cartSnapshot['setting_id'] ?? 0);
@@ -213,7 +213,7 @@ class FinalizePosCheckoutService
         ];
 
         if ($totals['grand_total'] <= 0) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Grand total must be greater than zero.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Total akhir harus lebih besar dari nol.');
         }
 
         // Handle multi-payment validation
@@ -222,7 +222,7 @@ class FinalizePosCheckoutService
             $totalCashMinor = (int) ($payment['total_cash_minor_units'] ?? 0);
 
             if ($amountPaid + 0.0001 < $totals['grand_total']) {
-                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment must be fully paid.');
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Pembayaran harus dibayar sepenuhnya.');
             }
 
             return $totals;
@@ -270,11 +270,11 @@ class FinalizePosCheckoutService
         $reference = $reference !== '' ? $reference : null;
 
         if ($amountPaid <= 0) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment amount must be greater than zero.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Jumlah pembayaran harus lebih besar dari nol.');
         }
 
         if (! $paymentMethodId || $paymentMethodId <= 0) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method is required.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran diperlukan.');
         }
 
         $paymentMethod = PaymentMethod::query()
@@ -286,7 +286,7 @@ class FinalizePosCheckoutService
             ->first();
 
         if (! $paymentMethod) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Payment method not found or not enabled for this setting.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Metode pembayaran tidak ditemukan atau tidak diaktifkan untuk pengaturan ini.');
         }
 
         return [
@@ -314,7 +314,7 @@ class FinalizePosCheckoutService
     private function normalizeMultiPayment(int $settingId, array $paymentsPayload): array
     {
         if (! $this->paymentNormalizationService) {
-            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Multi-payment service not available.');
+            throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Layanan pembayaran multi tidak tersedia.');
         }
 
         $normalized = $this->paymentNormalizationService->normalize($settingId, $paymentsPayload);
@@ -523,11 +523,11 @@ class FinalizePosCheckoutService
                     ->first();
 
                 if (! $session) {
-                    throw new PosCheckoutValidationException('PAYMENT_INVALID', 'POS session was not found.');
+                    throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Sesi POS tidak ditemukan.');
                 }
 
                 if ($session->status !== PosSession::STATUS_OPEN) {
-                    throw new PosCheckoutValidationException('PAYMENT_INVALID', 'POS session must be OPEN to finalize checkout.');
+                    throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Sesi POS harus DIBUKA untuk menyelesaikan checkout.');
                 }
 
                 $terminal = PosTerminal::query()
