@@ -1,0 +1,68 @@
+Priority,File Path,Line,Category,English String,Indonesian Replacement,Status
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,64,Checkout Exception,"Checkout context is invalid.","Konteks checkout tidak valid.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,71,Session Exception,"Active POS session context is invalid.","Konteks sesi POS yang aktif tidak valid.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,76,Checkout Exception,"Idempotency key is required.","Kunci idempotency diperlukan.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,194,Cart Exception,"Cart must contain at least one line item.","Keranjang harus berisi setidaknya satu item baris.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,198,Customer Exception,"Customer is not resolved for checkout.","Pelanggan belum ditentukan untuk checkout.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,216,Payment Exception,"Grand total must be greater than zero.","Total akhir harus lebih besar dari nol.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,225,Payment Exception,"Payment must be fully paid.","Pembayaran harus dibayar sepenuhnya.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,273,Payment Exception,"Payment amount must be greater than zero.","Jumlah pembayaran harus lebih besar dari nol.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,277,Payment Exception,"Payment method is required.","Metode pembayaran diperlukan.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,289,Payment Exception,"Payment method not found or not enabled for this setting.","Metode pembayaran tidak ditemukan atau tidak diaktifkan untuk pengaturan ini.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,317,Payment Exception,"Multi-payment service not available.","Layanan pembayaran multi tidak tersedia.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,526,Session Exception,"POS session was not found.","Sesi POS tidak ditemukan.",PENDING
+CRITICAL,/Modules/Pos/Services/FinalizePosCheckoutService.php,530,Session Exception,"POS session must be OPEN to finalize checkout.","Sesi POS harus DIBUKA untuk menyelesaikan checkout.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,57,Quantity Exception,"Quantity must be at least 1.","Kuantitas harus minimal 1.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,74,Unit Exception,"Conversion unit not found for this product.","Unit konversi tidak ditemukan untuk produk ini.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,150,Stock Exception,"Requested quantity exceeds available stock for configured sales locations.","Kuantitas yang diminta melebihi stok tersedia untuk lokasi penjualan yang dikonfigurasi.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,224,Cart Exception,"Cart line was not found.","Baris keranjang tidak ditemukan.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,229,Quantity Exception,"Quantity must be at least 1.","Kuantitas harus minimal 1.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,303,Cart Exception,"Cart line was not found.","Baris keranjang tidak ditemukan.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,349,Customer Exception,"Selected customer is not valid.","Pelanggan yang dipilih tidak valid.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,439,Price Exception,"Unit price must be greater than zero.","Harga satuan harus lebih besar dari nol.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,443,Auth Exception,"Authentication is required.","Otentikasi diperlukan.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,465,Cart Exception,"Cart line was not found.","Baris keranjang tidak ditemukan.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,479,Token Exception,"TOKEN_INVALID_OR_EXPIRED","TOKEN_TIDAK_VALID_ATAU_KEDALUWARSA",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,500,Price Exception,"Unit price must be greater than zero.","Harga satuan harus lebih besar dari nol.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,538,Cart Exception,"Cart line was not found.","Baris keranjang tidak ditemukan.",PENDING
+CRITICAL,/Modules/Pos/Services/PosCartService.php,542,Serial Exception,"This product does not require serial numbers.","Produk ini tidak memerlukan nomor seri.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,37,Checkout Exception,"Checkout posting context is not valid.","Konteks posting checkout tidak valid.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,45,Customer Exception,"Customer could not be resolved for checkout.","Pelanggan tidak dapat ditentukan untuk checkout.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,55,Payment Exception,"Payments array is empty.","Array pembayaran kosong.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,70,Payment Exception,"Payment method is required.","Metode pembayaran diperlukan.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,75,Payment Exception,"Payment method not found.","Metode pembayaran tidak ditemukan.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,123,Checkout Exception,"Checkout line is invalid.","Baris checkout tidak valid.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,128,Stock Exception,"Product is not available for posting.","Produk tidak tersedia untuk posting.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,139,Serial Exception,"Serial tracked product requires serials.","Produk terlacak seri memerlukan seri.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,150,Serial Exception,"Serial not found for product.","Seri tidak ditemukan untuk produk.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,201,Stock Exception,"Allocated quantity does not match line quantity.","Kuantitas yang dialokasikan tidak sesuai dengan kuantitas baris.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,263,Stock Exception,"Product stock is unavailable at source location.","Stok produk tidak tersedia di lokasi sumber.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,267,Stock Exception,"Insufficient stock at source location.","Stok tidak cukup di lokasi sumber.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,271,Stock Exception,"Insufficient taxed stock at source location.","Stok pajak tidak cukup di lokasi sumber.",PENDING
+CRITICAL,/Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php,275,Stock Exception,"Insufficient non-tax stock at source location.","Stok non-pajak tidak cukup di lokasi sumber.",PENDING
+CRITICAL,/Modules/Pos/Services/PosSessionFinalizeService.php,126,Supervisor Exception,"Invalid supervisor credentials or missing permission for variance override.","Kredensial supervisor tidak valid atau izin untuk penggantian varian tidak ada.",PENDING
+CRITICAL,/Modules/Pos/Services/PosSessionFinalizeService.php,129,Supervisor Exception,"Provided supervisor does not have permission to approve variance (pos.sessions.approve-variance).","Supervisor yang disediakan tidak memiliki izin untuk menyetujui varian (pos.sessions.approve-variance).",PENDING
+CRITICAL,/Modules/Pos/Services/PosSessionFinalizeService.php,131,Auth Exception,"Invalid supervisor identifier or password.","Pengenal supervisor atau kata sandi tidak valid.",PENDING
+CRITICAL,/Modules/Pos/Services/PosSessionFinalizeService.php,151,Variance Exception,"Variance approval permission required to finalize session with variance exceeding threshold.","Izin persetujuan varian diperlukan untuk menyelesaikan sesi dengan varian melebihi ambang batas.",PENDING
+CRITICAL,/app/Http/Controllers/Auth/LoginController.php,50,Auth Message,"Your account is deactivated! Please contact the Super Admin.","Akun Anda telah dinonaktifkan! Silakan hubungi Super Admin.",PENDING
+CRITICAL,/app/Http/Controllers/Auth/LoginController.php,88,Auth Message,"Your account is deactivated! Please contact the Super Admin.","Akun Anda telah dinonaktifkan! Silakan hubungi Super Admin.",PENDING
+CRITICAL,/app/Http/Controllers/Auth/LoginController.php,96,Auth Message,"Login successful","Login berhasil",PENDING
+CRITICAL,/app/Http/Controllers/Auth/LoginController.php,103,Auth Message,"Invalid credentials","Kredensial tidak valid",PENDING
+CRITICAL,/app/Http/Controllers/Auth/LoginController.php,113,Auth Message,"Logged out successfully","Berhasil keluar",PENDING
+HIGH,/Modules/Pos/Http/Controllers/PosSellController.php,38,Auth Message,"Active POS session context is required.","Konteks sesi POS yang aktif diperlukan.",PENDING
+HIGH,/Modules/Pos/Http/Controllers/PosSellController.php,47,Auth Message,"Authentication is required.","Otentikasi diperlukan.",PENDING
+HIGH,/Modules/Pos/Http/Controllers/PosSellController.php,725,Auth Message,"Unauthorized access to receipt.","Akses ke struk tidak sah.",PENDING
+HIGH,/Modules/Pos/Http/Controllers/PosSessionController.php,87,Auth Message,"Authentication is required.","Otentikasi diperlukan.",PENDING
+HIGH,/Modules/Pos/Http/Controllers/PosSessionController.php,266,Auth Message,"Authentication is required.","Otentikasi diperlukan.",PENDING
+HIGH,/Modules/Pos/Http/Controllers/PosSessionController.php,276,Auth Message,"POS session not found for current setting.","Sesi POS tidak ditemukan untuk pengaturan saat ini.",PENDING
+HIGH,/Modules/Pos/Http/Requests/StorePosSessionCloseRequest.php,27,Validation Message,"Validation failed","Validasi gagal",PENDING
+HIGH,/app/Livewire/Barcode/ProductTable.php,43,Flash Message,"Max quantity is 100 per barcode generation!","Kuantitas maksimal adalah 100 per pembuatan barcode!",PENDING
+HIGH,/app/Livewire/Barcode/ProductTable.php,47,Flash Message,"Can not generate Barcode with this type of Product Code","Tidak dapat membuat Barcode dengan jenis Kode Produk ini",PENDING
+HIGH,/app/Livewire/Transfer/TransferProductTable.php,61,Flash Message,"Already exists in the product list!","Sudah ada dalam daftar produk!",PENDING
+HIGH,/app/Livewire/Adjustment/ProductTable.php,55,Flash Message,"Already exists in the product list!","Sudah ada dalam daftar produk!",PENDING
+MEDIUM,/app/Http/Controllers/GlobalPurchaseAndSalesSearchController.php,135,Error Message,"Search failed: ","Pencarian gagal: ",PENDING
+MEDIUM,/Modules/Sale/Http/Controllers/GlobalSalesSearchController.php,94,Error Message,"Search failed. Please try again.","Pencarian gagal. Silakan coba lagi.",PENDING
+MEDIUM,/Modules/Sale/Http/Controllers/GlobalSalesSearchController.php,337,Error Message,"Search failed. Please try again.","Pencarian gagal. Silakan coba lagi.",PENDING
+MEDIUM,/Modules/User/Resources/views/users/create.blade.php,163,JavaScript Alert,"Please select a role for each selected setting.","Silakan pilih peran untuk setiap pengaturan yang dipilih.",PENDING
+LOW,/Modules/Pos/Resources/views/session/_finalize-modal.blade.php,N/A,Form Label,"Email Supervisor","Email Supervisor",REVIEW
+LOW,/Modules/Pos/Resources/views/session/_finalize-modal.blade.php,N/A,Form Label,"Password/PIN","Kata Sandi/PIN",REVIEW

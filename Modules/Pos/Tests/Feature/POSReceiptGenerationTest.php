@@ -20,9 +20,13 @@ use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Product\Entities\ProductUnitConversionPrice;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\SettingPosPaymentMethod;
+use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -64,13 +68,13 @@ class POSReceiptGenerationTest extends TestCase
     public function test_receipt_number_follows_business_config(): void
     {
         $context = $this->createCheckoutContext('POS DEFAULT RCP');
-        $methods = $this->seedPaymentMethods($context['setting']);
+        $methods = $context['methods'];
         $setting = $context['setting'];
         
         // No prefix set, should default to RCP
         $this->assertNull($setting->pos_receipt_prefix);
 
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-001', 50000, false);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -102,11 +106,11 @@ class POSReceiptGenerationTest extends TestCase
     public function test_receipt_number_uses_custom_prefix(): void
     {
         $context = $this->createCheckoutContext('POS CUSTOM PREFIX');
-        $methods = $this->seedPaymentMethods($context['setting']);
+        $methods = $context['methods'];
         $setting = $context['setting'];
         $setting->update(['pos_receipt_prefix' => 'POSX']);
         
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-002', 100000, false);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -129,8 +133,8 @@ class POSReceiptGenerationTest extends TestCase
     public function test_receipt_view_creates_print_log(): void
     {
         $context = $this->createCheckoutContext('POS PRINT VIEW');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-003', 25000, false);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -169,8 +173,8 @@ class POSReceiptGenerationTest extends TestCase
     public function test_receipt_reprint_creates_separate_log(): void
     {
         $context = $this->createCheckoutContext('POS REPRINT VIEW');
-        $methods = $this->seedPaymentMethods($context['setting']);
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
         $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-004', 30000, false);
         
         $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
@@ -202,10 +206,10 @@ class POSReceiptGenerationTest extends TestCase
     public function test_cross_setting_receipt_access_is_forbidden(): void
     {
         $context1 = $this->createCheckoutContext('POS STORE 1');
-        $methods = $this->seedPaymentMethods($context1['setting']);
+        $methods = $context1['methods'];
         $context2 = $this->createCheckoutContext('POS STORE 2');
         
-        $customer = $customer = $this->assignDefaultWalkInCustomer($context1['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context1['setting']);
         $product = $this->createStockedProduct($context1['setting'], $context1['location'], 'PROD-FORBID', 10000, false);
         $this->addCartLine($context1['cashier'], $context1['setting'], $product->id, 1);
         $this->selectCustomerInCart($context1['cashier'], $context1['setting'], $customer);
@@ -228,12 +232,133 @@ class POSReceiptGenerationTest extends TestCase
             ->assertStatus(403);
     }
     
+    public function test_receipt_shows_correct_multi_payment_nominals_and_unit_breakdown(): void
+    {
+        $context = $this->createCheckoutContext('POS MULTI PAY');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        
+        // Create unit for conversion
+        $rimUnit = Unit::create(['name' => 'RIM', 'short_name' => 'RIM', 'operator' => '*', 'operation_value' => 1]);
+        $boxUnit = Unit::create(['name' => 'BOX', 'short_name' => 'BOX', 'operator' => '*', 'operation_value' => 10]);
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-CONV', 200000, false);
+        $standardProduct = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-STD', 50000, false);
+        
+        // Setup ProductUnitConversion
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $rimUnit->id,
+            'base_unit_id' => $boxUnit->id,
+            'conversion_factor' => 10,
+        ]);
+
+        ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id' => $context['setting']->id,
+            'price' => 200000, // Price for 1 BOX (which is 10 RIM internally)
+        ]);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1, $conversion->id);
+        $this->addCartLine($context['cashier'], $context['setting'], $standardProduct->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+        
+        // Finalize with multiple payments
+        // Total = 200k (conv) + 50k (std) = 250k
+        $payload = [
+            'idempotency_key' => 'multipay-' . uniqid(),
+            'payments' => [
+                ['payment_method_id' => $methods['cash']->id, 'amount_paid' => 300000],
+                [
+                    'payment_method_id' => $methods['qris']->id,
+                    'amount_paid' => 50000, // Total Paid = 350k. Change = 100k
+                    'reference' => 'QRIS-456'
+                ],
+            ],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $checkoutResponse->assertStatus(201);
+        $checkoutId = $checkoutResponse->json('pos_checkout_id');
+        
+        session()->put('setting_id', $context['setting']->id);
+
+        $receiptResponse = $this->actingAs($context['cashier'])
+            ->get("/pos/sell/checkout/{$checkoutId}/receipt");
+        
+        if ($receiptResponse->status() !== 200 || !str_contains($receiptResponse->getContent(), '1 POS UNIT(S)')) {
+            file_put_contents('receipt_debug.html', $receiptResponse->getContent());
+        }
+
+        $receiptResponse->assertStatus(200)
+            ->assertSee('PROD-CONV')
+            ->assertSee('1 RIM(S)')
+            ->assertSee('PROD-STD')
+            ->assertSee('1 PUNIT(S)') // Base unit short name
+            ->assertSee('BAYAR (CASH POS)')
+            ->assertSee('300.000')
+            ->assertSee('KEMBALI')
+            ->assertSee('50.000')
+            ->assertDontSee('SUB TOTAL')
+            ->assertDontSee('PAJAK')
+            ->assertSee('BAYAR (QRIS POS)')
+            ->assertSee('50.000')
+            ->assertSee('Harga sudah termasuk PPN');
+    }
+    
+    public function test_receipt_shows_calculated_change_if_db_value_is_zero(): void
+    {
+        $context = $this->createCheckoutContext('POS CHANGE FIX');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-BASE', 100000, false);
+        
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+        
+        $payload = [
+            'idempotency_key' => 'changefix-' . uniqid(),
+            'payments' => [
+                ['payment_method_id' => $methods['cash']->id, 'amount_paid' => 150000], // 50k over
+            ],
+        ];
+
+        $checkoutResponse = $this->finalize($context['cashier'], $context['setting'], $payload);
+        $checkoutId = $checkoutResponse->json('pos_checkout_id');
+        
+        // Manually zero out change_total to mimic the scenario
+        PosCheckout::where('id', $checkoutId)->update(['change_total' => 0]);
+        
+        session()->put('setting_id', $context['setting']->id);
+
+        $receiptResponse = $this->actingAs($context['cashier'])
+            ->get("/pos/sell/checkout/{$checkoutId}/receipt");
+        
+        if ($receiptResponse->status() !== 200 || !str_contains($receiptResponse->getContent(), '1 POS UNIT(S)')) {
+            file_put_contents('receipt_debug_change.html', $receiptResponse->getContent());
+        }
+
+        $receiptResponse->assertStatus(200)
+            ->assertSee('KEMBALI')
+            ->assertSee('50.000')
+            ->assertSee('1 PUNIT(S)'); // Confirms baseUnit relation used
+    }
+
     // --- Helper Methods adapted from POSCheckoutFinalizeIdempotencyTest ---
     
     private function createCheckoutContext(string $prefix): array
     {
         $setting = $this->createSetting($prefix);
-        $cashier = $this->createUserForSetting($setting, $prefix . '-cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $cashier = $this->createUserForSetting($setting, $prefix . '-cashier', [
+            'pos.access', 
+            'pos.sell', 
+            'pos.sessions.open',
+            'pos.checkout.payment',
+        ]);
+        
+        // Seed payment methods FIRST because openSession validates them
+        $methods = $this->seedPaymentMethods($setting);
+        
         $terminal = $this->createTerminalForSetting($setting);
         $location = SalesLocationResolver::resolve((int) $terminal->setting_id);
 
@@ -248,7 +373,7 @@ class POSReceiptGenerationTest extends TestCase
             $cashier->id
         );
 
-        return compact('setting', 'location', 'cashier', 'terminal', 'session');
+        return compact('setting', 'location', 'cashier', 'terminal', 'session', 'methods');
     }
 
     private function createSetting(string $name): Setting
@@ -282,6 +407,11 @@ class POSReceiptGenerationTest extends TestCase
 
         $roleName = 'pos_role_' . $index;
         $role = Role::findOrCreate($roleName, 'web');
+        
+        foreach ($permissions as $permission) {
+            Permission::findOrCreate($permission, 'web');
+        }
+
         $role->givePermissionTo($permissions);
         
         $user->assignRole($role);
@@ -306,6 +436,13 @@ class POSReceiptGenerationTest extends TestCase
             'code' => 'POS-CHECKOUT-' . str_pad((string) $index, 2, '0', STR_PAD_LEFT),
             'name' => 'POS Checkout Terminal ' . $index,
             'is_active' => true,
+        ]);
+
+        SettingSaleLocation::create([
+            'setting_id' => $setting->id,
+            'location_id' => $location->id,
+            'is_enabled' => true,
+            'position' => 1,
         ]);
 
         PosTerminalPolicy::create([
@@ -403,23 +540,36 @@ class POSReceiptGenerationTest extends TestCase
     private function seedPaymentMethods(Setting $setting): array
     {
         $methods = [];
-        
         foreach (['CASH' => true, 'TRANSFER' => false, 'QRIS' => false] as $name => $isCash) {
+            $accountNumber = "ACC-$name-" . $this->sequence++;
             $coaId = DB::table('chart_of_accounts')->insertGetId([
                 'name' => "COA $name " . $this->sequence,
-                'account_number' => "ACC-$name-" . $this->sequence++,
+                'account_number' => $accountNumber,
                 'category' => 'Kas & Bank',
                 'setting_id' => $setting->id,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
-            $methods[strtolower($name)] = PaymentMethod::create([
-                'name' => "$name POS",
-                'coa_id' => $coaId,
-                'is_cash' => $isCash,
-                'requires_reference' => !$isCash,
+            $methodName = "$name POS";
+            $method = PaymentMethod::where('name', $methodName)->first();
+            if (!$method) {
+                $method = PaymentMethod::create([
+                    'name' => $methodName,
+                    'coa_id' => $coaId,
+                    'is_cash' => $isCash,
+                    'requires_reference' => !$isCash,
+                ]);
+            }
+
+            SettingPosPaymentMethod::firstOrCreate([
+                'setting_id' => $setting->id,
+                'payment_method_id' => $method->id,
+            ], [
+                'is_enabled' => true,
             ]);
+
+            $methods[strtolower($name)] = $method;
         }
 
         return $methods;
@@ -429,18 +579,20 @@ class POSReceiptGenerationTest extends TestCase
     {
         $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
-            ->patchJson(route('pos.sell.cart.customer.update'), [
+            ->patchJson('/pos/sell/cart/customer', [
                 'customer_id' => $customer->id,
-            ])
+            ], ['X-Setting-Id' => (string) $setting->id])
             ->assertOk();
     }
 
-    private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty): void
+    private function addCartLine(User $cashier, Setting $setting, int $productId, int $qty, ?int $conversionId = null): void
     {
         $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
             ->postJson('/pos/sell/cart/lines', [
                 'product_id' => $productId,
                 'qty' => $qty,
+                'conversion_id' => $conversionId,
             ], ['X-Setting-Id' => (string) $setting->id])
             ->assertStatus(200);
     }
@@ -448,6 +600,7 @@ class POSReceiptGenerationTest extends TestCase
     private function finalize(User $cashier, Setting $setting, array $payload): \Illuminate\Testing\TestResponse
     {
         return $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
             ->postJson('/pos/sell/checkout/finalize', $payload, [
                 'X-Setting-Id' => (string) $setting->id,
             ]);

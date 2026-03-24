@@ -26,9 +26,9 @@
         
         table { width: 100%; border-collapse: collapse; }
         td, th { vertical-align: top; padding: 2px 0; font-weight: normal; }
+        .item-row td { padding-top: 5px; }
         .item-name { font-weight: bold; }
-        .item-qty { text-align: left; width: 25px; }
-        .item-price { text-align: right; }
+        .unit-breakdown { font-size: 11px; padding-left: 10px; color: #333; }
         
         .totals-table { width: 100%; }
         .totals-table td { padding: 2px 0; }
@@ -49,6 +49,7 @@
     </div>
 
     <div class="header">
+        <!-- Task 2.1: Center aligned business header -->
         <h2>{{ $receiptData['business_name'] }}</h2>
         @if(!empty($receiptData['business_address']))
             <p>{{ $receiptData['business_address'] }}</p>
@@ -56,15 +57,24 @@
         @if(!empty($receiptData['business_phone']))
             <p>Telp: {{ $receiptData['business_phone'] }}</p>
         @endif
+        @if(!empty($receiptData['business_email']))
+            <p>Email: {{ $receiptData['business_email'] }}</p>
+        @endif
+        
         <div class="divider"></div>
+        
         <table style="width: 100%;">
             <tr>
-                <td class="text-left">No</td>
+                <td class="text-left" style="width: 20%;">No</td>
                 <td class="text-left">: {{ $receiptData['receipt_number'] }}</td>
             </tr>
             <tr>
                 <td class="text-left">Tgl</td>
-                <td class="text-left">: {{ $receiptData['date'] }}</td>
+                <!-- Task 2.2: Consistent date formatting -->
+                @php
+                    $finalizedAt = Carbon\Carbon::parse($receiptData['date']);
+                @endphp
+                <td class="text-left">: {{ $finalizedAt->translatedFormat('d M, Y H:i') }}</td>
             </tr>
             <tr>
                 <td class="text-left">Kasir</td>
@@ -75,28 +85,49 @@
                 <td class="text-left">: {{ $receiptData['terminal_name'] }}</td>
             </tr>
         </table>
+        
         <div class="divider"></div>
     </div>
 
     <div class="items">
         <table>
-            @foreach($receiptData['lines'] as $line)
-            <tr>
-                <td colspan="3" class="item-name">{{ $line['product_name'] }}</td>
-            </tr>
-            <tr>
-                <td class="item-qty">{{ $line['qty'] }} x</td>
-                <td class="text-left">{{ format_currency($line['price']) }}</td>
-                <td class="item-price">{{ format_currency($line['sub_total']) }}</td>
-            </tr>
-            @if($line['discount'] > 0)
-            <tr>
-                <td></td>
-                <td class="text-left" style="font-size: 10px;">Disk.</td>
-                <td class="item-price" style="font-size: 10px;">-{{ format_currency($line['discount']) }}</td>
-            </tr>
-            @endif
-            @endforeach
+            <!-- Task 2.3: Redesigned item table header -->
+            <thead>
+                <tr>
+                    <th class="text-left" style="width: 15%;">Qty</th>
+                    <th class="text-left">Nama Barang</th>
+                    <th class="text-right" style="width: 25%;">Total</th>
+                </tr>
+                <tr>
+                    <th colspan="3"><div style="border-top: 1px dashed #000; margin: 5px 0;"></div></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($receiptData['lines'] as $line)
+                <tr class="item-row">
+                    <td class="text-left">{{ (float)$line['qty'] }}</td>
+                    <td class="item-name text-left">{{ $line['product_name'] }}</td>
+                    <td class="text-right">{{ format_currency($line['sub_total']) }}</td>
+                </tr>
+                <!-- Task 2.4: Indented unit conversion breakdown -->
+                @if(!empty($line['unit_breakdown']))
+                <tr>
+                    <td></td>
+                    <td colspan="2" class="unit-breakdown">
+                        {{ $line['unit_breakdown'] }}
+                    </td>
+                </tr>
+                @endif
+                
+                @if($line['discount'] > 0)
+                <tr>
+                    <td></td>
+                    <td class="text-left" style="font-size: 10px;">(Diskon: -{{ format_currency($line['discount']) }})</td>
+                    <td></td>
+                </tr>
+                @endif
+                @endforeach
+            </tbody>
         </table>
     </div>
 
@@ -104,41 +135,34 @@
 
     <div class="totals">
         <table class="totals-table">
-            <tr>
-                <td class="totals-label">Subtotal</td>
-                <td class="totals-value">{{ format_currency($receiptData['subtotal']) }}</td>
-            </tr>
             @if($receiptData['discount'] > 0)
             <tr>
-                <td class="totals-label">Diskon</td>
+                <td class="totals-label">DISKON</td>
                 <td class="totals-value">-{{ format_currency($receiptData['discount']) }}</td>
-            </tr>
-            @endif
-            @if($receiptData['tax'] > 0)
-            <tr>
-                <td class="totals-label">Pajak</td>
-                <td class="totals-value">{{ format_currency($receiptData['tax']) }}</td>
             </tr>
             @endif
             <tr>
                 <td class="totals-label" style="font-size: 14px; padding-top: 5px;"><strong>TOTAL</strong></td>
                 <td class="totals-value" style="font-size: 14px; padding-top: 5px;"><strong>{{ format_currency($receiptData['grand_total']) }}</strong></td>
             </tr>
+            
+            <!-- Task 2.5: Right-aligned totals and payment methods -->
+            <tr style="height: 10px;"><td></td><td></td></tr>
+            
             @if(!empty($receiptData['payment_breakdown']) && count($receiptData['payment_breakdown']) > 0)
-                <!-- Task 5.3: Multi-payment breakdown -->
                 @foreach($receiptData['payment_breakdown'] as $payment)
                 <tr>
-                    <td class="totals-label" style="padding-top: 3px;">BAYAR ({{ $payment['method_name'] }})</td>
-                    <td class="totals-value" style="padding-top: 3px;">{{ format_currency($payment['amount']) }}</td>
+                    <td class="totals-label">BAYAR ({{ $payment['method_name'] }})</td>
+                    <td class="totals-value">{{ format_currency($payment['amount']) }}</td>
                 </tr>
                 @endforeach
             @else
-                <!-- Single payment (backward compatibility) -->
                 <tr>
-                    <td class="totals-label" style="padding-top: 5px;">BAYAR ({{ $receiptData['payment_method'] }})</td>
-                    <td class="totals-value" style="padding-top: 5px;">{{ format_currency($receiptData['amount_paid']) }}</td>
+                    <td class="totals-label">BAYAR ({{ $receiptData['payment_method'] }})</td>
+                    <td class="totals-value">{{ format_currency($receiptData['amount_paid']) }}</td>
                 </tr>
             @endif
+            
             @if($receiptData['change'] > 0)
             <tr>
                 <td class="totals-label">KEMBALI</td>
@@ -152,6 +176,8 @@
 
     <div class="footer">
         <p>{!! nl2br(e($receiptData['footer_text'])) !!}</p>
+        <!-- Task 2.6: Hardcoded footer message -->
+        <p style="margin-top: 5px; font-weight: bold;">Harga sudah termasuk PPN</p>
     </div>
 </body>
 </html>

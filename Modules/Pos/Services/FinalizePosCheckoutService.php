@@ -650,6 +650,9 @@ class FinalizePosCheckoutService
                     $responsePayload['sale_payments'] = array_values($salePayments);
 
                     $this->persistCheckoutSplitMappings($checkoutId, $splitGroups);
+                }
+
+                if ((bool) ($payment['is_multi_payment'] ?? false)) {
                     $this->persistPaymentAllocations($checkoutId, $payment, $splitGroups);
                 }
 
