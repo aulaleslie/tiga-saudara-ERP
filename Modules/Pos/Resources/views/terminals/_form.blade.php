@@ -83,7 +83,7 @@
         <div class="mb-3">
             <label for="close_variance_approval_threshold" class="form-label">Batas varian penutupan</label>
             <small class="d-block text-muted mb-2">Jumlah varian yang diizinkan tanpa persetujuan tambahan</small>
-            <input type="number" min="0" step="0.01" id="close_variance_approval_threshold" name="close_variance_approval_threshold"
+            <input type="text" id="close_variance_approval_threshold" name="close_variance_approval_threshold"
                    class="form-control @error('close_variance_approval_threshold') is-invalid @enderror"
                    value="{{ old('close_variance_approval_threshold', $policy?->close_variance_approval_threshold ?? 0) }}"
                    placeholder="Rp 0,00">
@@ -92,7 +92,7 @@
         <div class="mb-3">
             <label for="cash_threshold" class="form-label">Batas kas</label>
             <small class="d-block text-muted mb-2">Jumlah kas yang akan ditampilkan di dasbor monitor untuk pemberitahuan pengambilan</small>
-            <input type="number" min="0" step="0.01" id="cash_threshold" name="cash_threshold"
+            <input type="text" id="cash_threshold" name="cash_threshold"
                    class="form-control @error('cash_threshold') is-invalid @enderror"
                    value="{{ old('cash_threshold', $policy?->cash_threshold ?? 5000000) }}"
                    placeholder="Rp 5.000.000,00">
@@ -100,3 +100,45 @@
         </div>
     </div>
 </div>
+
+@push('page_scripts')
+<script src="{{ asset('js/jquery-mask-money.js') }}"></script>
+<script>
+    $(document).ready(function() {
+        const settings = {
+            prefix: "{{ settings()->currency->symbol ?? 'Rp ' }}",
+            thousands: "{{ settings()->currency->thousand_separator ?? '.' }}",
+            decimal: "{{ settings()->currency->decimal_separator ?? ',' }}"
+        };
+
+        // Initialize maskMoney on currency fields
+        $('#close_variance_approval_threshold, #cash_threshold')
+            .maskMoney(settings)
+            .on('focus', function() {
+                $(this).maskMoney('destroy');
+                $(this).val($(this).val().replace(/[^0-9.-]/g, ''));
+                setTimeout(() => this.select(), 0);
+            })
+            .on('blur', function() {
+                let v = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
+                if (isNaN(v)) v = 0;
+                $(this).val(v.toFixed(2));
+                $(this).maskMoney(settings);
+                $(this).maskMoney('mask');
+            });
+
+        // Apply initial mask
+        $('#close_variance_approval_threshold, #cash_threshold').maskMoney('mask');
+
+        // Extract unmasked values before form submission
+        $('form').on('submit', function() {
+            $('#close_variance_approval_threshold').val(
+                $('#close_variance_approval_threshold').maskMoney('unmasked')[0]
+            );
+            $('#cash_threshold').val(
+                $('#cash_threshold').maskMoney('unmasked')[0]
+            );
+        });
+    });
+</script>
+@endpush
