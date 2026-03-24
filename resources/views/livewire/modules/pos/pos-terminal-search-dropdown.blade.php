@@ -42,10 +42,20 @@
             @endif
         </div>
 
-        <input type="hidden" name="{{ $name }}" value="{{ $selected ?? '' }}">
+        <input type="hidden" name="{{ $name }}" wire:model="selected" value="{{ $selected ?? '' }}">
 
         @if($error)
             <div class="text-danger small mt-1">{{ $error }}</div>
         @endif
     </div>
+
+    @if($selectedLabel)
+        <button type="button"
+                class="btn btn-outline-danger btn-sm ms-1"
+                wire:click="clear"
+                title="Batal pilihan terminal"
+                style="min-width: 36px;">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    @endif
 </div>

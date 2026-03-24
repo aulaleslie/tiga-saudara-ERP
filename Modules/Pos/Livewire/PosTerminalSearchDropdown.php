@@ -61,11 +61,22 @@ class PosTerminalSearchDropdown extends Component
         $this->selectedLabel = $this->resolveLabel($id);
         $this->isOpen = false;
         $this->search = '';
+        $this->dispatch('terminal-selected');
+    }
+
+    public function clear(): void
+    {
+        $this->selected = null;
+        $this->selectedLabel = null;
+        $this->isOpen = false;
+        $this->search = '';
+        $this->dispatch('terminal-cleared');
     }
 
     public function updatedSelected($value): void
     {
         $this->selectedLabel = $this->resolveLabel($value);
+        $this->dispatch('terminal-selected');
     }
 
     /**
