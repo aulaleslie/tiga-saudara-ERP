@@ -206,7 +206,26 @@ class PosSessionController extends Controller
             ], 403);
         }
 
-        $summary = $sessionSummaryService->getSummary($posSession->id, (int) $user->id, $settingId);
+        try {
+            $summary = $sessionSummaryService->getSummary($posSession->id, (int) $user->id, $settingId);
+        } catch (DomainException $exception) {
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Session Summary: Domain exception occurred', [
+                'session_id' => $session,
+                'error' => $exception->getMessage(),
+            ]);
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        } catch (\Exception $exception) {
+            \Illuminate\Support\Facades\Log::channel('single')->error('POS Session Summary: Unexpected exception occurred', [
+                'session_id' => $session,
+                'error' => $exception->getMessage(),
+                'exception_class' => get_class($exception),
+            ]);
+            return response()->json([
+                'message' => 'Internal server error',
+            ], 500);
+        }
 
         if (request()->header('Accept') === 'application/json' || request()->wantsJson()) {
             return response()->json($summary);

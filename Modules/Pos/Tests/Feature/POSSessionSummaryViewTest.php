@@ -184,6 +184,75 @@ class POSSessionSummaryViewTest extends TestCase
         $response->assertStatus(403);
     }
 
+    public function test_summary_endpoint_returns_json_422_on_domain_exception(): void
+    {
+        $setting = $this->createSetting('BIZ SUMMARY VIEW F');
+        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $session = $this->createOpenSession($setting, $cashier);
+
+        $mockService = $this->createMock(\Modules\Pos\Services\PosSessionSummaryService::class);
+        $mockService->method('getSummary')->willThrowException(new \DomainException('Session not found in summary service'));
+        $this->app->instance(\Modules\Pos\Services\PosSessionSummaryService::class, $mockService);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sessions.summary', ['session' => $session->id]));
+
+        $response->assertStatus(422);
+        $response->assertJson([
+            'message' => 'Session not found in summary service',
+        ]);
+    }
+
+    public function test_summary_endpoint_returns_json_500_on_unexpected_exception(): void
+    {
+        $setting = $this->createSetting('BIZ SUMMARY VIEW G');
+        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $session = $this->createOpenSession($setting, $cashier);
+
+        $mockService = $this->createMock(\Modules\Pos\Services\PosSessionSummaryService::class);
+        $mockService->method('getSummary')->willThrowException(new \Exception('Database connection error'));
+        $this->app->instance(\Modules\Pos\Services\PosSessionSummaryService::class, $mockService);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sessions.summary', ['session' => $session->id]));
+
+        $response->assertStatus(500);
+        $response->assertJson([
+            'message' => 'Internal server error',
+        ]);
+    }
+
+    public function test_summary_endpoint_success_still_returns_json_for_ajax(): void
+    {
+        $setting = $this->createSetting('BIZ SUMMARY VIEW H');
+        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $session = $this->createOpenSession($setting, $cashier);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sessions.summary', ['session' => $session->id]));
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('session_id', $session->id);
+    }
+
+    public function test_summary_endpoint_success_still_renders_view_for_html(): void
+    {
+        $setting = $this->createSetting('BIZ SUMMARY VIEW I');
+        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $session = $this->createOpenSession($setting, $cashier);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.summary', ['session' => $session->id]));
+
+        $response->assertStatus(200);
+        $response->assertViewIs('pos::session.summary');
+        $response->assertViewHas('session_id', $session->id);
+    }
+
     private function createSetting(string $name): Setting
     {
         return Setting::create([

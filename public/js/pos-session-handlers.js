@@ -123,7 +123,12 @@ if (document.readyState === 'loading') {
 function fetchSessionData(sessionId, callback) {
     console.log('[POS Session] Fetching session summary', { sessionId });
 
-    fetch(`/pos/sessions/${sessionId}/summary`)
+    fetch(`/pos/sessions/${sessionId}/summary`, {
+        headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
         .then(response => {
             console.log('[POS Session] Summary response', {
                 status: response.status,
