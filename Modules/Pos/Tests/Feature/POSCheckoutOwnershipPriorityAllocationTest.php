@@ -158,6 +158,52 @@ class POSCheckoutOwnershipPriorityAllocationTest extends TestCase
     }
 
     /**
+     * Test that cash overpayment (change) is correctly absorbed and the matrix reconciles.
+     */
+    public function test_cash_overpayment_allocation_reconciles()
+    {
+        // Total: 40000 + 40000 = 80000
+        // Payments: 100000 cash (change = 20000)
+        // Setting1 is terminal-owned, Setting2 is non-terminal-owned
+        $context = [
+            'terminal_setting_id' => 1,
+            'payments' => [
+                ['payment_method_id' => 1, 'amount_minor_units' => 10000000, 'is_cash' => true],  // 100000 cash
+            ],
+            'groups' => [
+                ['split_key' => 'setting1', 'source_setting_id' => 1, 'grand_total_minor' => 4000000],  // Terminal-owned
+                ['split_key' => 'setting2', 'source_setting_id' => 2, 'grand_total_minor' => 4000000],  // Non-terminal-owned
+            ],
+        ];
+
+        // Should not throw any exception
+        $result = $this->allocationService->allocate($context);
+        $allocations = $result['allocations'];
+
+        // Verify all allocations sum correctly to the required grand total (80000), not the provided (100000)
+        $totalAllocated = array_sum(array_map(
+            fn(array $a) => (int) ($a['allocated_amount_minor_units'] ?? 0),
+            $allocations
+        ));
+
+        $this->assertEquals(8000000, $totalAllocated);
+
+        // Verify per-group allocations perfectly match their requirements
+        $setting1Total = array_sum(array_map(
+            fn(array $a) => (int) ($a['allocated_amount_minor_units'] ?? 0),
+            array_filter($allocations, fn(array $a) => $a['split_key'] === 'setting1')
+        ));
+
+        $setting2Total = array_sum(array_map(
+            fn(array $a) => (int) ($a['allocated_amount_minor_units'] ?? 0),
+            array_filter($allocations, fn(array $a) => $a['split_key'] === 'setting2')
+        ));
+
+        $this->assertEquals(4000000, $setting1Total);
+        $this->assertEquals(4000000, $setting2Total);
+    }
+
+    /**
      * Test that invalid allocation contexts throw errors.
      */
     public function test_invalid_context_throws_error()

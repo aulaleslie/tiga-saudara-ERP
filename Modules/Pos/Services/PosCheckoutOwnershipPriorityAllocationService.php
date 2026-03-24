@@ -60,6 +60,39 @@ class PosCheckoutOwnershipPriorityAllocationService
             $checkoutGrandTotalMinor += $grandTotalMinor;
         }
 
+        // Calculate total provided and handle cash overpayment (change)
+        $totalProvidedMinor = 0;
+        foreach ($reorderedPayments as $payment) {
+            $totalProvidedMinor += (int) ($payment['amount_minor_units'] ?? 0);
+        }
+
+        if ($totalProvidedMinor > $checkoutGrandTotalMinor) {
+            $overpaymentAmount = $totalProvidedMinor - $checkoutGrandTotalMinor;
+
+            // Subtract overpayment exclusively from cash payments
+            foreach ($reorderedPayments as &$payment) {
+                if ($overpaymentAmount <= 0) {
+                    break;
+                }
+
+                $isCash = (bool) ($payment['is_cash'] ?? false);
+                if ($isCash) {
+                    $paymentAmount = (int) ($payment['amount_minor_units'] ?? 0);
+                    $reduction = min($paymentAmount, $overpaymentAmount);
+                    $payment['amount_minor_units'] = $paymentAmount - $reduction;
+                    $overpaymentAmount -= $reduction;
+                }
+            }
+            unset($payment); // break reference
+
+            if ($overpaymentAmount > 0) {
+                throw new PosCheckoutValidationException(
+                    'ALLOCATION_INVALID',
+                    'Overpayment could not be fully absorbed by cash payments. Non-cash payments cannot exceed grand total.'
+                );
+            }
+        }
+
         // Track which groups are terminal-owned vs non-terminal-owned
         $terminalOwnedGroups = array_filter(
             $groups,
