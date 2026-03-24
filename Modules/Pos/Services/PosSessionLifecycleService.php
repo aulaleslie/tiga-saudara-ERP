@@ -114,22 +114,6 @@ class PosSessionLifecycleService
                 $terminal = $this->terminalResolver->resolveForSessionOpen($settingId, $normalizedTerminalId);
                 $terminalPolicy = $terminal->policy;
 
-                if ((bool) ($terminalPolicy?->require_opening_float ?? false)) {
-                    $thresholdValue = $terminalPolicy?->cash_threshold;
-
-                    if ($thresholdValue === null) {
-                        throw new DomainException(
-                            'Terminal cash threshold must be configured before opening a POS session.'
-                        );
-                    }
-
-                    if ($openingTotal <= (float) $thresholdValue) {
-                        throw new DomainException(
-                            'Opening float total must be greater than terminal cash threshold.'
-                        );
-                    }
-                }
-
                 $activeSessionForTerminal = PosSession::query()
                     ->where('setting_id', $settingId)
                     ->where('terminal_id', $normalizedTerminalId)

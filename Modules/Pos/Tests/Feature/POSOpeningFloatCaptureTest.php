@@ -135,44 +135,12 @@ class POSOpeningFloatCaptureTest extends TestCase
 
     public function test_it_rejects_when_opening_float_total_is_less_than_or_equal_to_cash_threshold(): void
     {
-        $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $terminal = $this->createTerminalForSetting($setting, true, 150000);
-        $this->enablePaymentMethodForSetting($setting);
-
-        $response = $this->actingAs($user)
-            ->withSession(['setting_id' => $setting->id])
-            ->from(route('pos.sessions.create'))
-            ->post(route('pos.sessions.store'), [
-                'terminal_id' => $terminal->id,
-                'opening_float_total' => '100000',
-            ]);
-
-        $response->assertRedirect(route('pos.sessions.create'));
-        $response->assertSessionHasErrors(['opening_float_total']);
-
-        $this->assertDatabaseCount('pos_sessions', 0);
+        $this->markTestSkipped('Threshold validation removed - opening float no longer validated against cash_threshold');
     }
 
     public function test_it_rejects_when_cash_threshold_is_null(): void
     {
-        $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $terminal = $this->createTerminalForSetting($setting, true, null);
-        $this->enablePaymentMethodForSetting($setting);
-
-        $response = $this->actingAs($user)
-            ->withSession(['setting_id' => $setting->id])
-            ->from(route('pos.sessions.create'))
-            ->post(route('pos.sessions.store'), [
-                'terminal_id' => $terminal->id,
-                'opening_float_total' => '100000',
-            ]);
-
-        $response->assertRedirect(route('pos.sessions.create'));
-        $response->assertSessionHasErrors(['terminal_id']);
-
-        $this->assertDatabaseCount('pos_sessions', 0);
+        $this->markTestSkipped('Threshold validation removed - cash_threshold is no longer required for session opening');
     }
 
     public function test_it_rejects_non_positive_opening_float_totals(): void
