@@ -6,6 +6,7 @@ use App\Models\User;
 use DomainException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
@@ -14,6 +15,7 @@ use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Pos\Services\PosSessionExpectedCashCalculator;
 use Modules\Pos\Services\PosSessionLifecycleService;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -27,6 +29,7 @@ class POSExpectedCashCalculatorTest extends TestCase
     use RefreshDatabase;
 
     private int $terminalSequence = 1;
+    private int $sequence = 1;
 
     protected function setUp(): void
     {
@@ -119,6 +122,21 @@ class POSExpectedCashCalculatorTest extends TestCase
         $this->assertSame(4, $result['events_count']);
     }
 
+    public function test_it_subtracts_change_out_events_for_expected_cash(): void
+    {
+        [, $cashier, $session] = $this->createOpenSession(cashThreshold: null, openingFloat: 100000);
+
+        $this->recordCashEvent($session, $cashier->id, 'CASH_SALE_IN', PosSessionCashEvent::DIRECTION_IN, 50000);
+        $this->recordCashEvent($session, $cashier->id, 'CHANGE_OUT', PosSessionCashEvent::DIRECTION_OUT, 10000);
+
+        /** @var PosSessionExpectedCashCalculator $calculator */
+        $calculator = app(PosSessionExpectedCashCalculator::class);
+        $result = $calculator->calculate($session->id);
+
+        $this->assertSame(140000.0, (float) $result['expected_cash_total']);
+        $this->assertSame(3, $result['events_count']);
+    }
+
     public function test_it_throws_for_unknown_direction_values(): void
     {
         [, $cashier, $session] = $this->createOpenSession(cashThreshold: null, openingFloat: 100000);
@@ -207,6 +225,7 @@ class POSExpectedCashCalculatorTest extends TestCase
             ['pos.access', 'pos.sell', 'pos.sessions.open']
         );
         $terminal = $this->createTerminalForSetting($setting, $cashThreshold);
+        $this->seedPaymentMethods($setting);
 
         /** @var PosSessionLifecycleService $sessionLifecycleService */
         $sessionLifecycleService = app(PosSessionLifecycleService::class);
@@ -221,6 +240,41 @@ class POSExpectedCashCalculatorTest extends TestCase
         );
 
         return [$setting, $cashier, $session];
+    }
+
+    private function seedPaymentMethods(Setting $setting): array
+    {
+        $methods = [];
+
+        foreach (['CASH' => true, 'QRIS' => false] as $name => $isCash) {
+            $coaId = DB::table('chart_of_accounts')->insertGetId([
+                'name' => "COA $name " . $this->sequence,
+                'account_number' => "ACC-$name-" . $this->sequence++,
+                'category' => 'Kas & Bank',
+                'setting_id' => $setting->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $method = PaymentMethod::create([
+                'name' => "$name POS",
+                'coa_id' => $coaId,
+                'is_cash' => $isCash,
+                'requires_reference' => !$isCash,
+            ]);
+
+            DB::table('setting_pos_payment_methods')->insertOrIgnore([
+                'setting_id' => $setting->id,
+                'payment_method_id' => $method->id,
+                'is_enabled' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $methods[strtolower($name)] = $method;
+        }
+
+        return $methods;
     }
 
     private function recordCashEvent(

@@ -663,6 +663,7 @@ class FinalizePosCheckoutService
                 }
 
                 if ($cashAmountForSession > 0) {
+                    // Record cash sale inflow event for session tracking
                     $cashEvent = PosSessionCashEvent::query()->create([
                         'setting_id' => $settingId,
                         'pos_session_id' => $sessionId,
@@ -682,6 +683,32 @@ class FinalizePosCheckoutService
                     ]);
 
                     $session->expected_cash_total = round((float) $session->expected_cash_total + $cashAmountForSession, 2);
+
+                    // Track change given to customer as outflow event to maintain accurate expected cash total.
+                    // When a customer pays with cash and receives change, the expected_cash_total must reflect
+                    // what should physically be in the drawer: opening_float + cash_sales - change_given - safe_drops
+                    if ($actualChangeTotal > 0) {
+                        PosSessionCashEvent::query()->create([
+                            'setting_id' => $settingId,
+                            'pos_session_id' => $sessionId,
+                            'event_type' => PosSessionCashEvent::EVENT_CHANGE_OUT,
+                            'direction' => PosSessionCashEvent::DIRECTION_OUT,
+                            'amount' => $actualChangeTotal,
+                            'reference_type' => 'pos_checkout',
+                            'reference_id' => $checkoutId,
+                            'performed_by' => $cashierUserId,
+                            'approved_by' => null,
+                            'notes' => 'Change given to customer',
+                            'metadata' => [
+                                'sale_id' => $responsePayload['sale_id'],
+                                'sale_payment_id' => $responsePayload['sale_payment_id'],
+                            ],
+                            'occurred_at' => now(),
+                        ]);
+
+                        $session->expected_cash_total = round((float) $session->expected_cash_total - $actualChangeTotal, 2);
+                    }
+
                     $session->save();
 
                     $this->cashDrawerService->triggerDrawerOpen(

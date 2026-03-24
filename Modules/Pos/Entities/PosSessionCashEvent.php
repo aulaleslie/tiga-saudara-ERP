@@ -14,6 +14,8 @@ class PosSessionCashEvent extends BaseModel
 
     public const EVENT_SAFE_DROP_OUT = 'SAFE_DROP_OUT';
 
+    public const EVENT_CHANGE_OUT = 'CHANGE_OUT';
+
     public const EVENT_CLOSE_COUNT = 'CLOSE_COUNT';
 
     public const EVENT_FINALIZE_COUNT = 'FINALIZE_COUNT';

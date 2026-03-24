@@ -524,8 +524,215 @@ class POSCheckoutFinalizeIdempotencyTest extends TestCase
             'reference_id' => $checkoutId,
         ]);
 
+        // Opening float 100000 + cash sale 10000 - change 2000 = 108000
         $expectedCash = (float) DB::table('pos_sessions')->where('id', $context['session']->id)->value('expected_cash_total');
-        $this->assertSame(110000.0, $expectedCash);
+        $this->assertSame(108000.0, $expectedCash);
+
+        // Verify CHANGE_OUT event was created
+        $this->assertDatabaseHas('pos_session_cash_events', [
+            'setting_id' => $context['setting']->id,
+            'pos_session_id' => $context['session']->id,
+            'event_type' => PosSessionCashEvent::EVENT_CHANGE_OUT,
+            'direction' => PosSessionCashEvent::DIRECTION_OUT,
+            'amount' => 2000,
+            'reference_id' => $checkoutId,
+        ]);
+    }
+
+    public function test_single_payment_cash_with_change_creates_change_out_event(): void
+    {
+        $context = $this->createCheckoutContext('POS CHANGE OUT SINGLE');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-CHANGE-SINGLE-001', 12000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-CHANGE-SINGLE-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 13000,
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('change_total', 1000.0);
+
+        $checkoutId = (int) $response->json('pos_checkout_id');
+
+        // Verify CHANGE_OUT event was created
+        $this->assertDatabaseHas('pos_session_cash_events', [
+            'setting_id' => $context['setting']->id,
+            'pos_session_id' => $context['session']->id,
+            'event_type' => PosSessionCashEvent::EVENT_CHANGE_OUT,
+            'direction' => PosSessionCashEvent::DIRECTION_OUT,
+            'amount' => 1000,
+            'reference_id' => $checkoutId,
+        ]);
+    }
+
+    public function test_multi_payment_cash_with_change_creates_change_out_event(): void
+    {
+        $context = $this->createCheckoutContext('POS CHANGE OUT MULTI');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-CHANGE-MULTI-001', 8000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        // Grand total: 8000. Cash: 9000, Non-cash: 0. Change: 1000 (9000 - 8000)
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-CHANGE-MULTI-001',
+            'payments' => [
+                [
+                    'payment_method_id' => $methods['cash']->id,
+                    'amount_paid' => 9000,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('change_total', 1000.0);
+
+        $checkoutId = (int) $response->json('pos_checkout_id');
+
+        // Verify CHANGE_OUT event was created with correct amount
+        $this->assertDatabaseHas('pos_session_cash_events', [
+            'setting_id' => $context['setting']->id,
+            'pos_session_id' => $context['session']->id,
+            'event_type' => PosSessionCashEvent::EVENT_CHANGE_OUT,
+            'direction' => PosSessionCashEvent::DIRECTION_OUT,
+            'amount' => 1000,
+            'reference_id' => $checkoutId,
+        ]);
+    }
+
+    public function test_expected_cash_calculation_with_change_event(): void
+    {
+        $context = $this->createCheckoutContext('POS EXPECTED CASH CHANGE');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-EXP-CASH-001', 5000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-EXP-CASH-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 6000,
+            ],
+        ]);
+
+        // Opening float: 100000, cash sale: 5000, change: 1000
+        // Expected: 100000 + 5000 - 1000 = 104000
+        $expectedCash = (float) DB::table('pos_sessions')->where('id', $context['session']->id)->value('expected_cash_total');
+        $this->assertSame(104000.0, $expectedCash);
+    }
+
+    public function test_no_change_out_event_when_payment_equals_grand_total(): void
+    {
+        $context = $this->createCheckoutContext('POS NO CHANGE');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-NO-CHANGE-001', 10000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-NO-CHANGE-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 10000,
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('change_total', 0.0);
+
+        $checkoutId = (int) $response->json('pos_checkout_id');
+
+        // Verify no CHANGE_OUT event was created
+        $changeOutCount = DB::table('pos_session_cash_events')
+            ->where('setting_id', $context['setting']->id)
+            ->where('pos_session_id', $context['session']->id)
+            ->where('event_type', PosSessionCashEvent::EVENT_CHANGE_OUT)
+            ->where('reference_id', $checkoutId)
+            ->count();
+
+        $this->assertSame(0, $changeOutCount);
+    }
+
+    public function test_no_change_out_event_for_non_cash_only_payments(): void
+    {
+        $context = $this->createCheckoutContext('POS NON-CASH ONLY');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-NONCASH-001', 10000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-NONCASH-001',
+            'payment' => [
+                'payment_method_id' => $methods['qris']->id,
+                'amount_paid' => 10000,
+                'reference' => 'REF-NONCASH-001',
+            ],
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('change_total', 0.0);
+
+        $checkoutId = (int) $response->json('pos_checkout_id');
+
+        // Verify no CHANGE_OUT event was created
+        $changeOutCount = DB::table('pos_session_cash_events')
+            ->where('setting_id', $context['setting']->id)
+            ->where('pos_session_id', $context['session']->id)
+            ->where('event_type', PosSessionCashEvent::EVENT_CHANGE_OUT)
+            ->where('reference_id', $checkoutId)
+            ->count();
+
+        $this->assertSame(0, $changeOutCount);
+    }
+
+    public function test_session_summary_includes_change_out_events_in_cash_events_timeline(): void
+    {
+        $context = $this->createCheckoutContext('POS SUMMARY CHANGE');
+        $methods = $context['methods'];
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'POS-SUMMARY-CHANGE-001', 5000, false);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SUMMARY-CHANGE-001',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 6000,
+            ],
+        ]);
+
+        // Get session summary
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->get(route('pos.sessions.summary', ['session' => $context['session']->id]));
+
+        $response->assertOk();
+
+        // Verify CHANGE_OUT event appears in cash_events timeline
+        $cashEvents = $response->json('cash_events');
+        $this->assertIsArray($cashEvents);
+
+        $changeOutEvent = collect($cashEvents)->first(function ($event) {
+            return $event['event_type'] === PosSessionCashEvent::EVENT_CHANGE_OUT
+                && $event['direction'] === PosSessionCashEvent::DIRECTION_OUT;
+        });
+
+        $this->assertNotNull($changeOutEvent);
+        $this->assertSame(1000.0, (float) $changeOutEvent['amount']);
     }
 
     protected function createCheckoutContext(string $name): array
