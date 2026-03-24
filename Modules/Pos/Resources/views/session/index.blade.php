@@ -131,6 +131,13 @@
                                                         <i class="bi bi-lock"></i> Tutup
                                                     </button>
                                                 @endcan
+                                                @can('pos.supervisor.approval')
+                                                    @if($session->terminal)
+                                                        <button type="button" class="btn btn-sm btn-outline-success disabled" data-bs-toggle="tooltip" title="Tutup terminal terlebih dahulu sebelum finalisasi">
+                                                            <i class="bi bi-check-circle"></i> Finalisasi
+                                                        </button>
+                                                    @endif
+                                                @endcan
                                             @elseif($session->status === 'CLOSED' && $session->terminal)
                                                 @can('pos.supervisor.approval')
                                                     <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#finalizeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Finalisasi Sesi">

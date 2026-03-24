@@ -170,12 +170,13 @@ class POSSessionFinalizeTest extends TestCase
     }
 
     /**
-     * Test user without pos.supervisor.approval cannot finalize
+     * Test user not assigned to setting cannot finalize
      */
-    public function test_user_without_supervisor_approval_cannot_finalize(): void
+    public function test_user_not_assigned_to_setting_cannot_finalize(): void
     {
         $setting = $this->createSetting();
-        $user = $this->createUser($setting);
+        $anotherSetting = $this->createSetting();
+        $user = $this->createUser($anotherSetting); // User NOT assigned to $setting
         $session = $this->createClosedSession($setting);
 
         $service = app(PosSessionFinalizeService::class);
@@ -183,6 +184,47 @@ class POSSessionFinalizeTest extends TestCase
         $this->expectException(\DomainException::class);
         $this->expectExceptionMessage('not assigned to current setting');
         $service->finalizeSession($setting->id, $session->id, $user->id, 100000.00);
+    }
+
+    /**
+     * Test finalize with interactive supervisor override success
+     */
+    public function test_finalize_with_supervisor_override_success(): void
+    {
+        $setting = $this->createSetting();
+        $cashier = $this->createUser($setting);
+        $supervisor = $this->createUserWithPermissions(
+            ['pos.supervisor.approval', 'pos.sessions.approve-variance'],
+            $setting
+        );
+        $session = $this->createClosedSession($setting, 100000.00, 5000.00);
+
+        $service = app(PosSessionFinalizeService::class);
+        
+        // Attempt with variance and supervisor credentials
+        $result = $service->finalizeSession(
+            $setting->id,
+            $session->id,
+            $cashier->id, // Requested by cashier
+            120000.00, // variance 20000 > threshold 5000
+            'Override requested',
+            $supervisor->email,
+            'password' // Default password from factory is 'password'
+        );
+
+        $this->assertFalse($result['blocked']);
+        $this->assertEquals(PosSession::STATUS_FINALIZED, $result['payload']['status']);
+        $this->assertEquals($supervisor->id, $result['payload']['approver_id']);
+
+        $session->refresh();
+        $this->assertEquals(PosSession::STATUS_FINALIZED, $session->status);
+        
+        // Check cash event metadata
+        $event = PosSessionCashEvent::where('pos_session_id', $session->id)
+            ->where('event_type', PosSessionCashEvent::EVENT_FINALIZE_COUNT)
+            ->first();
+        
+        $this->assertEquals($supervisor->id, $event->metadata['approver_id']);
     }
 
     /**
@@ -358,12 +400,15 @@ class POSSessionFinalizeTest extends TestCase
 
     protected function createCashPaymentMethod($setting)
     {
-        return SettingPosPaymentMethod::create([
-            'setting_id' => $setting->id,
-            'code' => 'CASH',
+        $paymentMethod = \Modules\Setting\Entities\PaymentMethod::create([
             'name' => 'Tunai',
             'is_cash' => true,
-            'is_active' => true,
+        ]);
+
+        return \Modules\Setting\Entities\SettingPosPaymentMethod::create([
+            'setting_id' => $setting->id,
+            'payment_method_id' => $paymentMethod->id,
+            'is_enabled' => true,
         ]);
     }
 }

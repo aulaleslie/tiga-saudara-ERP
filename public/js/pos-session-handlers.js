@@ -5,11 +5,11 @@
 
 const NON_TERMINAL_LABEL = 'Non-Terminal';
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // Initialize close admin modal
     const closeAdminModal = document.getElementById('closeAdminModal');
     if (closeAdminModal) {
-        closeAdminModal.addEventListener('show.bs.modal', function(event) {
+        closeAdminModal.addEventListener('show.bs.modal', function (event) {
             const button = event.relatedTarget;
             const sessionId = button?.dataset?.sessionId;
             const sessionCode = button?.dataset?.sessionCode || NON_TERMINAL_LABEL;
@@ -20,13 +20,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             // Fetch session data and populate modal
-            fetchSessionData(sessionId, function(session) {
+            fetchSessionData(sessionId, function (session) {
                 populateCloseAdminModal(session, sessionCode);
             });
         });
 
         // Handle form submission
-        document.getElementById('closeAdminForm').addEventListener('submit', function(e) {
+        document.getElementById('closeAdminForm').addEventListener('submit', function (e) {
             e.preventDefault();
             submitCloseAdmin(closeAdminModal);
         });
@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize finalize modal
     const finalizeModal = document.getElementById('finalizeModal');
     if (finalizeModal) {
-        finalizeModal.addEventListener('show.bs.modal', function(event) {
+        finalizeModal.addEventListener('show.bs.modal', function (event) {
             const button = event.relatedTarget;
             const sessionId = button?.dataset?.sessionId;
             const sessionCode = button?.dataset?.sessionCode || NON_TERMINAL_LABEL;
@@ -46,19 +46,19 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             // Fetch session data and populate modal
-            fetchSessionData(sessionId, function(session) {
+            fetchSessionData(sessionId, function (session) {
                 populateFinalizeModal(session, sessionCode);
             });
         });
 
         // Handle form submission
-        document.getElementById('finalizeForm').addEventListener('submit', function(e) {
+        document.getElementById('finalizeForm').addEventListener('submit', function (e) {
             e.preventDefault();
             submitFinalize(finalizeModal);
         });
 
         // Real-time variance calculation
-        document.getElementById('actualCashReceived').addEventListener('input', function() {
+        document.getElementById('actualCashReceived').addEventListener('input', function () {
             calculateVariance();
         });
     }
@@ -143,6 +143,12 @@ function populateFinalizeModal(session, fallbackSessionCode = NON_TERMINAL_LABEL
     const form = document.getElementById('finalizeForm');
     form.dataset.sessionId = session.id;
     form.dataset.expectedCash = expectedCash;
+
+    // Reset override section
+    document.getElementById('supervisorOverrideSection').style.display = 'none';
+    document.getElementById('overrideErrorAlert').style.display = 'none';
+    document.getElementById('supervisorIdentifier').value = '';
+    document.getElementById('supervisorPassword').value = '';
 
     // Reset form
     form.reset();
@@ -293,6 +299,11 @@ function submitFinalize(modal) {
     const actualCash = document.getElementById('actualCashReceived').value;
     const notes = document.getElementById('finalizeNotes').value;
 
+    // Override credentials (if visible)
+    const supervisorSection = document.getElementById('supervisorOverrideSection');
+    const supervisorIdentifier = document.getElementById('supervisorIdentifier').value;
+    const supervisorPassword = document.getElementById('supervisorPassword').value;
+
     if (!actualCash) {
         console.warn('[POS Session] Finalize attempt without actual cash amount');
         showToast('Masukkan jumlah kas aktual', 'warning');
@@ -302,8 +313,8 @@ function submitFinalize(modal) {
     console.log('[POS Session] Finalizing session', {
         sessionId,
         actualCash: parseFloat(actualCash),
-        notes: notes || '(none)',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        isOverride: supervisorSection.style.display !== 'none'
     });
 
     const submitBtn = form.querySelector('button[type="submit"]');
@@ -311,9 +322,23 @@ function submitFinalize(modal) {
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Memproses...';
 
+    // Clear previous override error
+    document.getElementById('overrideErrorAlert').style.display = 'none';
+
     const formData = new FormData();
     formData.append('actual_cash_received', parseFloat(actualCash));
     if (notes) formData.append('notes', notes);
+
+    if (supervisorSection.style.display !== 'none') {
+        if (!supervisorIdentifier || !supervisorPassword) {
+            showToast('Kredensial supervisor wajib diisi untuk override', 'warning');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+            return;
+        }
+        formData.append('supervisor_identifier', supervisorIdentifier);
+        formData.append('supervisor_password', supervisorPassword);
+    }
 
     fetch(`/pos/sessions/${sessionId}/finalize`, {
         method: 'POST',
@@ -332,11 +357,24 @@ function submitFinalize(modal) {
             if (response.status === 422) {
                 return response.json().then(data => {
                     if (data.requires_variance_approval) {
+                        // Unhide override section
+                        supervisorSection.style.display = 'block';
+                        document.getElementById('supervisorIdentifier').focus();
+
                         throw new Error(
                             `Varians melebihi batas (${formatCurrency(data.variance_total)}). ` +
-                            `Butuh persetujuan untuk melanjutkan.`
+                            `Otorisasi supervisor diperlukan untuk melanjutkan.`
                         );
                     }
+
+                    // Specific error for override attempt (DomainException from backend)
+                    if (supervisorSection.style.display !== 'none' && data.message) {
+                        const errorAlert = document.getElementById('overrideErrorAlert');
+                        errorAlert.textContent = data.message;
+                        errorAlert.style.display = 'block';
+                        throw new Error(data.message);
+                    }
+
                     throw new Error(data.message || 'Finalisasi gagal');
                 });
             }
@@ -357,7 +395,10 @@ function submitFinalize(modal) {
         })
         .catch(error => {
             console.error('[POS Session] Finalize error', error);
-            showToast(error.message || 'Gagal menfinalisasi sesi', 'error');
+            // Don't show redundant toast if it's already shown in the alert or if it's a variance block
+            if (supervisorSection.style.display === 'none' || !error.message.includes('Otorisasi supervisor')) {
+                showToast(error.message || 'Gagal menfinalisasi sesi', 'error');
+            }
         })
         .finally(() => {
             submitBtn.disabled = false;

@@ -106,7 +106,29 @@
 
                     <div class="mb-3">
                         <label for="finalizeNotes" class="form-label">Catatan Finalisasi (Opsional)</label>
-                        <textarea class="form-control" id="finalizeNotes" name="notes" rows="3" placeholder="Masukkan catatan atau memo..."></textarea>
+                        <textarea class="form-control" id="finalizeNotes" name="notes" rows="2" placeholder="Masukkan catatan atau memo..."></textarea>
+                    </div>
+
+                    {{-- Supervisor Override Section (Hidden by default) --}}
+                    <div id="supervisorOverrideSection" class="p-3 bg-warning bg-opacity-10 border border-warning rounded" style="display: none;">
+                        <h6 class="text-warning mb-3">
+                            <i class="bi bi-shield-lock-fill"></i> Otorisasi Supervisor Diperlukan
+                        </h6>
+                        <div id="overrideErrorAlert" class="alert alert-danger alert-sm mb-3" style="display: none;"></div>
+                        
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label for="supervisorIdentifier" class="form-label small">Email Supervisor</label>
+                                <input type="email" class="form-control form-control-sm" id="supervisorIdentifier" placeholder="supervisor@example.com">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="supervisorPassword" class="form-label small">Password/PIN</label>
+                                <input type="password" class="form-control form-control-sm" id="supervisorPassword" placeholder="••••••••">
+                            </div>
+                        </div>
+                        <small class="text-muted d-block mt-2">
+                            Masukkan kredensial supervisor dengan izin <code>pos.sessions.approve-variance</code> untuk melanjutkan.
+                        </small>
                     </div>
                 </div>
                 <div class="modal-footer">

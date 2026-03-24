@@ -79,7 +79,7 @@ class PosSupervisorApprovalService
      *     reason:string|null
      * }
      */
-    public function approveSessionCloseVariance(
+    public function approveVarianceOverride(
         int $settingId,
         int $targetSessionId,
         int $requestedBy,
@@ -93,7 +93,7 @@ class PosSupervisorApprovalService
             $supervisorIdentifier,
             $supervisorPin,
             PosSupervisorApproval::ACTION_SESSION_CLOSE_VARIANCE_APPROVAL,
-            ['pos.sessions.close', 'pos.supervisor.approval']
+            ['pos.sessions.approve-variance', 'pos.supervisor.approval']
         );
     }
 

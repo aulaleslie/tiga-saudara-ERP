@@ -31,6 +31,7 @@ class PosSessionFinalizeService
 {
     public function __construct(
         private readonly PosSessionExpectedCashCalculator $expectedCashCalculator,
+        private readonly PosSupervisorApprovalService $supervisorApprovalService,
     ) {
     }
 
@@ -47,7 +48,9 @@ class PosSessionFinalizeService
         int $sessionId,
         int $supervisorUserId,
         float $actualCashReceived,
-        ?string $notes = null
+        ?string $notes = null,
+        ?string $supervisorIdentifier = null,
+        ?string $supervisorPassword = null
     ): array {
         if ($actualCashReceived < 0) {
             throw new DomainException('Actual cash received must be at least zero.');
@@ -67,7 +70,9 @@ class PosSessionFinalizeService
             $sessionId,
             $supervisorUserId,
             $actualCashReceived,
-            $notes
+            $notes,
+            $supervisorIdentifier,
+            $supervisorPassword
         ) {
             $session = PosSession::query()
                 ->with('terminal.policy')
@@ -99,27 +104,55 @@ class PosSessionFinalizeService
             $varianceTotal = round($normalizedActualCash - $expectedCashTotal, 2);
             $varianceThreshold = round((float) $policy->close_variance_approval_threshold, 2);
 
+            $approverId = null;
+
             // Check if variance exceeds threshold
             if (abs($varianceTotal) > $varianceThreshold) {
-                // Get supervisor user for permission check
-                $supervisor = User::find($supervisorUserId);
+                // Check if supervisor identifier and password are provided (Interactive Override)
+                if ($supervisorIdentifier && $supervisorPassword) {
+                    $approvalResult = $this->supervisorApprovalService->approveVarianceOverride(
+                        $settingId,
+                        (int) $session->id,
+                        $supervisorUserId,
+                        $supervisorIdentifier,
+                        $supervisorPassword
+                    );
 
-                if (! $supervisor) {
-                    throw new DomainException('Supervisor user not found.');
-                }
+                    if (! $approvalResult['approved']) {
+                        $reason = $approvalResult['reason'] ?? 'UNKNOWN';
+                        $errorMessage = 'Invalid supervisor credentials or missing permission for variance override.';
+                        
+                        if ($reason === 'MISSING_PERMISSION') {
+                            $errorMessage = 'Provided supervisor does not have permission to approve variance (pos.sessions.approve-variance).';
+                        } elseif ($reason === 'INVALID_CREDENTIALS') {
+                            $errorMessage = 'Invalid supervisor identifier or password.';
+                        }
 
-                // Check if supervisor has permission to approve variance
-                if (! $supervisor->can('pos.sessions.approve-variance')) {
-                    return [
-                        'blocked' => true,
-                        'payload' => [
-                            'message' => 'Variance approval permission required to finalize session with variance exceeding threshold.',
-                            'requires_variance_approval' => true,
-                            'status' => PosSession::STATUS_CLOSED,
-                            'variance_total' => $varianceTotal,
-                            'variance_threshold' => $varianceThreshold,
-                        ],
-                    ];
+                        throw new DomainException($errorMessage);
+                    }
+
+                    $approverId = $approvalResult['approved_by'] ?? null;
+                } else {
+                    // Fallback to primary supervisor permission check
+                    $supervisor = User::find($supervisorUserId);
+
+                    if (! $supervisor) {
+                        throw new DomainException('Supervisor user not found.');
+                    }
+
+                    // Check if primary supervisor has permission to approve variance
+                    if (! $supervisor->can('pos.sessions.approve-variance')) {
+                        return [
+                            'blocked' => true,
+                            'payload' => [
+                                'message' => 'Variance approval permission required to finalize session with variance exceeding threshold.',
+                                'requires_variance_approval' => true,
+                                'status' => PosSession::STATUS_CLOSED,
+                                'variance_total' => $varianceTotal,
+                                'variance_threshold' => $varianceThreshold,
+                            ],
+                        ];
+                    }
                 }
             }
 
@@ -142,6 +175,7 @@ class PosSessionFinalizeService
                     'expected_cash_total' => $expectedCashTotal,
                     'variance_total' => $varianceTotal,
                     'variance_threshold' => $varianceThreshold,
+                    'approver_id' => $approverId, // Recorded if interactive override used
                 ],
                 'occurred_at' => now(),
             ]);
@@ -157,6 +191,7 @@ class PosSessionFinalizeService
                     'expected_cash_total' => $expectedCashTotal,
                     'actual_cash_received' => $normalizedActualCash,
                     'approval_result' => abs($varianceTotal) > $varianceThreshold ? 'APPROVED' : 'WITHIN_THRESHOLD',
+                    'approver_id' => $approverId,
                 ],
             ];
         });

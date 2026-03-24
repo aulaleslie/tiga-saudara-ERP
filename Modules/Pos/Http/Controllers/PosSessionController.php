@@ -654,7 +654,9 @@ class PosSessionController extends Controller
                 (int) $posSession->id,
                 (int) $user->id,
                 (float) $actualCashReceived,
-                request()->filled('notes') ? request()->string('notes')->value() : null
+                request()->filled('notes') ? request()->string('notes')->value() : null,
+                request()->filled('supervisor_identifier') ? request()->string('supervisor_identifier')->value() : null,
+                request()->filled('supervisor_password') ? request()->string('supervisor_password')->value() : null
             );
         } catch (AuthorizationException $exception) {
             \Illuminate\Support\Facades\Log::channel('single')->error('POS Finalize Session: Authorization failed', [
