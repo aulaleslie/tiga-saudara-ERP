@@ -5,7 +5,7 @@ TBD - created by archiving change pos-two-stage-settlement. Update Purpose after
 ## Requirements
 ### Requirement: Supervisor cash finalization with variance calculation
 
-Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from cashiers and finalize POS sessions by entering the actual amount of cash received. The system SHALL calculate expected cash from session data, compute variance (actual - expected), and gate finalization on variance approval if variance exceeds the terminal's threshold. Finalization transitions the session from CLOSED to FINALIZED status.
+Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from cashiers and finalize POS sessions by entering the actual amount of cash received. The system SHALL calculate expected cash from session data, compute variance (actual - expected), and gate finalization on variance approval if variance exceeds the terminal's threshold. Finalization transitions the session from CLOSED to FINALIZED status. **Super Admin users SHALL be able to perform this finalization even if not assigned to the business setting.**
 
 #### Scenario: Finalize action visibility and guidance
 - **WHEN** an authenticated user with `pos.supervisor.approval` permission views the `/pos/sessions` index
@@ -13,6 +13,12 @@ Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from 
 - **AND** the user SHALL see a DISABLED "Finalize" action button for OPEN sessions
 - **AND** the disabled button SHALL have a tooltip: "Tutup terminal terlebih dahulu sebelum finalisasi" (or similar)
 - **AND** clicking "Finalize" for a CLOSED session SHALL open a modal displaying full session reconciliation details
+
+#### Scenario: Super Admin finalizes session without setting assignment
+- **WHEN** a user with `Super Admin` role attempts to finalize a CLOSED session in a setting they are NOT assigned to
+- **THEN** the system MUST allow the action to proceed
+- **AND** the system MUST NOT throw a "Supervisor user is not assigned to current setting" error
+- **AND** the session status SHALL change from CLOSED to FINALIZED if all other conditions are met
 
 #### Scenario: Finalization modal shows full reconciliation details
 

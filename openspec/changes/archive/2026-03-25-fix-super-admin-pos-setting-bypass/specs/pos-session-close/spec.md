@@ -1,8 +1,7 @@
-# pos-session-close Specification
+# pos-session-close Specification (Delta)
 
-## Purpose
-TBD - created by archiving change simplify-pos-cashier-close-flow. Update Purpose after archive.
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Cashier closes session (simplified)
 The cashier SHALL be able to close their active POS session. Closing releases the terminal for other cashiers to use and transitions the session to a CLOSED state. The close action is purely administrative and does not involve cash counting or variance approval. **Super Admin users SHALL also be able to initiate this close action for any open session, bypassing the setting assignment check.**
 
@@ -25,20 +24,6 @@ The cashier SHALL be able to close their active POS session. Closing releases th
 - **THEN** the close proceeds and succeeds regardless of whether reason was provided
 
 #### Scenario: Authorization check
-- **WHEN** a user attempts to close a session they do not own or lack permission
+- **WHEN** a non-Super-Admin user attempts to close a session they do not own or lack permission
 - **THEN** the system returns a 403 error with message "Only the session cashier can close this session" or permission error
 - **THEN** the session remains in its current state
-
-### Requirement: No variance approval at close
-The close action SHALL NOT calculate expected cash, compute variance, or require supervisor approval.
-
-#### Scenario: Cash data is ignored
-- **WHEN** a close request includes cash-related fields (counted_cash_total, denominations, supervisor_identifier, supervisor_pin)
-- **THEN** the system accepts the request but ignores those fields
-- **THEN** close succeeds with only session state change, no cash processing
-
-#### Scenario: Supervisor involvement not requested
-- **WHEN** cashier closes a session
-- **THEN** no supervisor credentials are requested or validated
-- **THEN** the response includes no approval-related fields
-

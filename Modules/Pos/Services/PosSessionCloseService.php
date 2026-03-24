@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Services;
 
+use App\Models\User;
 use DomainException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -30,12 +31,15 @@ class PosSessionCloseService
         int $actorUserId,
         ?string $reason = null
     ): array {
+        $user = User::query()->find($actorUserId);
+        $isSuperAdmin = $user?->hasRole('Super Admin') ?? false;
+
         $belongsToSetting = DB::table('user_setting')
             ->where('setting_id', $settingId)
             ->where('user_id', $actorUserId)
             ->exists();
 
-        if (! $belongsToSetting) {
+        if (! $isSuperAdmin && ! $belongsToSetting) {
             throw new DomainException('Actor user is not assigned to current setting.');
         }
 
@@ -43,6 +47,7 @@ class PosSessionCloseService
             $settingId,
             $sessionId,
             $actorUserId,
+            $isSuperAdmin,
             $reason
         ) {
             $session = PosSession::query()
@@ -55,7 +60,7 @@ class PosSessionCloseService
                 throw new DomainException('POS session not found for current setting.');
             }
 
-            if ((int) $session->cashier_user_id !== $actorUserId) {
+            if (! $isSuperAdmin && (int) $session->cashier_user_id !== $actorUserId) {
                 throw new AuthorizationException('Only the session cashier can close this session.');
             }
 

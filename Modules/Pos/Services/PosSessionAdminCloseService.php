@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Services;
 
+use App\Models\User;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Modules\Pos\Entities\PosSession;
@@ -40,12 +41,15 @@ class PosSessionAdminCloseService
         int $adminUserId,
         ?string $reason = null
     ): array {
+        $user = User::query()->find($adminUserId);
+        $isSuperAdmin = $user?->hasRole('Super Admin') ?? false;
+
         $belongsToSetting = DB::table('user_setting')
             ->where('setting_id', $settingId)
             ->where('user_id', $adminUserId)
             ->exists();
 
-        if (! $belongsToSetting) {
+        if (! $isSuperAdmin && ! $belongsToSetting) {
             throw new DomainException('Admin user is not assigned to current setting.');
         }
 

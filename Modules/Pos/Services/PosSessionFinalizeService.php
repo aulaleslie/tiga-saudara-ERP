@@ -56,12 +56,15 @@ class PosSessionFinalizeService
             throw new DomainException('Actual cash received must be at least zero.');
         }
 
+        $user = User::query()->find($supervisorUserId);
+        $isSuperAdmin = $user?->hasRole('Super Admin') ?? false;
+
         $belongsToSetting = DB::table('user_setting')
             ->where('setting_id', $settingId)
             ->where('user_id', $supervisorUserId)
             ->exists();
 
-        if (! $belongsToSetting) {
+        if (! $isSuperAdmin && ! $belongsToSetting) {
             throw new DomainException('Supervisor user is not assigned to current setting.');
         }
 

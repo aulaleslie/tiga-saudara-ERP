@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Services;
 
+use App\Models\User;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Modules\Pos\Entities\PosSession;
@@ -47,12 +48,15 @@ class PosSafeDropService
             throw new DomainException('Safe drop amount must be greater than zero.');
         }
 
+        $user = User::query()->find($actorUserId);
+        $isSuperAdmin = $user?->hasRole('Super Admin') ?? false;
+
         $belongsToSetting = DB::table('user_setting')
             ->where('setting_id', $settingId)
             ->where('user_id', $actorUserId)
             ->exists();
 
-        if (! $belongsToSetting) {
+        if (! $isSuperAdmin && ! $belongsToSetting) {
             throw new DomainException('Actor user is not assigned to current setting.');
         }
 
@@ -71,6 +75,7 @@ class PosSafeDropService
             $settingId,
             $sessionId,
             $actorUserId,
+            $isSuperAdmin,
             $normalizedAmount,
             $normalizedDenominations,
             $notes,
@@ -108,7 +113,7 @@ class PosSafeDropService
             $approvedBy = null;
             $approvalResult = 'BYPASSED';
 
-            if ((bool) $policy->require_pickup_supervisor_approval) {
+            if (! $isSuperAdmin && (bool) $policy->require_pickup_supervisor_approval) {
                 if (! $supervisorIdentifier || ! $supervisorPin) {
                     throw new DomainException('Supervisor credentials are required for safe drop.');
                 }
