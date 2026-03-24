@@ -27,7 +27,7 @@ For users without direct quantity-reduction permission, compact spinner renderin
 - **THEN** the left spinner slot MUST render approved proceed state with token/approved-qty context without changing the compact row order.
 
 ### Requirement: Restricted Cart Mutations MUST Require Supervisory Approval For Non-Authorized Users
-The POS system SHALL require supervisory approval before executing `clear cart`, `remove line`, or `reduce quantity` actions when the acting user lacks direct permission for the action.
+The POS system SHALL require supervisory approval before executing `clear cart`, `remove line`, or `reduce quantity` actions when the acting user lacks direct permission for the action, UNLESS the user has Super Admin role.
 
 #### Scenario: Non-authorized user requests clear cart
 - **WHEN** a Floor Staff or Cashier Staff user attempts to clear the cart without direct clear permission
@@ -44,6 +44,16 @@ The POS system SHALL require supervisory approval before executing `clear cart`,
 #### Scenario: Authorized manager executes directly
 - **WHEN** a Store Manager user performs clear cart, remove line, or reduce quantity with required direct permission
 - **THEN** the system MUST execute the action immediately without creating approval request
+
+#### Scenario: Super Admin executes cart mutations directly without approval
+- **WHEN** a Super Admin user performs clear cart, remove line, or reduce quantity
+- **THEN** the system MUST execute the action immediately without creating an approval request
+- **AND** the authorization MUST succeed based solely on Super Admin role
+
+#### Scenario: Super Admin with Super Admin role does not require pos.cart.line.reduce permission
+- **WHEN** a Super Admin user reduces quantity despite the role lacking the explicit `pos.cart.line.reduce` permission
+- **THEN** the system MUST execute the quantity reduction immediately
+- **AND** the user MUST NOT be prompted for supervisory approval
 
 ### Requirement: Approval Request State MUST Be Deterministic And Queryable
 The system SHALL expose deterministic approval states so users can explicitly check whether a submitted request is still pending, approved, or rejected.

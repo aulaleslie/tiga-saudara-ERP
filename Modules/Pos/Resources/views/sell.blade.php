@@ -2420,24 +2420,40 @@
                     snapshot.lines.every(line => line.price_valid !== false);
                 
                 // Check for serial count matching
+                let mismatchMessage = null;
                 const allSerialsValid = !snapshot || !Array.isArray(snapshot.lines) ||
                     snapshot.lines.every(line => {
                         if (line.serial_number_required !== true) {
                             return true; // Non-serial lines are always valid
                         }
                         const assignedCount = Array.isArray(line.assigned_serials) ? line.assigned_serials.length : 0;
-                        return assignedCount === line.qty;
+                        if (assignedCount !== line.qty) {
+                            if (!mismatchMessage) {
+                                // Find the line number (display index + 1)
+                                const lineIndex = snapshot.lines.indexOf(line) + 1;
+                                mismatchMessage = `Baris ${lineIndex}: ${assignedCount} serial ditetapkan tetapi qty adalah ${line.qty}`;
+                            }
+                            return false;
+                        }
+                        return true;
                     });
- 
+
                  const canSaveDraft = hasItems && grandTotal > 0 && hasCustomer && allPricesValid && allSerialsValid;
                  const canCheckout = canSaveDraft && canCheckoutByRole;
 
                  if (btnCheckout) {
                      btnCheckout.disabled = !canCheckout;
                  }
- 
+
                  if (saveDraftButton) {
                      saveDraftButton.disabled = !canSaveDraft;
+                 }
+
+                 // Display serial mismatch error if present
+                 if (!allSerialsValid && mismatchMessage) {
+                     setCartStatus(mismatchMessage, 'text-danger');
+                 } else if (!canCheckoutByRole && hasItems) {
+                     setCartStatus('Anda dapat menyimpan draft, tetapi pembayaran membutuhkan izin pos.checkout.payment.', 'text-muted');
                  }
 
                  if (clearCartButton) {
@@ -2469,9 +2485,6 @@
                      }
                  }
 
-                 if (!canCheckoutByRole && hasItems) {
-                     setCartStatus('Anda dapat menyimpan draft, tetapi pembayaran membutuhkan izin pos.checkout.payment.', 'text-muted');
-                 }
              }
  
              async function refreshCart() {

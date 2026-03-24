@@ -244,12 +244,8 @@ class PosCartService
             }
         }
 
-        // Guard: prevent qty reduction below assigned serial count for serial-required products
+        // Preserve assigned serials - they will be validated at checkout time
         $assignedSerials = (array) ($line['assigned_serials'] ?? []);
-        $serialCount = count($assignedSerials);
-        if ((bool) ($line['serial_number_required'] ?? false) && $qty < $serialCount) {
-            throw new DomainException("Cannot reduce quantity below assigned serial count ($serialCount). Remove serials first.");
-        }
 
         $availableQty = (int) ($line['available_qty'] ?? 0);
         if ($availableQty > 0 && $qty > $availableQty) {
@@ -259,12 +255,7 @@ class PosCartService
         $discountType = $payload['line_discount_type'] ?? $line['line_discount_type'] ?? 'fixed';
         $discountValue = (float) ($payload['line_discount_value'] ?? $line['line_discount_value'] ?? 0);
 
-        // Clear assigned serials only on qty decrease (blocked above, but kept for safety).
-        // On qty increase, preserve assigned serials.
-        if ($qty < (int) $line['qty']) {
-            $assignedSerials = [];
-        }
-
+        // Preserve assigned serials across qty changes. Serial/qty mismatch is validated at checkout time.
         $cart['lines'][$lineId] = array_merge($line, [
             'qty' => $qty,
             'assigned_serials' => $assignedSerials,

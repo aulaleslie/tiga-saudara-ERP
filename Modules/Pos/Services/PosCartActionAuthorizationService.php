@@ -18,6 +18,15 @@ class PosCartActionAuthorizationService
      */
     public function authorize(User $user, string $actionType, ?string $approvalToken = null): array
     {
+        // Super Admin users bypass all cart action restrictions
+        if ($user->hasRole('Super Admin')) {
+            return [
+                'authorized' => true,
+                'reason' => null,
+                'request' => null,
+            ];
+        }
+
         $permission = match ($actionType) {
             PosActionApprovalRequest::ACTION_CART_CLEAR => 'pos.cart.clear',
             PosActionApprovalRequest::ACTION_LINE_REMOVE => 'pos.cart.line.remove',
