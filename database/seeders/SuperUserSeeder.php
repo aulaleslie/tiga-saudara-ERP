@@ -6,6 +6,8 @@ use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\PermissionRegistrar;
 
 class SuperUserSeeder extends Seeder
 {
@@ -28,18 +30,21 @@ class SuperUserSeeder extends Seeder
             ]);
         }
 
-        // Check if role already exists
-        $superAdmin = Role::where('name', 'Super Admin')->first();
+        // Check if role already exists (idempotent)
+        $superAdmin = Role::where('name', 'Super Admin')->firstOrCreate([
+            'name' => 'Super Admin'
+        ]);
 
-        if (!$superAdmin) {
-            $superAdmin = Role::create([
-                'name' => 'Super Admin'
-            ]);
-        }
+        // Fetch all available permissions and sync to Super Admin role
+        $allPermissions = Permission::pluck('name')->toArray();
+        $superAdmin->syncPermissions($allPermissions);
 
         // Assign role if not already assigned
         if (!$user->hasRole($superAdmin)) {
             $user->assignRole($superAdmin);
         }
+
+        // Clear cached permissions
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

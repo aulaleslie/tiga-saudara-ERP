@@ -78,13 +78,13 @@
                         <div class="mt-4 pt-4 d-grid gap-2">
                             @if($status === 'OPEN')
                                 @if(auth()->user()->can('pos.sessions.close') || auth()->user()->can('pos.sessions.close-admin'))
-                                    <button type="button" class="btn btn-danger py-2 shadow-sm" data-toggle="modal" data-target="#closeModal" data-session-id="{{ $session_id }}" style="border-radius: 10px;">
+                                    <button type="button" class="btn btn-danger py-2 shadow-sm" data-toggle="modal" data-target="#closeModal" data-bs-toggle="modal" data-bs-target="#closeModal" data-session-id="{{ $session_id }}" style="border-radius: 10px;">
                                         <i class="bi bi-power me-2"></i>Tutup Sesi
                                     </button>
                                 @endif
                             @elseif($status === 'CLOSED')
                                 @can('pos.supervisor.approval')
-                                    <button type="button" class="btn btn-success py-2 shadow-sm" data-toggle="modal" data-target="#finalizeModal" data-session-id="{{ $session_id }}" style="border-radius: 10px;">
+                                    <button type="button" class="btn btn-success py-2 shadow-sm" data-toggle="modal" data-target="#finalizeModal" data-bs-toggle="modal" data-bs-target="#finalizeModal" data-session-id="{{ $session_id }}" style="border-radius: 10px;">
                                         <i class="bi bi-check-circle-fill me-2"></i>Finalisasi Sesi
                                     </button>
                                 @endcan

@@ -20,7 +20,9 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access']], function () {
-    Route::get('/pos/sessions/{session}/summary', [PosSessionController::class, 'summary'])->name('pos.sessions.summary');
+    Route::get('/pos/sessions/{session}/summary', [PosSessionController::class, 'summary'])
+        ->whereNumber('session')
+        ->name('pos.sessions.summary');
     Route::get('/pos/sessions/{session}/checkouts/{checkout}', [PosSessionController::class, 'checkoutDetail'])->name('pos.sessions.checkout-detail');
 });
 
@@ -40,16 +42,22 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.safeDrops.create', 'log.pos.pickup']], function () {
-    Route::post('/pos/sessions/{session}/safe-drops', [PosSessionController::class, 'safeDrop'])->name('pos.sessions.safe-drops.store');
+    Route::post('/pos/sessions/{session}/safe-drops', [PosSessionController::class, 'safeDrop'])
+        ->whereNumber('session')
+        ->name('pos.sessions.safe-drops.store');
 });
 
 // Cash pickup route - doesn't require can:pos.safeDrops.create since the supervisor's credentials are validated in the controller
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'log.pos.pickup']], function () {
-    Route::post('/pos/sessions/{session}/pickup', [PosSessionController::class, 'pickup'])->name('pos.sessions.pickup');
+    Route::post('/pos/sessions/{session}/pickup', [PosSessionController::class, 'pickup'])
+        ->whereNumber('session')
+        ->name('pos.sessions.pickup');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access']], function () {
-    Route::post('/pos/sessions/{session}/close', [PosSessionController::class, 'close'])->name('pos.sessions.close');
+    Route::post('/pos/sessions/{session}/close', [PosSessionController::class, 'close'])
+        ->whereNumber('session')
+        ->name('pos.sessions.close');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.sell', 'pos.session.active']], function () {
@@ -147,5 +155,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access']], function () {
-    Route::post('/pos/sessions/{session}/finalize', [PosSessionController::class, 'finalize'])->name('pos.sessions.finalize');
+    Route::post('/pos/sessions/{session}/finalize', [PosSessionController::class, 'finalize'])
+        ->whereNumber('session')
+        ->name('pos.sessions.finalize');
 });

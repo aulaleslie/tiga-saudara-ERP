@@ -1,8 +1,7 @@
-# pos-session-close Specification
+# pos-session-close Authorization & Type Safety Fix
 
-## Purpose
-TBD - created by archiving change simplify-pos-cashier-close-flow. Update Purpose after archive.
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Cashier closes session (simplified)
 The cashier SHALL be able to close their active POS session. Closing releases the terminal for other cashiers to use and transitions the session to a CLOSED state. The close action is purely administrative and does not involve cash counting or variance approval. **Super Admin users SHALL also be able to initiate this close action for any open session, bypassing the setting assignment check.** Super Admin authorization SHALL NOT depend on permission assignment to the role; the application SHALL grant access via gate-level bypass.
 
@@ -30,18 +29,7 @@ The cashier SHALL be able to close their active POS session. Closing releases th
 - **THEN** the system returns a 403 error with message "Only the session cashier can close this session" or permission error
 - **THEN** the session remains in its current state
 
-### Requirement: No variance approval at close
-The close action SHALL NOT calculate expected cash, compute variance, or require supervisor approval.
-
-#### Scenario: Cash data is ignored
-- **WHEN** a close request includes cash-related fields (counted_cash_total, denominations, supervisor_identifier, supervisor_pin)
-- **THEN** the system accepts the request but ignores those fields
-- **THEN** close succeeds with only session state change, no cash processing
-
-#### Scenario: Supervisor involvement not requested
-- **WHEN** cashier closes a session
-- **THEN** no supervisor credentials are requested or validated
-- **THEN** the response includes no approval-related fields
+## ADDED Requirements
 
 ### Requirement: Super Admin role initialization with all permissions
 The system SHALL ensure that the "Super Admin" role is initialized with all available application permissions when the `SuperUserSeeder` runs.
@@ -75,4 +63,3 @@ All POS session routes that accept a `{session}` parameter SHALL enforce integer
 - **WHEN** requests are made to any of these endpoints: `/pos/sessions/{session}/summary`, `/pos/sessions/{session}/close`, `/pos/sessions/{session}/finalize`, `/pos/sessions/{session}/safe-drops`, `/pos/sessions/{session}/pickup`
 - **THEN** all endpoints enforce integer type constraint on the `{session}` parameter
 - **AND** all endpoints benefit from type safety and consistent error handling
-

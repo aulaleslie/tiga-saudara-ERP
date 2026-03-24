@@ -127,7 +127,7 @@
                                             </a>
                                             @if($session->status === 'OPEN')
                                                 @if(auth()->user()->can('pos.sessions.close') || auth()->user()->can('pos.sessions.close-admin'))
-                                                    <button type="button" class="btn btn-sm btn-outline-danger" data-toggle="modal" data-target="#closeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Tutup Sesi">
+                                                    <button type="button" class="btn btn-sm btn-outline-danger" data-toggle="modal" data-target="#closeModal" data-bs-toggle="modal" data-bs-target="#closeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Tutup Sesi">
                                                         <i class="bi bi-power"></i> Tutup
                                                     </button>
                                                 @endif
@@ -140,7 +140,7 @@
                                                 @endcan
                                             @elseif($session->status === 'CLOSED' && $session->terminal)
                                                 @can('pos.supervisor.approval')
-                                                    <button type="button" class="btn btn-sm btn-outline-success" data-toggle="modal" data-target="#finalizeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Finalisasi Sesi">
+                                                    <button type="button" class="btn btn-sm btn-outline-success" data-toggle="modal" data-target="#finalizeModal" data-bs-toggle="modal" data-bs-target="#finalizeModal" data-session-id="{{ $session->id }}" data-session-code="{{ $terminalCodeLabel }}" title="Finalisasi Sesi">
                                                         <i class="bi bi-check-circle"></i> Finalisasi
                                                     </button>
                                                 @endcan

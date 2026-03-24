@@ -85,7 +85,7 @@ class PosSessionAdminCloseService
                 'pos_session_id' => (int) $session->id,
                 'event_type' => PosSessionCashEvent::EVENT_CLOSE_COUNT,
                 'direction' => PosSessionCashEvent::DIRECTION_NEUTRAL,
-                'amount' => null,
+                'amount' => 0,
                 'performed_by' => $adminUserId,
                 'notes' => $reason,
                 'metadata' => [

@@ -5,14 +5,32 @@
 
 const NON_TERMINAL_LABEL = 'Non-Terminal';
 
-document.addEventListener('DOMContentLoaded', function () {
+function initializeModals() {
+    console.log('[POS Session] Initializing modals');
+
     // Initialize finalize modal
     const finalizeModal = document.getElementById('finalizeModal');
+    console.log('[POS Session] Finalize modal found:', !!finalizeModal);
+
     if (finalizeModal) {
-        finalizeModal.addEventListener('show.bs.modal', function (event) {
-            const button = event.relatedTarget;
+        // Track the button that triggered the modal
+        let finalizeModalTriggerButton = null;
+
+        // Capture click events on finalize buttons to store the trigger button
+        document.addEventListener('click', function(e) {
+            if (e.target.closest('[data-bs-target="#finalizeModal"], [data-target="#finalizeModal"]')) {
+                finalizeModalTriggerButton = e.target.closest('button');
+            }
+        });
+
+        // Listen to both Bootstrap and CoreUI modal events for compatibility
+        const onFinalizeShow = function (event) {
+            console.log('[POS Session] Finalize modal showing', event.type);
+            const button = event.relatedTarget || finalizeModalTriggerButton;
             const sessionId = button?.dataset?.sessionId;
             const sessionCode = button?.dataset?.sessionCode || NON_TERMINAL_LABEL;
+
+            console.log('[POS Session] Finalize trigger', { sessionId, sessionCode, buttonDataset: button?.dataset });
 
             if (!sessionId) {
                 console.warn('[POS Session] Missing session id on finalize trigger');
@@ -23,37 +41,81 @@ document.addEventListener('DOMContentLoaded', function () {
             fetchSessionData(sessionId, function (session) {
                 populateFinalizeModal(session, sessionCode);
             });
-        });
+        };
+
+        // Listen to both Bootstrap 5 and CoreUI events
+        finalizeModal.addEventListener('show.bs.modal', onFinalizeShow);
+        finalizeModal.addEventListener('show.coreui.modal', onFinalizeShow);
 
         // Handle form submission
-        document.getElementById('finalizeForm').addEventListener('submit', function (e) {
-            e.preventDefault();
-            submitFinalize(finalizeModal);
-        });
+        const finalizeForm = document.getElementById('finalizeForm');
+        if (finalizeForm) {
+            finalizeForm.addEventListener('submit', function (e) {
+                e.preventDefault();
+                submitFinalize(finalizeModal);
+            });
+        }
 
         // Real-time variance calculation
-        document.getElementById('actualCashReceived').addEventListener('input', function () {
-            calculateVariance();
-        });
+        const actualCashInput = document.getElementById('actualCashReceived');
+        if (actualCashInput) {
+            actualCashInput.addEventListener('input', function () {
+                calculateVariance();
+            });
+        }
     }
 
     // Initialize standard close modal
     const closeModal = document.getElementById('closeModal');
+    console.log('[POS Session] Close modal found:', !!closeModal);
+
     if (closeModal) {
-        closeModal.addEventListener('show.bs.modal', function (event) {
-            const button = event.relatedTarget;
-            const sessionId = button?.dataset?.sessionId;
-            const form = document.getElementById('closeSessionForm');
-            form.dataset.sessionId = sessionId;
+        // Track the button that triggered the modal
+        let closeModalTriggerButton = null;
+
+        // Capture click events on close buttons to store the trigger button
+        document.addEventListener('click', function(e) {
+            if (e.target.closest('[data-bs-target="#closeModal"], [data-target="#closeModal"]')) {
+                closeModalTriggerButton = e.target.closest('button');
+            }
         });
 
+        // Listen to both Bootstrap and CoreUI modal events for compatibility
+        const onCloseShow = function (event) {
+            console.log('[POS Session] Close modal showing', event.type);
+            const button = event.relatedTarget || closeModalTriggerButton;
+            const sessionId = button?.dataset?.sessionId;
+            const form = document.getElementById('closeSessionForm');
+
+            console.log('[POS Session] Close trigger', { sessionId, buttonDataset: button?.dataset });
+
+            if (form) {
+                form.dataset.sessionId = sessionId;
+            }
+        };
+
+        // Listen to both Bootstrap 5 and CoreUI events
+        closeModal.addEventListener('show.bs.modal', onCloseShow);
+        closeModal.addEventListener('show.coreui.modal', onCloseShow);
+
         // Handle form submission
-        document.getElementById('closeSessionForm').addEventListener('submit', function (e) {
-            e.preventDefault();
-            submitClose(closeModal);
-        });
+        const closeForm = document.getElementById('closeSessionForm');
+        if (closeForm) {
+            closeForm.addEventListener('submit', function (e) {
+                e.preventDefault();
+                submitClose(closeModal);
+            });
+        }
     }
-});
+}
+
+// Initialize on DOM ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeModals);
+} else {
+    // DOM already loaded
+    initializeModals();
+}
 
 /**
  * Fetch session data from summary endpoint
@@ -239,7 +301,20 @@ function submitClose(modal) {
         .then(data => {
             console.log('[POS Session] Close successful', data);
             showToast('Sesi berhasil ditutup', 'success');
-            $(modal).modal('hide');
+            // Hide modal using native Bootstrap/CoreUI API
+            try {
+                // Try Bootstrap 5 API first
+                if (window.bootstrap && window.bootstrap.Modal) {
+                    const bsModal = window.bootstrap.Modal.getInstance(modal);
+                    if (bsModal) bsModal.hide();
+                } else {
+                    // Fallback: dispatch a custom hide event
+                    const hideEvent = new Event('hide.coreui.modal', { bubbles: true });
+                    modal.dispatchEvent(hideEvent);
+                }
+            } catch (e) {
+                console.error('[POS Session] Error hiding modal:', e);
+            }
             // Reload table after short delay
             setTimeout(() => location.reload(), 1000);
         })
@@ -351,7 +426,20 @@ function submitFinalize(modal) {
         .then(data => {
             console.log('[POS Session] Finalize successful', data);
             showToast('Sesi berhasil ditfinalizekan', 'success');
-            $(modal).modal('hide');
+            // Hide modal using native Bootstrap/CoreUI API
+            try {
+                // Try Bootstrap 5 API first
+                if (window.bootstrap && window.bootstrap.Modal) {
+                    const bsModal = window.bootstrap.Modal.getInstance(modal);
+                    if (bsModal) bsModal.hide();
+                } else {
+                    // Fallback: dispatch a custom hide event
+                    const hideEvent = new Event('hide.coreui.modal', { bubbles: true });
+                    modal.dispatchEvent(hideEvent);
+                }
+            } catch (e) {
+                console.error('[POS Session] Error hiding modal:', e);
+            }
             // Reload table after short delay
             setTimeout(() => location.reload(), 1000);
         })
