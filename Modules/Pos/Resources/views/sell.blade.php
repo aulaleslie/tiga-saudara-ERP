@@ -1088,14 +1088,18 @@
                         <label for="staged-amount-input" class="font-weight-bold">Jumlah Pembayaran (Rp)</label>
                         <input type="text" id="staged-amount-input" class="form-control form-control-lg"
                                placeholder="0" inputmode="numeric">
+                        <small id="staged-amount-hint" class="form-text mt-1 font-weight-bold" style="display: none;"></small>
                     </div>
 
                     <!-- Quick-Add Buttons -->
                     <div class="mb-3 d-flex gap-2 flex-wrap">
                         <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="1000">+1.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="2000">+2.000</button>
                         <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="5000">+5.000</button>
                         <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="10000">+10.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="20000">+20.000</button>
                         <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="50000">+50.000</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary js-quick-add" data-amount="100000">+100.000</button>
                         <button type="button" class="btn btn-sm btn-warning js-quick-add-remainder">Sisa</button>
                     </div>
 

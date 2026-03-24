@@ -526,11 +526,18 @@ class PosSellController extends Controller
 
             // Validate amount based on payment method type
             // Non-cash: amount cannot exceed remainder (no overpayment)
-            // Cash: amount can exceed remainder (overpayment allowed)
             if (! $paymentMethod->is_cash && $amount > $remainder) {
                 return response()->json([
                     'code' => 'AMOUNT_EXCEEDS_REMAINDER',
                     'message' => "Non-cash payment cannot exceed remaining balance of {$remainder}.",
+                ], 422);
+            }
+
+            // Cash: amount cannot be less than remainder (must cover full balance)
+            if ($paymentMethod->is_cash && $amount < $remainder) {
+                return response()->json([
+                    'code' => 'CASH_UNDERPAYMENT',
+                    'message' => "Cash payment must be at least {$remainder}.",
                 ], 422);
             }
 

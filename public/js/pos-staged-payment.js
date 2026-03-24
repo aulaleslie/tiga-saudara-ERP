@@ -31,6 +31,7 @@ window.PosStagedPayment = (function () {
     let stagedPaymentChainList = null;
     let stagedRemainderLabel = null;
     let stagedAmountInput = null;
+    let stagedAmountHint = null;
     let stagedEdcReferenceInput = null;
     let stagedEdcReferenceContainer = null;
     let stagedSubmitButton = null;
@@ -57,6 +58,7 @@ window.PosStagedPayment = (function () {
         stagedPaymentChainList = config.paymentChainList || document.getElementById('staged-payment-chain');
         stagedRemainderLabel = config.remainderLabel || document.getElementById('staged-remainder-amount');
         stagedAmountInput = config.amountInput || document.getElementById('staged-amount-input');
+        stagedAmountHint = config.amountHint || document.getElementById('staged-amount-hint');
         stagedEdcReferenceInput = config.edcRefInput || document.getElementById('staged-edc-reference');
         stagedEdcReferenceContainer = config.edcRefContainer || document.getElementById('staged-edc-reference-container');
         stagedSubmitButton = config.submitButton || document.getElementById('staged-payment-submit');
@@ -93,7 +95,7 @@ window.PosStagedPayment = (function () {
         }
 
         if (stagedEdcReferenceInput) {
-            stagedEdcReferenceInput.addEventListener('input', function(event) {
+            stagedEdcReferenceInput.addEventListener('input', function (event) {
                 validateEdcReferenceRealtime(event);
                 updateStageValidation();
             });
@@ -316,11 +318,34 @@ window.PosStagedPayment = (function () {
         }
 
         updateEdcReferenceVisibility();
+        updateAmountHint();
         if (stagedAmountInput) {
             stagedAmountInput.focus();
             stagedAmountInput.value = '';
         }
         updateStageValidation();
+    }
+
+    // Task 2.1 & 2.3: Update amount hint based on selected method and remainder
+    function updateAmountHint() {
+        if (!stagedAmountHint) return;
+
+        if (!selectedPaymentMethod || !paymentChain) {
+            stagedAmountHint.style.display = 'none';
+            return;
+        }
+
+        const remainder = Math.max(paymentChain.remainder, 0);
+
+        if (selectedPaymentMethod.is_cash) {
+            stagedAmountHint.textContent = `Minimal: ${formatPrice(remainder)}`;
+            stagedAmountHint.className = 'form-text mt-1 font-weight-bold text-primary';
+            stagedAmountHint.style.display = 'block';
+        } else {
+            stagedAmountHint.textContent = `Maksimal: ${formatPrice(remainder)}`;
+            stagedAmountHint.className = 'form-text mt-1 font-weight-bold text-info';
+            stagedAmountHint.style.display = 'block';
+        }
     }
 
     // Task 4.2: Calculate and update remainder display
@@ -337,6 +362,8 @@ window.PosStagedPayment = (function () {
         } else if (remainder === 0) {
             stagedRemainderLabel.classList.add('text-success');
         }
+
+        updateAmountHint();
     }
 
     // Task 4.1 & 4.2: Validate current stage
@@ -516,6 +543,7 @@ window.PosStagedPayment = (function () {
         }
         if (stagedEdcReferenceInput) stagedEdcReferenceInput.value = '';
         updateEdcReferenceVisibility();
+        updateAmountHint();
         updateStageValidation();
         if (stagedMethodSearchInput) stagedMethodSearchInput.focus();
     }
