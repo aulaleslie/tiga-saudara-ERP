@@ -103,6 +103,72 @@ class POSSessionSummaryViewTest extends TestCase
         $response->assertJsonPath('receipt_number', 'RCP-123');
     }
 
+    public function test_summary_json_contains_aggregated_payment_methods(): void
+    {
+        $setting = $this->createSetting('BIZ SUMMARY VIEW E');
+        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $terminal = $this->createTerminal($setting);
+        $session = $this->createOpenSession($setting, $cashier, $terminal);
+
+        $coaId = \Illuminate\Support\Facades\DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'Test COA',
+            'account_number' => 'ACC-TEST',
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $methodCash = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'CASH',
+            'is_cash' => true,
+            'coa_id' => $coaId
+        ]);
+        $methodQRIS = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'QRIS',
+            'is_cash' => false,
+            'coa_id' => $coaId,
+            'requires_reference' => true
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $setting->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $cashier->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'receipt_number' => 'RCP-MULTI',
+            'grand_total' => 100000,
+            'finalized_at' => now(),
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'payload_hash' => hash('sha256', 'multi-payment-test'),
+            'payment_method_id' => $methodCash->id,
+        ]);
+
+        \Modules\Pos\Entities\PosCheckoutPayment::create([
+            'pos_checkout_id' => $checkout->id,
+            'payment_method_id' => $methodCash->id,
+            'amount_minor_units' => 6000000,
+            'sequence_order' => 1,
+        ]);
+
+        \Modules\Pos\Entities\PosCheckoutPayment::create([
+            'pos_checkout_id' => $checkout->id,
+            'payment_method_id' => $methodQRIS->id,
+            'amount_minor_units' => 4000000,
+            'sequence_order' => 2,
+        ]);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sessions.summary', ['session' => $session->id]));
+
+        $response->assertStatus(200);
+        $transactions = $response->json('transactions');
+        $this->assertNotEmpty($transactions);
+        $this->assertEquals('CASH, QRIS', $transactions[0]['payment_method']);
+    }
+
     public function test_unauthorized_user_cannot_access_summary(): void
     {
         $setting = $this->createSetting('BIZ SUMMARY VIEW D');

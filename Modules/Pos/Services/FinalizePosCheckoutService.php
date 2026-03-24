@@ -117,16 +117,14 @@ class FinalizePosCheckoutService
         $paidTotal = $payment['amount_paid'];
         $grandTotal = $totals['grand_total'];
 
-        // Calculate change based on whether there's cash in the payment
-        if ((bool) ($payment['is_multi_payment'] ?? false)) {
-            $totalCashMinor = (int) ($payment['total_cash_minor_units'] ?? 0);
-            $totalCash = $totalCashMinor / 100;
-            $changeTotal = round(max(0, $totalCash - $grandTotal), 2);
-        } else {
-            $changeTotal = $payment['is_cash']
-                ? round(max(0, $paidTotal - $grandTotal), 2)
-                : 0.0;
-        }
+        // Calculate change: if any cash component is present, change is the total overpayment.
+        $hasCash = (bool) ($payment['is_multi_payment'] ?? false)
+            ? (int) ($payment['total_cash_minor_units'] ?? 0) > 0
+            : (bool) ($payment['is_cash'] ?? false);
+
+        $changeTotal = $hasCash
+            ? round(max(0.0, $paidTotal - $grandTotal), 2)
+            : 0.0;
 
         $checkoutResolution = $this->resolveCheckoutLedger(
             $settingId,
@@ -608,16 +606,14 @@ class FinalizePosCheckoutService
                 $actualTaxTotal = (float) ($postingResult['actual_tax_total'] ?? $lockedCheckout->tax_total);
                 $actualGrandTotal = (float) ($postingResult['actual_grand_total'] ?? $lockedCheckout->grand_total);
 
-                // Calculate actual change: for multi-payment use cash totals, for single-payment use is_cash flag
-                if ((bool) ($payment['is_multi_payment'] ?? false)) {
-                    $totalCashMinor = (int) ($payment['total_cash_minor_units'] ?? 0);
-                    $totalCash = $totalCashMinor / 100;
-                    $actualChangeTotal = round(max(0, $totalCash - $actualGrandTotal), 2);
-                } else {
-                    $actualChangeTotal = $payment['is_cash']
-                        ? round(max(0, $paidTotal - $actualGrandTotal), 2)
-                        : 0.0;
-                }
+                // Calculate actual change: if any cash component is present, change is the total overpayment.
+                $hasCash = (bool) ($payment['is_multi_payment'] ?? false)
+                    ? (int) ($payment['total_cash_minor_units'] ?? 0) > 0
+                    : (bool) ($payment['is_cash'] ?? false);
+
+                $actualChangeTotal = $hasCash
+                    ? round(max(0.0, $paidTotal - $actualGrandTotal), 2)
+                    : 0.0;
 
                 $receiptNumber = $this->receiptNumberGenerator->generate($settingId);
 

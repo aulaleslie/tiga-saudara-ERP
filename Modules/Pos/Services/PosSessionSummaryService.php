@@ -65,7 +65,7 @@ class PosSessionSummaryService
 
         // Load transactions (last 50) from checkouts
         $checkoutQuery = \Modules\Pos\Entities\PosCheckout::query()
-            ->with(['cashier', 'paymentMethod'])
+            ->with(['cashier', 'paymentMethod', 'payments.paymentMethod'])
             ->where('pos_session_id', $sessionId)
             ->where('status', \Modules\Pos\Entities\PosCheckout::STATUS_POSTED)
             ->orderBy('finalized_at', 'desc');
@@ -74,11 +74,20 @@ class PosSessionSummaryService
             ->limit(50)
             ->get()
             ->map(function ($checkout) {
+                $paymentMethods = $checkout->payments->map(fn ($p) => $p->paymentMethod?->name)
+                    ->filter()
+                    ->unique()
+                    ->implode(', ');
+
+                if ($paymentMethods === '') {
+                    $paymentMethods = $checkout->paymentMethod?->name ?? 'Unknown';
+                }
+
                 return [
                     'id' => (int) $checkout->id,
                     'receipt_number' => (string) $checkout->receipt_number,
                     'amount' => round((float) $checkout->grand_total, 2),
-                    'payment_method' => $checkout->paymentMethod?->name ?? 'Unknown',
+                    'payment_method' => $paymentMethods,
                     'cashier' => $checkout->cashier?->name ?? 'Unknown',
                     'timestamp' => $checkout->finalized_at?->toIso8601String(),
                 ];

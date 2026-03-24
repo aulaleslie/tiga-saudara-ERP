@@ -81,7 +81,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const customerName = checkout.customer ? checkout.customer.customer_name : 'Walk-in';
         const cashierName = checkout.cashier ? checkout.cashier.name : 'Unknown';
-        const paymentMethod = checkout.payment_method ? checkout.payment_method.name : 'Unknown';
+        let paymentMethod = 'Unknown';
+        if (checkout.payments && checkout.payments.length > 0) {
+            paymentMethod = checkout.payments
+                .map(p => p.payment_method ? p.payment_method.name : 'Unknown')
+                .filter((value, index, self) => self.indexOf(value) === index)
+                .join(', ');
+        } else if (checkout.payment_method) {
+            paymentMethod = checkout.payment_method.name;
+        }
         const finalizedAt = formatDate(checkout.finalized_at);
 
         let linesHtml = '';
