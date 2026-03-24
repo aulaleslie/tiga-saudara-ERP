@@ -4,6 +4,7 @@
  */
 
 const NON_TERMINAL_LABEL = 'Non-Terminal';
+let currentFinalizeSessionId = null;  // Global session ID for finalize modal
 
 function initializeModals() {
     console.log('[POS Session] Initializing modals');
@@ -18,24 +19,60 @@ function initializeModals() {
 
         // Capture click events on finalize buttons to store the trigger button
         document.addEventListener('click', function(e) {
-            if (e.target.closest('[data-bs-target="#finalizeModal"], [data-target="#finalizeModal"]')) {
-                finalizeModalTriggerButton = e.target.closest('button');
+            const button = e.target.closest('[data-bs-target="#finalizeModal"], [data-target="#finalizeModal"]');
+            if (button) {
+                finalizeModalTriggerButton = button;
+                // Also store in modal's data attribute for direct access
+                finalizeModal.dataset.sessionId = button.dataset.sessionId;
+                finalizeModal.dataset.sessionCode = button.dataset.sessionCode;
+                console.log('[POS Session] Finalize button clicked, stored session ID', {
+                    sessionId: button.dataset.sessionId,
+                    sessionCode: button.dataset.sessionCode,
+                    storedInModal: finalizeModal.dataset.sessionId
+                });
             }
         });
 
         // Listen to both Bootstrap and CoreUI modal events for compatibility
         const onFinalizeShow = function (event) {
             console.log('[POS Session] Finalize modal showing', event.type);
-            const button = event.relatedTarget || finalizeModalTriggerButton;
-            const sessionId = button?.dataset?.sessionId;
-            const sessionCode = button?.dataset?.sessionCode || NON_TERMINAL_LABEL;
 
-            console.log('[POS Session] Finalize trigger', { sessionId, sessionCode, buttonDataset: button?.dataset });
+            // Try multiple ways to get the session ID
+            let sessionId = null;
+            let sessionCode = NON_TERMINAL_LABEL;
+
+            // Method 1: Try event.relatedTarget (Bootstrap provides the triggering button)
+            if (event.relatedTarget?.dataset?.sessionId) {
+                sessionId = event.relatedTarget.dataset.sessionId;
+                sessionCode = event.relatedTarget.dataset.sessionCode || NON_TERMINAL_LABEL;
+                console.log('[POS Session] Got sessionId from event.relatedTarget', { sessionId });
+            }
+            // Method 2: Try the stored trigger button
+            else if (finalizeModalTriggerButton?.dataset?.sessionId) {
+                sessionId = finalizeModalTriggerButton.dataset.sessionId;
+                sessionCode = finalizeModalTriggerButton.dataset.sessionCode || NON_TERMINAL_LABEL;
+                console.log('[POS Session] Got sessionId from stored finalizeModalTriggerButton', { sessionId });
+            }
+            // Method 3: Check the modal for embedded data attribute (for inline modals)
+            else if (finalizeModal.dataset.sessionId) {
+                sessionId = finalizeModal.dataset.sessionId;
+                console.log('[POS Session] Got sessionId from modal data attribute', { sessionId });
+            }
 
             if (!sessionId) {
-                console.warn('[POS Session] Missing session id on finalize trigger');
+                console.error('[POS Session] Missing session id on finalize trigger', {
+                    hasRelatedTarget: !!event.relatedTarget,
+                    relatedTargetDataset: event.relatedTarget?.dataset,
+                    hasTriggerButton: !!finalizeModalTriggerButton,
+                    triggerButtonDataset: finalizeModalTriggerButton?.dataset
+                });
+                showToast('Tidak dapat menemukan ID sesi. Silakan coba lagi.', 'error');
                 return;
             }
+
+            // Store sessionId globally for use in form submission (avoid race condition)
+            currentFinalizeSessionId = sessionId;
+            console.log('[POS Session] Stored sessionId globally', { currentFinalizeSessionId });
 
             // Fetch session data and populate modal
             fetchSessionData(sessionId, function (session) {
@@ -159,13 +196,14 @@ function fetchSessionData(sessionId, callback) {
 function populateFinalizeModal(session, fallbackSessionCode = NON_TERMINAL_LABEL) {
     document.getElementById('finalizeSessionCode').textContent = session.terminal?.code || fallbackSessionCode || NON_TERMINAL_LABEL;
     document.getElementById('finalizeCashierName').textContent = session.cashier?.name || '-';
-    document.getElementById('finalizeOpeningFloat').textContent = formatCurrency(session.opening_float_total);
 
-    // Calculate totals from checkouts
-    const totalSales = calculateTotalSales(session.checkouts);
-    const cashSales = calculateCashSales(session.checkouts);
-    const safeDrops = calculateSafeDrops(session.cashEvents);
+    // Calculate totals from transactions and cash events
+    const totalSales = calculateTotalSales(session.transactions);
+    const cashSales = calculateCashSales(session.cash_events);
+    const openingFloat = calculateOpeningFloat(session.cash_events);
+    const safeDrops = calculateSafeDrops(session.cash_events);
 
+    document.getElementById('finalizeOpeningFloat').textContent = formatCurrency(openingFloat);
     document.getElementById('finalizeTotalSales').textContent = formatCurrency(totalSales);
     document.getElementById('finalizeCashSales').textContent = formatCurrency(cashSales);
     document.getElementById('finalizeCashSalesAmount').textContent = formatCurrency(cashSales);
@@ -193,23 +231,36 @@ function populateFinalizeModal(session, fallbackSessionCode = NON_TERMINAL_LABEL
 }
 
 /**
- * Calculate total sales from checkouts
+ * Calculate total sales from transactions
  */
-function calculateTotalSales(checkouts) {
-    if (!Array.isArray(checkouts)) return 0;
-    return checkouts.reduce((total, checkout) => {
-        return total + (parseFloat(checkout.grand_total) || 0);
+function calculateTotalSales(transactions) {
+    if (!Array.isArray(transactions)) return 0;
+    return transactions.reduce((total, transaction) => {
+        return total + (parseFloat(transaction.amount) || 0);
     }, 0);
 }
 
 /**
- * Calculate cash sales (only from cash payment method checkouts)
+ * Calculate opening float from OPEN_FLOAT cash events
  */
-function calculateCashSales(checkouts) {
-    if (!Array.isArray(checkouts)) return 0;
-    return checkouts.reduce((total, checkout) => {
-        if (checkout.payment_method?.is_cash) {
-            return total + (parseFloat(checkout.grand_total) || 0);
+function calculateOpeningFloat(cashEvents) {
+    if (!Array.isArray(cashEvents)) return 0;
+    return cashEvents.reduce((total, event) => {
+        if (event.event_type === 'OPEN_FLOAT' && event.direction === 'IN') {
+            return total + (parseFloat(event.amount) || 0);
+        }
+        return total;
+    }, 0);
+}
+
+/**
+ * Calculate cash sales from CASH_SALE_IN events
+ */
+function calculateCashSales(cashEvents) {
+    if (!Array.isArray(cashEvents)) return 0;
+    return cashEvents.reduce((total, event) => {
+        if (event.event_type === 'CASH_SALE_IN' && event.direction === 'IN') {
+            return total + (parseFloat(event.amount) || 0);
         }
         return total;
     }, 0);
@@ -221,7 +272,7 @@ function calculateCashSales(checkouts) {
 function calculateSafeDrops(cashEvents) {
     if (!Array.isArray(cashEvents)) return 0;
     return cashEvents.reduce((total, event) => {
-        if (event.event_type === 'SAFE_DROP_OUT') {
+        if (event.event_type === 'SAFE_DROP_OUT' && event.direction === 'OUT') {
             return total + (parseFloat(event.amount) || 0);
         }
         return total;
@@ -229,12 +280,12 @@ function calculateSafeDrops(cashEvents) {
 }
 
 /**
- * Calculate expected cash total
+ * Calculate expected cash total from cash events
  */
 function calculateExpectedCash(session) {
-    const opening = parseFloat(session.opening_float_total) || 0;
-    const cashSales = calculateCashSales(session.checkouts);
-    const safeDrops = calculateSafeDrops(session.cashEvents);
+    const opening = calculateOpeningFloat(session.cash_events);
+    const cashSales = calculateCashSales(session.cash_events);
+    const safeDrops = calculateSafeDrops(session.cash_events);
     return opening + cashSales - safeDrops;
 }
 
@@ -338,7 +389,27 @@ function submitClose(modal) {
  */
 function submitFinalize(modal) {
     const form = document.getElementById('finalizeForm');
-    const sessionId = form.dataset.sessionId;
+
+    // Get sessionId with proper fallback handling
+    // Reject both undefined and the string 'undefined'
+    let sessionId = form.dataset.sessionId;
+    if (!sessionId || sessionId === 'undefined') {
+        sessionId = currentFinalizeSessionId;
+    }
+
+    console.log('[POS Session] Finalize submit check', {
+        formDatasetSessionId: form.dataset.sessionId,
+        currentFinalizeSessionId: currentFinalizeSessionId,
+        selectedSessionId: sessionId
+    });
+
+    // Parse to integer if it's a valid string representation of a number
+    if (sessionId && sessionId !== 'undefined') {
+        sessionId = parseInt(sessionId, 10);
+    } else {
+        sessionId = null;
+    }
+
     const actualCash = document.getElementById('actualCashReceived').value;
     const notes = document.getElementById('finalizeNotes').value;
 
@@ -346,6 +417,12 @@ function submitFinalize(modal) {
     const supervisorSection = document.getElementById('supervisorOverrideSection');
     const supervisorIdentifier = document.getElementById('supervisorIdentifier').value;
     const supervisorPassword = document.getElementById('supervisorPassword').value;
+
+    if (!sessionId || isNaN(sessionId)) {
+        console.error('[POS Session] Finalize attempt without valid session ID', { sessionId });
+        showToast('ID sesi tidak tersedia. Silakan buka modal finalisasi kembali.', 'error');
+        return;
+    }
 
     if (!actualCash) {
         console.warn('[POS Session] Finalize attempt without actual cash amount');

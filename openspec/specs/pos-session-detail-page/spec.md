@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Display comprehensive POS session details including overview, cash events, transactions, and reconciliation for verification and closure.
+
+## Requirements
 
 ### Requirement: Display session overview header
 The detail page SHALL display a header section with session metadata including terminal code and name, cashier name, session status (OPEN/CLOSED/CLOSING/FINALIZED), session duration, opened/closed timestamps, and key metrics (opening float total, expected cash total, cash threshold, is threshold breached).
