@@ -1,11 +1,8 @@
 # optional-terminal-session-open Specification
 
 ## Purpose
-
-Define the behavior for opening POS sessions without requiring terminal selection, allowing all users to open sessions with an optional terminal field.
-
+TBD - created by archiving change fix-pos-terminal-optional-session-open. Update Purpose after archive.
 ## Requirements
-
 ### Requirement: Terminal selection is optional for all users
 
 The POS session opening form SHALL allow all users with `pos.sessions.open` permission to open a session without selecting a terminal. Terminal selection SHALL always be optional, regardless of user role or permissions.
@@ -59,3 +56,4 @@ The `terminal_id` field in session opening validation SHALL be nullable for all 
 #### Scenario: Validation rejects invalid terminal ID
 - **WHEN** a user submits a session opening request with an invalid or inactive `terminal_id`
 - **THEN** the validation rule for `terminal_id` SHALL fail with appropriate error message
+

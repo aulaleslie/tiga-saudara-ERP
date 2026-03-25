@@ -1,4 +1,8 @@
-## MODIFIED Requirements
+## Purpose
+
+Update session reconciliation to deduct change from cash sales totals for accurate cash flow matching.
+
+## ADDED Requirements
 
 ### Requirement: Reconciliation cash sales total MUST deduct change from cash payments
 The session reconciliation endpoint SHALL calculate pos_cash_sales_total by aggregating cash payment amounts from pos_checkout_payments and deducting change_total from pos_checkouts, ensuring alignment with session cash event calculations (opening_float + CASH_SALE_IN - CHANGE_OUT).

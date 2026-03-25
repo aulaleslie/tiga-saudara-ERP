@@ -1,6 +1,6 @@
 # pos-session-lifecycle Delta Specification
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Session can be opened with or without terminal selection
 

@@ -1,4 +1,8 @@
-## MODIFIED Requirements
+## Purpose
+
+Update POS Reports Dashboard daily sales to accurately reflect change-adjusted cash totals.
+
+## ADDED Requirements
 
 ### Requirement: POS Reports Dashboard daily sales MUST accurately report cash totals
 The daily sales report section SHALL display summary KPIs and detailed table with cash_total reflecting actual cash received (payment amount minus change given to customer).
