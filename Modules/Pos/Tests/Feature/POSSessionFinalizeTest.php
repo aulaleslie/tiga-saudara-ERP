@@ -2,7 +2,6 @@
 
 namespace Modules\Pos\Tests\Feature;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
@@ -13,7 +12,7 @@ use Tests\TestCase;
 
 class POSSessionFinalizeTest extends TestCase
 {
-    use RefreshDatabase;
+    use \Illuminate\Foundation\Testing\DatabaseTransactions;
 
     protected function setUp(): void
     {
@@ -48,6 +47,7 @@ class POSSessionFinalizeTest extends TestCase
         $session->refresh();
         $this->assertEquals(PosSession::STATUS_FINALIZED, $session->status);
         $this->assertNotNull($session->finalized_at);
+        $this->assertNull($session->active_marker);
     }
 
     /**
@@ -62,10 +62,24 @@ class POSSessionFinalizeTest extends TestCase
         $paymentMethod = $this->createCashPaymentMethod($setting);
         PosCheckout::create([
             'pos_session_id' => $session->id,
+            'terminal_id' => $session->terminal_id,
+            'cashier_user_id' => $session->cashier_user_id,
             'setting_id' => $setting->id,
             'payment_method_id' => $paymentMethod->id,
             'grand_total' => 50000.00,
             'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => md5(uniqid()),
+        ]);
+        
+        PosSessionCashEvent::create([
+            'setting_id' => $setting->id,
+            'pos_session_id' => $session->id,
+            'event_type' => PosSessionCashEvent::EVENT_CASH_SALE_IN,
+            'direction' => PosSessionCashEvent::DIRECTION_IN,
+            'amount' => 50000.00,
+            'performed_by' => $session->cashier_user_id,
+            'occurred_at' => now(),
         ]);
 
         $calculator = app(PosSessionExpectedCashCalculator::class);
@@ -283,8 +297,8 @@ class POSSessionFinalizeTest extends TestCase
     protected function createSetting()
     {
         return \Modules\Setting\Entities\Setting::create([
-            'company_name' => 'Test Company',
-            'company_email' => 'test@example.com',
+            'company_name' => 'Test Company ' . uniqid(),
+            'company_email' => 'test' . uniqid() . '@example.com',
             'company_phone' => '0800000000',
             'company_address' => 'Address',
             'default_currency_id' => \Modules\Currency\Entities\Currency::query()->value('id') ?? 1,
@@ -400,8 +414,16 @@ class POSSessionFinalizeTest extends TestCase
 
     protected function createCashPaymentMethod($setting)
     {
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'setting_id' => $setting->id,
+            'name' => 'Kas POS ' . uniqid(),
+            'account_number' => '1001' . uniqid(),
+            'category' => 'Kas & Bank',
+        ]);
+
         $paymentMethod = \Modules\Setting\Entities\PaymentMethod::create([
             'name' => 'Tunai',
+            'coa_id' => $coa->id,
             'is_cash' => true,
         ]);
 

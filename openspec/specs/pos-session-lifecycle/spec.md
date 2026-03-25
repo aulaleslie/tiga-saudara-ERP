@@ -57,6 +57,6 @@ The POS session lifecycle SHALL support a fourth status, FINALIZED, representing
 
 - **WHEN** a session is opened (OPEN status)
 - **THEN** `active_marker` SHALL be set to 1
-- **AND** when session transitions to CLOSED, `active_marker` SHALL remain 1 (terminal still "active" for finalization)
+- **AND** when session transitions to CLOSED, `active_marker` SHALL be set to NULL (terminal is released for other cashiers)
 - **AND** when session transitions to FINALIZED, `active_marker` SHALL be set to NULL
 

@@ -53,6 +53,10 @@ class PosSessionAdminCloseService
             throw new DomainException('Admin user is not assigned to current setting.');
         }
 
+        if (! $isSuperAdmin && ! $user?->can('pos.sessions.close-admin')) {
+            throw new DomainException('User does not have permission to force-close POS sessions.');
+        }
+
         return DB::transaction(function () use ($settingId, $sessionId, $adminUserId, $reason) {
             $session = PosSession::query()
                 ->where('id', $sessionId)
@@ -71,6 +75,7 @@ class PosSessionAdminCloseService
             // Update session to CLOSED status
             $session->update([
                 'status' => PosSession::STATUS_CLOSED,
+                'active_marker' => PosSession::activeMarkerForStatus(PosSession::STATUS_CLOSED),
                 'closed_by' => $adminUserId,
                 'closed_at' => now(),
                 'metadata' => array_merge($session->metadata ?? [], [

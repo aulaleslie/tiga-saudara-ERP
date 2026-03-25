@@ -1,0 +1,128 @@
+
+  [30;43;1m WARN [39;49;22m Your XML configuration validates against a deprecated schema. Migrate your XML configuration using "--migrate-configuration"!
+
+   FAIL  Modules\Pos\Tests\Feature\POSAdminForceCloseTest
+  ⨯ admin can force close open session                                   0.30s  
+  ⨯ admin close creates cash event                                       0.16s  
+  ⨯ admin close stores metadata                                          0.15s  
+  ⨯ user without permission cannot force close                           0.16s  
+  ⨯ cannot force close non open session                                  0.15s  
+  ⨯ force close with invalid setting                                     0.15s  
+  ────────────────────────────────────────────────────────────────────────────  
+   FAILED  Modules\Pos\Tests\Feature\POSAdminForceCloseTest…   QueryException   
+  SQLSTATE[23000]: Integrity constraint violation: 19 NOT NULL constraint failed: user_setting.role_id (Connection: sqlite, SQL: insert into "user_setting" ("setting_id", "user_id") values (1, 1))
+
+  at vendor/laravel/framework/src/Illuminate/Database/Connection.php:580
+    576▕             $this->bindValues($statement, $this->prepareBindings($bindings));
+    577▕ 
+    578▕             $this->recordsHaveBeenModified();
+    579▕ 
+  ➜ 580▕             return $statement->execute();
+    581▕         });
+    582▕     }
+    583▕ 
+    584▕     /**
+
+      [2m+7 vendor frames [22m
+  8   Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:157
+  9   Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:164
+
+  ────────────────────────────────────────────────────────────────────────────  
+   FAILED  Modules\Pos\Tests\Feature\POSAdminForceCloseTest…   QueryException   
+  SQLSTATE[23000]: Integrity constraint violation: 19 NOT NULL constraint failed: user_setting.role_id (Connection: sqlite, SQL: insert into "user_setting" ("setting_id", "user_id") values (1, 1))
+
+  at vendor/laravel/framework/src/Illuminate/Database/Connection.php:580
+    576▕             $this->bindValues($statement, $this->prepareBindings($bindings));
+    577▕ 
+    578▕             $this->recordsHaveBeenModified();
+    579▕ 
+  ➜ 580▕             return $statement->execute();
+    581▕         });
+    582▕     }
+    583▕ 
+    584▕     /**
+
+      [2m+7 vendor frames [22m
+  8   Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:157
+  9   Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:164
+
+  ────────────────────────────────────────────────────────────────────────────  
+   FAILED  Modules\Pos\Tests\Feature\POSAdminForceCloseTest…   QueryException   
+  SQLSTATE[23000]: Integrity constraint violation: 19 NOT NULL constraint failed: user_setting.role_id (Connection: sqlite, SQL: insert into "user_setting" ("setting_id", "user_id") values (1, 1))
+
+  at vendor/laravel/framework/src/Illuminate/Database/Connection.php:580
+    576▕             $this->bindValues($statement, $this->prepareBindings($bindings));
+    577▕ 
+    578▕             $this->recordsHaveBeenModified();
+    579▕ 
+  ➜ 580▕             return $statement->execute();
+    581▕         });
+    582▕     }
+    583▕ 
+    584▕     /**
+
+      [2m+7 vendor frames [22m
+  8   Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:157
+  9   Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:164
+
+  ────────────────────────────────────────────────────────────────────────────  
+   FAILED  Modules\Pos\Tests\Feature\POSAdminForceCloseTest…   QueryException   
+  SQLSTATE[23000]: Integrity constraint violation: 19 NOT NULL constraint failed: user_setting.role_id (Connection: sqlite, SQL: insert into "user_setting" ("setting_id", "user_id") values (1, 1))
+
+  at vendor/laravel/framework/src/Illuminate/Database/Connection.php:580
+    576▕             $this->bindValues($statement, $this->prepareBindings($bindings));
+    577▕ 
+    578▕             $this->recordsHaveBeenModified();
+    579▕ 
+  ➜ 580▕             return $statement->execute();
+    581▕         });
+    582▕     }
+    583▕ 
+    584▕     /**
+
+      [2m+7 vendor frames [22m
+  8   Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:157
+  9   Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:90
+
+  ────────────────────────────────────────────────────────────────────────────  
+   FAILED  Modules\Pos\Tests\Feature\POSAdminForceCloseTest…   QueryException   
+  SQLSTATE[23000]: Integrity constraint violation: 19 NOT NULL constraint failed: user_setting.role_id (Connection: sqlite, SQL: insert into "user_setting" ("setting_id", "user_id") values (1, 1))
+
+  at vendor/laravel/framework/src/Illuminate/Database/Connection.php:580
+    576▕             $this->bindValues($statement, $this->prepareBindings($bindings));
+    577▕ 
+    578▕             $this->recordsHaveBeenModified();
+    579▕ 
+  ➜ 580▕             return $statement->execute();
+    581▕         });
+    582▕     }
+    583▕ 
+    584▕     /**
+
+      [2m+7 vendor frames [22m
+  8   Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:157
+  9   Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:164
+
+  ────────────────────────────────────────────────────────────────────────────  
+   FAILED  Modules\Pos\Tests\Feature\POS…  UniqueConstraintViolationException   
+  SQLSTATE[23000]: Integrity constraint violation: 19 UNIQUE constraint failed: settings.company_name (Connection: sqlite, SQL: insert into "settings" ("company_name", "company_email", "company_phone", "company_address", "default_currency_id", "default_currency_position", "notification_email", "footer_text", "updated_at", "created_at") values (TEST COMPANY, test@example.com, 0800000000, ADDRESS, 1, PREFIX, notify@example.com, FOOTER, 2026-03-25 20:25:25, 2026-03-25 20:25:25))
+
+  at vendor/laravel/framework/src/Illuminate/Database/Connection.php:580
+    576▕             $this->bindValues($statement, $this->prepareBindings($bindings));
+    577▕ 
+    578▕             $this->recordsHaveBeenModified();
+    579▕ 
+  ➜ 580▕             return $statement->execute();
+    581▕         });
+    582▕     }
+    583▕ 
+    584▕     /**
+
+      [2m+17 vendor frames [22m
+  18  Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:138
+  19  Modules/Pos/Tests/Feature/POSAdminForceCloseTest.php:124
+
+
+  Tests:    6 failed (0 assertions)
+  Duration: 1.11s
+

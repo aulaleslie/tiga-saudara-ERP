@@ -2,7 +2,6 @@
 
 namespace Modules\Pos\Tests\Feature;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Services\PosSessionAdminCloseService;
@@ -10,7 +9,7 @@ use Tests\TestCase;
 
 class POSAdminForceCloseTest extends TestCase
 {
-    use RefreshDatabase;
+    use \Illuminate\Foundation\Testing\DatabaseTransactions;
 
     protected function setUp(): void
     {
@@ -39,6 +38,7 @@ class POSAdminForceCloseTest extends TestCase
         $session->refresh();
         $this->assertEquals(PosSession::STATUS_CLOSED, $session->status);
         $this->assertEquals($admin->id, $session->closed_by);
+        $this->assertNull($session->active_marker);
     }
 
     /**
@@ -59,7 +59,7 @@ class POSAdminForceCloseTest extends TestCase
 
         $this->assertNotNull($event);
         $this->assertEquals(PosSessionCashEvent::DIRECTION_NEUTRAL, $event->direction);
-        $this->assertNull($event->amount);
+        $this->assertEquals(0, $event->amount);
         $this->assertEquals($admin->id, $event->performed_by);
     }
 
@@ -107,6 +107,7 @@ class POSAdminForceCloseTest extends TestCase
 
         // First, close the session
         $session->update(['status' => PosSession::STATUS_CLOSED]);
+        $session->refresh();
 
         $service = app(PosSessionAdminCloseService::class);
 
@@ -136,8 +137,14 @@ class POSAdminForceCloseTest extends TestCase
     protected function createSetting()
     {
         return \Modules\Setting\Entities\Setting::create([
-            'company_name' => 'Test Company',
-            'is_enabled' => true,
+            'company_name' => 'Test Company ' . uniqid(),
+            'company_email' => 'test' . uniqid() . '@example.com',
+            'company_phone' => '0800000000',
+            'company_address' => 'Address',
+            'default_currency_id' => \Modules\Currency\Entities\Currency::query()->value('id') ?? 1,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'notify@example.com',
+            'footer_text' => 'Footer',
         ]);
     }
 
@@ -148,7 +155,10 @@ class POSAdminForceCloseTest extends TestCase
             'email' => 'test' . uniqid() . '@example.com',
         ]);
 
-        $user->settings()->attach($setting->id);
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(
+            ['name' => 'user', 'guard_name' => 'web'],
+        );
+        $user->settings()->attach($setting->id, ['role_id' => $role->id]);
 
         return $user;
     }
@@ -178,7 +188,7 @@ class POSAdminForceCloseTest extends TestCase
             'setting_id' => $setting->id,
             'code' => 'TERM-' . uniqid(),
             'name' => 'Terminal ' . uniqid(),
-            'is_enabled' => true,
+            'is_active' => true,
         ]);
 
         return PosSession::create([

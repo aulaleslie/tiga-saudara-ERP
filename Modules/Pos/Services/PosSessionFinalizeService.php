@@ -162,6 +162,7 @@ class PosSessionFinalizeService
             // Update session to FINALIZED status
             $session->update([
                 'status' => PosSession::STATUS_FINALIZED,
+                'active_marker' => PosSession::activeMarkerForStatus(PosSession::STATUS_FINALIZED),
                 'finalized_at' => now(),
             ]);
 

@@ -1,0 +1,77 @@
+I clicked this
+http://localhost:8000/pos/sessions
+
+and called this
+ curl 'http://localhost:8000/pos/sessions/1/summary' \
+  -H 'Accept: application/json' \
+  -H 'Accept-Language: en-US,en;q=0.9,id;q=0.8' \
+  -H 'Connection: keep-alive' \
+  -b 'cids=1; frontend_lang=id_ID; NEXT_LOCALE=id; _ga=GA1.1.1761587617.1772477978; _ga_0ZR57NX852=GS2.1.s1774272920$o43$g1$t1774274243$j60$l0$h0; XSRF-TOKEN=eyJpdiI6IkNOYjRNeng5VTBFdm9OeXhLUEd4R0E9PSIsInZhbHVlIjoiZFZWRTJHZ1J2SlZpOXdDN21yTXp3bVh0YVFGMHZTN2tvWnczcjRvZUdaeXJUUDhEdXlZVld1Wm5xWWE0S09OVGQ5SlhOZVc1bEJGRGZET1VnYzZWT1JER2l6L1l6Q2ZiNmV2N0sxU2RjYlhta1JnQWVFRkh3eEFDd3BWYXgzSlkiLCJtYWMiOiIxMDU5NDg1ZTIyNzE4N2U5ODg4OTM2MDJjOTMxNjkxOGRkMjA5NzRmZWYxYjA2ZDIyOWFkZWZlODU0MWRkYzRlIiwidGFnIjoiIn0%3D; tiga_saudara_erp_session=eyJpdiI6IkRnZHFiZ01naEdnczhuSlV3NVdkQ0E9PSIsInZhbHVlIjoiWEZya21pQXF6UTlyZHNqMnE5aFB2S2xKNGZkcU5NYkJ0UXZ2YVlsQWZ1TURlcDZDNk02Q2gxOU1NMVc0NS83bGc5S1BWSG9xVXh2ZXU5L2IxWGpuWFFJdDIyV21XVS9ISnRPQ0pOWHhIZFJ6Szc4UUdJRjNpRGJqLzc1a3F1N0UiLCJtYWMiOiIxMmVmZTgwNzY3OGY2Yjc1OGE3ZjU3YWFjM2EzNDRiYjU5N2QyYTUzOGNiMjQwZGY0MDYxOWJiZjQzMmU3OGMzIiwidGFnIjoiIn0%3D; _dd_s=logs=1&id=bcdb22f3-1d98-4d25-8479-1ae53a6d51c3&created=1774391967136&expire=1774394500518' \
+  -H 'Referer: http://localhost:8000/pos/sessions' \
+  -H 'Sec-Fetch-Dest: empty' \
+  -H 'Sec-Fetch-Mode: cors' \
+  -H 'Sec-Fetch-Site: same-origin' \
+  -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -H 'X-Requested-With: XMLHttpRequest' \
+  -H 'sec-ch-ua: "Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"' \
+  -H 'sec-ch-ua-mobile: ?0' \
+  -H 'sec-ch-ua-platform: "Windows"'
+
+{
+    "session_id": 1,
+    "status": "CLOSED",
+    "cashier_user_id": 1,
+    "terminal_id": 1,
+    "expected_cash_total": 7000000,
+    "cached_expected_cash_total": 7000000,
+    "threshold_value": 10000000,
+    "threshold_source": "terminal_policy",
+    "is_threshold_breached": false,
+    "events_count": 2,
+    "calculated_at": "2026-03-24T23:06:41.048416Z",
+    "sales_total": 12000000,
+    "duration": "2 jam 55 menit",
+    "terminal_code": "KS-1",
+    "terminal_name": "KASIR 1",
+    "total_transactions_count": 1,
+    "total_transactions_amount": 12000000,
+    "transactions": [
+        {
+            "id": 1,
+            "receipt_number": "TNC-RCP-2026-03-00001",
+            "amount": 12000000,
+            "payment_method": "MANDIRI RAHMAT, CASH",
+            "cashier": "ADMINISTRATOR",
+            "timestamp": "2026-03-24T21:20:47+06:00"
+        }
+    ],
+    "cash_events": [
+        {
+            "id": 2,
+            "event_type": "CASH_SALE_IN",
+            "amount": 5000000,
+            "direction": "IN",
+            "timestamp": "2026-03-24T21:20:47+06:00",
+            "performer": "ADMINISTRATOR",
+            "approver": null,
+            "notes": "POS CHECKOUT FINALIZATION"
+        },
+        {
+            "id": 1,
+            "event_type": "OPEN_FLOAT",
+            "amount": 2000000,
+            "direction": "IN",
+            "timestamp": "2026-03-24T20:28:18+06:00",
+            "performer": "ADMINISTRATOR",
+            "approver": null,
+            "notes": null
+        }
+    ]
+}
+
+but I don't see the response is displayed properly
+Saldo Awal, Penjualan Kas, Pengambilan Kas, Total Penjualan, Penjualan Kas, all 0
+
+also there should be input for all accounted non cash transaction
+so we have cash input and sum of non cash input. 
+cash + non cash + pickup - opening float= total sales

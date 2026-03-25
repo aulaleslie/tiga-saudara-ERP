@@ -49,17 +49,17 @@ CRITICAL,/app/Http/Controllers/Auth/LoginController.php,88,Auth Message,"Your ac
 CRITICAL,/app/Http/Controllers/Auth/LoginController.php,96,Auth Message,"Login successful","Login berhasil",PENDING
 CRITICAL,/app/Http/Controllers/Auth/LoginController.php,103,Auth Message,"Invalid credentials","Kredensial tidak valid",PENDING
 CRITICAL,/app/Http/Controllers/Auth/LoginController.php,113,Auth Message,"Logged out successfully","Berhasil keluar",PENDING
-HIGH,/Modules/Pos/Http/Controllers/PosSellController.php,38,Auth Message,"Active POS session context is required.","Konteks sesi POS yang aktif diperlukan.",PENDING
-HIGH,/Modules/Pos/Http/Controllers/PosSellController.php,47,Auth Message,"Authentication is required.","Otentikasi diperlukan.",PENDING
-HIGH,/Modules/Pos/Http/Controllers/PosSellController.php,725,Auth Message,"Unauthorized access to receipt.","Akses ke struk tidak sah.",PENDING
-HIGH,/Modules/Pos/Http/Controllers/PosSessionController.php,87,Auth Message,"Authentication is required.","Otentikasi diperlukan.",PENDING
-HIGH,/Modules/Pos/Http/Controllers/PosSessionController.php,266,Auth Message,"Authentication is required.","Otentikasi diperlukan.",PENDING
-HIGH,/Modules/Pos/Http/Controllers/PosSessionController.php,276,Auth Message,"POS session not found for current setting.","Sesi POS tidak ditemukan untuk pengaturan saat ini.",PENDING
-HIGH,/Modules/Pos/Http/Requests/StorePosSessionCloseRequest.php,27,Validation Message,"Validation failed","Validasi gagal",PENDING
-HIGH,/app/Livewire/Barcode/ProductTable.php,43,Flash Message,"Max quantity is 100 per barcode generation!","Kuantitas maksimal adalah 100 per pembuatan barcode!",PENDING
-HIGH,/app/Livewire/Barcode/ProductTable.php,47,Flash Message,"Can not generate Barcode with this type of Product Code","Tidak dapat membuat Barcode dengan jenis Kode Produk ini",PENDING
-HIGH,/app/Livewire/Transfer/TransferProductTable.php,61,Flash Message,"Already exists in the product list!","Sudah ada dalam daftar produk!",PENDING
-HIGH,/app/Livewire/Adjustment/ProductTable.php,55,Flash Message,"Already exists in the product list!","Sudah ada dalam daftar produk!",PENDING
+HIGH,/Modules/Pos/Http/Controllers/PosSellController.php,38,Auth Message,"Active POS session context is required.","Konteks sesi POS yang aktif diperlukan.",COMPLETED
+HIGH,/Modules/Pos/Http/Controllers/PosSellController.php,47,Auth Message,"Authentication is required.","Otentikasi diperlukan.",COMPLETED
+HIGH,/Modules/Pos/Http/Controllers/PosSellController.php,725,Auth Message,"Unauthorized access to receipt.","Akses ke struk tidak sah.",COMPLETED
+HIGH,/Modules/Pos/Http/Controllers/PosSessionController.php,87,Auth Message,"Authentication is required.","Otentikasi diperlukan.",COMPLETED
+HIGH,/Modules/Pos/Http/Controllers/PosSessionController.php,266,Auth Message,"Authentication is required.","Otentikasi diperlukan.",COMPLETED
+HIGH,/Modules/Pos/Http/Controllers/PosSessionController.php,276,Auth Message,"POS session not found for current setting.","Sesi POS tidak ditemukan untuk pengaturan saat ini.",COMPLETED
+HIGH,/Modules/Pos/Http/Requests/StorePosSessionCloseRequest.php,27,Validation Message,"Validation failed","Validasi gagal",COMPLETED
+HIGH,/app/Livewire/Barcode/ProductTable.php,43,Flash Message,"Max quantity is 100 per barcode generation!","Kuantitas maksimal adalah 100 per pembuatan barcode!",COMPLETED
+HIGH,/app/Livewire/Barcode/ProductTable.php,47,Flash Message,"Can not generate Barcode with this type of Product Code","Tidak dapat membuat Barcode dengan jenis Kode Produk ini",COMPLETED
+HIGH,/app/Livewire/Transfer/TransferProductTable.php,61,Flash Message,"Already exists in the product list!","Sudah ada dalam daftar produk!",COMPLETED
+HIGH,/app/Livewire/Adjustment/ProductTable.php,55,Flash Message,"Already exists in the product list!","Sudah ada dalam daftar produk!",COMPLETED
 MEDIUM,/app/Http/Controllers/GlobalPurchaseAndSalesSearchController.php,135,Error Message,"Search failed: ","Pencarian gagal: ",PENDING
 MEDIUM,/Modules/Sale/Http/Controllers/GlobalSalesSearchController.php,94,Error Message,"Search failed. Please try again.","Pencarian gagal. Silakan coba lagi.",PENDING
 MEDIUM,/Modules/Sale/Http/Controllers/GlobalSalesSearchController.php,337,Error Message,"Search failed. Please try again.","Pencarian gagal. Silakan coba lagi.",PENDING
