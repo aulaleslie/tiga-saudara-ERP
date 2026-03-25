@@ -193,9 +193,9 @@ class POSOpeningFloatCaptureTest extends TestCase
             ->assertSee('Buka Sesi POS');
     }
 
-    public function test_user_with_terminal_required_permission_must_submit_terminal(): void
+    public function test_all_users_can_open_without_terminal_and_float_is_optional(): void
     {
-        $setting = $this->createSetting('BIZ TERMINAL REQUIRED');
+        $setting = $this->createSetting('BIZ TERMINAL OPTIONAL');
         $user = $this->createUserForSetting($setting, [
             'pos.access',
             'pos.sell',
@@ -205,28 +205,11 @@ class POSOpeningFloatCaptureTest extends TestCase
         $this->createTerminalForSetting($setting, allowTotalOnly: true);
         $this->enablePaymentMethodForSetting($setting);
 
-        $response = $this->actingAs($user)
-            ->withSession(['setting_id' => $setting->id])
-            ->from(route('pos.sessions.create'))
-            ->post(route('pos.sessions.store'), [
-                'opening_float_total' => '100000',
-            ]);
-
-        $response->assertRedirect(route('pos.sessions.create'));
-        $response->assertSessionHasErrors(['terminal_id']);
-    }
-
-    public function test_user_without_terminal_required_permission_can_open_without_terminal_and_float_is_zero(): void
-    {
-        $setting = $this->createSetting('BIZ TERMINAL OPTIONAL');
-        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
-        $this->createTerminalForSetting($setting, allowTotalOnly: true);
-        $this->enablePaymentMethodForSetting($setting);
-
+        // Terminal is now optional for all users, including those with pos.sessions.require-terminal
         $response = $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
             ->post(route('pos.sessions.store'), [
-                'notes' => 'Helper non-terminal open',
+                'notes' => 'Non-terminal open session',
             ]);
 
         $response->assertRedirect(route('pos.sell'));
@@ -236,6 +219,31 @@ class POSOpeningFloatCaptureTest extends TestCase
             'terminal_id' => null,
             'opening_float_total' => 0,
             'expected_cash_total' => 0,
+        ]);
+    }
+
+    public function test_user_can_open_with_terminal_and_opening_float(): void
+    {
+        $setting = $this->createSetting('BIZ WITH TERMINAL');
+        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: true);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_float_total' => '100000',
+                'notes' => 'Terminal session with float',
+            ]);
+
+        $response->assertRedirect(route('pos.sell'));
+        $this->assertDatabaseHas('pos_sessions', [
+            'setting_id' => $setting->id,
+            'cashier_user_id' => $user->id,
+            'terminal_id' => $terminal->id,
+            'opening_float_total' => 100000,
+            'expected_cash_total' => 100000,
         ]);
     }
 

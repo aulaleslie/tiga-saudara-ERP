@@ -35,17 +35,24 @@ class PosReconciliationService
                 'pos_checkouts.pos_session_id',
                 DB::raw('SUM(pos_checkouts.grand_total) as pos_checkout_total'),
                 // Task 5.5: Aggregate cash/non-cash from payment entries
+                // Deduct change_total from cash_total to show actual cash received
                 DB::raw(<<<'SQL'
                     SUM(COALESCE((
-                        SELECT SUM(pcp.amount_paid)
+                        SELECT SUM(pcp.amount_minor_units / 100)
                         FROM pos_checkout_payments AS pcp
                         INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
                         WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 1
+                    ), 0)) -
+                    SUM(COALESCE((
+                        SELECT pc.change_total
+                        FROM pos_checkouts pc
+                        WHERE pc.id = pos_checkouts.id
+                        LIMIT 1
                     ), 0)) as pos_cash_sales_total
                 SQL),
                 DB::raw(<<<'SQL'
                     SUM(COALESCE((
-                        SELECT SUM(pcp.amount_paid)
+                        SELECT SUM(pcp.amount_minor_units / 100)
                         FROM pos_checkout_payments AS pcp
                         INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
                         WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 0

@@ -16,13 +16,12 @@ class StorePosSessionOpenRequest extends FormRequest
     public function rules(): array
     {
         $settingId = (int) session('setting_id');
-        $requiresTerminalSelection = (bool) $this->user()?->can('pos.sessions.require-terminal');
         $terminalId = $this->input('terminal_id');
         $hasTerminal = !empty($terminalId);
 
         return [
             'terminal_id' => [
-                $requiresTerminalSelection ? 'required' : 'nullable',
+                'nullable',
                 'integer',
                 Rule::exists('pos_terminals', 'id')
                     ->where(static fn ($query) => $query

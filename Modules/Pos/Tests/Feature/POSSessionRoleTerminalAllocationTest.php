@@ -42,6 +42,7 @@ class POSSessionRoleTerminalAllocationTest extends TestCase
             'pos.sessions.open',
             'pos.sessions.require-terminal',
             'pos.checkout.payment',
+            'pos.supervisor.approval',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -70,7 +71,7 @@ class POSSessionRoleTerminalAllocationTest extends TestCase
         $this->assertSame(0.0, (float) $session->opening_float_total);
     }
 
-    public function test_user_with_terminal_required_permission_must_select_terminal(): void
+    public function test_user_with_terminal_required_permission_can_still_open_session_without_terminal(): void
     {
         $setting = $this->createSetting('PERM TERMINAL REQUIRED');
         $user = $this->createUserForSetting($setting, 'Random Label', [
@@ -86,17 +87,79 @@ class POSSessionRoleTerminalAllocationTest extends TestCase
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
 
-        $this->expectException(DomainException::class);
-        $this->expectExceptionMessage('Pilih terminal sebelum membuka sesi POS.');
-
-        $service->openSession(
+        // Terminal selection is now optional for all users, including those with pos.sessions.require-terminal
+        $session = $service->openSession(
             $setting->id,
             null,
             $user->id,
-            100000,
-            ['100000' => 1],
+            0,
+            null,
             $user->id
         );
+
+        $this->assertSame('OPEN', $session->status);
+        $this->assertNull($session->terminal_id);
+        $this->assertSame(0.0, (float) $session->opening_float_total);
+    }
+
+    public function test_all_permission_levels_can_open_session_without_terminal(): void
+    {
+        $setting = $this->createSetting('ALL ROLES CAN OPEN WITHOUT TERMINAL');
+
+        $helper = $this->createUserForSetting($setting, 'Helper Role', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $cashier = $this->createUserForSetting($setting, 'Cashier Role', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.require-terminal',
+            'pos.checkout.payment',
+        ]);
+        $manager = $this->createUserForSetting($setting, 'Manager Role', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.supervisor.approval',
+        ]);
+
+        $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+
+        /** @var PosSessionLifecycleService $service */
+        $service = app(PosSessionLifecycleService::class);
+
+        // All users should be able to open without terminal
+        $helperSession = $service->openSession($setting->id, null, $helper->id, 0, null, $helper->id);
+        $this->assertNull($helperSession->terminal_id);
+
+        $cashierSession = $service->openSession($setting->id, null, $cashier->id, 0, null, $cashier->id);
+        $this->assertNull($cashierSession->terminal_id);
+
+        $managerSession = $service->openSession($setting->id, null, $manager->id, 0, null, $manager->id);
+        $this->assertNull($managerSession->terminal_id);
+    }
+
+    public function test_opening_float_is_optional_when_no_terminal_selected(): void
+    {
+        $setting = $this->createSetting('FLOAT OPTIONAL WITHOUT TERMINAL');
+        $user = $this->createUserForSetting($setting, 'Float Test Role', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+
+        /** @var PosSessionLifecycleService $service */
+        $service = app(PosSessionLifecycleService::class);
+
+        // Opening without terminal and with 0 float should succeed
+        $session = $service->openSession(
+            $setting->id,
+            null,
+            $user->id,
+            0.0,  // Opening_float_total defaults to 0
+            null,  // No opening_denominations
+            $user->id
+        );
+
+        $this->assertNull($session->terminal_id);
+        $this->assertSame(0.0, (float) $session->opening_float_total);
     }
 
     public function test_non_terminal_session_reuse_and_conflict_messages_remain_consistent_after_permission_refactor(): void

@@ -50,11 +50,6 @@ class PosSessionLifecycleService
                 ? (int) $terminalId
                 : null;
 
-            $requiresTerminalSelection = $this->rolePolicyService->requiresTerminalSelection($cashier);
-            if ($requiresTerminalSelection && $normalizedTerminalId === null) {
-                throw new DomainException('Pilih terminal sebelum membuka sesi POS.');
-            }
-
             $hasConfiguredSaleLocations = SettingSaleLocation::query()
                 ->where('setting_id', $settingId)
                 ->where('is_enabled', true)

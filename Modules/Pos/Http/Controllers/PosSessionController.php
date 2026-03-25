@@ -117,10 +117,9 @@ class PosSessionController extends Controller
             ->get();
 
         $rolePolicy = app(PosRolePolicyService::class);
-        $requiresTerminalSelection = $rolePolicy->requiresTerminalSelection($user);
         $roleCapabilities = $rolePolicy->capabilityFlags($user);
 
-        return view('pos::session.open', compact('terminals', 'requiresTerminalSelection', 'roleCapabilities'));
+        return view('pos::session.open', compact('terminals', 'roleCapabilities'));
     }
 
     public function store(StorePosSessionOpenRequest $request, PosSessionLifecycleService $sessionLifecycleService): RedirectResponse

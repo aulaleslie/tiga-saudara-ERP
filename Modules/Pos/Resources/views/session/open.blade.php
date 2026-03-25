@@ -10,7 +10,6 @@
             <div class="card-header">Buka Sesi POS</div>
             <div class="card-body">
                 @php
-                    $requiresTerminalSelection = (bool) ($requiresTerminalSelection ?? false);
                     $backRoute = auth()->user() && auth()->user()->can('pos.sell')
                         ? route('pos.sell')
                         : route('pos.sessions.index');
@@ -19,52 +18,45 @@
                 <form method="POST" action="{{ route('pos.sessions.store') }}">
                     @csrf
 
-                    @if($requiresTerminalSelection)
-                        <div id="saldo-form-container">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label for="terminal_search" class="form-label">
-                                            Terminal
-                                            <span class="text-danger">*</span>
-                                        </label>
-                                        <livewire:modules.pos.pos-terminal-search-dropdown
-                                            name="terminal_id"
-                                            placeholder="Pilih terminal..."
-                                            :selected="old('terminal_id')"
-                                            :error="$errors->first('terminal_id')"
-                                            wire:key="pos-terminal-dropdown"
-                                        />
-                                        <small class="text-muted">
-                                            Pengguna Anda wajib memilih terminal sebelum membuka sesi.
-                                        </small>
-                                    </div>
+                    <div id="saldo-form-container">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="terminal_search" class="form-label">
+                                        Terminal
+                                    </label>
+                                    <livewire:modules.pos.pos-terminal-search-dropdown
+                                        name="terminal_id"
+                                        placeholder="Pilih terminal..."
+                                        :selected="old('terminal_id')"
+                                        :error="$errors->first('terminal_id')"
+                                        wire:key="pos-terminal-dropdown"
+                                    />
+                                    <small class="text-muted">
+                                        Opsional. Anda dapat membuka sesi tanpa memilih terminal.
+                                    </small>
                                 </div>
-                                <div class="col-md-6">
-                                    <div class="mb-3" x-show="terminalSelected" style="display: none;">
-                                        <label for="opening_float_total_display" class="form-label">
-                                            Total Saldo Awal
-                                            <span class="text-danger">*</span>
-                                        </label>
-                                        <input type="text" id="opening_float_total_display"
-                                               class="form-control @error('opening_float_total') is-invalid @enderror"
-                                               value="{{ old('opening_float_total') ? number_format(old('opening_float_total'), 0, ',', '.') : '' }}"
-                                               placeholder="0"
-                                               :required="saldoRequired">
-                                        <small class="text-muted">
-                                            Wajib diisi saat membuka sesi dengan terminal.
-                                        </small>
-                                        <input type="hidden" name="opening_float_total" id="opening_float_total" value="{{ old('opening_float_total') }}">
-                                        @error('opening_float_total')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
-                                    </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3" x-show="terminalSelected" style="display: none;">
+                                    <label for="opening_float_total_display" class="form-label">
+                                        Total Saldo Awal
+                                        <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" id="opening_float_total_display"
+                                           class="form-control @error('opening_float_total') is-invalid @enderror"
+                                           value="{{ old('opening_float_total') ? number_format(old('opening_float_total'), 0, ',', '.') : '' }}"
+                                           placeholder="0"
+                                           :required="saldoRequired">
+                                    <small class="text-muted">
+                                        Wajib diisi saat membuka sesi dengan terminal.
+                                    </small>
+                                    <input type="hidden" name="opening_float_total" id="opening_float_total" value="{{ old('opening_float_total') }}">
+                                    @error('opening_float_total')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
                                 </div>
                             </div>
                         </div>
-                    @else
-                        <div class="alert alert-info mb-3">
-                            Sesi Anda tidak mewajibkan terminal. Sesi akan dibuka sebagai sesi non-terminal dengan saldo awal Rp0.
-                        </div>
-                    @endif
+                    </div>
 
                     <div class="mb-3">
                         <label for="notes" class="form-label">Catatan</label>

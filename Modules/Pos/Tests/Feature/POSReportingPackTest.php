@@ -8,9 +8,11 @@ use Illuminate\Support\Carbon;
 use Modules\Currency\Entities\Currency;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosSession;
+use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Pos\Entities\PosSupervisorApproval;
+use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
@@ -214,17 +216,17 @@ class POSReportingPackTest extends TestCase
         $response->assertOk()
             ->assertJsonCount(3)
             ->assertJsonFragment([
-                'payment_method_code' => 'cash',
+                'payment_method_label' => 'CASH',
                 'transactions_count' => 2,
                 'grand_total' => 150000,
             ])
             ->assertJsonFragment([
-                'payment_method_code' => 'transfer',
+                'payment_method_label' => 'TRANSFER',
                 'transactions_count' => 1,
                 'grand_total' => 200000,
             ])
             ->assertJsonFragment([
-                'payment_method_code' => 'qris',
+                'payment_method_label' => 'QRIS',
                 'transactions_count' => 1,
                 'grand_total' => 150000,
             ]);
@@ -317,6 +319,210 @@ class POSReportingPackTest extends TestCase
                 'quantity_sold' => 1,
                 'gross_revenue' => 100000,
             ]);
+    }
+
+    public function test_daily_sales_with_single_payment_overpayment(): void
+    {
+        $setting = $this->createSetting('BIZ CHANGE');
+        $user = $this->createUserForSetting($setting, 'POS_MANAGER', ['pos.access', 'pos.reports.access']);
+
+        $today = now()->format('Y-m-d');
+
+        // Checkout with 50,000 cash for 45,000 transaction = 5,000 change
+        $this->createCheckout($setting->id, $user->id, $today . ' 10:00:00', 45000, 'cash', null, 5000);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.reports.daily-sales', [
+                'date_from' => $today,
+                'date_to' => $today
+            ]));
+
+        $response->assertOk()
+            ->assertJsonFragment([
+                'date' => $today,
+                'transactions_count' => 1,
+                'grand_total' => 45000,
+                'cash_total' => 40000, // 45,000 paid (grand_total) - 5,000 change = 40,000 actual cash received
+                'non_cash_total' => 0,
+            ]);
+    }
+
+    public function test_daily_sales_with_multi_payment_overpayment(): void
+    {
+        $setting = $this->createSetting('BIZ MULTI');
+        $user = $this->createUserForSetting($setting, 'POS_MANAGER', ['pos.access', 'pos.reports.access']);
+
+        $today = now()->format('Y-m-d');
+
+        // Create terminal and session for multi-payment checkout
+        $terminal = PosTerminal::firstOrCreate(['setting_id' => $setting->id], [
+            'code' => 'T1', 'name' => 'T1', 'is_active' => true
+        ]);
+        $session = PosSession::firstOrCreate(['setting_id' => $setting->id, 'cashier_user_id' => $user->id], [
+            'terminal_id' => $terminal->id, 'opening_float_total' => 0, 'status' => 'CLOSED',
+            'opened_at' => now(), 'closed_at' => now()
+        ]);
+
+        // Get payment methods
+        $accountId = bin2hex(random_bytes(4));
+        $accountNumber = '1100-' . $setting->id . '-' . $accountId;
+        $coa = ChartOfAccount::firstOrCreate(
+            ['setting_id' => $setting->id, 'account_number' => $accountNumber],
+            [
+                'name' => 'Cash Account ' . $accountId,
+                'account_number' => $accountNumber,
+                'category' => 'Kas & Bank',
+                'setting_id' => $setting->id,
+            ]
+        );
+
+        $cashMethod = PaymentMethod::firstOrCreate(
+            ['name' => 'CASH_MULTI'],
+            ['name' => 'CASH_MULTI', 'is_cash' => true, 'coa_id' => $coa->id]
+        );
+        $qrisMethod = PaymentMethod::firstOrCreate(
+            ['name' => 'QRIS_MULTI'],
+            ['name' => 'QRIS_MULTI', 'is_cash' => false, 'coa_id' => $coa->id]
+        );
+
+        // Multi-payment: 50,000 cash + 30,000 QRIS = 80,000 paid for 75,000 transaction = 5,000 change
+        $checkout = PosCheckout::create([
+            'setting_id' => $setting->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $user->id,
+            'status' => 'POSTED',
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash',
+            'subtotal' => 75000,
+            'discount_total' => 0,
+            'tax_total' => 0,
+            'grand_total' => 75000,
+            'paid_total' => 80000,
+            'change_total' => 5000,
+            'finalized_at' => Carbon::parse($today . ' 10:00:00'),
+        ]);
+
+        // Create payment entries
+        $checkout->payments()->create([
+            'payment_method_id' => $cashMethod->id,
+            'amount_minor_units' => 5000000, // 50,000
+            'sequence_order' => 1,
+        ]);
+        $checkout->payments()->create([
+            'payment_method_id' => $qrisMethod->id,
+            'amount_minor_units' => 3000000, // 30,000
+            'sequence_order' => 2,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.reports.daily-sales', [
+                'date_from' => $today,
+                'date_to' => $today
+            ]));
+
+        $response->assertOk()
+            ->assertJsonFragment([
+                'date' => $today,
+                'transactions_count' => 1,
+                'grand_total' => 75000,
+                'cash_total' => 45000, // 50,000 cash - 5,000 change = 45,000
+                'non_cash_total' => 30000,
+            ]);
+    }
+
+    public function test_cashier_summary_with_change_adjusted_totals(): void
+    {
+        $setting = $this->createSetting('BIZ CASHIER CHANGE');
+        $cashier1 = $this->createUserForSetting($setting, 'CASHIER_1', ['pos.access', 'pos.sell']);
+        $manager = $this->createUserForSetting($setting, 'POS_MANAGER', ['pos.access', 'pos.reports.access']);
+
+        $today = now()->format('Y-m-d');
+
+        // Cashier 1: Two checkouts with change
+        $this->createCheckout($setting->id, $cashier1->id, $today . ' 10:00:00', 95000, 'cash', null, 5000);  // 95K transaction - 5K change = 90K actual cash
+        $this->createCheckout($setting->id, $cashier1->id, $today . ' 11:00:00', 90000, 'cash', null, 10000); // 90K transaction - 10K change = 80K actual cash
+
+        $response = $this->actingAs($manager)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.reports.cashier-summary', [
+                'date_from' => $today,
+                'date_to' => $today
+            ]));
+
+        $response->assertOk()
+            ->assertJsonFragment([
+                'cashier_name' => $cashier1->name,
+                'transactions_count' => 2,
+                'grand_total' => 185000, // 95K + 90K (original transaction amounts)
+                'cash_total' => 170000, // (95K - 5K) + (90K - 10K) = 90K + 80K = 170K actual cash
+                'average_basket' => 92500,
+            ]);
+    }
+
+    public function test_reports_with_zero_change(): void
+    {
+        $setting = $this->createSetting('BIZ EXACT');
+        $user = $this->createUserForSetting($setting, 'POS_MANAGER', ['pos.access', 'pos.reports.access']);
+
+        $today = now()->format('Y-m-d');
+
+        // Exact payment with no change
+        $this->createCheckout($setting->id, $user->id, $today . ' 10:00:00', 100000, 'cash', null, 0);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.reports.daily-sales', [
+                'date_from' => $today,
+                'date_to' => $today
+            ]));
+
+        $response->assertOk()
+            ->assertJsonFragment([
+                'date' => $today,
+                'cash_total' => 100000, // 100,000 - 0 change = 100,000
+            ]);
+    }
+
+    public function test_session_reconciliation_alignment_with_cash_events(): void
+    {
+        $setting = $this->createSetting('BIZ RECON');
+        $cashier = $this->createUserForSetting($setting, 'CASHIER', ['pos.access', 'pos.sell']);
+        $manager = $this->createUserForSetting($setting, 'POS_MANAGER', ['pos.access', 'pos.reports.access']);
+
+        $today = now()->format('Y-m-d');
+
+        // Create terminal and session
+        $terminal = PosTerminal::firstOrCreate(['setting_id' => $setting->id], [
+            'code' => 'T1', 'name' => 'T1', 'is_active' => true
+        ]);
+        $session = PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $cashier->id,
+            'opening_float_total' => 0,
+            'status' => PosSession::STATUS_CLOSED,
+            'opened_at' => Carbon::parse($today . ' 08:00:00'),
+            'closed_at' => Carbon::parse($today . ' 17:00:00'),
+        ]);
+
+        // Create a checkout with change
+        $checkout = $this->createCheckout($setting->id, $cashier->id, $today . ' 10:00:00', 90000, 'cash', null, 10000);
+        $checkout->pos_session_id = $session->id;
+        $checkout->save();
+
+        // Verify reconciliation query returns correct pos_cash_sales_total
+        // Expected: 90,000 (grand_total) - 10,000 (change) = 80,000 actual cash
+        $service = app('Modules\Pos\Services\PosReconciliationService');
+        $reconciliationData = $service->getSessionReconciliation($setting->id, $today, $today);
+
+        $sessionReconciliation = collect($reconciliationData)->firstWhere('session_id', $session->id);
+
+        $this->assertNotNull($sessionReconciliation, 'Session reconciliation data not found');
+        // pos_cash_sales_total should be transaction amount minus change
+        $this->assertEquals(80000, $sessionReconciliation['pos_cash_sales_total']);
     }
 
     public function test_supervisor_approvals_returns_filtered_log(): void
@@ -421,13 +627,13 @@ class POSReportingPackTest extends TestCase
 
     // --- Helpers ---
 
-    private function createCheckout(int $settingId, int $cashierId, string $date, float $amount, string $paymentMethod, ?int $saleId = null): PosCheckout
+    private function createCheckout(int $settingId, int $cashierId, string $date, float $amount, string $paymentMethod, ?int $saleId = null, float $changeTotal = 0): PosCheckout
     {
         $terminal = PosTerminal::firstOrCreate(['setting_id' => $settingId], [
             'code' => 'T1', 'name' => 'T1', 'is_active' => true
         ]);
         $session = PosSession::firstOrCreate(['setting_id' => $settingId, 'cashier_user_id' => $cashierId], [
-            'terminal_id' => $terminal->id, 'opening_float_total' => 0, 'status' => 'CLOSED', 
+            'terminal_id' => $terminal->id, 'opening_float_total' => 0, 'status' => 'CLOSED',
             'opened_at' => now(), 'closed_at' => now()
         ]);
 
@@ -439,15 +645,29 @@ class POSReportingPackTest extends TestCase
             default => strtoupper($paymentMethod),
         };
 
+        // Create or get COA for this setting
+        $accountId = bin2hex(random_bytes(4));
+        $accountNumber = '1100-' . $settingId . '-' . $accountId;
+        $coa = ChartOfAccount::firstOrCreate(
+            ['setting_id' => $settingId, 'account_number' => $accountNumber],
+            [
+                'name' => 'Cash Account ' . $accountId,
+                'account_number' => $accountNumber,
+                'category' => 'Kas & Bank',
+                'setting_id' => $settingId,
+            ]
+        );
+
         $paymentMethodRecord = PaymentMethod::firstOrCreate(
             ['name' => $methodName],
             [
                 'name' => $methodName,
                 'is_cash' => strtolower($paymentMethod) === 'cash',
+                'coa_id' => $coa->id,
             ]
         );
 
-        return PosCheckout::create([
+        $checkout = PosCheckout::create([
             'setting_id' => $settingId,
             'pos_session_id' => $session->id,
             'terminal_id' => $terminal->id,
@@ -459,12 +679,21 @@ class POSReportingPackTest extends TestCase
             'discount_total' => 0,
             'tax_total' => 0,
             'grand_total' => $amount,
-            'paid_total' => $amount,
-            'change_total' => 0,
+            'paid_total' => $amount + $changeTotal,
+            'change_total' => $changeTotal,
             'payment_method_id' => $paymentMethodRecord->id,
             'sale_id' => $saleId,
             'finalized_at' => Carbon::parse($date),
         ]);
+
+        // Create payment entry for single payment
+        $checkout->payments()->create([
+            'payment_method_id' => $paymentMethodRecord->id,
+            'amount_minor_units' => (int)($amount * 100),
+            'sequence_order' => 1,
+        ]);
+
+        return $checkout;
     }
 
     private function createSetting(string $name): Setting

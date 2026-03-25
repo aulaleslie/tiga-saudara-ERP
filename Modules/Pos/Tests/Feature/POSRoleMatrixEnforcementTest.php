@@ -135,7 +135,7 @@ class POSRoleMatrixEnforcementTest extends TestCase
         ]);
     }
 
-    public function test_cashier_bundle_requires_terminal_and_can_stage_then_finalize_payment(): void
+    public function test_cashier_bundle_can_open_session_with_terminal_and_stage_then_finalize_payment(): void
     {
         $setting = $this->createSetting('CASHIER BUNDLE');
         $cashier = $this->createUserForSetting($setting, 'NoCashierWordHere', [
@@ -154,13 +154,7 @@ class POSRoleMatrixEnforcementTest extends TestCase
         /** @var PosSessionLifecycleService $sessionLifecycle */
         $sessionLifecycle = app(PosSessionLifecycleService::class);
 
-        try {
-            $sessionLifecycle->openSession($setting->id, null, $cashier->id, 0, null, $cashier->id);
-            $this->fail('Expected terminal-required cashier to be blocked without terminal selection.');
-        } catch (DomainException $exception) {
-            $this->assertStringContainsString('Pilih terminal sebelum membuka sesi POS.', $exception->getMessage());
-        }
-
+        // Terminal is now optional for all users
         $session = $sessionLifecycle->openSession(
             $setting->id,
             $terminal->id,

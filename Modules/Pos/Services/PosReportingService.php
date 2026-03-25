@@ -23,17 +23,24 @@ class PosReportingService
                 DB::raw('SUM(tax_total) as tax_total'),
                 DB::raw('SUM(grand_total) as grand_total'),
                 // Task 5.4: Use payment entries for cash/non-cash calculation
+                // Deduct change_total from cash_total to show actual cash received
                 DB::raw(<<<'SQL'
                     SUM(COALESCE((
-                        SELECT SUM(pcp.amount_paid)
+                        SELECT SUM(pcp.amount_minor_units / 100)
                         FROM pos_checkout_payments AS pcp
                         INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
                         WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 1
+                    ), 0)) -
+                    SUM(COALESCE((
+                        SELECT pc.change_total
+                        FROM pos_checkouts pc
+                        WHERE pc.id = pos_checkouts.id
+                        LIMIT 1
                     ), 0)) as cash_total
                 SQL),
                 DB::raw(<<<'SQL'
                     SUM(COALESCE((
-                        SELECT SUM(pcp.amount_paid)
+                        SELECT SUM(pcp.amount_minor_units / 100)
                         FROM pos_checkout_payments AS pcp
                         INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
                         WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 0
@@ -75,17 +82,24 @@ class PosReportingService
                 DB::raw('COUNT(pos_checkouts.id) as transactions_count'),
                 DB::raw('SUM(pos_checkouts.grand_total) as grand_total'),
                 // Task 5.4: Aggregate cash/non-cash from payment entries
+                // Deduct change_total from cash_total to show actual cash received
                 DB::raw(<<<'SQL'
                     SUM(COALESCE((
-                        SELECT SUM(pcp.amount_paid)
+                        SELECT SUM(pcp.amount_minor_units / 100)
                         FROM pos_checkout_payments AS pcp
                         INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
                         WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 1
+                    ), 0)) -
+                    SUM(COALESCE((
+                        SELECT pc.change_total
+                        FROM pos_checkouts pc
+                        WHERE pc.id = pos_checkouts.id
+                        LIMIT 1
                     ), 0)) as cash_total
                 SQL),
                 DB::raw(<<<'SQL'
                     SUM(COALESCE((
-                        SELECT SUM(pcp.amount_paid)
+                        SELECT SUM(pcp.amount_minor_units / 100)
                         FROM pos_checkout_payments AS pcp
                         INNER JOIN payment_methods AS pm ON pcp.payment_method_id = pm.id
                         WHERE pcp.pos_checkout_id = pos_checkouts.id AND pm.is_cash = 0
@@ -128,7 +142,7 @@ class PosReportingService
             ->select([
                 DB::raw("payment_methods.name as payment_method_label"),
                 DB::raw('COUNT(DISTINCT pos_checkouts.id) as transactions_count'),
-                DB::raw('SUM(pos_checkout_payments.amount_paid) as grand_total'),
+                DB::raw('SUM(pos_checkout_payments.amount_minor_units / 100) as grand_total'),
             ])
             ->where('pos_checkouts.setting_id', $settingId)
             ->where('pos_checkouts.status', PosCheckout::STATUS_POSTED)

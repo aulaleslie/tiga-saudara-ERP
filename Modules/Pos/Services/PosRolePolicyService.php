@@ -35,11 +35,6 @@ class PosRolePolicyService
         return self::PROFILE_GENERIC;
     }
 
-    public function requiresTerminalSelection(User $user): bool
-    {
-        return $user->can('pos.sessions.require-terminal');
-    }
-
     public function canCheckout(User $user): bool
     {
         return $user->can('pos.checkout.payment');
@@ -54,7 +49,6 @@ class PosRolePolicyService
 
         return [
             'role' => $this->detectRole($user),
-            'requires_terminal_selection' => $this->requiresTerminalSelection($user),
             'can_checkout' => $canCheckout,
             'can_use_payment_flow' => $canCheckout,
             'can_search_payment_methods' => $canCheckout,
