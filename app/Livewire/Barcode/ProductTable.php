@@ -40,11 +40,11 @@ class ProductTable extends Component
     public function generateBarcodes(Product $product, $quantity)
     {
         if ($quantity > 100) {
-            return session()->flash('message', 'Max quantity is 100 per barcode generation!');
+            return session()->flash('message', 'Kuantitas maksimal adalah 100 per pembuatan barcode!');
         }
 
         if (!is_numeric($product->barcode)) {
-            return session()->flash('message', 'Can not generate Barcode with this type of Product Code');
+            return session()->flash('message', 'Tidak dapat membuat Barcode dengan jenis Kode Produk ini');
         }
 
         $this->barcodes = [];

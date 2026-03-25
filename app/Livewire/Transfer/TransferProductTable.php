@@ -58,7 +58,7 @@ class TransferProductTable extends Component
     {
         // avoid duplicates
         if (collect($this->products)->contains('id', $product['id'] ?? null)) {
-            session()->flash('message', 'Already exists in the product list!');
+            session()->flash('message', 'Sudah ada dalam daftar produk!');
             return;
         }
 

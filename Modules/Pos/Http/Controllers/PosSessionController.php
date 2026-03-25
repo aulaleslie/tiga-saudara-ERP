@@ -84,7 +84,7 @@ class PosSessionController extends Controller
         $user = auth()->user();
 
         if (! $user) {
-            abort(403, 'Authentication is required.');
+            abort(403, 'Otentikasi diperlukan.');
         }
 
         $hasConfiguredSaleLocations = SettingSaleLocation::query()
@@ -282,7 +282,7 @@ class PosSessionController extends Controller
         $user = auth()->user();
 
         if (! $user) {
-            abort(403, 'Authentication is required.');
+            abort(403, 'Otentikasi diperlukan.');
         }
 
         $posSession = PosSession::query()
@@ -292,7 +292,7 @@ class PosSessionController extends Controller
             ->first();
 
         if (! $posSession) {
-            abort(404, 'POS session not found for current setting.');
+            abort(404, 'Sesi POS tidak ditemukan untuk pengaturan saat ini.');
         }
 
         try {

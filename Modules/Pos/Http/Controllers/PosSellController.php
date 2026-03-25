@@ -35,7 +35,7 @@ class PosSellController extends Controller
         $activeSession = $request->attributes->get('pos_active_session');
 
         if (! $activeSession instanceof PosSession) {
-            abort(403, 'Active POS session context is required.');
+            abort(403, 'Konteks sesi POS yang aktif diperlukan.');
         }
 
         $activeSession->loadMissing([
@@ -44,7 +44,7 @@ class PosSellController extends Controller
 
         $user = $request->user();
         if (! $user) {
-            abort(403, 'Authentication is required.');
+            abort(403, 'Otentikasi diperlukan.');
         }
 
         return view('pos::sell', [
@@ -720,9 +720,9 @@ class PosSellController extends Controller
     public function receiptView(PosCheckout $checkout, PosReceiptService $receiptService)
     {
         $settingId = $this->currentSettingId();
-        
+
         if ($checkout->setting_id !== $settingId) {
-            abort(403, 'Unauthorized access to receipt.');
+            abort(403, 'Akses ke struk tidak sah.');
         }
 
         $receiptData = $receiptService->getReceiptData($checkout);

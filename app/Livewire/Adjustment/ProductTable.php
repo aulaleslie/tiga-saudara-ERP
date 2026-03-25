@@ -52,7 +52,7 @@ class ProductTable extends Component
             case false:
             case true:
                 if (in_array($product, $this->products)) {
-                    return session()->flash('message', 'Already exists in the product list!');
+                    return session()->flash('message', 'Sudah ada dalam daftar produk!');
                 }
                 break;
             default:
