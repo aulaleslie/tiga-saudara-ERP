@@ -185,14 +185,16 @@ class POSTaxBySourceSnapshotTest extends TestCase
     }
 
     /**
-     * POS-TM-051: Mixed tax outcomes in split allocation
+     * POS-TM-051: Mixed tax outcomes in split allocation with owner-priority
+     * When allocating taxable non-serial lines, non-PKP sources are prioritized first,
+     * then PKP sources. This ensures non-tax inventory is consumed before tax inventory.
      */
     public function test_mixed_tax_outcomes_in_split_allocation(): void
     {
         // 1. Setup Businesses
         $bizPKP = $this->createSetting('BIZ-PKP', true);
         $bizNonPKP = $this->createSetting('BIZ-NON-PKP', false);
-        
+
         $locPKP = $this->createLocation($bizPKP, 'A-LOC-PKP');
         $locNonPKP = $this->createLocation($bizNonPKP, 'B-LOC-NON-PKP');
 
@@ -202,8 +204,9 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $cashier = $this->createUserForSetting($terminalSetting, 'cashier', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment']);
         $customer = $this->assignDefaultWalkInCustomer($terminalSetting);
         $methods = $this->seedPaymentMethods($terminalSetting);
-        
-        // Priority 1: PKP Location, Priority 2: Non-PKP Location
+
+        // Sale locations assigned in order: PKP then non-PKP
+        // With owner-priority: non-PKP will be checked first, then PKP
         $this->assignSaleLocation($terminalSetting, $locPKP);
         $this->assignSaleLocation($terminalSetting, $locNonPKP);
 
@@ -211,21 +214,22 @@ class POSTaxBySourceSnapshotTest extends TestCase
         $tax = Tax::create(['name' => 'VAT 10%', 'value' => 10]);
         $product = $this->createStockedProduct($terminalSetting, $locPKP, 'PROD-MIX-001', 100000);
         $this->applySaleTax($product, $terminalSetting, $tax);
-        
-        // Stock: 3 units in PKP loc, 5 units in non-PKP loc
+
+        // Stock: 3 units taxed in PKP loc, 5 units non-taxed in non-PKP loc
         $this->seedStock($product, $locPKP, 3, true);
         $this->seedStock($product, $locNonPKP, 5, false);
 
-        // 4. Finalize Checkout for 5 units
+        // 4. Finalize Checkout for 5 units (taxable line)
         $this->openSession($terminalSetting, $terminal, $cashier);
         $this->selectCustomerInCart($cashier, $terminalSetting, $customer);
         $this->addCartLine($cashier, $terminalSetting, $product->id, 5);
 
-        // Expected: 
-        // 3 units from locPKP -> taxed (included extraction = round(300k * 10/110) = 27,273 tax)
-        // 2 units from locNonPKP -> non-taxed (0 tax)
-        // Total subtotal = 500k, Total tax = 27,273, Grand = 500k
-        
+        // Expected with owner-priority allocation:
+        // Non-PKP location is checked first (lower priority), has 5 non-taxed units
+        // -> 5 units from locNonPKP (non-PKP source) -> non-taxed (0 tax)
+        // -> PKP location is skipped (no more units needed)
+        // Total: All 5 units are non-taxed because they come from non-PKP source owner
+
         $response = $this->finalize($cashier, $terminalSetting, [
             'idempotency_key' => 'K-TAX-MIXED-001',
             'payment' => [
@@ -241,31 +245,25 @@ class POSTaxBySourceSnapshotTest extends TestCase
             'sale_id' => $response->json('sale_id'),
             'product_id' => $product->id,
             'quantity' => 5,
-            'product_tax_amount' => 27273, // Only 3 units taxed
+            'product_tax_amount' => 0, // All units from non-PKP source, so no tax
         ]);
 
-        // Should have 2 dispatch details (one per location) or one if consolidated? 
-        // Actually InlinePosCheckoutPostingAdapter creates one DispatchDetail per chunk in the loop.
+        // All 5 units should be dispatched from non-PKP location without tax
         $this->assertDatabaseHas('dispatch_details', [
             'dispatch_id' => $response->json('dispatch_ids.0'),
-            'dispatched_quantity' => 3,
-            'tax_id' => $tax->id,
-        ]);
-        $this->assertDatabaseHas('dispatch_details', [
-            'dispatch_id' => $response->json('dispatch_ids.0'),
-            'dispatched_quantity' => 2,
+            'dispatched_quantity' => 5,
             'tax_id' => null,
         ]);
 
         $this->assertDatabaseHas('pos_checkouts', [
             'id' => $response->json('pos_checkout_id'),
-            'tax_total' => 27273,
+            'tax_total' => 0,
             'grand_total' => 500000,
         ]);
 
-        // Check stock buckets
-        $this->assertEquals(0, ProductStock::where('product_id', $product->id)->where('location_id', $locPKP->id)->first()->quantity_tax);
-        $this->assertEquals(3, ProductStock::where('product_id', $product->id)->where('location_id', $locNonPKP->id)->first()->quantity_non_tax); // 5 - 2
+        // Check stock buckets: non-PKP location should be depleted
+        $this->assertEquals(3, ProductStock::where('product_id', $product->id)->where('location_id', $locPKP->id)->first()->quantity_tax);  // Unchanged
+        $this->assertEquals(0, ProductStock::where('product_id', $product->id)->where('location_id', $locNonPKP->id)->first()->quantity_non_tax); // 5 - 5
     }
 
     /**

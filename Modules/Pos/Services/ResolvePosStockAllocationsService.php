@@ -310,9 +310,11 @@ class ResolvePosStockAllocationsService
     }
 
     /**
-     * Allocate a taxable line using bucket-first strategy:
-     * Pass 1: non-tax bucket across all locations
-     * Pass 2: tax bucket across all locations (if needed)
+     * Allocate a taxable line using owner-priority bucket-first strategy:
+     * Phase 1: Allocate from non-tax bucket prioritized by owner (non-PKP first, then PKP)
+     * Phase 2: Allocate from tax bucket prioritized by owner (non-PKP first, then PKP)
+     *
+     * Within each owner-priority group, configured location order is preserved.
      *
      * @param  int  $productId
      * @param  int  $neededQty
@@ -320,6 +322,7 @@ class ResolvePosStockAllocationsService
      * @param  array<int>  $locationIds
      * @param  int  $settingId
      * @param  array<int, Setting|null>  $settingsCache
+     * @param  array<int, Location|null>  $locationsCache
      * @param  array<int, Tax|null>  $taxesCache
      * @return array<int, array<string, mixed>>
      */
@@ -332,11 +335,42 @@ class ResolvePosStockAllocationsService
         array &$settingsCache,
         array &$taxesCache
     ): array {
+        // Build owner-priority partitions from location IDs
+        $nonPkpLocations = [];
+        $pkpLocations = [];
+        $locationsCache = [];
+
+        foreach ($locationIds as $locationId) {
+            $location = Location::query()->find($locationId);
+            $sourceSettingId = $location ? (int) $location->setting_id : $settingId;
+
+            if (! isset($settingsCache[$sourceSettingId])) {
+                $settingsCache[$sourceSettingId] = Setting::query()->find($sourceSettingId);
+            }
+            $sourceSetting = $settingsCache[$sourceSettingId];
+            $sourceIsPkp = (bool) ($sourceSetting?->is_pkp ?? false);
+
+            $locationsCache[$locationId] = [
+                'location' => $location,
+                'source_setting_id' => $sourceSettingId,
+                'source_is_pkp' => $sourceIsPkp,
+            ];
+
+            if ($sourceIsPkp) {
+                $pkpLocations[] = $locationId;
+            } else {
+                $nonPkpLocations[] = $locationId;
+            }
+        }
+
+        // Merge: non-PKP first, then PKP, within each preserve original location order
+        $prioritizedLocations = array_merge($nonPkpLocations, $pkpLocations);
+
         $lineAllocations = [];
         $remainingQty = $neededQty;
 
-        // Pass 1: Allocate from non-tax bucket across all locations
-        foreach ($locationIds as $locationId) {
+        // Phase 1: Allocate from non-tax bucket (owner-priority order)
+        foreach ($prioritizedLocations as $locationId) {
             if ($remainingQty <= 0) {
                 break;
             }
@@ -354,14 +388,9 @@ class ResolvePosStockAllocationsService
             if ($available > 0) {
                 $take = min($remainingQty, $available);
 
-                $location = Location::query()->find($locationId);
-                $sourceSettingId = $location ? (int) $location->setting_id : $settingId;
-                
-                if (! isset($settingsCache[$sourceSettingId])) {
-                    $settingsCache[$sourceSettingId] = Setting::query()->find($sourceSettingId);
-                }
-                $sourceSetting = $settingsCache[$sourceSettingId];
-                $sourceIsPkp = (bool) ($sourceSetting?->is_pkp ?? false);
+                $locInfo = $locationsCache[$locationId];
+                $sourceSettingId = $locInfo['source_setting_id'];
+                $sourceIsPkp = $locInfo['source_is_pkp'];
 
                 $tax = null;
                 if (! isset($taxesCache[$taxId])) {
@@ -386,9 +415,9 @@ class ResolvePosStockAllocationsService
             }
         }
 
-        // Pass 2: If still unfulfilled, allocate from tax bucket across all locations
+        // Phase 2: If still unfulfilled, allocate from tax bucket (owner-priority order)
         if ($remainingQty > 0) {
-            foreach ($locationIds as $locationId) {
+            foreach ($prioritizedLocations as $locationId) {
                 if ($remainingQty <= 0) {
                     break;
                 }
@@ -406,14 +435,9 @@ class ResolvePosStockAllocationsService
                 if ($available > 0) {
                     $take = min($remainingQty, $available);
 
-                    $location = Location::query()->find($locationId);
-                    $sourceSettingId = $location ? (int) $location->setting_id : $settingId;
-                    
-                    if (! isset($settingsCache[$sourceSettingId])) {
-                        $settingsCache[$sourceSettingId] = Setting::query()->find($sourceSettingId);
-                    }
-                    $sourceSetting = $settingsCache[$sourceSettingId];
-                    $sourceIsPkp = (bool) ($sourceSetting?->is_pkp ?? false);
+                    $locInfo = $locationsCache[$locationId];
+                    $sourceSettingId = $locInfo['source_setting_id'];
+                    $sourceIsPkp = $locInfo['source_is_pkp'];
 
                     $tax = null;
                     if (! isset($taxesCache[$taxId])) {

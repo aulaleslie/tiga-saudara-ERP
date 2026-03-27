@@ -153,34 +153,35 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 }
 
                 // Override allocations based on actual serial locations
+                // Resolve source setting and PKP status from each serial's location
                 $lineAllocations = [];
                 $grouped = [];
                 foreach ($assignedSerials as $sn) {
                     $record = $serialRecords[$sn];
                     $chunkLocId = (int) $record->location_id;
                     $chunkTaxId = $record->tax_id;
-                    
+
+                    // Resolve source setting from location
+                    $location = \Modules\Setting\Entities\Location::find($chunkLocId);
+                    $sourceSettingId = $location ? (int) $location->setting_id : $settingId;
+                    $sourceSetting = \Modules\Setting\Entities\Setting::find($sourceSettingId);
+                    $sourceIsPkp = (bool) ($sourceSetting?->is_pkp ?? false);
+
                     $groupKey = $chunkLocId . '_' . ($chunkTaxId ?? 'null');
                     if (! isset($grouped[$groupKey])) {
+                        $taxRecord = $chunkTaxId ? \Modules\Setting\Entities\Tax::find($chunkTaxId) : null;
                         $grouped[$groupKey] = [
                             'source_location_id' => $chunkLocId,
-                            'source_setting_id' => $settingId,
+                            'source_setting_id' => $sourceSettingId,
                             'allocated_qty' => 0,
                             'serial_numbers' => [],
                             'tax_policy_snapshot' => [
-                                'source_is_pkp' => true,
+                                'source_is_pkp' => $sourceIsPkp,
                                 'tax_id' => $chunkTaxId,
-                                'tax_name' => null,
-                                'tax_rate' => 0.0, 
+                                'tax_name' => $taxRecord ? (string) $taxRecord->name : null,
+                                'tax_rate' => $taxRecord ? (float) $taxRecord->value : 0.0,
                             ]
                         ];
-                        if ($chunkTaxId) {
-                            $taxRecord = \Modules\Setting\Entities\Tax::find($chunkTaxId);
-                            $grouped[$groupKey]['tax_policy_snapshot']['tax_name'] = (string) ($taxRecord?->name ?? '');
-                            $grouped[$groupKey]['tax_policy_snapshot']['tax_rate'] = (float) ($taxRecord?->value ?? 0.0);
-                        } else {
-                            $grouped[$groupKey]['tax_policy_snapshot']['source_is_pkp'] = false;
-                        }
                     }
                     $grouped[$groupKey]['allocated_qty']++;
                     $grouped[$groupKey]['serial_numbers'][] = $sn;

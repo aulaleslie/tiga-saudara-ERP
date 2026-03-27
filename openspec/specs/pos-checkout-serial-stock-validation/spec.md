@@ -24,10 +24,16 @@ When finalize fails with `STOCK_UNAVAILABLE`, the system MUST provide structured
 - **THEN** the failure payload and/or logged metadata MUST include the failing line indices and product identifiers
 - **AND** each failing line entry MUST include a machine-readable reason code.
 
-### Requirement: Non-serial pre-check semantics SHALL remain unchanged
-The serial-aware validation path MUST NOT change fulfillment behavior for non-serial lines that continue to use quantity-based stock buckets.
+### Requirement: Non-serial taxable pre-check SHALL apply owner-priority allocation
+For non-serial taxable lines, finalize stock pre-check MUST allocate across allowed locations by owner-priority order: source owners with `is_pkp=false` first, then source owners with `is_pkp=true`. Within each owner-priority group, configured sales-location order SHALL remain deterministic.
 
-#### Scenario: Non-serial insufficient stock remains unfulfilled
-- **WHEN** a non-serial line requests quantity greater than available stock in allowed locations for its effective tax bucket
-- **THEN** finalize pre-check MUST report that line as unfulfilled under the existing quantity-based rules.
+#### Scenario: Non-serial taxable line prefers non-PKP source before PKP source
+- **WHEN** a taxable non-serial line can be fulfilled from both non-PKP and PKP source owners
+- **THEN** finalize pre-check MUST allocate required quantity from non-PKP-owned locations first
+- **AND** only allocate from PKP-owned locations for any remaining quantity.
+
+#### Scenario: Owner-priority preserves configured location ordering within each priority group
+- **WHEN** multiple allowed locations belong to the same owner-priority group (all non-PKP or all PKP)
+- **THEN** finalize pre-check MUST consume stock following configured sales-location order within that group
+- **AND** identical inputs MUST produce deterministic allocation output.
 
