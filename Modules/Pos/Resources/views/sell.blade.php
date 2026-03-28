@@ -1488,7 +1488,7 @@
     <!-- Camera scanner module -->
     <script src="{{ asset('js/pos-camera-scanner.js') }}"></script>
     <!-- ZXing barcode decoder library (pinned to 0.20.0 for stability) -->
-    <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
+    <script src="{{ asset('vendor/zxing/index.min.js') }}"></script>
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');
