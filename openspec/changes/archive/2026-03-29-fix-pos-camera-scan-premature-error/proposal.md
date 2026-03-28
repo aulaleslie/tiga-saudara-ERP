@@ -2,6 +2,8 @@
 
 POS camera scanning currently shows a generic decode failure (`Gagal memproses barcode. Silahkan coba lagi.`) immediately after camera open in some environments, even when no barcode has been scanned yet. This breaks cashier trust, obscures root cause, and can block normal scan flow due to unstable ZXing/runtime integration behavior.
 
+Manual mobile validation on Samsung Galaxy A55 (2026-03-29) revealed an additional runtime failure mode: scanner status remains `Memindai...` indefinitely and no decode callback path executes, followed by `Video stream has ended before any code could be detected.` when modal closes. This indicates current decode wiring is still mismatched with the selected ZXing browser API contract.
+
 ## What Changes
 
 - Harden POS camera scanner initialization so decode-failure messaging is only shown after an actual scan processing attempt, not just camera open/start.

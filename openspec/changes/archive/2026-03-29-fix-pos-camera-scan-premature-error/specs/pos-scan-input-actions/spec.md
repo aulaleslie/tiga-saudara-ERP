@@ -11,6 +11,11 @@ The POS camera scanner MUST keep camera-open state non-error while waiting for b
 - **WHEN** scanner has entered active decode processing and the processing attempt fails
 - **THEN** the system MUST show decode-failure cashier guidance
 
+#### Scenario: Continuous frame miss does not escalate to fatal decode failure
+- **WHEN** scanner is running continuous decode and frame processing returns recoverable "not found yet" signals (for example ZXing `NotFoundException`)
+- **THEN** the system MUST remain in active waiting/decoding state and MUST NOT show `Gagal memproses barcode. Silahkan coba lagi.`
+- **AND** the system MUST NOT emit fatal-stage debug-token guidance for those recoverable frame-miss events
+
 ### Requirement: POS camera scanner decode failures SHALL include actionable debug context
 When scanner decode/runtime failure guidance is shown, the system MUST include a short debug context token that identifies failure stage, and MUST log detailed technical error metadata in console output.
 

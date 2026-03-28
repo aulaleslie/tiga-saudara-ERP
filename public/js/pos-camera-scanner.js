@@ -52,17 +52,25 @@ window.PosCameraScanner = (function () {
     let decoderInstance = null;
     let lastFailureStage = null;
     let lastFailureToken = null;
+    let frameMissCount = 0;
 
     // Configuration
     const FORMAT_ALLOWLIST = [
         'EAN_13', 'EAN_8', 'UPC_A', 'UPC_E',
-        'CODE_128', 'CODE_39', 'ITF',
+        'CODE_128', 'CODE_39', 'CODE_93', 'ITF',
         'CODABAR',
+        'RSS_14',
         'QR_CODE',
         'DATA_MATRIX',
         'PDF_417',
         'AZTEC'
     ];
+
+    // Keep broad coverage, but still pass explicit formats so reader ordering stays deterministic.
+    const USE_FORMAT_RESTRICTION = true;
+    // Intermittent-working baseline: broad formats + try harder.
+    const ENABLE_TRY_HARDER = true;
+    const DECODE_ATTEMPT_INTERVAL_MS = 16;
 
     // Status messages
     const Messages = {
@@ -125,6 +133,7 @@ window.PosCameraScanner = (function () {
         state = States.OPENING;
         hasDecoded = false;
         hasAttemptedDecode = false;
+        frameMissCount = 0;
 
         setStatus(Messages.OPENING);
         retryButton.classList.add('d-none');
@@ -145,8 +154,8 @@ window.PosCameraScanner = (function () {
         const constraints = {
             video: {
                 facingMode: { ideal: 'environment' },
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
             },
             audio: false
         };
@@ -154,11 +163,34 @@ window.PosCameraScanner = (function () {
         navigator.mediaDevices.getUserMedia(constraints)
             .then(function (stream) {
                 mediaStream = stream;
+
+                // Improve mobile/browser playback compatibility for camera preview.
+                videoElement.setAttribute('playsinline', 'true');
+                videoElement.setAttribute('autoplay', 'true');
+                videoElement.setAttribute('muted', 'true');
+                videoElement.muted = true;
                 videoElement.srcObject = stream;
+
+                // Best-effort autofocus/exposure hints for dense 1D barcodes (safe no-op if unsupported).
+                const videoTrack = stream.getVideoTracks && stream.getVideoTracks()[0];
+                if (videoTrack && typeof videoTrack.getCapabilities === 'function') {
+                    const caps = videoTrack.getCapabilities() || {};
+                    const advanced = {};
+                    if (Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous')) {
+                        advanced.focusMode = 'continuous';
+                    }
+                    if (Array.isArray(caps.exposureMode) && caps.exposureMode.includes('continuous')) {
+                        advanced.exposureMode = 'continuous';
+                    }
+                    if (Object.keys(advanced).length > 0 && typeof videoTrack.applyConstraints === 'function') {
+                        videoTrack.applyConstraints({ advanced: [advanced] }).catch(function () {
+                            // Ignore unsupported constraint errors; stream remains usable.
+                        });
+                    }
+                }
 
                 // Wait for video to be ready
                 videoElement.onloadedmetadata = function () {
-                    videoElement.play();
                     state = States.READY;
                     setStatus(Messages.READY);
                     startDecoding();
@@ -230,8 +262,24 @@ window.PosCameraScanner = (function () {
     function startDecoding() {
         console.log('[PosCameraScanner] Starting decoder');
 
-        if (!videoElement || videoElement.paused) {
-            console.warn('[PosCameraScanner] Video not ready for decoding');
+        if (!videoElement) {
+            console.warn('[PosCameraScanner] Video element not available for decoding');
+            return;
+        }
+
+        if (!videoElement.srcObject) {
+            console.warn('[PosCameraScanner] Video stream not attached yet');
+            return;
+        }
+
+        // Metadata might lag briefly on some browsers; retry once stream dimensions are known.
+        if (videoElement.readyState < 1) {
+            console.warn('[PosCameraScanner] Video metadata not ready for decoding, retrying');
+            setTimeout(function () {
+                if (state !== States.IDLE && !hasDecoded) {
+                    startDecoding();
+                }
+            }, 120);
             return;
         }
 
@@ -247,7 +295,7 @@ window.PosCameraScanner = (function () {
 
         try {
             // Dynamically import and initialize the decoder
-            const { BrowserMultiFormatReader, FormatException } = ZXing;
+            const { BrowserMultiFormatReader, FormatException, NotFoundException } = ZXing;
 
             if (!BrowserMultiFormatReader) {
                 const error = new Error('BrowserMultiFormatReader not found in ZXing');
@@ -258,16 +306,47 @@ window.PosCameraScanner = (function () {
                 return;
             }
 
+            // Map string format names to ZXing.BarcodeFormat enum values
+            const formatEnumMap = {
+                'EAN_13': ZXing.BarcodeFormat.EAN_13,
+                'EAN_8': ZXing.BarcodeFormat.EAN_8,
+                'UPC_A': ZXing.BarcodeFormat.UPC_A,
+                'UPC_E': ZXing.BarcodeFormat.UPC_E,
+                'CODE_128': ZXing.BarcodeFormat.CODE_128,
+                'CODE_39': ZXing.BarcodeFormat.CODE_39,
+                'CODE_93': ZXing.BarcodeFormat.CODE_93,
+                'ITF': ZXing.BarcodeFormat.ITF,
+                'CODABAR': ZXing.BarcodeFormat.CODABAR,
+                'RSS_14': ZXing.BarcodeFormat.RSS_14,
+                'QR_CODE': ZXing.BarcodeFormat.QR_CODE,
+                'DATA_MATRIX': ZXing.BarcodeFormat.DATA_MATRIX,
+                'PDF_417': ZXing.BarcodeFormat.PDF_417,
+                'AZTEC': ZXing.BarcodeFormat.AZTEC
+            };
+
+            // Convert format allowlist to enum values
+            const formatEnums = FORMAT_ALLOWLIST
+                .map(name => formatEnumMap[name])
+                .filter(format => format !== undefined);
+
             const hints = new Map();
-            hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, FORMAT_ALLOWLIST);
+            hints.set(ZXing.DecodeHintType.ASSUME_GS1, true);
+            if (ENABLE_TRY_HARDER) {
+                hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+            }
+
+            if (USE_FORMAT_RESTRICTION && formatEnums.length > 0) {
+                hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formatEnums);
+            }
 
             decoderInstance = new BrowserMultiFormatReader(hints);
+            decoderInstance.timeBetweenDecodingAttempts = DECODE_ATTEMPT_INTERVAL_MS;
 
             // Track that we're entering active decode processing
             hasAttemptedDecode = false;
 
-            // Decode continuously from video
-            const decodingPromise = decoderInstance.decodeFromVideoElement(
+            // Use continuous decode API to handle frame-by-frame processing
+            const decodePromise = decoderInstance.decodeFromVideoElementContinuously(
                 videoElement,
                 function (result, err) {
                     // Mark that we've attempted decode on first frame processing
@@ -282,27 +361,54 @@ window.PosCameraScanner = (function () {
                         state = States.LOCKED;
 
                         const decodedValue = result.getText();
-                        console.log('[PosCameraScanner] Decoded:', decodedValue);
+                        const decodedFormat = result.getBarcodeFormat ? result.getBarcodeFormat() : 'UNKNOWN';
+                        console.log('[PosCameraScanner] Decoded:', {
+                            text: decodedValue,
+                            format: String(decodedFormat)
+                        });
 
                         handleDecodedValue(decodedValue);
                     }
 
-                    if (err && !(err instanceof FormatException)) {
-                        // Only show decode error if we've actually attempted processing
-                        if (hasAttemptedDecode && !hasDecoded) {
-                            hasAttemptedDecode = true;
+                    // Classify errors: recoverable (frame miss) vs fatal (unexpected)
+                    if (err) {
+                        const isFrameMiss = err instanceof FormatException || err instanceof NotFoundException;
+                        const isFatalError = !isFrameMiss && hasAttemptedDecode && !hasDecoded;
+
+                        if (isFatalError) {
+                            // Fatal/unexpected error: show user-facing message with debug token
                             logDiagnostics(FailureStages.DECODE_PROCESSING, err);
                             state = States.DECODE_ERROR;
                             const debugToken = lastFailureToken ? ` [${lastFailureToken}]` : '';
                             setStatus(Messages.DECODE_ERROR + debugToken);
                             retryButton.classList.remove('d-none');
-                        } else {
-                            // First attempt, just log without showing error
-                            console.debug('[PosCameraScanner] Decode attempt processing:', err.message);
+                        } else if (isFrameMiss) {
+                            // Frame miss (no code in this frame): remain in decoding state.
+                            frameMissCount += 1;
+                            if (frameMissCount % 60 === 0) {
+                                console.log('[PosCameraScanner] Frame miss stats:', {
+                                    count: frameMissCount,
+                                    profile: 'stable',
+                                    lastErrorName: err.name || 'Unknown',
+                                    lastErrorMessage: err.message || String(err),
+                                    videoWidth: videoElement.videoWidth,
+                                    videoHeight: videoElement.videoHeight
+                                });
+                            }
                         }
                     }
                 }
             );
+
+            // Handle stream stop/close rejection deterministically to avoid uncaught noise
+            if (decodePromise && typeof decodePromise.catch === 'function') {
+                decodePromise.catch(function (error) {
+                    // Stream stopped or closed normally - only log if this is an unexpected error
+                    if (error && error.message && !error.message.includes('stream has ended') && state !== States.IDLE) {
+                        console.debug('[PosCameraScanner] Decode stream error (expected on close):', error.message);
+                    }
+                });
+            }
 
             state = States.DECODING;
             setStatus(Messages.DECODING);
