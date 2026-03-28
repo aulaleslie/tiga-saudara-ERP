@@ -905,10 +905,9 @@
                                     <button id="pos-btn-cari-produk" type="button" class="btn btn-outline-secondary pos-scan-action-secondary">
                                         Cari Produk
                                     </button>
-                                    <button type="button" class="btn btn-outline-secondary pos-scan-action-camera" disabled
-                                            title="Segera hadir: Pindai kamera"
-                                            aria-label="Pindai kamera (belum tersedia)"
-                                            data-camera-slot="reserved">
+                                    <button id="pos-btn-scan-camera" type="button" class="btn btn-outline-secondary pos-scan-action-camera"
+                                            title="Pindai kamera"
+                                            aria-label="Pindai kamera">
                                         <i class="bi bi-camera" aria-hidden="true"></i>
                                     </button>
                                 </div>
@@ -1459,10 +1458,37 @@
         </div>
     </div>
 
+    <!-- Scanner Modal -->
+    <div id="pos-camera-scanner-modal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Pindai Kamera</h5>
+                    <button id="pos-camera-scanner-close" type="button" class="close" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="pos-camera-scanner-body" style="position: relative;">
+                        <video id="pos-camera-video" style="width: 100%; max-height: 400px; background: #000;"></video>
+                        <p id="pos-camera-scanner-status" class="small text-muted text-center mt-2"></p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="pos-camera-scanner-retry" type="button" class="btn btn-secondary d-none">Coba Lagi</button>
+                    <button id="pos-camera-scanner-cancel" type="button" class="btn btn-secondary" data-dismiss="modal">Tutup</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
 @push('page_scripts')
     <!-- Task 3.1: Include staged payment module -->
     <script src="{{ asset('js/pos-staged-payment.js') }}"></script>
+    <!-- Camera scanner module -->
+    <script src="{{ asset('js/pos-camera-scanner.js') }}"></script>
+    <!-- ZXing barcode decoder library -->
+    <script src="https://cdn.jsdelivr.net/npm/@zxing/library@latest"></script>
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');

@@ -49,9 +49,9 @@ class POSSellShellScanUiTest extends TestCase
     }
 
     /**
-     * 3.1 + 3.2: Verify scan UI renders helper button, action rail, and reserved camera slot.
+     * 3.1 + 3.2: Verify scan UI renders helper button, action rail, and active camera button.
      * Assert: helper button present, action rail visible, primary/secondary classes applied,
-     * camera slot reserved with disabled state.
+     * camera button active (not disabled) and present.
      */
     public function test_sell_shell_renders_scan_helper_button_and_action_rail(): void
     {
@@ -78,11 +78,18 @@ class POSSellShellScanUiTest extends TestCase
         // 3.2: Secondary buttons present (Cari Produk)
         $response->assertSee('pos-scan-action-secondary');
 
-        // 3.2: Reserved camera slot present with disabled state and data attribute
-        $response->assertSee('data-camera-slot');
+        // 3.2: Active camera button present (no longer reserved/disabled)
+        $response->assertSee('pos-btn-scan-camera');
         $response->assertSee('pos-scan-action-camera');
-        $response->assertSee('disabled');
-        $response->assertSee('Segera hadir');
+        // Verify disabled state and reserved data attribute are removed
+        $html = $response->getContent();
+        $this->assertStringNotContainsString('data-camera-slot="reserved"', $html);
+        // Check that camera button is not disabled (should not have disabled attribute on camera button)
+        $cameraButtonStart = strpos($html, 'id="pos-btn-scan-camera"');
+        $this->assertNotFalse($cameraButtonStart);
+        $cameraButtonEnd = strpos($html, '</button>', $cameraButtonStart);
+        $cameraButton = substr($html, $cameraButtonStart, $cameraButtonEnd - $cameraButtonStart);
+        $this->assertStringNotContainsString('disabled', $cameraButton, 'Camera button should not be disabled');
 
         // 3.2: Cari Produk button still present
         $response->assertSee('pos-btn-cari-produk');
@@ -113,6 +120,60 @@ class POSSellShellScanUiTest extends TestCase
         $this->assertNotFalse($helperPos, 'Helper button not found in HTML');
         $this->assertNotFalse($cariProdukPos, 'Cari Produk button not found in HTML');
         $this->assertLessThan($cariProdukPos, $helperPos, 'Helper button must appear before Cari Produk button');
+    }
+
+    /**
+     * 4.3: Verify camera scanner modal structure is present for camera decode functionality.
+     * Assert: scanner modal exists with video element, status text, and control buttons.
+     */
+    public function test_sell_shell_includes_camera_scanner_modal(): void
+    {
+        $setting = $this->createSetting('SCAN UI TEST C');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'SCAN UI CASHIER C');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'));
+
+        $response->assertOk();
+
+        // 4.3: Scanner modal structure present
+        $response->assertSee('pos-camera-scanner-modal');
+
+        // 4.3: Video element for camera feed
+        $response->assertSee('pos-camera-video');
+
+        // 4.3: Status display element
+        $response->assertSee('pos-camera-scanner-status');
+
+        // 4.3: Control buttons (retry, close/cancel)
+        $response->assertSee('pos-camera-scanner-retry');
+        $response->assertSee('pos-camera-scanner-close');
+        $response->assertSee('pos-camera-scanner-cancel');
+    }
+
+    /**
+     * 4.3: Verify camera scanner JS module is loaded for decode functionality.
+     * Assert: pos-camera-scanner.js and ZXing library are included in page scripts.
+     */
+    public function test_sell_shell_includes_camera_scanner_scripts(): void
+    {
+        $setting = $this->createSetting('SCAN UI TEST D');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'SCAN UI CASHIER D');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'));
+
+        $response->assertOk();
+
+        $html = $response->getContent();
+
+        // 4.3: Camera scanner JS module included
+        $this->assertStringContainsString('pos-camera-scanner.js', $html, 'Camera scanner JS module must be included');
+
+        // 4.3: ZXing barcode decoder library included
+        $this->assertStringContainsString('@zxing/library', $html, 'ZXing decoder library must be included');
     }
 
     // --- Helpers ---
