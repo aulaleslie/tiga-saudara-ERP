@@ -228,13 +228,74 @@
                 });
             }
 
-            // === Mask helpers ===
-            function applyMask() {
-                $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price, .conversion-price-input').maskMoney({
-                    prefix: '{{ settings()->currency->symbol }}',
-                    thousands: '{{ settings()->currency->thousand_separator }}',
-                    decimal: '{{ settings()->currency->decimal_separator }}',
-                    precision: 2,
+            const PRODUCT_NOMINAL_CONFIG = {
+                prefix: 'RP ',
+                thousands: '.',
+                decimal: ',',
+                precision: 2,
+            };
+
+            function parseNominalNumber(value) {
+                if (value === null || value === undefined) return 0;
+
+                let text = String(value).trim();
+                if (!text) return 0;
+
+                text = text.replace(/^RP\s*/i, '');
+                text = text.replace(/\s+/g, '');
+                text = text.replace(/[^0-9,.-]/g, '');
+                if (!text || text === '-' || text === ',' || text === '.') return 0;
+
+                const lastComma = text.lastIndexOf(',');
+                const lastDot = text.lastIndexOf('.');
+                let decimalSeparator = null;
+
+                if (lastComma !== -1 && lastDot !== -1) {
+                    decimalSeparator = lastComma > lastDot ? ',' : '.';
+                } else if (lastComma !== -1) {
+                    decimalSeparator = ',';
+                } else if (lastDot !== -1) {
+                    const dotMatches = text.match(/\./g);
+                    const dotCount = dotMatches ? dotMatches.length : 0;
+                    const fractionalDigits = text.slice(lastDot + 1).replace(/\D/g, '').length;
+
+                    if (dotCount === 1 && fractionalDigits > 0 && fractionalDigits <= 2) {
+                        decimalSeparator = '.';
+                    }
+                }
+
+                let normalized = text;
+                if (decimalSeparator === ',') {
+                    normalized = normalized.replace(/\./g, '');
+                    normalized = normalized.replace(',', '.');
+                } else if (decimalSeparator === '.') {
+                    normalized = normalized.replace(/,/g, '');
+                } else {
+                    normalized = normalized.replace(/[.,]/g, '');
+                }
+
+                const parsed = Number.parseFloat(normalized);
+                if (!Number.isFinite(parsed) || parsed < 0) return 0;
+                return parsed;
+            }
+
+            function toRawNominal(value) {
+                const numeric = Number.isFinite(value) && value >= 0 ? value : 0;
+                const rounded = Math.round(numeric * 100) / 100;
+                if (Number.isInteger(rounded)) return String(rounded);
+                return rounded.toFixed(2).replace(/\.?0+$/, '');
+            }
+
+            // === Mask helpers for conversion prices only ===
+            // Main prices (purchase_price, sale_price, tier_1_price, tier_2_price) are now handled
+            // by the x-nominal-field component which manages their own maskMoney binding.
+            // This function only applies maskMoney to conversion table prices.
+            function applyMaskForConversion() {
+                $('.conversion-price-input').maskMoney({
+                    prefix: PRODUCT_NOMINAL_CONFIG.prefix,
+                    thousands: PRODUCT_NOMINAL_CONFIG.thousands,
+                    decimal: PRODUCT_NOMINAL_CONFIG.decimal,
+                    precision: PRODUCT_NOMINAL_CONFIG.precision,
                     allowZero: true,
                     allowNegative: false
                 });
@@ -242,80 +303,16 @@
             function setMaskedZero($el) {
                 // Force "0.00" visually, even if disabled
                 $el.maskMoney('destroy');
-                $el.val('0.00');
-                applyMask();
+                $el.val('0');
+                applyMaskForConversion();
                 $el.maskMoney('mask');
             }
 
-            applyMask();
-
-            // === Focus/blur keepers (unchanged idea, just robust) ===
-            $('#purchase_price, #sale_price, #tier_1_price, #tier_2_price')
-                .on('focus', function () {
-                    $(this).maskMoney('destroy');
-                    $(this).val($(this).val().replace(/[^0-9.-]/g, ''));
-                    setTimeout(() => this.select(), 0);
-                })
-                .on('blur', function () {
-                    let v = parseFloat($(this).val().replace(/[^0-9.-]/g, ''));
-                    if (isNaN(v)) v = 0;
-                    $(this).val(v.toFixed(2));
-                    applyMask();
-                    $(this).maskMoney('mask');
-                });
-
-            // === Pre-fill from old() if present, else leave empty (we'll seed as needed) ===
-            (function prefillMaskedValues() {
-                const map = [
-                    ['#purchase_price', "{{ old('purchase_price') }}"],
-                    ['#sale_price', "{{ old('sale_price') }}"],
-                    ['#tier_1_price', "{{ old('tier_1_price') }}"],
-                    ['#tier_2_price', "{{ old('tier_2_price') }}"],
-                ];
-                map.forEach(([sel, raw]) => {
-                    if (raw !== '') {
-                        const n = parseFloat(raw);
-                        if (!isNaN(n)) {
-                            const $el = $(sel);
-                            $el.val(n.toFixed(2));
-                            $el.maskMoney('mask');
-                        }
-                    }
-                });
-            })();
+            applyMaskForConversion();
 
 
-            function togglePurchaseFields(initial = false) {
-                const checked = $('#is_purchased').is(':checked');
-                const $price = $('#purchase_price');
-
-                $price.prop('disabled', !checked);
-
-                if (!checked) {
-                    setMaskedZero($price);
-                } else if (initial && !$price.val().trim()) {
-                    setMaskedZero($price);
-                }
-            }
-
-            function toggleSaleFields(initial = false) {
-                const checked = $('#is_sold').is(':checked');
-                const $sale  = $('#sale_price');
-
-                $sale.prop('disabled', !checked);
-
-                if (!checked) {
-                    setMaskedZero($sale);
-                } else if (initial) {
-                    if (!$sale.val().trim()) setMaskedZero($sale);
-                }
-            }
-
-            // Bind and run once
-            $('#is_purchased').on('change', () => togglePurchaseFields(false));
-            $('#is_sold').on('change',      () => toggleSaleFields(false));
-            togglePurchaseFields(true);
-            toggleSaleFields(true);
+            // Note: Purchase and sale field enable/disable is now handled by the Livewire components
+            // (product-price-setup and sale-price-setup) which manage the x-nominal-field disable state
 
             // === Conversion price fields ===
             function bindConversionPriceInputs() {
@@ -328,72 +325,94 @@
                     const $hidden = hiddenSelector ? $(hiddenSelector) : null;
                     const updateHidden = (num) => {
                         if (!$hidden || !$hidden.length) return;
-                        $hidden.val(num);
+                        $hidden.val(toRawNominal(num));
                         $hidden.trigger('input');
                     };
-
-                    // initial mask
-                    $input.maskMoney({
-                        prefix: '{{ settings()->currency->symbol }}',
-                        thousands: '{{ settings()->currency->thousand_separator }}',
-                        decimal: '{{ settings()->currency->decimal_separator }}',
-                        precision: 2,
+                    const maskOptions = {
+                        prefix: PRODUCT_NOMINAL_CONFIG.prefix,
+                        thousands: PRODUCT_NOMINAL_CONFIG.thousands,
+                        decimal: PRODUCT_NOMINAL_CONFIG.decimal,
+                        precision: PRODUCT_NOMINAL_CONFIG.precision,
                         allowZero: true,
                         allowNegative: false
-                    });
-                    $input.maskMoney('mask');
+                    };
 
-                    $input.on('focus', function () {
-                        $input.maskMoney('destroy');
-                        $input.val($input.val().replace(/[^0-9.-]/g, ''));
-                        setTimeout(() => this.select(), 0);
-                    });
+                    const bindFocusRawHandler = function () {
+                        $input.off('focus.conversionRaw').on('focus.conversionRaw', function (event) {
+                            try {
+                                $input.maskMoney('destroy');
+                            } catch (e) {
+                                // no-op if already destroyed
+                            }
+                            $input.val(toRawNominal(parseNominalNumber($input.val())));
+                            setTimeout(() => this.select(), 0);
 
-                    $input.on('blur', function () {
-                        let v = parseFloat($input.val().replace(/[^0-9.-]/g, ''));
-                        if (isNaN(v)) v = 0;
-                        updateHidden(v);
-                        $input.val(v.toFixed(2));
-                        $input.maskMoney({
-                            prefix: '{{ settings()->currency->symbol }}',
-                            thousands: '{{ settings()->currency->thousand_separator }}',
-                            decimal: '{{ settings()->currency->decimal_separator }}',
-                            precision: 2,
-                            allowZero: true,
-                            allowNegative: false
+                            if (event && typeof event.stopImmediatePropagation === 'function') {
+                                event.stopImmediatePropagation();
+                            }
                         });
+                    };
+
+                    const applyMaskedState = function (numericValue) {
+                        const v = Number.isFinite(numericValue) ? numericValue : 0;
+                        $input.maskMoney(maskOptions);
+                        $input.val(v);
                         $input.maskMoney('mask');
+
+                        // Rebind focus after maskMoney init so raw-focus handler wins every cycle.
+                        bindFocusRawHandler();
+                    };
+
+                    const initialValue = parseNominalNumber($input.val());
+                    updateHidden(initialValue);
+                    applyMaskedState(initialValue);
+
+                    $input.off('blur.conversionRaw').on('blur.conversionRaw', function () {
+                        const v = parseNominalNumber($input.val());
+                        updateHidden(v);
+                        applyMaskedState(v);
                     });
 
-                    $input.on('keyup change', function () {
-                        let v = $input.maskMoney('unmasked')[0] ?? 0;
-                        if (isNaN(v)) v = 0;
-                        updateHidden(v);
-                    });
+                    $input.off('keyup.conversionRaw change.conversionRaw')
+                        .on('keyup.conversionRaw change.conversionRaw', function () {
+                            const v = parseNominalNumber($input.val());
+                            updateHidden(v);
+                        });
+                });
+            }
+
+            let bindQueued = false;
+            function queueBindConversionPriceInputs() {
+                if (bindQueued) return;
+                bindQueued = true;
+                requestAnimationFrame(function () {
+                    bindQueued = false;
+                    bindConversionPriceInputs();
                 });
             }
 
             bindConversionPriceInputs();
+
             if (window.Livewire) {
-                document.addEventListener('livewire:load', function () {
-                    Livewire.hook('message.processed', bindConversionPriceInputs);
-                });
+                document.addEventListener('livewire:load', queueBindConversionPriceInputs);
+                document.addEventListener('livewire:initialized', queueBindConversionPriceInputs);
+                document.addEventListener('livewire:navigated', queueBindConversionPriceInputs);
+                if (typeof Livewire.hook === 'function') {
+                    try {
+                        Livewire.hook('message.processed', queueBindConversionPriceInputs);
+                    } catch (e) {
+                        // Livewire v3 may not expose this hook name; events/observer still cover rebinds.
+                    }
+                }
             }
 
-            // Observer for dynamically added conversion rows from Livewire
-            const conversionTableObserver = new MutationObserver(() => {
-                bindConversionPriceInputs();
+            const conversionTableObserver = new MutationObserver(queueBindConversionPriceInputs);
+            conversionTableObserver.observe(document.body, {
+                childList: true,
+                subtree: true,
             });
-            const conversionTable = document.querySelector('.unit-conversion-table');
-            if (conversionTable) {
-                conversionTableObserver.observe(conversionTable, {
-                    childList: true,
-                    subtree: true,
-                    attributes: false,
-                });
-            }
 
-            // === Submit: unmask to raw numbers ===
+            // === Submit: handle conversion prices + lock UI ===
             $('#product-form').on('submit', function (event) {
                 if (this.dataset.submitting === 'true') {
                     event.preventDefault();
@@ -403,20 +422,19 @@
                 this.dataset.submitting = 'true';
                 toggleFormSubmissionLock(this, true);
 
-                const un = (sel) => $(sel).maskMoney('unmasked')[0] ?? 0;
-                $('#purchase_price').val(un('#purchase_price'));
-                $('#sale_price').val(un('#sale_price'));
-                $('#tier_1_price').val(un('#tier_1_price'));
-                $('#tier_2_price').val(un('#tier_2_price'));
+                // Note: Main price fields (purchase_price, sale_price, tier_1_price, tier_2_price)
+                // are now handled by x-nominal-field component which manages their own hidden inputs.
+                // No unmasking needed for them.
 
+                // Conversion prices: extract and sync to hidden inputs
                 $('.conversion-price-input').each(function () {
                     const $input = $(this);
                     const hiddenSelector = $input.data('hidden');
                     const $hidden = hiddenSelector ? $(hiddenSelector) : null;
-                    const v = $input.maskMoney('unmasked')[0] ?? 0;
-                    $input.val(v);
+                    const v = parseNominalNumber($input.val());
+                    $input.val(toRawNominal(v));
                     if ($hidden && $hidden.length) {
-                        $hidden.val(v);
+                        $hidden.val(toRawNominal(v));
                         $hidden.trigger('input');
                     }
                 });

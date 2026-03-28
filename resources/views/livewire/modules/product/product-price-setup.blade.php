@@ -14,14 +14,12 @@
 
         <div class="row mt-3">
             <div class="col-md-6">
-                <x-input 
-                    :label="$priceLabel" 
+                <x-nominal-field
+                    :label="$priceLabel"
                     name="{{ $fieldPrefix }}_price"
-                    step="0.01" 
                     :disabled="!$isActive"
                     :value="$price"
                     :error="$priceError"
-                    wire:model.live="price"
                 />
             </div>
             <div class="col-md-6">

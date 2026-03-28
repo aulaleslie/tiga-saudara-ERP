@@ -14,14 +14,12 @@
 
         <div class="row mt-3">
             <div class="col-md-6">
-                <x-input 
-                    label="Harga Jual" 
+                <x-nominal-field
+                    label="Harga Jual"
                     name="sale_price"
-                    step="0.01" 
                     :disabled="!$isActive"
                     :value="$price"
                     :error="$priceError"
-                    wire:model.live="price"
                 />
             </div>
             <div class="col-md-6">
@@ -43,28 +41,24 @@
 
         <div class="row mt-3">
             <div class="col-md-6">
-                <x-input 
-                    label="Harga Jual Partai Besar" 
+                <x-nominal-field
+                    label="Harga Jual Partai Besar"
                     name="tier_1_price"
-                    step="0.01" 
                     :disabled="!$isActive"
                     :value="$tier1Price"
                     :error="$tier1Error"
-                    wire:model.live="tier1Price"
                 />
             </div>
         </div>
 
         <div class="row mt-3">
             <div class="col-md-6">
-                <x-input 
-                    label="Harga Jual Reseller" 
+                <x-nominal-field
+                    label="Harga Jual Reseller"
                     name="tier_2_price"
-                    step="0.01" 
                     :disabled="!$isActive"
                     :value="$tier2Price"
                     :error="$tier2Error"
-                    wire:model.live="tier2Price"
                 />
             </div>
         </div>

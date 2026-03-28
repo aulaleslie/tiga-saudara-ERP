@@ -96,36 +96,10 @@ class UnitConfiguration extends Component
         $this->rowKeys = array_values($this->rowKeys);
     }
 
-    public function showRawPrice(int $i): void
-    {
-        $this->displayPrices[$i] = $this->conversions[$i]['price'] !== ''
-            ? rtrim(rtrim((string) $this->conversions[$i]['price'], '0'), '.')
-            : '';
-    }
-
-    public function syncPrice(int $i): void
-    {
-        $raw = $this->displayPrices[$i] ?? '';
-        $clean = str_replace(',', '.', preg_replace('/[^\d,\.]/', '', $raw));
-        $num = $clean === '' ? null : (float) $clean;
-
-        $this->conversions[$i]['price'] = $num ?? '';
-        $this->displayPrices[$i] = $num === null ? '' : $this->formatCurrency($num);
-    }
-
-    public function updatedDisplayPrices($value, string $name): void
-    {
-        if (!preg_match('/displayPrices\.(\d+)/', $name, $m)) {
-            return;
-        }
-        $i = (int) $m[1];
-        $raw = is_string($value) ? $value : '';
-        $clean = str_replace(',', '.', preg_replace('/[^\d,\.]/', '', $raw));
-        $num = $clean === '' ? null : (float) $clean;
-
-        $this->conversions[$i]['price'] = $num ?? '';
-        $this->displayPrices[$i] = $num === null ? '' : $this->formatCurrency($num);
-    }
+    // NOTE: showRawPrice() and syncPrice() methods removed as of fix-nominal-field-formatting-consistency
+    // Conversion table price formatting is now handled exclusively by jQuery maskMoney
+    // on the visible input, with Livewire managing only the hidden input for data storage.
+    // No updatedDisplayPrices() listener needed anymore since visible input no longer has wire:model
 
     public function render()
     {
@@ -134,10 +108,12 @@ class UnitConfiguration extends Component
 
     private function formatCurrency(float $amount): string
     {
-        $currency = settings()->currency ?? null;
-        $symbol   = $currency->symbol ?? '';
-        $decimal  = $currency->decimal_separator ?? '.';
-        $thousand = $currency->thousand_separator ?? ',';
+        // Fixed product nominal format (deterministic, not system-configurable)
+        // Ensures conversion table prices always display with "RP " prefix and consistent separators
+        // regardless of database currency settings, providing a stable user experience
+        $symbol = 'RP ';
+        $decimal = ',';
+        $thousand = '.';
 
         return $symbol.number_format($amount, 2, $decimal, $thousand);
     }

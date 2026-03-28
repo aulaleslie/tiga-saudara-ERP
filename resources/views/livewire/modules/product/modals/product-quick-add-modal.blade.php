@@ -370,9 +370,9 @@
     });
 
     var productCurrency = window.productCurrency = {!! json_encode([
-        'prefix' => settings()->currency->symbol,
-        'thousands' => settings()->currency->thousand_separator,
-        'decimal' => settings()->currency->decimal_separator,
+        'prefix' => 'RP ',
+        'thousands' => '.',
+        'decimal' => ',',
     ], JSON_THROW_ON_ERROR) !!};
 
     document.addEventListener('alpine:init', () => {
