@@ -203,20 +203,19 @@
     }
 
     .pos-search-grid {
-        display: flex;
-        flex-direction: column;
-        gap: 0.3rem;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "input actions"
+            "status status";
+        column-gap: 0.45rem;
+        row-gap: 0.25rem;
+        align-items: end;
         min-height: 0;
     }
 
-    .pos-search-head {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 0.45rem;
-        align-items: end;
-    }
-
-    .pos-search-main {
+    .pos-search-input-row {
+        grid-area: input;
         min-width: 0;
         position: relative;
         display: flex;
@@ -224,8 +223,48 @@
         gap: 0.25rem;
     }
 
-    .pos-search-main label {
+    .pos-search-input-row label {
         margin-bottom: 0;
+    }
+
+    .pos-scan-action-rail {
+        grid-area: actions;
+        display: flex;
+        flex-direction: row;
+        gap: 0.35rem;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        align-self: end;
+        justify-self: end;
+    }
+
+    .pos-scan-action-primary {
+        flex: 0 1 auto;
+        min-width: 90px;
+        white-space: nowrap;
+    }
+
+    .pos-scan-action-secondary {
+        flex: 0 1 auto;
+        min-width: 110px;
+        white-space: nowrap;
+    }
+
+    .pos-scan-action-camera {
+        flex: 0 1 auto;
+        min-width: 45px;
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .pos-scan-action-primary,
+    .pos-scan-action-secondary,
+    .pos-scan-action-camera {
+        min-height: calc(1.5em + 0.75rem + 2px);
+    }
+
+    .pos-scan-action-camera:disabled {
+        cursor: not-allowed;
     }
 
     #pos-shell-scan-feedback {
@@ -237,7 +276,8 @@
     }
 
     #pos-shell-search-status {
-        min-height: 1rem;
+        grid-area: status;
+        min-height: 0;
         line-height: 1.2;
         margin: 0;
     }
@@ -627,6 +667,26 @@
             padding-bottom: 0.18rem;
         }
 
+        .pos-scan-action-rail {
+            gap: 0.25rem;
+        }
+
+        .pos-scan-action-primary,
+        .pos-scan-action-secondary {
+            font-size: 0.75rem;
+            padding-top: 0.35rem;
+            padding-bottom: 0.35rem;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+            min-width: 64px;
+        }
+
+        .pos-scan-action-camera {
+            font-size: 0.75rem;
+            min-width: 38px;
+            padding: 0.35rem 0.4rem;
+        }
+
         #pos-shell-scan-feedback {
             font-size: 0.68rem;
             padding-left: 0.5rem;
@@ -832,15 +892,24 @@
                         </div>
                         <div class="card-body">
                             <div class="pos-search-grid">
-                                <div class="pos-search-head">
-                                    <div class="pos-search-main">
-                                        <label for="pos-shell-search" class="small font-weight-bold">Pindai Barcode / Serial</label>
-                                        <input id="pos-shell-search" type="text" class="form-control"
-                                               placeholder="Pindai barcode atau ketik nomor serial"
-                                               autocomplete="off">
-                                    </div>
-                                    <button id="pos-btn-cari-produk" type="button" class="btn btn-outline-primary">
+                                <div class="pos-search-input-row">
+                                    <label for="pos-shell-search" class="small font-weight-bold">Pindai Barcode / Serial</label>
+                                    <input id="pos-shell-search" type="text" class="form-control"
+                                           placeholder="Pindai barcode atau ketik nomor serial"
+                                           autocomplete="off">
+                                </div>
+                                <div class="pos-scan-action-rail">
+                                    <button id="pos-btn-scan-helper" type="button" class="btn btn-primary pos-scan-action-primary">
+                                        <i class="bi bi-upc-scan" aria-hidden="true"></i> Pindai
+                                    </button>
+                                    <button id="pos-btn-cari-produk" type="button" class="btn btn-outline-secondary pos-scan-action-secondary">
                                         Cari Produk
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary pos-scan-action-camera" disabled
+                                            title="Segera hadir: Pindai kamera"
+                                            aria-label="Pindai kamera (belum tersedia)"
+                                            data-camera-slot="reserved">
+                                        <i class="bi bi-camera" aria-hidden="true"></i>
                                     </button>
                                 </div>
                                 <p id="pos-shell-search-status" class="small text-muted"></p>
@@ -2928,18 +2997,8 @@
                 searchResultsModalElement.addEventListener('shown.bs.modal', setupSearchResultsModalKeyboard);
             }
 
-            // Phase 1: Enter key handler for scan resolver
-            searchInput.addEventListener('keydown', async function (event) {
-                if (event.key !== 'Enter' && event.code !== 'Enter') {
-                    return;
-                }
-                event.preventDefault();
-                const query = (this.value || '').trim();
-                if (!query) {
-                    setSearchStatus('Masukkan kode produk atau nomor serial.', 'text-muted');
-                    return;
-                }
-
+            // Shared scan resolver function (2.1): used by both Enter and helper button
+            async function executeScanResolve(query) {
                 clearResults();
                 setSearchStatus('Memindai...', 'text-muted');
 
@@ -2964,7 +3023,34 @@
                 } catch (error) {
                     setSearchStatus('Pindai gagal: ' + (error.message || 'Server error'), 'text-danger');
                 }
+            }
+
+            // Phase 1: Enter key handler for scan resolver (2.2: preserve for scanner hardware)
+            searchInput.addEventListener('keydown', async function (event) {
+                if (event.key !== 'Enter' && event.code !== 'Enter') {
+                    return;
+                }
+                event.preventDefault();
+                const query = (this.value || '').trim();
+                if (!query) {
+                    setSearchStatus('Masukkan kode produk atau nomor serial.', 'text-muted');
+                    return;
+                }
+                await executeScanResolve(query);
             });
+
+            // Helper button handler (2.2: wire helper to shared resolver)
+            const scanHelperButton = document.getElementById('pos-btn-scan-helper');
+            if (scanHelperButton) {
+                scanHelperButton.addEventListener('click', async function () {
+                    const query = (searchInput.value || '').trim();
+                    if (!query) {
+                        setSearchStatus('Masukkan kode produk atau nomor serial.', 'text-muted');
+                        return;
+                    }
+                    await executeScanResolve(query);
+                });
+            }
 
             // Phase 3: Cari Produk button click handler
             if (cariProdukButton) {
