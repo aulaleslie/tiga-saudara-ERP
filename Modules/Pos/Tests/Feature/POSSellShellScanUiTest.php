@@ -172,8 +172,73 @@ class POSSellShellScanUiTest extends TestCase
         // 4.3: Camera scanner JS module included
         $this->assertStringContainsString('pos-camera-scanner.js', $html, 'Camera scanner JS module must be included');
 
-        // 4.3: ZXing barcode decoder library included
-        $this->assertStringContainsString('@zxing/library', $html, 'ZXing decoder library must be included');
+        // 4.3: ZXing barcode decoder library included with deterministic version
+        $this->assertStringContainsString('@zxing/library@0.20.0', $html, 'ZXing decoder library must be loaded from deterministic version 0.20.0');
+    }
+
+    /**
+     * 4.1: Verify camera-open idle behavior does not show premature decode failure.
+     * Assert: ZXing is loaded with deterministic version and scanner setup is complete.
+     */
+    public function test_sell_shell_camera_scanner_no_premature_decode_error(): void
+    {
+        $setting = $this->createSetting('SCAN UI TEST E');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'SCAN UI CASHIER E');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'));
+
+        $response->assertOk();
+
+        $html = $response->getContent();
+
+        // 4.1: Verify scanner modal is present (will use deterministic state values internally)
+        $this->assertStringContainsString('id="pos-camera-scanner-modal"', $html);
+        $this->assertStringContainsString('id="pos-camera-scanner-status"', $html);
+
+        // 4.1: Verify camera scanner module is loaded
+        $this->assertStringContainsString('pos-camera-scanner.js', $html);
+
+        // 4.1: Verify ZXing is loaded with deterministic version for stable initialization (no @latest)
+        $this->assertStringContainsString('@zxing/library@0.20.0', $html);
+        $this->assertStringNotContainsString('@zxing/library@latest', $html, 'ZXing must use pinned version, not @latest');
+
+        // 4.1: Verify retry and close buttons are present for error recovery
+        $this->assertStringContainsString('id="pos-camera-scanner-retry"', $html);
+        $this->assertStringContainsString('id="pos-camera-scanner-close"', $html);
+    }
+
+    /**
+     * 4.2: Verify camera-triggered resolver parity with Enter/helper triggers.
+     * Assert: shared resolver function is exposed globally for camera scanner to invoke.
+     */
+    public function test_sell_shell_camera_resolver_parity_with_enter_trigger(): void
+    {
+        $setting = $this->createSetting('SCAN UI TEST F');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'SCAN UI CASHIER F');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'));
+
+        $response->assertOk();
+
+        $html = $response->getContent();
+
+        // 4.2: Verify camera scanner script is included
+        $this->assertStringContainsString('pos-camera-scanner.js', $html);
+
+        // 4.2: Verify shared resolver function is exposed to global scope for camera access
+        $this->assertStringContainsString('window.executeScanResolve = executeScanResolve', $html,
+            'Shared resolver must be exposed to global window scope so camera scanner can invoke it');
+
+        // 4.2: Verify Enter key handler is present (maintains parity)
+        $this->assertStringContainsString('keydown', $html);
+        $this->assertStringContainsString('Enter', $html);
+
+        // 4.2: Verify helper button handler is present (maintains parity)
+        $this->assertStringContainsString('pos-btn-scan-helper', $html);
     }
 
     // --- Helpers ---

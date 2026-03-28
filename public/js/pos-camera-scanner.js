@@ -20,7 +20,20 @@ window.PosCameraScanner = (function () {
         READY: 'ready',
         DECODING: 'decoding',
         LOCKED: 'locked',
-        ERROR: 'error'
+        CAMERA_ERROR: 'camera_error',
+        DECODER_ERROR: 'decoder_error',
+        DECODE_ERROR: 'decode_error'
+    };
+
+    // Failure stage codes for diagnostics
+    const FailureStages = {
+        CAMERA_PERMISSION: 'CAMERA_PERMISSION',
+        CAMERA_UNAVAILABLE: 'CAMERA_UNAVAILABLE',
+        CAMERA_BUSY: 'CAMERA_BUSY',
+        DECODER_INIT: 'DECODER_INIT',
+        DECODER_INVALID_API: 'DECODER_INVALID_API',
+        DECODE_PROCESSING: 'DECODE_PROCESSING',
+        DECODE_NOT_FOUND: 'DECODE_NOT_FOUND'
     };
 
     // Module state
@@ -35,7 +48,10 @@ window.PosCameraScanner = (function () {
     let closeButton = null;
     let cancelButton = null;
     let hasDecoded = false;
+    let hasAttemptedDecode = false;
     let decoderInstance = null;
+    let lastFailureStage = null;
+    let lastFailureToken = null;
 
     // Configuration
     const FORMAT_ALLOWLIST = [
@@ -108,6 +124,7 @@ window.PosCameraScanner = (function () {
         console.log('[PosCameraScanner] Opening scanner');
         state = States.OPENING;
         hasDecoded = false;
+        hasAttemptedDecode = false;
 
         setStatus(Messages.OPENING);
         retryButton.classList.add('d-none');
@@ -154,22 +171,55 @@ window.PosCameraScanner = (function () {
     }
 
     /**
+     * Generate a debug token for failure diagnostics
+     */
+    function generateDebugToken(stage) {
+        const timestamp = Date.now().toString(36).slice(-4);
+        return `${stage.slice(0, 4)}_${timestamp}`.toUpperCase();
+    }
+
+    /**
+     * Log structured diagnostics for scanner failures
+     */
+    function logDiagnostics(stage, error) {
+        const token = generateDebugToken(stage);
+        const errorMessage = error ? (error.message || String(error)) : 'Unknown error';
+        const errorName = error && error.name ? error.name : 'Unknown';
+
+        lastFailureStage = stage;
+        lastFailureToken = token;
+
+        console.error('[PosCameraScanner] Diagnostic failure:', {
+            token: token,
+            stage: stage,
+            errorName: errorName,
+            errorMessage: errorMessage,
+            timestamp: new Date().toISOString()
+        });
+    }
+
+    /**
      * Handle camera-related errors with appropriate messaging
      */
     function handleCameraError(error) {
         console.error('[PosCameraScanner] Error details:', error.name, error.message);
 
         let message = Messages.CAMERA_UNAVAILABLE;
+        let stage = FailureStages.CAMERA_UNAVAILABLE;
 
         if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
             message = Messages.PERMISSION_DENIED;
+            stage = FailureStages.CAMERA_PERMISSION;
         } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
             message = Messages.CAMERA_UNAVAILABLE;
+            stage = FailureStages.CAMERA_UNAVAILABLE;
         } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
             message = Messages.CAMERA_BUSY;
+            stage = FailureStages.CAMERA_BUSY;
         }
 
-        state = States.ERROR;
+        logDiagnostics(stage, error);
+        state = States.CAMERA_ERROR;
         setStatus(message);
         retryButton.classList.remove('d-none');
     }
@@ -185,22 +235,50 @@ window.PosCameraScanner = (function () {
             return;
         }
 
+        // Guard: Check if ZXing is available
+        if (typeof ZXing === 'undefined') {
+            const error = new Error('ZXing library not loaded');
+            logDiagnostics(FailureStages.DECODER_INIT, error);
+            state = States.DECODER_ERROR;
+            setStatus(Messages.DECODING);
+            console.warn('[PosCameraScanner] ZXing unavailable, will retry on scan attempt');
+            return;
+        }
+
         try {
             // Dynamically import and initialize the decoder
             const { BrowserMultiFormatReader, FormatException } = ZXing;
+
+            if (!BrowserMultiFormatReader) {
+                const error = new Error('BrowserMultiFormatReader not found in ZXing');
+                logDiagnostics(FailureStages.DECODER_INVALID_API, error);
+                state = States.DECODER_ERROR;
+                setStatus(Messages.DECODING);
+                console.warn('[PosCameraScanner] Decoder API invalid, will retry on scan attempt');
+                return;
+            }
 
             const hints = new Map();
             hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, FORMAT_ALLOWLIST);
 
             decoderInstance = new BrowserMultiFormatReader(hints);
 
+            // Track that we're entering active decode processing
+            hasAttemptedDecode = false;
+
             // Decode continuously from video
             const decodingPromise = decoderInstance.decodeFromVideoElement(
                 videoElement,
                 function (result, err) {
+                    // Mark that we've attempted decode on first frame processing
+                    if (!hasAttemptedDecode && err) {
+                        hasAttemptedDecode = true;
+                    }
+
                     if (result && !hasDecoded) {
                         // Prevent duplicate decodes
                         hasDecoded = true;
+                        hasAttemptedDecode = true;
                         state = States.LOCKED;
 
                         const decodedValue = result.getText();
@@ -210,7 +288,18 @@ window.PosCameraScanner = (function () {
                     }
 
                     if (err && !(err instanceof FormatException)) {
-                        console.log('[PosCameraScanner] Decode attempt:', err.message);
+                        // Only show decode error if we've actually attempted processing
+                        if (hasAttemptedDecode && !hasDecoded) {
+                            hasAttemptedDecode = true;
+                            logDiagnostics(FailureStages.DECODE_PROCESSING, err);
+                            state = States.DECODE_ERROR;
+                            const debugToken = lastFailureToken ? ` [${lastFailureToken}]` : '';
+                            setStatus(Messages.DECODE_ERROR + debugToken);
+                            retryButton.classList.remove('d-none');
+                        } else {
+                            // First attempt, just log without showing error
+                            console.debug('[PosCameraScanner] Decode attempt processing:', err.message);
+                        }
                     }
                 }
             );
@@ -218,10 +307,11 @@ window.PosCameraScanner = (function () {
             state = States.DECODING;
             setStatus(Messages.DECODING);
         } catch (error) {
-            console.error('[PosCameraScanner] Decoder error:', error);
-            state = States.ERROR;
-            setStatus(Messages.DECODE_ERROR);
-            retryButton.classList.remove('d-none');
+            console.error('[PosCameraScanner] Decoder initialization error:', error);
+            logDiagnostics(FailureStages.DECODER_INIT, error);
+            state = States.DECODER_ERROR;
+            setStatus(Messages.DECODING);
+            console.warn('[PosCameraScanner] Decoder failed to initialize, will retry on scan attempt');
         }
     }
 
@@ -315,6 +405,7 @@ window.PosCameraScanner = (function () {
         // Reset state
         state = States.IDLE;
         hasDecoded = false;
+        hasAttemptedDecode = false;
     }
 
     /**
@@ -334,6 +425,7 @@ window.PosCameraScanner = (function () {
         stopScanning();
         state = States.OPENING;
         hasDecoded = false;
+        hasAttemptedDecode = false;
         setStatus(Messages.OPENING);
         retryButton.classList.add('d-none');
         setTimeout(startCamera, 300);

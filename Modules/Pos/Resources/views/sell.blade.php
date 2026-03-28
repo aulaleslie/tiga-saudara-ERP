@@ -1487,8 +1487,8 @@
     <script src="{{ asset('js/pos-staged-payment.js') }}"></script>
     <!-- Camera scanner module -->
     <script src="{{ asset('js/pos-camera-scanner.js') }}"></script>
-    <!-- ZXing barcode decoder library -->
-    <script src="https://cdn.jsdelivr.net/npm/@zxing/library@latest"></script>
+    <!-- ZXing barcode decoder library (pinned to 0.20.0 for stability) -->
+    <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');
@@ -3050,6 +3050,9 @@
                     setSearchStatus('Pindai gagal: ' + (error.message || 'Server error'), 'text-danger');
                 }
             }
+
+            // Expose shared resolver to global scope so camera scanner can access it (2.3)
+            window.executeScanResolve = executeScanResolve;
 
             // Phase 1: Enter key handler for scan resolver (2.2: preserve for scanner hardware)
             searchInput.addEventListener('keydown', async function (event) {
