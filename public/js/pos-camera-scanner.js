@@ -38,13 +38,233 @@ window.PosCameraScanner = (function () {
         'PDF_417', 'AZTEC'
     ];
 
-    const USE_FORMAT_RESTRICTION = true;
-    const ENABLE_TRY_HARDER = true;
-    const DECODE_ATTEMPT_INTERVAL_MS = 16;
+    const DECODE_ATTEMPT_INTERVAL_MS = 100;
     const SAME_CODE_SUPPRESSION_MS = 1800;
     const REARM_COOLDOWN_MS = 450;
     const CAMERA_BOOT_DELAY_MS = 240;
     const VIDEO_READY_TIMEOUT_MS = 2400;
+
+    /**
+     * Decoder Adapter: Provides unified interface for native BarcodeDetector and html5-qrcode fallback
+     * Selects native decoder at runtime when available, falls back to html5-qrcode otherwise
+     */
+    const DecoderAdapter = (function () {
+        let selectedBackend = null;
+        let detectorInstance = null;
+        let html5QrcodeInstance = null;
+        let decodeAnimationFrameId = null;
+        let lastDecodeTime = 0;
+        const THROTTLE_MS = 100;
+
+        // Format mapping: FORMAT_ALLOWLIST -> native BarcodeDetector format strings
+        const NATIVE_FORMAT_MAP = {
+            'EAN_13': 'ean_13',
+            'EAN_8': 'ean_8',
+            'UPC_A': 'upc_a',
+            'UPC_E': 'upc_e',
+            'CODE_128': 'code_128',
+            'CODE_39': 'code_39',
+            'CODE_93': 'code_93',
+            'ITF': 'itf',
+            'CODABAR': 'codabar',
+            'RSS_14': 'rss_14',
+            'QR_CODE': 'qr_code',
+            'DATA_MATRIX': 'data_matrix',
+            'PDF_417': 'pdf_417',
+            'AZTEC': 'aztec'
+        };
+
+        // Format mapping: FORMAT_ALLOWLIST -> html5-qrcode Html5QrcodeSupportedFormats
+        const HTML5_FORMAT_MAP = {
+            'EAN_13': 'EAN_13',
+            'EAN_8': 'EAN_8',
+            'UPC_A': 'UPC_A',
+            'UPC_E': 'UPC_E',
+            'CODE_128': 'CODE_128',
+            'CODE_39': 'CODE_39',
+            'CODE_93': 'CODE_93',
+            'ITF': 'ITF',
+            'CODABAR': 'CODABAR',
+            'RSS_14': 'RSS_14',
+            'QR_CODE': 'QR_CODE',
+            'DATA_MATRIX': 'DATA_MATRIX',
+            'PDF_417': 'PDF_417',
+            'AZTEC': 'AZTEC'
+        };
+
+        function getNativeFormats() {
+            return FORMAT_ALLOWLIST
+                .map(function (name) { return NATIVE_FORMAT_MAP[name]; })
+                .filter(function (format) { return format !== undefined; });
+        }
+
+        function getHtml5Formats() {
+            return FORMAT_ALLOWLIST
+                .map(function (name) { return HTML5_FORMAT_MAP[name]; })
+                .filter(function (format) { return format !== undefined; });
+        }
+
+        function startNativeDecoder(videoElement, onDecode, onError) {
+            detectorInstance = new BarcodeDetector({ formats: getNativeFormats() });
+            lastDecodeTime = 0;
+
+            function decodeLoop() {
+                const now = Date.now();
+                if (now - lastDecodeTime >= THROTTLE_MS) {
+                    lastDecodeTime = now;
+                    detectorInstance.detect(videoElement)
+                        .then(function (barcodes) {
+                            if (barcodes && barcodes.length > 0) {
+                                onDecode(barcodes[0].rawValue);
+                            }
+                        })
+                        .catch(function (error) {
+                            onError(error);
+                        });
+                }
+                if (selectedBackend === 'native') {
+                    decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
+                }
+            }
+
+            decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
+        }
+
+        function startFallbackDecoder(videoElement, onDecode, onError) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            lastDecodeTime = 0;
+
+            // Get the html5-qrcode library from window
+            if (typeof __Html5QrcodeLibrary__ === 'undefined') {
+                onError(new Error('html5-qrcode library not loaded'));
+                return;
+            }
+
+            function decodeLoop() {
+                const now = Date.now();
+                if (now - lastDecodeTime >= THROTTLE_MS) {
+                    lastDecodeTime = now;
+
+                    // Capture video frame to canvas
+                    canvas.width = videoElement.videoWidth;
+                    canvas.height = videoElement.videoHeight;
+                    try {
+                        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                    } catch (e) {
+                        // Ignore frame capture errors - video may not be ready
+                        if (selectedBackend === 'fallback') {
+                            decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
+                        }
+                        return;
+                    }
+
+                    // Use html5-qrcode decoder
+                    if (html5QrcodeInstance) {
+                        html5QrcodeInstance.decodeFromCanvas(canvas)
+                            .then(function (decodedText) {
+                                onDecode(decodedText.decodedText || decodedText);
+                            })
+                            .catch(function (error) {
+                                // Frame miss - silently continue
+                            });
+                    }
+                }
+
+                if (selectedBackend === 'fallback') {
+                    decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
+                }
+            }
+
+            // Initialize html5-qrcode decoder
+            try {
+                html5QrcodeInstance = new __Html5QrcodeLibrary__.Html5Qrcode(
+                    'pos-camera-video',
+                    { formatsToSupport: getHtml5Formats() }
+                );
+            } catch (e) {
+                onError(e);
+                return;
+            }
+
+            decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
+        }
+
+        function initialize(onDecode, onError) {
+            // Check for native BarcodeDetector
+            if ('BarcodeDetector' in window) {
+                try {
+                    const tempDetector = new BarcodeDetector({ formats: getNativeFormats() });
+                    BarcodeDetector.getSupportedFormats().then(function (formats) {
+                        const required = getNativeFormats();
+                        const hasAllFormats = required.every(function (format) {
+                            return formats.indexOf(format) !== -1;
+                        });
+
+                        if (hasAllFormats) {
+                            selectedBackend = 'native';
+                        } else {
+                            selectedBackend = 'fallback';
+                        }
+                        startDecoding(onDecode, onError);
+                    }).catch(function () {
+                        selectedBackend = 'fallback';
+                        startDecoding(onDecode, onError);
+                    });
+                } catch (e) {
+                    selectedBackend = 'fallback';
+                    startDecoding(onDecode, onError);
+                }
+            } else {
+                selectedBackend = 'fallback';
+                startDecoding(onDecode, onError);
+            }
+        }
+
+        function startDecoding(onDecode, onError) {
+            if (!videoElement) {
+                onError(new Error('Video element not available'));
+                return;
+            }
+
+            if (selectedBackend === 'native') {
+                startNativeDecoder(videoElement, onDecode, onError);
+            } else if (selectedBackend === 'fallback') {
+                startFallbackDecoder(videoElement, onDecode, onError);
+            }
+        }
+
+        return {
+            start: function (video, onDecode, onError) {
+                videoElement = video;
+                initialize(onDecode, onError);
+            },
+            stop: function () {
+                if (decodeAnimationFrameId !== null) {
+                    window.cancelAnimationFrame(decodeAnimationFrameId);
+                    decodeAnimationFrameId = null;
+                }
+                if (detectorInstance) {
+                    detectorInstance = null;
+                }
+                if (html5QrcodeInstance) {
+                    try {
+                        html5QrcodeInstance.stop();
+                    } catch (e) {}
+                    html5QrcodeInstance = null;
+                }
+                selectedBackend = null;
+            },
+            getBackendName: function () {
+                if (selectedBackend === 'native') {
+                    return 'BarcodeDetector (native)';
+                } else if (selectedBackend === 'fallback') {
+                    return 'html5-qrcode (fallback)';
+                }
+                return 'unknown';
+            }
+        };
+    })();
 
     const DEBUG_SCANNER = (function () {
         try {
@@ -136,7 +356,7 @@ window.PosCameraScanner = (function () {
     let statusHeadlineElement = null;
     let statusDetailElement = null;
     let debugPanelElement = null;
-    let decoderInstance = null;
+    let decoderAdapter = null;
     let cooldownTimer = null;
     let openRequestTimer = null;
     let videoReadinessTimer = null;
@@ -168,7 +388,8 @@ window.PosCameraScanner = (function () {
         lastNonFatalErrorMessage: '',
         lastFatalToken: '',
         lastFatalStage: '',
-        resolverInFlight: false
+        resolverInFlight: false,
+        decoderBackend: ''
     };
 
     function initialize() {
@@ -456,100 +677,41 @@ window.PosCameraScanner = (function () {
             return;
         }
 
-        if (typeof ZXing === 'undefined') {
-            const error = new Error('ZXing library not loaded');
-            logDiagnostics(FailureStages.DECODER_INIT, error);
-            state = States.DECODER_ERROR;
-            setSessionMessage(Messages.DECODER_ERROR, buildDebugDetail(Messages.DECODER_ERROR.detail));
-            retryButton.classList.remove('d-none');
-            updateDebugState({});
-            return;
-        }
-
         try {
-            const { BrowserMultiFormatReader, FormatException, NotFoundException, ChecksumException } = ZXing;
-
-            if (!BrowserMultiFormatReader || typeof BrowserMultiFormatReader !== 'function') {
-                const error = new Error('BrowserMultiFormatReader not found in ZXing');
-                logDiagnostics(FailureStages.DECODER_INVALID_API, error);
-                state = States.DECODER_ERROR;
-                setSessionMessage(Messages.DECODER_ERROR, buildDebugDetail(Messages.DECODER_ERROR.detail));
-                retryButton.classList.remove('d-none');
-                updateDebugState({});
-                return;
-            }
-
-            const formatEnumMap = {
-                EAN_13: ZXing.BarcodeFormat.EAN_13,
-                EAN_8: ZXing.BarcodeFormat.EAN_8,
-                UPC_A: ZXing.BarcodeFormat.UPC_A,
-                UPC_E: ZXing.BarcodeFormat.UPC_E,
-                CODE_128: ZXing.BarcodeFormat.CODE_128,
-                CODE_39: ZXing.BarcodeFormat.CODE_39,
-                CODE_93: ZXing.BarcodeFormat.CODE_93,
-                ITF: ZXing.BarcodeFormat.ITF,
-                CODABAR: ZXing.BarcodeFormat.CODABAR,
-                RSS_14: ZXing.BarcodeFormat.RSS_14,
-                QR_CODE: ZXing.BarcodeFormat.QR_CODE,
-                DATA_MATRIX: ZXing.BarcodeFormat.DATA_MATRIX,
-                PDF_417: ZXing.BarcodeFormat.PDF_417,
-                AZTEC: ZXing.BarcodeFormat.AZTEC
-            };
-
-            const formatEnums = FORMAT_ALLOWLIST
-                .map(function (name) { return formatEnumMap[name]; })
-                .filter(function (format) { return format !== undefined; });
-
-            const hints = new Map();
-            if (ENABLE_TRY_HARDER) {
-                hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-            }
-            if (USE_FORMAT_RESTRICTION && formatEnums.length > 0) {
-                hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formatEnums);
-            }
-
-            decoderInstance = new BrowserMultiFormatReader(hints);
-            decoderInstance.timeBetweenDecodingAttempts = DECODE_ATTEMPT_INTERVAL_MS;
-
             const currentNonce = ++decodeStartNonce;
-            decoderInstance.decodeFromVideoElement(videoElement, function (result, err) {
-                if (!sessionActive || currentNonce !== decodeStartNonce) {
-                    return;
-                }
 
-                if (result) {
-                    const formatName = result.getBarcodeFormat ? String(result.getBarcodeFormat()) : '';
+            decoderAdapter.start(
+                videoElement,
+                function (decodedValue) {
+                    // onDecode callback
+                    if (!sessionActive || currentNonce !== decodeStartNonce) {
+                        return;
+                    }
+
                     updateDebugState({
-                        lastDecodedText: result.getText(),
-                        lastDecodedFormat: formatName,
+                        lastDecodedText: decodedValue,
+                        lastDecodedFormat: '',
                         lastNonFatalErrorName: '',
-                        lastNonFatalErrorMessage: ''
+                        lastNonFatalErrorMessage: '',
+                        decoderBackend: decoderAdapter.getBackendName()
                     });
-                    handleDecodedValue(result.getText());
-                    return;
-                }
+                    handleDecodedValue(decodedValue);
+                },
+                function (error) {
+                    // onError callback
+                    if (!sessionActive || currentNonce !== decodeStartNonce) {
+                        return;
+                    }
 
-                if (!err) {
-                    return;
-                }
-
-                const isFrameMiss = err instanceof FormatException
-                    || err instanceof NotFoundException
-                    || err instanceof ChecksumException;
-
-                if (isFrameMiss) {
-                    updateDebugState({ frameMissCount: debugState.frameMissCount + 1 });
-                    return;
-                }
-
-                if (state !== States.CAMERA_ERROR && state !== States.DECODER_ERROR) {
-                    logDiagnostics(FailureStages.DECODE_PROCESSING, err);
+                    logDiagnostics(FailureStages.DECODE_PROCESSING, error);
                     updateDebugState({
-                        lastNonFatalErrorName: err.name || 'Error',
-                        lastNonFatalErrorMessage: err.message || String(err)
+                        lastNonFatalErrorName: error.name || 'Error',
+                        lastNonFatalErrorMessage: error.message || String(error)
                     });
                 }
-            });
+            );
+
+            updateDebugState({ decoderBackend: decoderAdapter.getBackendName() });
         } catch (error) {
             logDiagnostics(FailureStages.DECODER_INIT, error);
             state = States.DECODER_ERROR;
@@ -657,11 +819,10 @@ window.PosCameraScanner = (function () {
             return;
         }
 
-        if (decoderInstance) {
+        if (decoderAdapter) {
             try {
-                decoderInstance.reset();
+                decoderAdapter.stop();
             } catch (e) {}
-            decoderInstance = null;
         }
 
         startDecoding();
@@ -693,13 +854,12 @@ window.PosCameraScanner = (function () {
         sessionActive = false;
         decodeStartNonce += 1;
 
-        if (decoderInstance) {
+        if (decoderAdapter) {
             try {
-                decoderInstance.reset();
+                decoderAdapter.stop();
             } catch (error) {
-                console.warn('[PosCameraScanner] Error resetting decoder:', error);
+                console.warn('[PosCameraScanner] Error stopping decoder:', error);
             }
-            decoderInstance = null;
         }
 
         if (videoElement) {
@@ -851,6 +1011,7 @@ window.PosCameraScanner = (function () {
         debugState.lastFatalToken = '';
         debugState.lastFatalStage = '';
         debugState.resolverInFlight = false;
+        debugState.decoderBackend = '';
     }
 
     function updateDebugState(patch) {
@@ -909,6 +1070,7 @@ window.PosCameraScanner = (function () {
                 renderDebugRow('Settings', debugState.trackSettingsSummary || '—', true) +
                 renderDebugRow('Requested constraints', debugState.requestedPostStartConstraints || '—', true) +
                 renderDebugRow('Constraint results', debugState.postStartConstraintResults || '—', true) +
+                renderDebugRow('Decoder', debugState.decoderBackend || '—') +
                 renderDebugRow('Last text', debugState.lastDecodedText || '—', true) +
                 renderDebugRow('Last format', debugState.lastDecodedFormat || '—') +
                 renderDebugRow('Misses', String(debugState.frameMissCount)) +

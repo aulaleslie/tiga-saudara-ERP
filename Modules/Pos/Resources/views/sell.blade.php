@@ -1770,8 +1770,8 @@
     <script src="{{ asset('js/pos-staged-payment.js') }}"></script>
     <!-- Camera scanner module -->
     <script src="{{ asset('js/pos-camera-scanner.js') }}"></script>
-    <!-- ZXing barcode decoder library (pinned to 0.20.0 for stability) -->
-    <script src="{{ asset('vendor/zxing/index.min.js') }}"></script>
+    <!-- html5-qrcode barcode decoder library (fallback for browsers without native BarcodeDetector) -->
+    <script src="{{ asset('vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');
