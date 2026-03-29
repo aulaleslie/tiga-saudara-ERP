@@ -1,16 +1,19 @@
-## 1. Decode Regression Recovery
+## 1. Mobile Camera Telemetry Recovery
 
-- [x] 1.1 Compare the current `public/js/pos-camera-scanner.js` decode pipeline with the last known working mobile implementation and identify the smallest safe rollback that preserves the continuous session state machine.
-- [x] 1.2 Refactor the scanner decode path away from `decodeFromVideoElementContinuously(...)` if needed, while keeping the modal/session lifecycle, shared resolver contract, duplicate suppression, cooldown, and single in-flight submission behavior intact.
-- [x] 1.3 Remove `ASSUME_GS1`, restore ideal camera constraints to `1280x720`, and verify supported mobile formats still flow through the existing scan input and resolver path.
+- [x] 1.1 Extend `public/js/pos-camera-scanner.js` debug state so it records not only track label, but also relevant `getCapabilities()` and `getSettings()` summaries for the active video track.
+- [x] 1.2 Record requested post-start constraints and whether each `applyConstraints(...)` attempt succeeded, failed, or was unsupported, so mobile focus issues are diagnosable without devtools.
+- [x] 1.3 Update the optional in-modal debug surface in `Modules/Pos/Resources/views/sell.blade.php` so the new camera diagnostics remain readable on mobile devices.
 
-## 2. Mobile Debug Diagnostics
+## 2. ZXing-First Camera Pipeline Recovery
 
-- [x] 2.1 Add an optional in-modal debug helper in `Modules/Pos/Resources/views/sell.blade.php` and corresponding scanner styles so diagnostics stay readable but unobtrusive on mobile.
-- [x] 2.2 Extend `public/js/pos-camera-scanner.js` with a debug flag and runtime diagnostics model that exposes scanner state, stream attachment, video dimensions, track label, last decoded text and format, frame miss count, last non-fatal decode error, last fatal token/stage, and resolver in-flight state.
+- [x] 2.1 Keep ZXing as the decode engine, but separate camera acquisition from decode readiness so decoding starts only after the stream is attached, dimensions are known, playback is active, and post-start constraint attempts have completed.
+- [x] 2.2 Rework post-start camera handling in `public/js/pos-camera-scanner.js` to inspect supported capabilities and apply only meaningful advanced constraints such as focus-related settings and optional zoom when available.
+- [x] 2.3 Preserve the continuous-session UX, duplicate suppression, cooldown, and single in-flight resolver submission while restoring the previously working decode path if that remains the safest ZXing integration on mobile.
+- [x] 2.4 Revisit format restrictions and decode timing only after the camera stream is verifiably scan-grade, so decoder tuning is not used to mask a blurry preview problem.
 
-## 3. Verification
+## 3. Regression Verification
 
-- [x] 3.1 Update or add POS scanner coverage for the modified modal markup and any scanner-facing requirements that can be asserted from feature tests.
-- [x] 3.2 Add focused scanner logic verification for decode-path rollback behavior, duplicate suppression/re-arm invariants, and debug-state updates where the existing test tooling allows it.
-- [x] 3.3 Manually validate the mobile scanner on a real phone for QR, EAN-13, and CODE-128 decoding, including repeated scans in one session and debug-panel visibility when the flag is enabled.
+- [x] 3.1 Update or add scanner-facing tests for the expanded debug diagnostics and camera/decode lifecycle expectations where the current test tooling allows.
+- [x] 3.2 Add focused verification for the recovered ZXing path, including post-start constraint bookkeeping, duplicate suppression invariants, and decode re-arm behavior.
+- [ ] 3.3 Re-run manual validation on Samsung Galaxy A55 with the in-modal debug helper enabled, confirming whether preview sharpness, QR decode, and EAN-13 decode return after the camera-pipeline recovery.
+- [ ] 3.4 Compare the new manual validation results against the previous regression report and capture any remaining device-specific limitations before marking the change complete.

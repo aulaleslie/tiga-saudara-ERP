@@ -310,6 +310,39 @@ class POSSellShellScanUiTest extends TestCase
     }
 
     /**
+     * 3.1 + 3.2: Verify scanner JS exposes post-start camera diagnostics and scan-readiness gating.
+     * Assert the mobile recovery diagnostics are part of the shipped scanner source.
+     */
+    public function test_camera_scanner_js_tracks_capabilities_constraints_and_video_readiness(): void
+    {
+        $scannerPath = public_path('js/pos-camera-scanner.js');
+        $this->assertFileExists($scannerPath, 'Camera scanner JS file must exist');
+
+        $source = file_get_contents($scannerPath);
+
+        $this->assertStringContainsString('trackCapabilitiesSummary', $source,
+            'Scanner debug state must track active video-track capabilities');
+
+        $this->assertStringContainsString('trackSettingsSummary', $source,
+            'Scanner debug state must track active video-track settings');
+
+        $this->assertStringContainsString('requestedPostStartConstraints', $source,
+            'Scanner debug state must capture requested post-start constraints');
+
+        $this->assertStringContainsString('postStartConstraintResults', $source,
+            'Scanner debug state must capture post-start constraint outcomes');
+
+        $this->assertStringContainsString('waitForVideoReadiness', $source,
+            'Scanner pipeline must wait for video readiness before decode start');
+
+        $this->assertStringContainsString('applyPostStartVideoConstraints', $source,
+            'Scanner pipeline must apply post-start camera constraints before decode start');
+
+        $this->assertStringContainsString('isVideoScanReady', $source,
+            'Scanner must gate decode startup on a scan-ready video stream');
+    }
+
+    /**
      * 3.2: Verify re-arm and duplicate suppression constants are present in scanner JS source.
      * Assert: SAME_CODE_SUPPRESSION_MS and REARM_COOLDOWN_MS constants are defined.
      */
@@ -357,6 +390,9 @@ class POSSellShellScanUiTest extends TestCase
 
         $this->assertStringNotContainsString('pos-scanner-debug-panel is-active', $html,
             'Debug panel must not have is-active class in server-rendered HTML — it is JS-only');
+
+        $this->assertStringContainsString('pos-scanner-debug-grid', $html,
+            'Debug panel markup/styles must support readable multi-row diagnostics on mobile');
     }
 
     // --- Helpers ---

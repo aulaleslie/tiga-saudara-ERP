@@ -10,6 +10,8 @@ window.PosCameraScanner = (function () {
         IDLE: 'idle',
         OPENING: 'opening',
         STARTING_CAMERA: 'starting_camera',
+        WAITING_FOR_VIDEO: 'waiting_for_video',
+        APPLYING_CONSTRAINTS: 'applying_constraints',
         READY: 'ready',
         SUBMITTING: 'submitting',
         COOLDOWN: 'cooldown',
@@ -21,6 +23,9 @@ window.PosCameraScanner = (function () {
         CAMERA_PERMISSION: 'CAMERA_PERMISSION',
         CAMERA_UNAVAILABLE: 'CAMERA_UNAVAILABLE',
         CAMERA_BUSY: 'CAMERA_BUSY',
+        VIDEO_ATTACH: 'VIDEO_ATTACH',
+        VIDEO_PLAYBACK: 'VIDEO_PLAYBACK',
+        CONSTRAINTS: 'CONSTRAINTS',
         DECODER_INIT: 'DECODER_INIT',
         DECODER_INVALID_API: 'DECODER_INVALID_API',
         DECODE_PROCESSING: 'DECODE_PROCESSING'
@@ -38,6 +43,8 @@ window.PosCameraScanner = (function () {
     const DECODE_ATTEMPT_INTERVAL_MS = 16;
     const SAME_CODE_SUPPRESSION_MS = 1800;
     const REARM_COOLDOWN_MS = 450;
+    const CAMERA_BOOT_DELAY_MS = 240;
+    const VIDEO_READY_TIMEOUT_MS = 2400;
 
     const DEBUG_SCANNER = (function () {
         try {
@@ -132,19 +139,28 @@ window.PosCameraScanner = (function () {
     let decoderInstance = null;
     let cooldownTimer = null;
     let openRequestTimer = null;
+    let videoReadinessTimer = null;
     let lastFailureStage = null;
     let lastFailureToken = null;
     let submissionInFlight = false;
     let sessionActive = false;
     let lastAcceptedCode = null;
     let lastAcceptedAt = 0;
+    let decodeStartNonce = 0;
 
     const debugState = {
         scannerState: States.IDLE,
         streamAttached: false,
         videoWidth: 0,
         videoHeight: 0,
+        videoReady: false,
+        videoReadyState: 0,
+        playbackActive: false,
         trackLabel: '',
+        trackCapabilitiesSummary: '',
+        trackSettingsSummary: '',
+        requestedPostStartConstraints: '',
+        postStartConstraintResults: '',
         lastDecodedText: '',
         lastDecodedFormat: '',
         frameMissCount: 0,
@@ -186,6 +202,7 @@ window.PosCameraScanner = (function () {
             stopSession({ preserveModalState: true });
         });
 
+        resetDebugState();
         setSessionMessage(Messages.OPENING);
         state = States.IDLE;
         return true;
@@ -201,10 +218,11 @@ window.PosCameraScanner = (function () {
         lastAcceptedCode = null;
         lastAcceptedAt = 0;
         clearTimers();
+        resetDebugState();
         state = States.OPENING;
-        debugState.frameMissCount = 0;
         retryButton.classList.add('d-none');
         setSessionMessage(Messages.OPENING);
+        updateDebugState({});
 
         $(modalElement).modal('show');
 
@@ -212,7 +230,7 @@ window.PosCameraScanner = (function () {
             if (sessionActive) {
                 startCamera();
             }
-        }, 240);
+        }, CAMERA_BOOT_DELAY_MS);
     }
 
     function startCamera() {
@@ -222,6 +240,7 @@ window.PosCameraScanner = (function () {
 
         state = States.STARTING_CAMERA;
         setSessionMessage(Messages.OPENING);
+        updateDebugState({});
 
         const constraints = {
             video: {
@@ -235,46 +254,193 @@ window.PosCameraScanner = (function () {
         navigator.mediaDevices.getUserMedia(constraints)
             .then(function (stream) {
                 if (!sessionActive) {
-                    stream.getTracks().forEach(function (track) { track.stop(); });
+                    stopTracks(stream);
                     return;
                 }
 
                 mediaStream = stream;
-
-                videoElement.setAttribute('playsinline', 'true');
-                videoElement.setAttribute('autoplay', 'true');
-                videoElement.setAttribute('muted', 'true');
-                videoElement.muted = true;
-                videoElement.srcObject = stream;
-                updateDebugState({});
-
-                const videoTrack = stream.getVideoTracks && stream.getVideoTracks()[0];
-                if (videoTrack && typeof videoTrack.getCapabilities === 'function') {
-                    const caps = videoTrack.getCapabilities() || {};
-                    const advanced = {};
-
-                    if (Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous')) {
-                        advanced.focusMode = 'continuous';
-                    }
-                    if (Array.isArray(caps.exposureMode) && caps.exposureMode.includes('continuous')) {
-                        advanced.exposureMode = 'continuous';
-                    }
-                    if (Object.keys(advanced).length > 0 && typeof videoTrack.applyConstraints === 'function') {
-                        videoTrack.applyConstraints({ advanced: [advanced] }).catch(function () {});
-                    }
-                }
-
-                videoElement.onloadedmetadata = function () {
-                    if (!sessionActive) {
-                        return;
-                    }
-
-                    videoElement.play().catch(function () {});
-                    armScanner();
-                };
+                attachVideoStream(stream);
+                updateTrackDiagnostics();
+                waitForVideoReadiness()
+                    .then(function () {
+                        return applyPostStartVideoConstraints();
+                    })
+                    .then(function () {
+                        armScanner();
+                    })
+                    .catch(function (error) {
+                        handleVideoPipelineError(error);
+                    });
             })
             .catch(function (error) {
                 handleCameraError(error);
+            });
+    }
+
+    function attachVideoStream(stream) {
+        state = States.WAITING_FOR_VIDEO;
+        videoElement.setAttribute('playsinline', 'true');
+        videoElement.setAttribute('autoplay', 'true');
+        videoElement.setAttribute('muted', 'true');
+        videoElement.muted = true;
+        videoElement.srcObject = stream;
+        updateDebugState({});
+    }
+
+    function waitForVideoReadiness() {
+        return new Promise(function (resolve, reject) {
+            let settled = false;
+
+            function finish(callback, value) {
+                if (settled) {
+                    return;
+                }
+
+                settled = true;
+                if (videoReadinessTimer) {
+                    window.clearTimeout(videoReadinessTimer);
+                    videoReadinessTimer = null;
+                }
+                videoElement.onloadedmetadata = null;
+                videoElement.onplaying = null;
+                callback(value);
+            }
+
+            function maybeReady() {
+                if (!sessionActive || !videoElement) {
+                    finish(reject, new Error('Scanner session ended before video became ready'));
+                    return;
+                }
+
+                const hasDimensions = videoElement.videoWidth > 0 && videoElement.videoHeight > 0;
+                const isPlaying = !videoElement.paused && !videoElement.ended;
+                const hasEnoughData = videoElement.readyState >= 2;
+
+                updateDebugState({
+                    videoReady: hasDimensions && isPlaying && hasEnoughData,
+                    playbackActive: isPlaying
+                });
+
+                if (hasDimensions && isPlaying && hasEnoughData) {
+                    finish(resolve);
+                }
+            }
+
+            videoElement.onloadedmetadata = function () {
+                const playPromise = videoElement.play();
+                if (playPromise && typeof playPromise.then === 'function') {
+                    playPromise.then(function () {
+                        maybeReady();
+                    }).catch(function (error) {
+                        error._scannerStage = FailureStages.VIDEO_PLAYBACK;
+                        finish(reject, error);
+                    });
+                } else {
+                    maybeReady();
+                }
+            };
+
+            videoElement.onplaying = maybeReady;
+            videoReadinessTimer = window.setTimeout(function () {
+                const error = new Error('Timed out waiting for scan-ready video playback');
+                error._scannerStage = FailureStages.VIDEO_ATTACH;
+                finish(reject, error);
+            }, VIDEO_READY_TIMEOUT_MS);
+
+            if (videoElement.readyState >= 1) {
+                videoElement.onloadedmetadata();
+            }
+        });
+    }
+
+    function applyPostStartVideoConstraints() {
+        if (!sessionActive || !mediaStream) {
+            return Promise.resolve();
+        }
+
+        state = States.APPLYING_CONSTRAINTS;
+        updateTrackDiagnostics();
+        updateDebugState({});
+
+        const videoTrack = getActiveVideoTrack();
+        if (!videoTrack) {
+            recordConstraintAttempt('track-missing', null, 'unsupported', 'No active video track');
+            return Promise.resolve();
+        }
+
+        const capabilities = getTrackCapabilities(videoTrack);
+        const attempts = buildPostStartConstraintAttempts(capabilities);
+
+        if (attempts.length === 0) {
+            recordConstraintAttempt('no-supported-advanced-constraints', null, 'unsupported', 'No meaningful post-start constraints exposed');
+            return Promise.resolve();
+        }
+
+        return attempts.reduce(function (chain, attempt) {
+            return chain.then(function () {
+                return applyConstraintAttempt(videoTrack, attempt);
+            });
+        }, Promise.resolve()).finally(function () {
+            updateTrackDiagnostics();
+            updateDebugState({});
+        });
+    }
+
+    function buildPostStartConstraintAttempts(capabilities) {
+        const attempts = [];
+        const advanced = {};
+
+        if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes('continuous')) {
+            advanced.focusMode = 'continuous';
+        }
+        if (Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes('continuous')) {
+            advanced.exposureMode = 'continuous';
+        }
+        if (Array.isArray(capabilities.whiteBalanceMode) && capabilities.whiteBalanceMode.includes('continuous')) {
+            advanced.whiteBalanceMode = 'continuous';
+        }
+
+        if (Object.keys(advanced).length > 0) {
+            attempts.push({
+                label: 'advanced',
+                constraints: { advanced: [advanced] }
+            });
+        }
+
+        if (typeof capabilities.zoom === 'object' && capabilities.zoom) {
+            const minZoom = Number(capabilities.zoom.min);
+            const maxZoom = Number(capabilities.zoom.max);
+            if (Number.isFinite(minZoom) && Number.isFinite(maxZoom) && maxZoom > minZoom) {
+                const desiredZoom = Math.min(maxZoom, Math.max(minZoom, Math.min(2, minZoom + (maxZoom - minZoom) * 0.35)));
+                attempts.push({
+                    label: 'zoom',
+                    constraints: { advanced: [{ zoom: roundNumber(desiredZoom) }] }
+                });
+            }
+        }
+
+        return attempts;
+    }
+
+    function applyConstraintAttempt(videoTrack, attempt) {
+        if (typeof videoTrack.applyConstraints !== 'function') {
+            recordConstraintAttempt(attempt.label, attempt.constraints, 'unsupported', 'applyConstraints unavailable');
+            return Promise.resolve();
+        }
+
+        recordConstraintAttempt(attempt.label, attempt.constraints, 'requested', '');
+
+        return videoTrack.applyConstraints(attempt.constraints)
+            .then(function () {
+                recordConstraintAttempt(attempt.label, attempt.constraints, 'applied', '');
+            })
+            .catch(function (error) {
+                recordConstraintAttempt(
+                    attempt.label,
+                    attempt.constraints,
+                    'failed',
+                    error && error.message ? error.message : String(error)
+                );
             });
     }
 
@@ -283,7 +449,7 @@ window.PosCameraScanner = (function () {
             return;
         }
 
-        if (videoElement.readyState < 1) {
+        if (!isVideoScanReady()) {
             openRequestTimer = window.setTimeout(function () {
                 startDecoding();
             }, 120);
@@ -296,18 +462,20 @@ window.PosCameraScanner = (function () {
             state = States.DECODER_ERROR;
             setSessionMessage(Messages.DECODER_ERROR, buildDebugDetail(Messages.DECODER_ERROR.detail));
             retryButton.classList.remove('d-none');
+            updateDebugState({});
             return;
         }
 
         try {
-            const { BrowserMultiFormatReader, FormatException, NotFoundException } = ZXing;
+            const { BrowserMultiFormatReader, FormatException, NotFoundException, ChecksumException } = ZXing;
 
-            if (!BrowserMultiFormatReader) {
+            if (!BrowserMultiFormatReader || typeof BrowserMultiFormatReader !== 'function') {
                 const error = new Error('BrowserMultiFormatReader not found in ZXing');
                 logDiagnostics(FailureStages.DECODER_INVALID_API, error);
                 state = States.DECODER_ERROR;
                 setSessionMessage(Messages.DECODER_ERROR, buildDebugDetail(Messages.DECODER_ERROR.detail));
                 retryButton.classList.remove('d-none');
+                updateDebugState({});
                 return;
             }
 
@@ -343,49 +511,51 @@ window.PosCameraScanner = (function () {
             decoderInstance = new BrowserMultiFormatReader(hints);
             decoderInstance.timeBetweenDecodingAttempts = DECODE_ATTEMPT_INTERVAL_MS;
 
-            const decodePromise = decoderInstance.decodeFromVideoElement(videoElement, function (result, err) {
-                if (!sessionActive) {
+            const currentNonce = ++decodeStartNonce;
+            decoderInstance.decodeFromVideoElement(videoElement, function (result, err) {
+                if (!sessionActive || currentNonce !== decodeStartNonce) {
                     return;
                 }
 
                 if (result) {
                     const formatName = result.getBarcodeFormat ? String(result.getBarcodeFormat()) : '';
-                    updateDebugState({ lastDecodedText: result.getText(), lastDecodedFormat: formatName });
+                    updateDebugState({
+                        lastDecodedText: result.getText(),
+                        lastDecodedFormat: formatName,
+                        lastNonFatalErrorName: '',
+                        lastNonFatalErrorMessage: ''
+                    });
                     handleDecodedValue(result.getText());
                     return;
                 }
 
-                if (err) {
-                    const isFrameMiss = err instanceof FormatException || err instanceof NotFoundException;
-                    if (isFrameMiss) {
-                        updateDebugState({ frameMissCount: debugState.frameMissCount + 1 });
-                    } else if (state !== States.CAMERA_ERROR && state !== States.DECODER_ERROR) {
-                        logDiagnostics(FailureStages.DECODE_PROCESSING, err);
-                        updateDebugState({
-                            lastNonFatalErrorName: err.name || 'Error',
-                            lastNonFatalErrorMessage: err.message || String(err)
-                        });
-                    }
+                if (!err) {
+                    return;
+                }
+
+                const isFrameMiss = err instanceof FormatException
+                    || err instanceof NotFoundException
+                    || err instanceof ChecksumException;
+
+                if (isFrameMiss) {
+                    updateDebugState({ frameMissCount: debugState.frameMissCount + 1 });
+                    return;
+                }
+
+                if (state !== States.CAMERA_ERROR && state !== States.DECODER_ERROR) {
+                    logDiagnostics(FailureStages.DECODE_PROCESSING, err);
+                    updateDebugState({
+                        lastNonFatalErrorName: err.name || 'Error',
+                        lastNonFatalErrorMessage: err.message || String(err)
+                    });
                 }
             });
-
-            if (decodePromise && typeof decodePromise.catch === 'function') {
-                decodePromise.catch(function (error) {
-                    if (!sessionActive) {
-                        return;
-                    }
-
-                    if (error && error.message && !error.message.includes('stream has ended')) {
-                        logDiagnostics(FailureStages.DECODE_PROCESSING, error);
-                        setSessionMessage(Messages.DECODE_ERROR, buildDebugDetail(Messages.DECODE_ERROR.detail));
-                    }
-                });
-            }
         } catch (error) {
             logDiagnostics(FailureStages.DECODER_INIT, error);
             state = States.DECODER_ERROR;
             setSessionMessage(Messages.DECODER_ERROR, buildDebugDetail(Messages.DECODER_ERROR.detail));
             retryButton.classList.remove('d-none');
+            updateDebugState({});
         }
     }
 
@@ -415,6 +585,7 @@ window.PosCameraScanner = (function () {
             lastAcceptedAt = now;
             state = States.COOLDOWN;
             setSessionMessage(Messages.OVER_LIMIT);
+            updateDebugState({});
             scheduleRearm();
             return;
         }
@@ -423,6 +594,7 @@ window.PosCameraScanner = (function () {
             logDiagnostics(FailureStages.DECODE_PROCESSING, new Error('executeScanResolve not available'));
             state = States.DECODER_ERROR;
             setSessionMessage(Messages.RESOLVER_ERROR, buildDebugDetail(Messages.RESOLVER_ERROR.detail));
+            updateDebugState({});
             return;
         }
 
@@ -462,6 +634,7 @@ window.PosCameraScanner = (function () {
     function scheduleRearm() {
         clearCooldownTimer();
         state = States.COOLDOWN;
+        updateDebugState({});
         cooldownTimer = window.setTimeout(function () {
             armScanner();
         }, REARM_COOLDOWN_MS);
@@ -499,6 +672,7 @@ window.PosCameraScanner = (function () {
         sessionActive = true;
         retryButton.classList.add('d-none');
         setSessionMessage(Messages.OPENING);
+        updateDebugState({});
         openRequestTimer = window.setTimeout(function () {
             if (sessionActive) {
                 startCamera();
@@ -517,6 +691,7 @@ window.PosCameraScanner = (function () {
         clearTimers();
         submissionInFlight = false;
         sessionActive = false;
+        decodeStartNonce += 1;
 
         if (decoderInstance) {
             try {
@@ -531,23 +706,19 @@ window.PosCameraScanner = (function () {
             videoElement.pause();
             videoElement.srcObject = null;
             videoElement.onloadedmetadata = null;
+            videoElement.onplaying = null;
         }
 
         if (mediaStream) {
-            mediaStream.getTracks().forEach(function (track) {
-                try {
-                    track.stop();
-                } catch (error) {
-                    console.warn('[PosCameraScanner] Error stopping track:', error);
-                }
-            });
+            stopTracks(mediaStream);
             mediaStream = null;
         }
 
         state = States.IDLE;
         lastAcceptedCode = null;
         lastAcceptedAt = 0;
-        updateDebugState({ trackLabel: '', streamAttached: false, videoWidth: 0, videoHeight: 0 });
+        resetDebugState();
+        updateDebugState({});
 
         if (!preserveModalState) {
             retryButton.classList.add('d-none');
@@ -574,6 +745,16 @@ window.PosCameraScanner = (function () {
         state = States.CAMERA_ERROR;
         setSessionMessage(message, buildDebugDetail(message.detail));
         retryButton.classList.remove('d-none');
+        updateDebugState({});
+    }
+
+    function handleVideoPipelineError(error) {
+        const stage = error && error._scannerStage ? error._scannerStage : FailureStages.CONSTRAINTS;
+        logDiagnostics(stage, error);
+        state = States.CAMERA_ERROR;
+        setSessionMessage(Messages.CAMERA_UNAVAILABLE, buildDebugDetail(Messages.CAMERA_UNAVAILABLE.detail));
+        retryButton.classList.remove('d-none');
+        updateDebugState({});
     }
 
     function mirrorValueToSearchInput(value) {
@@ -606,6 +787,10 @@ window.PosCameraScanner = (function () {
         if (openRequestTimer) {
             window.clearTimeout(openRequestTimer);
             openRequestTimer = null;
+        }
+        if (videoReadinessTimer) {
+            window.clearTimeout(videoReadinessTimer);
+            videoReadinessTimer = null;
         }
     }
 
@@ -645,6 +830,29 @@ window.PosCameraScanner = (function () {
         return message + ' [' + lastFailureStage + ':' + lastFailureToken + ']';
     }
 
+    function resetDebugState() {
+        debugState.scannerState = States.IDLE;
+        debugState.streamAttached = false;
+        debugState.videoWidth = 0;
+        debugState.videoHeight = 0;
+        debugState.videoReady = false;
+        debugState.videoReadyState = 0;
+        debugState.playbackActive = false;
+        debugState.trackLabel = '';
+        debugState.trackCapabilitiesSummary = '';
+        debugState.trackSettingsSummary = '';
+        debugState.requestedPostStartConstraints = '';
+        debugState.postStartConstraintResults = '';
+        debugState.lastDecodedText = '';
+        debugState.lastDecodedFormat = '';
+        debugState.frameMissCount = 0;
+        debugState.lastNonFatalErrorName = '';
+        debugState.lastNonFatalErrorMessage = '';
+        debugState.lastFatalToken = '';
+        debugState.lastFatalStage = '';
+        debugState.resolverInFlight = false;
+    }
+
     function updateDebugState(patch) {
         if (!DEBUG_SCANNER) {
             return;
@@ -656,33 +864,206 @@ window.PosCameraScanner = (function () {
         debugState.streamAttached = !!(videoElement && videoElement.srcObject);
         debugState.videoWidth = videoElement ? videoElement.videoWidth : 0;
         debugState.videoHeight = videoElement ? videoElement.videoHeight : 0;
+        debugState.videoReadyState = videoElement ? videoElement.readyState : 0;
+        debugState.playbackActive = !!(videoElement && !videoElement.paused && !videoElement.ended);
+        debugState.videoReady = isVideoScanReady();
         debugState.resolverInFlight = submissionInFlight;
 
         if (mediaStream) {
-            const tracks = mediaStream.getVideoTracks();
-            debugState.trackLabel = tracks.length > 0 ? (tracks[0].label || '') : '';
+            updateTrackDiagnostics();
         }
 
         renderDebugPanel();
     }
 
+    function updateTrackDiagnostics() {
+        const videoTrack = getActiveVideoTrack();
+        if (!videoTrack) {
+            debugState.trackLabel = '';
+            debugState.trackCapabilitiesSummary = '';
+            debugState.trackSettingsSummary = '';
+            return;
+        }
+
+        debugState.trackLabel = videoTrack.label || '';
+        debugState.trackCapabilitiesSummary = stringifyTrackInfo(getTrackCapabilities(videoTrack));
+        debugState.trackSettingsSummary = stringifyTrackInfo(getTrackSettings(videoTrack));
+    }
+
     function renderDebugPanel() {
-        if (!debugPanelElement) {
+        if (!debugPanelElement || !DEBUG_SCANNER) {
             return;
         }
 
         debugPanelElement.classList.add('is-active');
+        debugPanelElement.setAttribute('aria-hidden', 'false');
         debugPanelElement.innerHTML =
-            '<div class="pos-scanner-debug-row"><span>State</span><span>' + debugState.scannerState + '</span></div>' +
-            '<div class="pos-scanner-debug-row"><span>Stream</span><span>' + (debugState.streamAttached ? 'attached' : 'none') + '</span></div>' +
-            '<div class="pos-scanner-debug-row"><span>Video</span><span>' + debugState.videoWidth + 'x' + debugState.videoHeight + '</span></div>' +
-            '<div class="pos-scanner-debug-row"><span>Track</span><span>' + (debugState.trackLabel || '—') + '</span></div>' +
-            '<div class="pos-scanner-debug-row"><span>Last text</span><span>' + (debugState.lastDecodedText || '—') + '</span></div>' +
-            '<div class="pos-scanner-debug-row"><span>Last format</span><span>' + (debugState.lastDecodedFormat || '—') + '</span></div>' +
-            '<div class="pos-scanner-debug-row"><span>Misses</span><span>' + debugState.frameMissCount + '</span></div>' +
-            '<div class="pos-scanner-debug-row"><span>Non-fatal err</span><span>' + (debugState.lastNonFatalErrorName ? debugState.lastNonFatalErrorName + ': ' + debugState.lastNonFatalErrorMessage : '—') + '</span></div>' +
-            '<div class="pos-scanner-debug-row"><span>Fatal</span><span>' + (debugState.lastFatalStage ? debugState.lastFatalStage + ' ' + debugState.lastFatalToken : '—') + '</span></div>' +
-            '<div class="pos-scanner-debug-row"><span>In-flight</span><span>' + (debugState.resolverInFlight ? 'yes' : 'no') + '</span></div>';
+            '<div class="pos-scanner-debug-grid">' +
+                renderDebugRow('State', debugState.scannerState) +
+                renderDebugRow('Stream', debugState.streamAttached ? 'attached' : 'none') +
+                renderDebugRow('Video', debugState.videoWidth + 'x' + debugState.videoHeight) +
+                renderDebugRow('Ready', debugState.videoReady ? 'yes' : 'no') +
+                renderDebugRow('Playback', debugState.playbackActive ? 'active' : 'idle') +
+                renderDebugRow('Track', debugState.trackLabel || '—') +
+                renderDebugRow('Capabilities', debugState.trackCapabilitiesSummary || '—', true) +
+                renderDebugRow('Settings', debugState.trackSettingsSummary || '—', true) +
+                renderDebugRow('Requested constraints', debugState.requestedPostStartConstraints || '—', true) +
+                renderDebugRow('Constraint results', debugState.postStartConstraintResults || '—', true) +
+                renderDebugRow('Last text', debugState.lastDecodedText || '—', true) +
+                renderDebugRow('Last format', debugState.lastDecodedFormat || '—') +
+                renderDebugRow('Misses', String(debugState.frameMissCount)) +
+                renderDebugRow(
+                    'Non-fatal err',
+                    debugState.lastNonFatalErrorName
+                        ? debugState.lastNonFatalErrorName + ': ' + debugState.lastNonFatalErrorMessage
+                        : '—',
+                    true
+                ) +
+                renderDebugRow(
+                    'Fatal',
+                    debugState.lastFatalStage ? debugState.lastFatalStage + ' ' + debugState.lastFatalToken : '—'
+                ) +
+                renderDebugRow('In-flight', debugState.resolverInFlight ? 'yes' : 'no') +
+            '</div>';
+    }
+
+    function renderDebugRow(label, value, wrapValue) {
+        return '<div class="pos-scanner-debug-row' + (wrapValue ? ' is-wrap' : '') + '">' +
+            '<span>' + escapeHtml(label) + '</span>' +
+            '<span>' + escapeHtml(value) + '</span>' +
+        '</div>';
+    }
+
+    function getActiveVideoTrack() {
+        if (!mediaStream || typeof mediaStream.getVideoTracks !== 'function') {
+            return null;
+        }
+
+        const tracks = mediaStream.getVideoTracks();
+        return tracks.length > 0 ? tracks[0] : null;
+    }
+
+    function getTrackCapabilities(videoTrack) {
+        if (!videoTrack || typeof videoTrack.getCapabilities !== 'function') {
+            return {};
+        }
+
+        try {
+            return videoTrack.getCapabilities() || {};
+        } catch (error) {
+            return { unavailable: error && error.message ? error.message : 'getCapabilities failed' };
+        }
+    }
+
+    function getTrackSettings(videoTrack) {
+        if (!videoTrack || typeof videoTrack.getSettings !== 'function') {
+            return {};
+        }
+
+        try {
+            return videoTrack.getSettings() || {};
+        } catch (error) {
+            return { unavailable: error && error.message ? error.message : 'getSettings failed' };
+        }
+    }
+
+    function stringifyTrackInfo(input) {
+        if (!input || typeof input !== 'object') {
+            return '';
+        }
+
+        const summary = {};
+        Object.keys(input).forEach(function (key) {
+            const value = input[key];
+            if (value === undefined || value === null || value === '') {
+                return;
+            }
+
+            if (Array.isArray(value)) {
+                if (value.length > 0) {
+                    summary[key] = value.slice(0, 5);
+                }
+                return;
+            }
+
+            if (typeof value === 'object') {
+                const nested = {};
+                ['min', 'max', 'step', 'ideal', 'exact'].forEach(function (nestedKey) {
+                    if (value[nestedKey] !== undefined && value[nestedKey] !== null) {
+                        nested[nestedKey] = value[nestedKey];
+                    }
+                });
+                if (Object.keys(nested).length > 0) {
+                    summary[key] = nested;
+                }
+                return;
+            }
+
+            summary[key] = value;
+        });
+
+        try {
+            return JSON.stringify(summary);
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function recordConstraintAttempt(label, constraints, status, message) {
+        const requested = debugState.requestedPostStartConstraints
+            ? debugState.requestedPostStartConstraints.split('\n')
+            : [];
+        const results = debugState.postStartConstraintResults
+            ? debugState.postStartConstraintResults.split('\n')
+            : [];
+
+        if (constraints) {
+            requested.push(label + ': ' + JSON.stringify(constraints));
+        } else if (!requested.length) {
+            requested.push(label);
+        }
+
+        results.push(label + ': ' + status + (message ? ' (' + message + ')' : ''));
+
+        updateDebugState({
+            requestedPostStartConstraints: requested.join('\n'),
+            postStartConstraintResults: results.join('\n')
+        });
+    }
+
+    function isVideoScanReady() {
+        return !!(
+            videoElement
+            && videoElement.srcObject
+            && videoElement.videoWidth > 0
+            && videoElement.videoHeight > 0
+            && videoElement.readyState >= 2
+            && !videoElement.paused
+            && !videoElement.ended
+        );
+    }
+
+    function stopTracks(stream) {
+        stream.getTracks().forEach(function (track) {
+            try {
+                track.stop();
+            } catch (error) {
+                console.warn('[PosCameraScanner] Error stopping track:', error);
+            }
+        });
+    }
+
+    function roundNumber(value) {
+        return Math.round(value * 100) / 100;
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     return {
