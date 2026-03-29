@@ -1741,6 +1741,7 @@
                     <div id="pos-camera-scanner-body" class="pos-camera-scanner-body">
                         <div class="pos-camera-preview-shell">
                             <video id="pos-camera-video" class="pos-camera-video"></video>
+                            <div id="pos-html5qrcode-container" class="pos-camera-video" style="display:none;"></div>
                             <div class="pos-camera-scan-lane" aria-hidden="true"></div>
                             <div class="pos-camera-guide-copy" aria-hidden="true">Posisikan barcode di dalam jalur scan untuk pemindaian beruntun.</div>
                         </div>

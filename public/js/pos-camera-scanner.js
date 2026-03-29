@@ -74,24 +74,6 @@ window.PosCameraScanner = (function () {
             'AZTEC': 'aztec'
         };
 
-        // Format mapping: FORMAT_ALLOWLIST -> html5-qrcode Html5QrcodeSupportedFormats
-        const HTML5_FORMAT_MAP = {
-            'EAN_13': 'EAN_13',
-            'EAN_8': 'EAN_8',
-            'UPC_A': 'UPC_A',
-            'UPC_E': 'UPC_E',
-            'CODE_128': 'CODE_128',
-            'CODE_39': 'CODE_39',
-            'CODE_93': 'CODE_93',
-            'ITF': 'ITF',
-            'CODABAR': 'CODABAR',
-            'RSS_14': 'RSS_14',
-            'QR_CODE': 'QR_CODE',
-            'DATA_MATRIX': 'DATA_MATRIX',
-            'PDF_417': 'PDF_417',
-            'AZTEC': 'AZTEC'
-        };
-
         function getNativeFormats() {
             return FORMAT_ALLOWLIST
                 .map(function (name) { return NATIVE_FORMAT_MAP[name]; })
@@ -108,14 +90,11 @@ window.PosCameraScanner = (function () {
             }
 
             if (!SupportedFormats) {
-                // Library not loaded yet; return string names as last resort
-                return FORMAT_ALLOWLIST
-                    .map(function (name) { return HTML5_FORMAT_MAP[name]; })
-                    .filter(function (format) { return format !== undefined; });
+                return [];
             }
 
             return FORMAT_ALLOWLIST
-                .map(function (name) { return SupportedFormats[HTML5_FORMAT_MAP[name]]; })
+                .map(function (name) { return SupportedFormats[name]; })
                 .filter(function (format) { return format !== undefined; });
         }
 
@@ -145,12 +124,12 @@ window.PosCameraScanner = (function () {
             decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
         }
 
-        function startFallbackDecoder(videoElement, onDecode, onError) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            lastDecodeTime = 0;
-
-            // Get the html5-qrcode library from window global
+        /**
+         * Start fallback scanner using html5-qrcode library.
+         * html5-qrcode manages its own camera stream and renders into a container div.
+         * The containerId must be a visible element in the DOM.
+         */
+        function startFallbackScanner(containerId, onDecode, onError) {
             var Html5Qrcode;
             if (typeof window.__Html5QrcodeLibrary__ !== 'undefined') {
                 Html5Qrcode = window.__Html5QrcodeLibrary__.Html5Qrcode;
@@ -161,103 +140,69 @@ window.PosCameraScanner = (function () {
                 return;
             }
 
-            // Initialize html5-qrcode decoder
+            var formats = getHtml5Formats();
+            var config = formats.length > 0
+                ? { formatsToSupport: formats, verbose: false }
+                : { verbose: false };
+
             try {
-                html5QrcodeInstance = new Html5Qrcode(
-                    'pos-camera-video',
-                    { formatsToSupport: getHtml5Formats() }
-                );
+                html5QrcodeInstance = new Html5Qrcode(containerId, config);
             } catch (e) {
-                onError(e);
+                onError(e instanceof Error ? e : new Error(String(e)));
                 return;
             }
 
-            function decodeLoop() {
-                const now = Date.now();
-                if (now - lastDecodeTime >= THROTTLE_MS) {
-                    lastDecodeTime = now;
+            html5QrcodeInstance.start(
+                { facingMode: 'environment' },
+                { fps: 10, disableFlip: false },
+                function (decodedText) {
+                    onDecode(decodedText);
+                },
+                function () {
+                    // Frame miss — silently continue
+                }
+            ).catch(function (error) {
+                onError(error instanceof Error ? error : new Error(String(error)));
+            });
+        }
 
-                    // Capture video frame to canvas
-                    canvas.width = videoElement.videoWidth;
-                    canvas.height = videoElement.videoHeight;
+        /**
+         * Detect which backend to use. Returns a Promise resolving to 'native' or 'fallback'.
+         */
+        function selectBackend() {
+            return new Promise(function (resolve) {
+                if ('BarcodeDetector' in window) {
                     try {
-                        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                    } catch (e) {
-                        // Ignore frame capture errors - video may not be ready
-                        if (selectedBackend === 'fallback') {
-                            decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
-                        }
-                        return;
-                    }
-
-                    // Use html5-qrcode decoder
-                    if (html5QrcodeInstance) {
-                        html5QrcodeInstance.decodeFromCanvas(canvas)
-                            .then(function (decodedText) {
-                                onDecode(decodedText.decodedText || decodedText);
-                            })
-                            .catch(function (error) {
-                                // Frame miss - silently continue
+                        new BarcodeDetector({ formats: getNativeFormats() });
+                        BarcodeDetector.getSupportedFormats().then(function (formats) {
+                            var required = getNativeFormats();
+                            var hasAll = required.every(function (f) {
+                                return formats.indexOf(f) !== -1;
                             });
-                    }
-                }
-
-                if (selectedBackend === 'fallback') {
-                    decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
-                }
-            }
-
-            decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
-        }
-
-        function initialize(onDecode, onError) {
-            // Check for native BarcodeDetector
-            if ('BarcodeDetector' in window) {
-                try {
-                    const tempDetector = new BarcodeDetector({ formats: getNativeFormats() });
-                    BarcodeDetector.getSupportedFormats().then(function (formats) {
-                        const required = getNativeFormats();
-                        const hasAllFormats = required.every(function (format) {
-                            return formats.indexOf(format) !== -1;
-                        });
-
-                        if (hasAllFormats) {
-                            selectedBackend = 'native';
-                        } else {
+                            selectedBackend = hasAll ? 'native' : 'fallback';
+                            resolve(selectedBackend);
+                        }).catch(function () {
                             selectedBackend = 'fallback';
-                        }
-                        startDecoding(onDecode, onError);
-                    }).catch(function () {
+                            resolve(selectedBackend);
+                        });
+                    } catch (e) {
                         selectedBackend = 'fallback';
-                        startDecoding(onDecode, onError);
-                    });
-                } catch (e) {
+                        resolve(selectedBackend);
+                    }
+                } else {
                     selectedBackend = 'fallback';
-                    startDecoding(onDecode, onError);
+                    resolve(selectedBackend);
                 }
-            } else {
-                selectedBackend = 'fallback';
-                startDecoding(onDecode, onError);
-            }
-        }
-
-        function startDecoding(onDecode, onError) {
-            if (!videoElement) {
-                onError(new Error('Video element not available'));
-                return;
-            }
-
-            if (selectedBackend === 'native') {
-                startNativeDecoder(videoElement, onDecode, onError);
-            } else if (selectedBackend === 'fallback') {
-                startFallbackDecoder(videoElement, onDecode, onError);
-            }
+            });
         }
 
         return {
-            start: function (video, onDecode, onError) {
-                videoElement = video;
-                initialize(onDecode, onError);
+            selectBackend: selectBackend,
+            startNative: function (video, onDecode, onError) {
+                startNativeDecoder(video, onDecode, onError);
+            },
+            startFallback: function (containerId, onDecode, onError) {
+                startFallbackScanner(containerId, onDecode, onError);
             },
             stop: function () {
                 if (decodeAnimationFrameId !== null) {
@@ -273,7 +218,7 @@ window.PosCameraScanner = (function () {
                     } catch (e) {}
                     html5QrcodeInstance = null;
                 }
-                selectedBackend = null;
+                // Don't reset selectedBackend — it persists across retry cycles
             },
             getBackendName: function () {
                 if (selectedBackend === 'native') {
@@ -282,6 +227,9 @@ window.PosCameraScanner = (function () {
                     return 'html5-qrcode (fallback)';
                 }
                 return 'unknown';
+            },
+            getSelectedBackend: function () {
+                return selectedBackend;
             }
         };
     })();
@@ -376,7 +324,8 @@ window.PosCameraScanner = (function () {
     let statusHeadlineElement = null;
     let statusDetailElement = null;
     let debugPanelElement = null;
-    let decoderAdapter = null;
+    let decoderAdapter = DecoderAdapter;
+    let fallbackContainerElement = null;
     let cooldownTimer = null;
     let openRequestTimer = null;
     let videoReadinessTimer = null;
@@ -424,6 +373,7 @@ window.PosCameraScanner = (function () {
         statusHeadlineElement = document.getElementById('pos-camera-scanner-status');
         statusDetailElement = document.getElementById('pos-camera-scanner-detail');
         debugPanelElement = document.getElementById('pos-camera-scanner-debug');
+        fallbackContainerElement = document.getElementById('pos-html5qrcode-container');
 
         if (!modalElement || !videoElement || !cameraButton || !retryButton || !closeButton || !cancelButton) {
             console.warn('[PosCameraScanner] Required DOM elements not found');
@@ -467,11 +417,79 @@ window.PosCameraScanner = (function () {
 
         $(modalElement).modal('show');
 
-        openRequestTimer = window.setTimeout(function () {
-            if (sessionActive) {
-                startCamera();
+        decoderAdapter.selectBackend().then(function (backend) {
+            if (!sessionActive) return;
+
+            updateDebugState({ decoderBackend: decoderAdapter.getBackendName() });
+
+            if (backend === 'fallback') {
+                startFallbackSession();
+            } else {
+                openRequestTimer = window.setTimeout(function () {
+                    if (sessionActive) {
+                        startCamera();
+                    }
+                }, CAMERA_BOOT_DELAY_MS);
             }
-        }, CAMERA_BOOT_DELAY_MS);
+        });
+    }
+
+    function startFallbackSession() {
+        if (!sessionActive) return;
+
+        // Hide native video element, show fallback container
+        videoElement.style.display = 'none';
+        if (fallbackContainerElement) {
+            fallbackContainerElement.style.display = '';
+        }
+
+        state = States.STARTING_CAMERA;
+        setSessionMessage(Messages.OPENING);
+
+        var currentNonce = ++decodeStartNonce;
+
+        decoderAdapter.startFallback(
+            'pos-html5qrcode-container',
+            function (decodedText) {
+                if (!sessionActive || currentNonce !== decodeStartNonce) return;
+
+                // Transition to READY on first successful decode
+                if (state !== States.READY) {
+                    state = States.READY;
+                    setSessionMessage(Messages.READY);
+                    retryButton.classList.add('d-none');
+                }
+
+                updateDebugState({
+                    lastDecodedText: decodedText,
+                    lastDecodedFormat: '',
+                    lastNonFatalErrorName: '',
+                    lastNonFatalErrorMessage: '',
+                    decoderBackend: decoderAdapter.getBackendName()
+                });
+                handleDecodedValue(decodedText);
+            },
+            function (error) {
+                if (!sessionActive || currentNonce !== decodeStartNonce) return;
+
+                logDiagnostics(FailureStages.DECODER_INIT, error);
+                state = States.DECODER_ERROR;
+                setSessionMessage(Messages.DECODER_ERROR, buildDebugDetail(Messages.DECODER_ERROR.detail));
+                retryButton.classList.remove('d-none');
+                updateDebugState({});
+            }
+        );
+
+        // html5-qrcode manages its own camera — mark ready once started
+        // (actual readiness is confirmed by first successful decode or error callback)
+        openRequestTimer = window.setTimeout(function () {
+            if (sessionActive && state === States.STARTING_CAMERA) {
+                state = States.READY;
+                setSessionMessage(Messages.READY);
+                retryButton.classList.add('d-none');
+                updateDebugState({});
+            }
+        }, 1500);
     }
 
     function startCamera() {
@@ -700,7 +718,7 @@ window.PosCameraScanner = (function () {
         try {
             const currentNonce = ++decodeStartNonce;
 
-            decoderAdapter.start(
+            decoderAdapter.startNative(
                 videoElement,
                 function (decodedValue) {
                     // onDecode callback
@@ -854,11 +872,21 @@ window.PosCameraScanner = (function () {
         retryButton.classList.add('d-none');
         setSessionMessage(Messages.OPENING);
         updateDebugState({});
-        openRequestTimer = window.setTimeout(function () {
-            if (sessionActive) {
-                startCamera();
-            }
-        }, 220);
+
+        var backend = decoderAdapter.getSelectedBackend();
+        if (backend === 'fallback') {
+            openRequestTimer = window.setTimeout(function () {
+                if (sessionActive) {
+                    startFallbackSession();
+                }
+            }, 220);
+        } else {
+            openRequestTimer = window.setTimeout(function () {
+                if (sessionActive) {
+                    startCamera();
+                }
+            }, 220);
+        }
     }
 
     function closeScanner() {
@@ -887,6 +915,12 @@ window.PosCameraScanner = (function () {
             videoElement.srcObject = null;
             videoElement.onloadedmetadata = null;
             videoElement.onplaying = null;
+            videoElement.style.display = '';
+        }
+
+        if (fallbackContainerElement) {
+            fallbackContainerElement.style.display = 'none';
+            fallbackContainerElement.innerHTML = '';
         }
 
         if (mediaStream) {
