@@ -135,9 +135,25 @@ window.PosCameraScanner = (function () {
             const ctx = canvas.getContext('2d');
             lastDecodeTime = 0;
 
-            // Get the html5-qrcode library from window
-            if (typeof __Html5QrcodeLibrary__ === 'undefined') {
+            // Get the html5-qrcode library from window global
+            var Html5Qrcode;
+            if (typeof window.__Html5QrcodeLibrary__ !== 'undefined') {
+                Html5Qrcode = window.__Html5QrcodeLibrary__.Html5Qrcode;
+            } else if (typeof __Html5QrcodeLibrary__ !== 'undefined') {
+                Html5Qrcode = __Html5QrcodeLibrary__.Html5Qrcode;
+            } else {
                 onError(new Error('html5-qrcode library not loaded'));
+                return;
+            }
+
+            // Initialize html5-qrcode decoder
+            try {
+                html5QrcodeInstance = new Html5Qrcode(
+                    'pos-camera-video',
+                    { formatsToSupport: getHtml5Formats() }
+                );
+            } catch (e) {
+                onError(e);
                 return;
             }
 
@@ -174,17 +190,6 @@ window.PosCameraScanner = (function () {
                 if (selectedBackend === 'fallback') {
                     decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
                 }
-            }
-
-            // Initialize html5-qrcode decoder
-            try {
-                html5QrcodeInstance = new __Html5QrcodeLibrary__.Html5Qrcode(
-                    'pos-camera-video',
-                    { formatsToSupport: getHtml5Formats() }
-                );
-            } catch (e) {
-                onError(e);
-                return;
             }
 
             decodeAnimationFrameId = window.requestAnimationFrame(decodeLoop);
