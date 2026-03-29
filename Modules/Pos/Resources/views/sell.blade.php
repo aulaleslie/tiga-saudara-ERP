@@ -282,6 +282,249 @@
         margin: 0;
     }
 
+    .pos-camera-scanner-dialog {
+        max-width: min(92vw, 760px);
+    }
+
+    .pos-camera-scanner-modal .modal-content {
+        border: 0;
+        border-radius: 1rem;
+        overflow: hidden;
+        background: linear-gradient(180deg, #0f172a 0%, #111827 100%);
+        color: #e2e8f0;
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+    }
+
+    .pos-camera-scanner-modal .modal-header,
+    .pos-camera-scanner-modal .modal-footer {
+        border-color: rgba(148, 163, 184, 0.2);
+        background: rgba(15, 23, 42, 0.72);
+    }
+
+    .pos-camera-scanner-modal .modal-header {
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .pos-camera-scanner-title-wrap {
+        min-width: 0;
+    }
+
+    .pos-camera-scanner-title {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #f8fafc;
+    }
+
+    .pos-camera-scanner-subtitle {
+        margin: 0.15rem 0 0;
+        font-size: 0.82rem;
+        color: #cbd5e1;
+    }
+
+    .pos-camera-scanner-close {
+        color: #f8fafc;
+        opacity: 0.9;
+        text-shadow: none;
+    }
+
+    .pos-camera-scanner-body {
+        display: grid;
+        gap: 0.9rem;
+    }
+
+    .pos-camera-preview-shell {
+        position: relative;
+        border-radius: 0.95rem;
+        overflow: hidden;
+        background: #020617;
+        box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.16);
+    }
+
+    .pos-camera-preview-shell::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+            linear-gradient(to bottom, rgba(2, 6, 23, 0.3), rgba(2, 6, 23, 0.1) 26%, rgba(2, 6, 23, 0.1) 74%, rgba(2, 6, 23, 0.34)),
+            radial-gradient(circle at top, rgba(59, 130, 246, 0.16), transparent 48%);
+        pointer-events: none;
+    }
+
+    .pos-camera-video {
+        width: 100%;
+        max-height: min(62vh, 460px);
+        background: #000;
+        object-fit: cover;
+        display: block;
+    }
+
+    .pos-camera-scan-lane {
+        position: absolute;
+        left: 8%;
+        right: 8%;
+        top: 50%;
+        transform: translateY(-50%);
+        height: clamp(74px, 16vw, 108px);
+        border: 2px solid rgba(248, 250, 252, 0.92);
+        border-radius: 1rem;
+        box-shadow:
+            0 0 0 9999px rgba(2, 6, 23, 0.38),
+            0 0 0 1px rgba(125, 211, 252, 0.4) inset;
+        pointer-events: none;
+    }
+
+    .pos-camera-scan-lane::before {
+        content: "";
+        position: absolute;
+        left: 6%;
+        right: 6%;
+        top: 50%;
+        height: 2px;
+        transform: translateY(-50%);
+        background: linear-gradient(90deg, rgba(56, 189, 248, 0), rgba(56, 189, 248, 0.95), rgba(56, 189, 248, 0));
+        box-shadow: 0 0 12px rgba(56, 189, 248, 0.55);
+    }
+
+    .pos-camera-guide-copy {
+        position: absolute;
+        left: 50%;
+        bottom: 1rem;
+        transform: translateX(-50%);
+        padding: 0.45rem 0.75rem;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.74);
+        color: #e2e8f0;
+        font-size: 0.76rem;
+        line-height: 1.2;
+        text-align: center;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.3);
+    }
+
+    .pos-camera-session-status {
+        border-radius: 0.95rem;
+        background: rgba(15, 23, 42, 0.64);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        padding: 0.85rem 0.95rem;
+    }
+
+    .pos-camera-status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        background: rgba(59, 130, 246, 0.16);
+        color: #bfdbfe;
+    }
+
+    .pos-camera-session-status[data-status-tone="ready"] .pos-camera-status-chip {
+        background: rgba(59, 130, 246, 0.16);
+        color: #bfdbfe;
+    }
+
+    .pos-camera-session-status[data-status-tone="accepted"] .pos-camera-status-chip {
+        background: rgba(34, 197, 94, 0.16);
+        color: #bbf7d0;
+    }
+
+    .pos-camera-session-status[data-status-tone="warning"] .pos-camera-status-chip {
+        background: rgba(245, 158, 11, 0.16);
+        color: #fde68a;
+    }
+
+    .pos-camera-session-status[data-status-tone="error"] .pos-camera-status-chip {
+        background: rgba(248, 113, 113, 0.16);
+        color: #fecaca;
+    }
+
+    .pos-camera-session-headline {
+        margin: 0.55rem 0 0.15rem;
+        font-size: 0.98rem;
+        font-weight: 700;
+        color: #f8fafc;
+    }
+
+    .pos-camera-session-detail {
+        margin: 0;
+        font-size: 0.82rem;
+        line-height: 1.45;
+        color: #cbd5e1;
+    }
+
+    .pos-camera-session-meta {
+        margin-top: 0.75rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        font-size: 0.72rem;
+        color: #94a3b8;
+    }
+
+    .pos-camera-session-meta span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    @media (max-width: 767.98px) {
+        .pos-camera-scanner-modal .modal-body {
+            padding: 0.85rem;
+        }
+
+        .pos-camera-scanner-modal .modal-footer {
+            padding-top: 0.65rem;
+        }
+
+        .pos-camera-guide-copy {
+            width: calc(100% - 1.5rem);
+            white-space: normal;
+        }
+    }
+
+    .pos-scanner-debug-panel {
+        display: none;
+        margin-top: 0.75rem;
+        padding: 0.6rem 0.75rem;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(148, 163, 184, 0.15);
+        border-radius: 0.5rem;
+        font-size: 0.7rem;
+        font-family: ui-monospace, monospace;
+        color: #94a3b8;
+        line-height: 1.5;
+    }
+
+    .pos-scanner-debug-panel.is-active {
+        display: block;
+    }
+
+    .pos-scanner-debug-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.1rem 0;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+    }
+
+    .pos-scanner-debug-row:last-child {
+        border-bottom: 0;
+    }
+
+    .pos-scanner-debug-row span:first-child {
+        color: #64748b;
+        flex-shrink: 0;
+    }
+
+    .pos-scanner-debug-row span:last-child {
+        text-align: right;
+        word-break: break-all;
+    }
+
 
 
     .pos-cart-shell {
@@ -1459,24 +1702,41 @@
     </div>
 
     <!-- Scanner Modal -->
-    <div id="pos-camera-scanner-modal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
-        <div class="modal-dialog modal-lg" role="document">
+    <div id="pos-camera-scanner-modal" class="modal fade pos-camera-scanner-modal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+        <div class="modal-dialog modal-lg modal-dialog-centered pos-camera-scanner-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Pindai Kamera</h5>
-                    <button id="pos-camera-scanner-close" type="button" class="close" aria-label="Close">
+                    <div class="pos-camera-scanner-title-wrap">
+                        <h5 class="modal-title pos-camera-scanner-title">Pindai Kamera</h5>
+                        <p class="pos-camera-scanner-subtitle">Sesi tetap terbuka sampai kasir menutup scanner.</p>
+                    </div>
+                    <button id="pos-camera-scanner-close" type="button" class="close pos-camera-scanner-close" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
                 <div class="modal-body">
-                    <div id="pos-camera-scanner-body" style="position: relative;">
-                        <video id="pos-camera-video" style="width: 100%; max-height: 400px; background: #000;"></video>
-                        <p id="pos-camera-scanner-status" class="small text-muted text-center mt-2"></p>
+                    <div id="pos-camera-scanner-body" class="pos-camera-scanner-body">
+                        <div class="pos-camera-preview-shell">
+                            <video id="pos-camera-video" class="pos-camera-video"></video>
+                            <div class="pos-camera-scan-lane" aria-hidden="true"></div>
+                            <div class="pos-camera-guide-copy" aria-hidden="true">Posisikan barcode di dalam jalur scan untuk pemindaian beruntun.</div>
+                        </div>
+                        <div id="pos-camera-scanner-session-status" class="pos-camera-session-status" data-status-tone="ready">
+                            <div id="pos-camera-scanner-status-chip" class="pos-camera-status-chip">Siap</div>
+                            <p id="pos-camera-scanner-status" class="pos-camera-session-headline">Menyiapkan kamera scanner.</p>
+                            <p id="pos-camera-scanner-detail" class="pos-camera-session-detail">Setelah kamera aktif, arahkan barcode ke jalur scan dan lanjutkan pindai item berikutnya tanpa menutup modal.</p>
+                            <div class="pos-camera-session-meta">
+                                <span>Scanner virtual aktif</span>
+                                <span>Input scan tetap sinkron</span>
+                                <span>Tutup saat sesi selesai</span>
+                            </div>
+                        </div>
+                        <div id="pos-camera-scanner-debug" class="pos-scanner-debug-panel" aria-hidden="true"></div>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button id="pos-camera-scanner-retry" type="button" class="btn btn-secondary d-none">Coba Lagi</button>
-                    <button id="pos-camera-scanner-cancel" type="button" class="btn btn-secondary" data-dismiss="modal">Tutup</button>
+                    <button id="pos-camera-scanner-cancel" type="button" class="btn btn-outline-light">Selesai Scan</button>
                 </div>
             </div>
         </div>
@@ -1615,7 +1875,7 @@
 
             function setSearchStatus(message, tone) {
                 statusElement.textContent = message || '';
-                statusElement.classList.remove('text-muted', 'text-danger', 'text-success');
+                statusElement.classList.remove('text-muted', 'text-danger', 'text-success', 'text-warning');
                 statusElement.classList.add(tone || 'text-muted');
             }
 
@@ -3032,22 +3292,51 @@
                     const response = await jsonRequest(scanResolveEndpoint + '?q=' + encodeURIComponent(query), 'GET');
                     if (!response) {
                         setSearchStatus('Pindai gagal.', 'text-danger');
-                        return;
+                        return {
+                            ok: false,
+                            outcome: 'resolver_error',
+                            message: 'Pindai gagal.'
+                        };
                     }
 
                     if (response.type === 'product_exact') {
                         await addProductToCart(response.product, 'scan');
                         searchInput.value = '';
                         setSearchStatus('Produk ditambahkan ke keranjang.', 'text-success');
+                        return {
+                            ok: true,
+                            outcome: 'product_exact',
+                            message: 'Produk ditambahkan ke keranjang.',
+                            response: response
+                        };
                     } else if (response.type === 'serial_exact') {
                         await handleSerialScanResult(response);
                         searchInput.value = '';
                         setSearchStatus('Serial berhasil ditambahkan.', 'text-success');
+                        return {
+                            ok: true,
+                            outcome: 'serial_exact',
+                            message: 'Serial berhasil ditambahkan.',
+                            response: response
+                        };
                     } else {
                         setSearchStatus('Kode tidak ditemukan.', 'text-warning');
+                        return {
+                            ok: false,
+                            outcome: 'not_found',
+                            message: 'Kode tidak ditemukan.',
+                            response: response
+                        };
                     }
                 } catch (error) {
-                    setSearchStatus('Pindai gagal: ' + (error.message || 'Server error'), 'text-danger');
+                    const message = 'Pindai gagal: ' + (error.message || 'Server error');
+                    setSearchStatus(message, 'text-danger');
+                    return {
+                        ok: false,
+                        outcome: 'resolver_error',
+                        message: message,
+                        error: error
+                    };
                 }
             }
 

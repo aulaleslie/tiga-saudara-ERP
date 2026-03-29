@@ -123,8 +123,8 @@ class POSSellShellScanUiTest extends TestCase
     }
 
     /**
-     * 4.3: Verify camera scanner modal structure is present for camera decode functionality.
-     * Assert: scanner modal exists with video element, status text, and control buttons.
+     * 4.3 + 3.1: Verify camera scanner modal structure is present for continuous camera decode functionality.
+     * Assert: scanner modal exposes persistent guidance, status area, scan lane, and explicit close controls.
      */
     public function test_sell_shell_includes_camera_scanner_modal(): void
     {
@@ -143,13 +143,26 @@ class POSSellShellScanUiTest extends TestCase
         // 4.3: Video element for camera feed
         $response->assertSee('pos-camera-video');
 
-        // 4.3: Status display element
+        // 3.1: Persistent in-session status area and guidance copy
+        $response->assertSee('pos-camera-scanner-session-status');
+        $response->assertSee('pos-camera-scanner-status-chip');
         $response->assertSee('pos-camera-scanner-status');
+        $response->assertSee('pos-camera-scanner-detail');
+        $response->assertSee('pos-camera-scan-lane');
+        $response->assertSee('jalur scan');
 
-        // 4.3: Control buttons (retry, close/cancel)
+        // 4.3: Control buttons (retry, explicit close)
         $response->assertSee('pos-camera-scanner-retry');
         $response->assertSee('pos-camera-scanner-close');
         $response->assertSee('pos-camera-scanner-cancel');
+        $response->assertSee('Selesai Scan');
+
+        // Debug panel element present in markup but not active by default
+        $html = $response->getContent();
+        $this->assertStringContainsString('id="pos-camera-scanner-debug"', $html,
+            'Debug panel element must be present in scanner modal markup');
+        $this->assertStringNotContainsString('id="pos-camera-scanner-debug" class="pos-scanner-debug-panel is-active"', $html,
+            'Debug panel must not be active in server-rendered HTML');
     }
 
     /**
@@ -172,8 +185,8 @@ class POSSellShellScanUiTest extends TestCase
         // 4.3: Camera scanner JS module included
         $this->assertStringContainsString('pos-camera-scanner.js', $html, 'Camera scanner JS module must be included');
 
-        // 4.3: ZXing barcode decoder library included with deterministic version
-        $this->assertStringContainsString('@zxing/library@0.20.0', $html, 'ZXing decoder library must be loaded from deterministic version 0.20.0');
+        // 4.3: ZXing barcode decoder library included from pinned local vendor bundle
+        $this->assertStringContainsString('vendor/zxing/index.min.js', $html, 'ZXing decoder library must be loaded from pinned local vendor bundle');
     }
 
     /**
@@ -200,13 +213,15 @@ class POSSellShellScanUiTest extends TestCase
         // 4.1: Verify camera scanner module is loaded
         $this->assertStringContainsString('pos-camera-scanner.js', $html);
 
-        // 4.1: Verify ZXing is loaded with deterministic version for stable initialization (no @latest)
-        $this->assertStringContainsString('@zxing/library@0.20.0', $html);
-        $this->assertStringNotContainsString('@zxing/library@latest', $html, 'ZXing must use pinned version, not @latest');
+        // 4.1: Verify ZXing is loaded from the pinned local vendor bundle
+        $this->assertStringContainsString('vendor/zxing/index.min.js', $html);
+        $this->assertStringNotContainsString('@zxing/library@latest', $html, 'ZXing must not use a floating latest build');
 
         // 4.1: Verify retry and close buttons are present for error recovery
         $this->assertStringContainsString('id="pos-camera-scanner-retry"', $html);
         $this->assertStringContainsString('id="pos-camera-scanner-close"', $html);
+        $this->assertStringContainsString('data-backdrop="static"', $html);
+        $this->assertStringContainsString('data-keyboard="false"', $html);
     }
 
     /**
@@ -233,12 +248,115 @@ class POSSellShellScanUiTest extends TestCase
         $this->assertStringContainsString('window.executeScanResolve = executeScanResolve', $html,
             'Shared resolver must be exposed to global window scope so camera scanner can invoke it');
 
+        // 4.2: Resolver now returns outcome metadata so the camera session can stay open across results
+        $this->assertStringContainsString("outcome: 'product_exact'", $html);
+        $this->assertStringContainsString("outcome: 'serial_exact'", $html);
+        $this->assertStringContainsString("outcome: 'not_found'", $html);
+        $this->assertStringContainsString("outcome: 'resolver_error'", $html);
+
         // 4.2: Verify Enter key handler is present (maintains parity)
         $this->assertStringContainsString('keydown', $html);
         $this->assertStringContainsString('Enter', $html);
 
         // 4.2: Verify helper button handler is present (maintains parity)
         $this->assertStringContainsString('pos-btn-scan-helper', $html);
+    }
+
+    public function test_sell_shell_camera_scanner_markup_supports_continuous_session_feedback(): void
+    {
+        $setting = $this->createSetting('SCAN UI TEST G');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'SCAN UI CASHIER G');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'));
+
+        $response->assertOk();
+
+        $html = $response->getContent();
+
+        $this->assertStringContainsString('pos-camera-scanner-session-status', $html);
+        $this->assertStringContainsString('data-status-tone="ready"', $html);
+        $this->assertStringContainsString('Scanner virtual aktif', $html);
+        $this->assertStringContainsString('Input scan tetap sinkron', $html);
+        $this->assertStringContainsString('Sesi tetap terbuka sampai kasir menutup scanner.', $html);
+    }
+
+    /**
+     * 3.2: Verify decode-path rollback: scanner JS must not contain ASSUME_GS1 hint and must use 1280x720 constraints.
+     * Assert invariants that guard the regression surface from re-introduction.
+     */
+    public function test_camera_scanner_js_does_not_use_assume_gs1_or_high_res_constraints(): void
+    {
+        $scannerPath = public_path('js/pos-camera-scanner.js');
+        $this->assertFileExists($scannerPath, 'Camera scanner JS file must exist');
+
+        $source = file_get_contents($scannerPath);
+
+        $this->assertStringNotContainsString('ASSUME_GS1', $source,
+            'ASSUME_GS1 hint must not be present in the camera scanner decode path');
+
+        $this->assertStringNotContainsString('ideal: 1920', $source,
+            'Camera constraints must not request 1920px width (regression profile)');
+
+        $this->assertStringNotContainsString('ideal: 1080', $source,
+            'Camera constraints must not request 1080px height (regression profile)');
+
+        $this->assertStringContainsString('ideal: 1280', $source,
+            'Camera constraints must request 1280px ideal width');
+
+        $this->assertStringContainsString('ideal: 720', $source,
+            'Camera constraints must request 720px ideal height');
+    }
+
+    /**
+     * 3.2: Verify re-arm and duplicate suppression constants are present in scanner JS source.
+     * Assert: SAME_CODE_SUPPRESSION_MS and REARM_COOLDOWN_MS constants are defined.
+     */
+    public function test_camera_scanner_js_defines_duplicate_suppression_and_rearm_constants(): void
+    {
+        $scannerPath = public_path('js/pos-camera-scanner.js');
+        $this->assertFileExists($scannerPath, 'Camera scanner JS file must exist');
+
+        $source = file_get_contents($scannerPath);
+
+        $this->assertStringContainsString('SAME_CODE_SUPPRESSION_MS', $source,
+            'Duplicate suppression window constant must be defined in scanner JS');
+
+        $this->assertStringContainsString('REARM_COOLDOWN_MS', $source,
+            'Re-arm cooldown constant must be defined in scanner JS');
+
+        $this->assertStringContainsString('scheduleRearm', $source,
+            'scheduleRearm function must be present for continuous session re-arm behavior');
+    }
+
+    /**
+     * 3.2: Verify debug panel is present in modal but hidden by default in server-rendered markup.
+     * Assert the is-active class is not pre-applied (debug flag must be off by default).
+     */
+    public function test_camera_scanner_debug_panel_hidden_by_default(): void
+    {
+        $setting = $this->createSetting('SCAN UI TEST H');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'SCAN UI CASHIER H');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'));
+
+        $response->assertOk();
+
+        $html = $response->getContent();
+
+        // Debug panel element must exist
+        $this->assertStringContainsString('id="pos-camera-scanner-debug"', $html,
+            'Debug panel element must be present in scanner modal markup');
+
+        // Must have the base CSS class but NOT is-active (hidden until JS enables it)
+        $this->assertStringContainsString('pos-scanner-debug-panel', $html,
+            'Debug panel must carry its CSS class in markup');
+
+        $this->assertStringNotContainsString('pos-scanner-debug-panel is-active', $html,
+            'Debug panel must not have is-active class in server-rendered HTML — it is JS-only');
     }
 
     // --- Helpers ---
