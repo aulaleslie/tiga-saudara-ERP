@@ -99,8 +99,23 @@ window.PosCameraScanner = (function () {
         }
 
         function getHtml5Formats() {
+            // html5-qrcode expects numeric enum values from Html5QrcodeSupportedFormats
+            var SupportedFormats = null;
+            if (typeof window.__Html5QrcodeLibrary__ !== 'undefined') {
+                SupportedFormats = window.__Html5QrcodeLibrary__.Html5QrcodeSupportedFormats;
+            } else if (typeof __Html5QrcodeLibrary__ !== 'undefined') {
+                SupportedFormats = __Html5QrcodeLibrary__.Html5QrcodeSupportedFormats;
+            }
+
+            if (!SupportedFormats) {
+                // Library not loaded yet; return string names as last resort
+                return FORMAT_ALLOWLIST
+                    .map(function (name) { return HTML5_FORMAT_MAP[name]; })
+                    .filter(function (format) { return format !== undefined; });
+            }
+
             return FORMAT_ALLOWLIST
-                .map(function (name) { return HTML5_FORMAT_MAP[name]; })
+                .map(function (name) { return SupportedFormats[HTML5_FORMAT_MAP[name]]; })
                 .filter(function (format) { return format !== undefined; });
         }
 
