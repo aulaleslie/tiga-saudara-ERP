@@ -15,5 +15,5 @@
 
 - [x] 3.1 Update or add scanner-facing tests for the expanded debug diagnostics and camera/decode lifecycle expectations where the current test tooling allows.
 - [x] 3.2 Add focused verification for the recovered ZXing path, including post-start constraint bookkeeping, duplicate suppression invariants, and decode re-arm behavior.
-- [ ] 3.3 Re-run manual validation on Samsung Galaxy A55 with the in-modal debug helper enabled, confirming whether preview sharpness, QR decode, and EAN-13 decode return after the camera-pipeline recovery.
-- [ ] 3.4 Compare the new manual validation results against the previous regression report and capture any remaining device-specific limitations before marking the change complete.
+- [x] 3.3 Re-run manual validation on Samsung Galaxy A55 with the in-modal debug helper enabled, confirming whether preview sharpness, QR decode, and EAN-13 decode return after the camera-pipeline recovery.
+- [x] 3.4 Compare the new manual validation results against the previous regression report and capture any remaining device-specific limitations before marking the change complete.
