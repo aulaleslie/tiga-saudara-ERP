@@ -62,7 +62,7 @@ class SaleProductCartPkpTaxReconciliationTest extends TestCase
         Cart::instance('sale')->destroy();
     }
 
-    public function test_pkp_default_tax_reconciles_existing_sale_cart_row_missing_tax_on_mount(): void
+    public function test_pkp_default_tax_does_not_reconcile_existing_sale_cart_row_missing_tax_on_mount(): void
     {
         $defaultTax = Tax::create([
             'name' => 'PPN 11',
@@ -83,8 +83,7 @@ class SaleProductCartPkpTaxReconciliationTest extends TestCase
         $cartItem = Cart::instance('sale')->content()->first();
 
         $this->assertNotNull($cartItem);
-        $this->assertSame($defaultTax->id, (int) $cartItem->options->product_tax);
-        $this->assertTrue((float) $cartItem->options->sub_total > (float) $cartItem->options->sub_total_before_tax);
+        $this->assertNull($cartItem->options->product_tax);
     }
 
     public function test_pkp_reconciliation_does_not_override_existing_sale_row_tax(): void
@@ -111,7 +110,7 @@ class SaleProductCartPkpTaxReconciliationTest extends TestCase
         $this->assertSame($explicitTax->id, (int) $cartItem->options->product_tax);
     }
 
-    public function test_pkp_without_default_tax_reconciles_missing_row_tax_using_latest_tax(): void
+    public function test_pkp_without_default_tax_does_not_reconcile_missing_row_tax_using_latest_tax(): void
     {
         Tax::create([
             'name' => 'PPN 10',
@@ -132,8 +131,7 @@ class SaleProductCartPkpTaxReconciliationTest extends TestCase
         $cartItem = Cart::instance('sale')->content()->first();
 
         $this->assertNotNull($cartItem);
-        $this->assertSame($latestTax->id, (int) $cartItem->options->product_tax);
-        $this->assertTrue((float) $cartItem->options->sub_total > (float) $cartItem->options->sub_total_before_tax);
+        $this->assertNull($cartItem->options->product_tax);
     }
 
     public function test_pkp_without_any_tax_rows_keeps_cart_row_tax_null(): void

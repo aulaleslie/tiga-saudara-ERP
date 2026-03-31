@@ -277,7 +277,7 @@ function productCart() {
 
             const purchasePrice = this.getProductPurchasePrice(product);
             const purchaseTaxId = this.getProductPurchaseTaxId(product);
-            const defaultTaxId = purchaseTaxId || (this.isPkp && this.taxes.length ? this.taxes[0].id : null);
+            const defaultTaxId = purchaseTaxId || null;
 
             // Add new product
             const newItem = {

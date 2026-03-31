@@ -62,7 +62,7 @@ class PurchaseProductCartDefaultTaxTest extends TestCase
         Cart::instance('purchase')->destroy();
     }
 
-    public function test_pkp_product_add_uses_default_tax_and_populates_tax_totals_immediately(): void
+    public function test_pkp_product_add_does_not_use_default_tax_automatically(): void
     {
         $defaultTax = Tax::create([
             'name' => 'PPN 11',
@@ -85,8 +85,8 @@ class PurchaseProductCartDefaultTaxTest extends TestCase
         $cartItem = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id);
 
         $this->assertNotNull($cartItem);
-        $this->assertSame($defaultTax->id, (int) $cartItem->options->product_tax);
-        $this->assertTrue((float) $cartItem->options->sub_total > (float) $cartItem->options->sub_total_before_tax);
-        $this->assertTrue((float) $cartItem->options->product_tax_amount > 0);
+        $this->assertNull($cartItem->options->product_tax);
+        $this->assertEquals((float) $cartItem->options->sub_total, (float) $cartItem->options->sub_total_before_tax);
+        $this->assertEquals(0, (float) $cartItem->options->product_tax_amount);
     }
 }

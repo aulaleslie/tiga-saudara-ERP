@@ -235,16 +235,6 @@ class ProductCart extends Component
             return null;
         }
 
-        $defaultTaxId = $this->resolveDefaultTaxId();
-        if ($defaultTaxId) {
-            return $defaultTaxId;
-        }
-
-        $latestTaxId = $this->resolveLatestTaxId();
-        if ($latestTaxId) {
-            return $latestTaxId;
-        }
-
         if ($productId) {
             return $this->resolveProductSaleTaxIdForProduct($productId, $productPayload);
         }

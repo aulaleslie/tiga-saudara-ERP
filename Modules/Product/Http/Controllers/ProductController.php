@@ -570,13 +570,15 @@ class ProductController extends Controller
                 // Find or create the unit
                 $unit = Unit::firstOrCreate(['name' => $unitName]);
 
-                // Set tax values based on the tax name
-                $purchaseTax = $buyTaxName === 'PPN 11%' ? 1 : 0;
-                $saleTax = $sellTaxName === 'PPN 11%' ? 1 : 0;
+                // Resolve tax IDs based on provided names (explicit choice)
+                $purchaseTaxId = $buyTaxName ? Tax::where('name', $buyTaxName)->value('id') : null;
+                $saleTaxId = $sellTaxName ? Tax::where('name', $sellTaxName)->value('id') : null;
 
                 // Determine if the product is sold or purchased
                 $isPurchased = $buyPrice > 0;
                 $isSold = $sellPrice > 0;
+
+                $settingId = $this->getActiveSettingId();
 
                 // Create or update the product using Eloquent
                 $product = Product::updateOrCreate(
@@ -585,23 +587,49 @@ class ProductController extends Controller
                         'product_name' => $name,
                         'product_quantity' => $stock,
                         'base_unit_id' => $unit->id,
-                        'purchase_price' => $buyPrice,
-                        'purchase_tax' => $purchaseTax,
-                        'sale_price' => $sellPrice,
-                        'sale_tax' => $saleTax,
+                        'purchase_price' => 0, // Legacy column
+                        'purchase_tax_id' => $purchaseTaxId,
+                        'sale_price' => 0,     // Legacy column
+                        'sale_tax_id' => $saleTaxId,
                         'stock_managed' => true,
                         'product_stock_alert' => $minimumStock,
                         'is_purchased' => $isPurchased,
                         'is_sold' => $isSold,
-                        'setting_id' => session('setting_id'),
+                        'setting_id' => $settingId,
 
-                        // set to default
+                        // Clear legacy flag columns
+                        'purchase_tax' => 0,
+                        'sale_tax' => 0,
+
+                        // set to default for other legacy columns
                         'product_cost' => 0,
                         'product_order_tax' => 0,
                         'product_tax_type' => 0,
                         'profit_percentage' => 0,
-                        'product_price' => 0
+                        'product_price' => 0,
+                        'last_purchase_price' => 0,
+                        'average_purchase_price' => 0,
                     ]
+                );
+
+                // Seed prices for all settings to match the current multi-setting architecture
+                $settingIds = Setting::query()->pluck('id');
+                if ($settingIds->isEmpty()) {
+                    $settingIds = collect([$settingId]);
+                }
+
+                ProductPrice::seedForSettings(
+                    $product->id,
+                    [
+                        'sale_price'             => $isSold ? $sellPrice : 0,
+                        'tier_1_price'           => $isSold ? $sellPrice : 0,
+                        'tier_2_price'           => $isSold ? $sellPrice : 0,
+                        'last_purchase_price'    => $isPurchased ? $buyPrice : 0,
+                        'average_purchase_price' => $isPurchased ? $buyPrice : 0,
+                        'purchase_tax_id'        => $purchaseTaxId,
+                        'sale_tax_id'            => $saleTaxId,
+                    ],
+                    $settingIds
                 );
 
                 // If stock is more than 0, record a transaction
