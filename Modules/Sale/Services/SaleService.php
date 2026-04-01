@@ -82,15 +82,16 @@ class SaleService
 
         return DB::transaction(function () use ($data, $cartItems) {
             $customer = Customer::findOrFail($data['customer_id']);
+            $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) $data['setting_id'])->value('is_pkp') ?? false);
             
             $sale = Sale::create([
                 'date' => $data['date'],
                 'due_date' => $data['due_date'],
                 'customer_id' => $data['customer_id'],
                 'customer_name' => $customer->customer_name,
-                'tax_id' => $data['tax_id'] ?? null,
-                'tax_percentage' => $data['tax_percentage'] ?? 0,
-                'tax_amount' => $data['tax_amount'] ?? 0,
+                'tax_id' => $isPkp ? ($data['tax_id'] ?? null) : null,
+                'tax_percentage' => $isPkp ? ($data['tax_percentage'] ?? 0) : 0,
+                'tax_amount' => $isPkp ? ($data['tax_amount'] ?? 0) : 0,
                 'discount_percentage' => $data['discount_percentage'] ?? 0,
                 'discount_amount' => $data['discount_amount'] ?? 0,
                 'shipping_amount' => $data['shipping_amount'] ?? 0,
@@ -114,6 +115,9 @@ class SaleService
             $aggregatedItems = SaleCartAggregator::aggregate($cartItems);
 
             foreach ($aggregatedItems as $item) {
+                $taxId = $isPkp ? ($item['tax_id'] ?? null) : null;
+                $productTaxAmount = $isPkp ? round((float) $item['product_tax_amount'], 2) : 0;
+                
                 $saleDetail = SaleDetails::create([
                     'sale_id' => $sale->id,
                     'product_id' => $item['product_id'],
@@ -125,8 +129,8 @@ class SaleService
                     'product_discount_type' => $item['product_discount_type'],
                     'product_discount_amount' => round((float) $item['product_discount_amount'], 2),
                     'sub_total' => round((float) $item['sub_total'], 2),
-                    'product_tax_amount' => round((float) $item['product_tax_amount'], 2),
-                    'tax_id' => $item['tax_id'] ?? null,
+                    'product_tax_amount' => $productTaxAmount,
+                    'tax_id' => $taxId,
                 ]);
 
                 if (!empty($item['bundle_items'])) {
@@ -176,6 +180,7 @@ class SaleService
         
         return DB::transaction(function () use ($sale, $data, $cartItems) {
             $customer = Customer::findOrFail($data['customer_id']);
+            $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()->whereKey((int) $sale->setting_id)->value('is_pkp') ?? false);
 
             $due_amount = round((float) $data['total_amount'] - (float) ($data['paid_amount'] ?? 0), 2);
             $due_amount = max($due_amount, 0);
@@ -208,7 +213,7 @@ class SaleService
                 'reference' => $data['reference'] ?? $sale->reference,
                 'customer_id' => $data['customer_id'],
                 'customer_name' => $customer->customer_name,
-                'tax_percentage' => $data['tax_percentage'] ?? 0,
+                'tax_percentage' => $isPkp ? ($data['tax_percentage'] ?? 0) : 0,
                 'discount_percentage' => $data['discount_percentage'] ?? 0,
                 'shipping_amount' => round((float) ($data['shipping_amount'] ?? 0), 2),
                 'paid_amount' => round((float) ($data['paid_amount'] ?? 0), 2),
@@ -218,9 +223,9 @@ class SaleService
                 'payment_status' => $payment_status,
                 'payment_method' => $data['payment_method'] ?? $sale->payment_method,
                 'note' => $data['note'] ?? null,
-                'tax_amount' => $data['tax_amount'] ?? 0,
+                'tax_amount' => $isPkp ? ($data['tax_amount'] ?? 0) : 0,
                 'discount_amount' => $data['discount_amount'] ?? 0,
-                'tax_ref_no' => $data['tax_ref_no'] ?? $sale->tax_ref_no,
+                'tax_ref_no' => $isPkp ? ($data['tax_ref_no'] ?? $sale->tax_ref_no) : null,
             ]);
 
             if (isset($data['tags'])) {
@@ -229,6 +234,9 @@ class SaleService
 
             foreach ($cartItems as $cart_item) {
                 $productId = $cart_item->options->product_id;
+                
+                $taxId = $isPkp ? ($cart_item->options->product_tax ?: null) : null;
+                $productTaxAmount = $isPkp ? round((float) ($cart_item->options->product_tax_amount ?? $cart_item->options->product_tax ?? 0), 2) : 0;
                 
                 $saleDetail = SaleDetails::create([
                     'sale_id' => $sale->id,
@@ -241,8 +249,8 @@ class SaleService
                     'sub_total' => round((float) $cart_item->options->sub_total, 2),
                     'product_discount_amount' => round((float) $cart_item->options->product_discount, 2),
                     'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => round((float) ($cart_item->options->product_tax_amount ?? $cart_item->options->product_tax ?? 0), 2),
-                    'tax_id' => $cart_item->options->product_tax ?: null,
+                    'product_tax_amount' => $productTaxAmount,
+                    'tax_id' => $taxId,
                 ]);
 
                 if (!empty($cart_item->options->bundle_items)) {

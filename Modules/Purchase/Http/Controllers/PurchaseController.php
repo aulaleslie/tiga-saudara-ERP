@@ -202,8 +202,10 @@ class PurchaseController extends Controller
 
                     // Calculate tax amount
                     $taxAmount = 0;
-                    if ($cartItem['tax_id']) {
-                        $tax = \Modules\Setting\Entities\Tax::find($cartItem['tax_id']);
+                    $taxId = $isPkp ? $cartItem['tax_id'] : null;
+
+                    if ($taxId) {
+                        $tax = \Modules\Setting\Entities\Tax::find($taxId);
                         if ($tax) {
                             $subtotal = $cartItem['unit_price'] * $cartItem['quantity'];
                             $taxAmount = $subtotal * ($tax->value / 100);
@@ -222,14 +224,16 @@ class PurchaseController extends Controller
                         'product_discount_amount' => $cartItem['discount'],
                         'sub_total' => ($cartItem['unit_price'] * $cartItem['quantity']) - $cartItem['discount'],
                         'product_tax_amount' => $taxAmount,
-                        'tax_id' => $cartItem['tax_id'],
+                        'tax_id' => $taxId,
                     ]);
                 }
             } else {
                 // Livewire cart data
                 foreach ($cartItems as $cart_item) {
-                    $product_tax_amount = $cart_item->options['sub_total'] -
-                        ($cart_item->options['sub_total_before_tax'] ?? 0);
+                    $taxId = $isPkp ? $cart_item->options['product_tax'] : null;
+                    $product_tax_amount = $isPkp 
+                        ? ($cart_item->options['sub_total'] - ($cart_item->options['sub_total_before_tax'] ?? 0))
+                        : 0;
 
                     PurchaseDetail::create([
                         'purchase_id' => $purchase->id,
@@ -243,7 +247,7 @@ class PurchaseController extends Controller
                         'product_discount_amount' => $cart_item->options['product_discount'],
                         'sub_total' => $cart_item->options['sub_total'],
                         'product_tax_amount' => $product_tax_amount,
-                        'tax_id' => $cart_item->options['product_tax'],
+                        'tax_id' => $taxId,
                     ]);
                 }
 
@@ -463,6 +467,8 @@ class PurchaseController extends Controller
         }
 
         DB::transaction(function () use ($request, $purchase) {
+            $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
+
             // Fields to update, only if new values are passed in the request
             $updateData = array_filter([
                 'date' => $request->filled('date') && $request->date !== $purchase->date ? $request->date : null,
@@ -499,6 +505,11 @@ class PurchaseController extends Controller
 
             // Re-add updated cart items
             foreach (Cart::instance('purchase')->content() as $cart_item) {
+                $taxId = $isPkp ? $cart_item->options['product_tax'] : null;
+                $productTaxAmount = $isPkp 
+                    ? ($cart_item->options['sub_total'] - ($cart_item->options['sub_total_before_tax'] ?? 0))
+                    : 0;
+
                 PurchaseDetail::create([
                     'purchase_id' => $purchase->id,
                     'product_id' => $cart_item->id,
@@ -510,9 +521,8 @@ class PurchaseController extends Controller
                     'product_discount_type' => $cart_item->options['product_discount_type'],
                     'product_discount_amount' => $cart_item->options['product_discount'],
                     'sub_total' => $cart_item->options['sub_total'],
-                    'product_tax_amount' => $cart_item->options['sub_total'] -
-                        ($cart_item->options['sub_total_before_tax'] ?? 0),
-                    'tax_id' => $cart_item->options['product_tax'],
+                    'product_tax_amount' => $productTaxAmount,
+                    'tax_id' => $taxId,
                 ]);
             }
 
