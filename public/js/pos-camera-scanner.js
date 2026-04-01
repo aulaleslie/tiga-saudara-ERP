@@ -336,6 +336,7 @@ window.PosCameraScanner = (function () {
     let lastAcceptedCode = null;
     let lastAcceptedAt = 0;
     let decodeStartNonce = 0;
+    let hasScannedOnce = false;
 
     const debugState = {
         scannerState: States.IDLE,
@@ -801,6 +802,7 @@ window.PosCameraScanner = (function () {
         submissionInFlight = true;
         lastAcceptedCode = trimmedValue;
         lastAcceptedAt = now;
+        hasScannedOnce = true;
         state = States.SUBMITTING;
         setSessionMessage(Messages.ACCEPTED, 'Kode ' + trimmedValue + ' diterima. Menunggu hasil resolver POS.');
         updateDebugState({});
@@ -810,16 +812,16 @@ window.PosCameraScanner = (function () {
                 const outcome = result && result.outcome ? result.outcome : 'resolver_error';
 
                 if (outcome === 'product_exact' || outcome === 'serial_exact') {
-                    setSessionMessage(Messages.ACCEPTED, result.message || Messages.ACCEPTED.detail);
+                    setSessionMessage(Messages.ACCEPTED, 'Kode ' + lastAcceptedCode + ': ' + (result.message || Messages.ACCEPTED.detail));
                 } else if (outcome === 'not_found') {
-                    setSessionMessage(Messages.NOT_FOUND, result.message || Messages.NOT_FOUND.detail);
+                    setSessionMessage(Messages.NOT_FOUND, 'Kode ' + lastAcceptedCode + ': ' + (result.message || Messages.NOT_FOUND.detail));
                 } else {
-                    setSessionMessage(Messages.RESOLVER_ERROR, result && result.message ? result.message : Messages.RESOLVER_ERROR.detail);
+                    setSessionMessage(Messages.RESOLVER_ERROR, 'Kode ' + lastAcceptedCode + ': ' + (result && result.message ? result.message : Messages.RESOLVER_ERROR.detail));
                 }
             })
             .catch(function (error) {
                 console.error('[PosCameraScanner] Resolver error:', error);
-                setSessionMessage(Messages.RESOLVER_ERROR, error && error.message ? error.message : Messages.RESOLVER_ERROR.detail);
+                setSessionMessage(Messages.RESOLVER_ERROR, 'Kode ' + lastAcceptedCode + ': ' + (error && error.message ? error.message : Messages.RESOLVER_ERROR.detail));
             })
             .finally(function () {
                 submissionInFlight = false;
@@ -846,10 +848,11 @@ window.PosCameraScanner = (function () {
         }
 
         state = States.READY;
-        setSessionMessage(Messages.READY);
+        if (!hasScannedOnce) {
+            setSessionMessage(Messages.READY);
+        }
         retryButton.classList.add('d-none');
         updateDebugState({});
-        restartDecoding();
     }
 
     function restartDecoding() {
@@ -868,6 +871,7 @@ window.PosCameraScanner = (function () {
 
     function retryScanning() {
         stopSession({ preserveModalState: true });
+        hasScannedOnce = false;
         sessionActive = true;
         retryButton.classList.add('d-none');
         setSessionMessage(Messages.OPENING);
@@ -900,6 +904,7 @@ window.PosCameraScanner = (function () {
         clearTimers();
         submissionInFlight = false;
         sessionActive = false;
+        hasScannedOnce = false;
         decodeStartNonce += 1;
 
         if (decoderAdapter) {
