@@ -1,8 +1,5 @@
-# pos-supervisor-cash-finalization Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change pos-two-stage-settlement. Update Purpose after archive.
-## Requirements
 ### Requirement: Supervisor cash finalization with variance calculation
 
 Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from cashiers and finalize POS sessions by entering the actual amount of cash received. The system SHALL calculate expected cash from session data, compute variance (actual - expected), and gate finalization on variance approval if variance exceeds the terminal's threshold. Finalization transitions the session from CLOSED to FINALIZED status. **Super Admin users SHALL be able to perform this finalization even if not assigned to the business setting.**
@@ -85,4 +82,3 @@ Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from 
 - **WHEN** a session is in FINALIZED status
 - **THEN** neither cashier nor supervisor nor admin SHALL be able to further modify the session
 - **AND** subsequent finalize requests SHALL return HTTP 422 with message "Session is already finalized"
-

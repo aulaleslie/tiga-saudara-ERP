@@ -512,68 +512,69 @@ class PosSessionController extends Controller
         $settingId = (int) $posSession->setting_id;
 
         // Validate request
-        $amount = request()->input('amount');
-        $supervisorEmail = request()->input('supervisor_email');
-        $supervisorPassword = request()->input('supervisor_password');
+        $validated = request()->validate([
+            'amount' => ['required', 'numeric', 'gt:0'],
+            'supervisor_id' => ['required', 'integer', 'gt:0'],
+            'otp_code' => ['required', 'string', 'size:6', 'regex:/^[0-9]{6}$/', 'digits:6'],
+        ]);
 
-        if (! is_numeric($amount) || (float) $amount <= 0) {
-            return response()->json([
-                'message' => 'Jumlah pengambilan harus lebih dari 0.',
-            ], 422);
-        }
-
-        if (! $supervisorEmail || ! $supervisorPassword) {
-            return response()->json([
-                'message' => 'Email dan password supervisor wajib diisi.',
-            ], 422);
-        }
+        $amount = (float) $validated['amount'];
+        $supervisorId = (int) $validated['supervisor_id'];
+        $otpCode = (string) $validated['otp_code'];
 
         // Validate amount against expected cash
         $expectedCash = (float) ($posSession->expected_cash_total ?? 0);
-        if ((float) $amount > $expectedCash) {
+        if ($amount > $expectedCash) {
             return response()->json([
                 'message' => 'Jumlah pengambilan tidak boleh melebihi ekspektasi kas.',
             ], 422);
         }
 
         try {
-            // Verify supervisor credentials and permission
-            $approvalResult = $approvalService->approveSafeDrop(
-                $settingId,
-                (int) $posSession->id,
-                (int) $user->id,
-                $supervisorEmail,
-                $supervisorPassword
+            // Verify supervisor via OTP
+            $approvalResult = $approvalService->approveSafeDropWithOtp(
+                $supervisorId,
+                $otpCode,
+                $posSession,
+                $amount,
+                (int) $user->id
             );
 
             if (! $approvalResult['approved']) {
-                $reason = $approvalResult['approval_result'] ?? 'UNKNOWN';
-                $message = 'Kredensial supervisor tidak valid atau Anda tidak memiliki izin untuk persetujuan pengambilan kas.';
+                $reason = $approvalResult['reason'] ?? 'UNKNOWN';
+                $message = 'Persetujuan supervisor gagal.';
 
-                if ($reason === 'MISSING_PERMISSION') {
-                    $message = 'Supervisor tidak memiliki izin "Setujui Safe Drop POS" (pos.safeDrops.approve).';
-                } elseif ($reason === 'INVALID_CREDENTIALS') {
-                    $message = 'Email atau password supervisor tidak valid.';
+                if ($reason === 'INVALID_SUPERVISOR') {
+                    $message = 'Supervisor tidak ditemukan atau tidak aktif.';
+                } elseif ($reason === 'INVALID_OTP') {
+                    $message = 'Kode OTP tidak valid atau telah kadaluarsa.';
+                } elseif ($reason === 'TOTP_NOT_CONFIGURED') {
+                    $message = 'Supervisor belum mengaktifkan autentikasi dua faktor.';
+                } elseif ($reason === 'MISSING_PERMISSION') {
+                    $message = 'Supervisor tidak memiliki izin yang diperlukan untuk persetujuan pengambilan kas.';
                 }
 
-                return response()->json(['message' => $message], 403);
+                return response()->json(['message' => $message], 422);
             }
 
-            // Create safe drop with supervisor info
+            // Get supervisor for info logging
+            $supervisor = \App\Models\User::find($supervisorId);
+            
+            // Create safe drop with supervisor info (for compatibility with existing service)
             $result = $safeDropService->createSafeDrop(
                 $settingId,
                 (int) $posSession->id,
                 (int) $user->id,
-                (float) $amount,
+                $amount,
                 null, // denominations
                 'Pengambilan kas dari terminal POS',
-                $supervisorEmail,
-                $supervisorPassword
+                $supervisor?->email ?? "User #$supervisorId",
+                '***otp-verified***'
             );
 
             return response()->json([
                 'message' => 'Pengambilan kas berhasil.',
-                'expected_cash_after' => (float) ($result['expected_cash_after'] ?? $expectedCash - (float) $amount),
+                'expected_cash_after' => (float) ($result['expected_cash_after'] ?? $expectedCash - $amount),
             ]);
         } catch (DomainException $exception) {
             return response()->json([

@@ -3,6 +3,7 @@
 namespace Modules\Pos\Services;
 
 use App\Models\User;
+use App\Services\TwoFactorService;
 use Illuminate\Support\Facades\Hash;
 use Modules\Pos\Entities\PosSupervisorApproval;
 
@@ -235,6 +236,126 @@ class PosSupervisorApprovalService
             'context_snapshot' => array_merge([
                 'supervisor_identifier' => $supervisorIdentifier,
             ], $context),
+            'occurred_at' => now(),
+        ]);
+
+        return [
+            'approval_id' => (int) $approval->id,
+            'approved' => true,
+            'approved_by' => (int) $supervisor->id,
+            'approval_result' => PosSupervisorApproval::RESULT_APPROVED,
+            'reason' => null,
+        ];
+    }
+
+    /**
+     * Approve a safe drop (cash pickup) using OTP-based verification
+     * 
+     * @return array{
+     *     approval_id:int,
+     *     approved:bool,
+     *     approved_by:int|null,
+     *     approval_result:string,
+     *     reason:string|null
+     * }
+     */
+    public function approveSafeDropWithOtp(
+        int $supervisorId,
+        string $otpCode,
+        \Modules\Pos\Entities\PosSession $session,
+        float $amount,
+        int $cashierId
+    ): array {
+        $actionType = PosSupervisorApproval::ACTION_SAFE_DROP_APPROVAL;
+        $settingId = (int) $session->setting_id;
+        $targetSessionId = (int) $session->id;
+        $requiredPermissions = ['pos.safeDrops.approve', 'pos.supervisor.approval'];
+
+        $supervisor = User::query()->find($supervisorId);
+
+        if (! $supervisor || ! (bool) $supervisor->is_active) {
+            return $this->recordRejected(
+                $actionType,
+                $settingId,
+                $targetSessionId,
+                $cashierId,
+                'INVALID_SUPERVISOR',
+                (string) $supervisorId
+            );
+        }
+
+        // Super Admin can access any setting, otherwise verify setting membership
+        if (! $supervisor->hasRole('Super Admin')) {
+            $belongsToSetting = $supervisor->settings()
+                ->where('setting_id', $settingId)
+                ->exists();
+
+            if (! $belongsToSetting) {
+                return $this->recordRejected(
+                    $actionType,
+                    $settingId,
+                    $targetSessionId,
+                    $cashierId,
+                    'INVALID_SUPERVISOR',
+                    (string) $supervisorId
+                );
+            }
+        }
+
+        // Check if supervisor has TOTP enabled and confirmed
+        if (!$supervisor->two_factor_secret || !$supervisor->two_factor_confirmed_at) {
+            return $this->recordRejected(
+                $actionType,
+                $settingId,
+                $targetSessionId,
+                $cashierId,
+                'TOTP_NOT_CONFIGURED',
+                (string) $supervisorId
+            );
+        }
+
+        // Super Admin can do anything
+        if (! $supervisor->hasRole('Super Admin')) {
+            foreach ($requiredPermissions as $permission) {
+                if (! $supervisor->can($permission)) {
+                    return $this->recordRejected(
+                        $actionType,
+                        $settingId,
+                        $targetSessionId,
+                        $cashierId,
+                        'MISSING_PERMISSION',
+                        (string) $supervisorId
+                    );
+                }
+            }
+        }
+
+        // Verify OTP code
+        $twoFactorService = app(TwoFactorService::class);
+        if (! $twoFactorService->verifyCode($supervisor, $otpCode)) {
+            return $this->recordRejected(
+                $actionType,
+                $settingId,
+                $targetSessionId,
+                $cashierId,
+                'INVALID_OTP',
+                (string) $supervisorId
+            );
+        }
+
+        $approval = PosSupervisorApproval::query()->create([
+            'setting_id' => $settingId,
+            'action_type' => $actionType,
+            'target_type' => 'pos_session',
+            'target_id' => $targetSessionId,
+            'requested_by' => $cashierId,
+            'approved_by' => $supervisor->id,
+            'approval_result' => PosSupervisorApproval::RESULT_APPROVED,
+            'reason' => null,
+            'context_snapshot' => [
+                'supervisor_id' => $supervisorId,
+                'amount' => round($amount, 2),
+            ],
             'occurred_at' => now(),
         ]);
 

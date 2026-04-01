@@ -1688,19 +1688,32 @@
                         </div>
                     </div>
 
-                    <!-- Step 2: Supervisor Credentials -->
+                    <!-- Step 2: Supervisor OTP Verification -->
                     <div id="pos-pickup-step-2" class="d-none">
                         <div class="alert alert-info mb-3 small">
                             <strong>Konfirmasi Pengambilan:</strong>
                             <div id="pos-pickup-confirmation-amount" class="font-weight-bold mt-2"></div>
                         </div>
+                        <!-- Supervisor Search -->
                         <div class="form-group mb-3">
-                            <label for="pos-pickup-supervisor-email" class="form-label small font-weight-bold">Email Supervisor:</label>
-                            <input type="email" id="pos-pickup-supervisor-email" class="form-control" placeholder="supervisor@example.com">
+                            <label for="pos-pickup-supervisor-search" class="form-label small font-weight-bold">Cari Supervisor:</label>
+                            <input type="text" id="pos-pickup-supervisor-search" class="form-control" placeholder="Nama atau email supervisor...">
+                            <div id="pos-pickup-supervisor-results" class="list-group mt-2" style="max-height: 200px; overflow-y: auto; display: none;"></div>
                         </div>
+                        <!-- Selected Supervisor Display -->
+                        <div id="pos-pickup-supervisor-selected" class="alert alert-light d-none mb-3">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <small class="form-text text-muted">Supervisor Terpilih:</small>
+                                    <div id="pos-pickup-supervisor-name" class="font-weight-bold"></div>
+                                </div>
+                                <button type="button" id="pos-pickup-supervisor-clear" class="btn btn-sm btn-secondary">Ubah</button>
+                            </div>
+                        </div>
+                        <!-- OTP Code Input -->
                         <div class="form-group mb-3">
-                            <label for="pos-pickup-supervisor-password" class="form-label small font-weight-bold">Password:</label>
-                            <input type="password" id="pos-pickup-supervisor-password" class="form-control" placeholder="••••••••">
+                            <label for="pos-pickup-otp-code" class="form-label small font-weight-bold">Kode OTP (6 digit):</label>
+                            <input type="text" id="pos-pickup-otp-code" class="form-control text-center font-monospace" placeholder="000000" maxlength="6" pattern="[0-9]{6}" inputmode="numeric">
                         </div>
                         <small id="pos-pickup-step2-error" class="form-text text-danger d-none d-block mb-3"></small>
                         <div id="pos-pickup-spinner" class="spinner-border spinner-border-sm text-primary d-none" role="status">
@@ -4082,12 +4095,20 @@
             const pickupNextBtn = document.getElementById('pos-pickup-next-btn');
             const pickupBackBtn = document.getElementById('pos-pickup-back-btn');
             const pickupConfirmBtn = document.getElementById('pos-pickup-confirm-btn');
-            const pickupSupervisorEmail = document.getElementById('pos-pickup-supervisor-email');
-            const pickupSupervisorPassword = document.getElementById('pos-pickup-supervisor-password');
+            const pickupSupervisorSearch = document.getElementById('pos-pickup-supervisor-search');
+            const pickupSupervisorResults = document.getElementById('pos-pickup-supervisor-results');
+            const pickupSupervisorSelected = document.getElementById('pos-pickup-supervisor-selected');
+            const pickupSupervisorName = document.getElementById('pos-pickup-supervisor-name');
+            const pickupSupervisorClear = document.getElementById('pos-pickup-supervisor-clear');
+            const pickupOtpCode = document.getElementById('pos-pickup-otp-code');
             const pickupConfirmationAmount = document.getElementById('pos-pickup-confirmation-amount');
             const pickupStep2Error = document.getElementById('pos-pickup-step2-error');
             const pickupSpinner = document.getElementById('pos-pickup-spinner');
+            
             let currentSessionData = null;
+            let selectedSupervisor = null;
+            let latestSupervisorRequestId = 0;
+            let expectedCashLoadError = false;
 
             function showPickupStep1() {
                 pickupStep1.classList.remove('d-none');
@@ -4101,30 +4122,59 @@
                 pickupStep2.classList.remove('d-none');
                 pickupStep1Footer.classList.add('d-none');
                 pickupStep2Footer.classList.remove('d-none');
-                pickupSupervisorEmail.focus();
+                pickupSupervisorSearch.focus();
             }
 
-            function validatePickupAmount() {
-                const amount = Number(pickupAmountInput.value || 0);
-                const expectedCash = currentSessionData && currentSessionData.expected_cash ? Number(currentSessionData.expected_cash) : 0;
-
-                pickupAmountError.classList.add('d-none');
-                pickupNextBtn.disabled = true;
-
-                if (amount <= 0) {
-                    pickupAmountError.textContent = 'Jumlah pengambilan harus lebih dari 0.';
-                    pickupAmountError.classList.remove('d-none');
+            async function fetchLiveExpectedCash() {
+                if (!currentSessionData || !currentSessionData.session_id) {
                     return false;
                 }
 
-                if (amount > expectedCash) {
-                    pickupAmountError.textContent = 'Jumlah pengambilan tidak boleh melebihi ekspektasi kas.';
-                    pickupAmountError.classList.remove('d-none');
+                try {
+                    pickupExpectedCash.innerHTML = '<div class="spinner-border spinner-border-sm text-primary" role="status"><span class="sr-only">Loading...</span></div>';
+                    pickupAmountInput.disabled = true;
+                    pickupNextBtn.disabled = true;
+                    expectedCashLoadError = false;
+
+                    const sessionId = currentSessionData.session_id;
+                    const endpoint = `{{ url('/pos/sessions') }}/${sessionId}/summary`;
+
+                    const response = await fetch(endpoint, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch expected cash');
+                    }
+
+                    const data = await response.json();
+                    const expectedCashValue = data.expected_cash_total || 0;
+
+                    currentSessionData.expected_cash = Number(expectedCashValue);
+                    pickupExpectedCash.textContent = formatPrice(expectedCashValue);
+                    pickupAmountInput.disabled = false;
+                    pickupAmountInput.max = expectedCashValue;
+                    pickupAmountError.classList.add('d-none');
+                    pickupNextBtn.disabled = false;
+
+                    return true;
+                } catch (error) {
+                    expectedCashLoadError = true;
+                    pickupExpectedCash.innerHTML = '<span class="text-danger small">Gagal memuat data kas. <button type="button" class="btn btn-link btn-sm" id="pos-pickup-retry-cash">Coba lagi</button></span>';
+                    pickupAmountInput.disabled = true;
+                    pickupNextBtn.disabled = true;
+
+                    const retryBtn = document.getElementById('pos-pickup-retry-cash');
+                    if (retryBtn) {
+                        retryBtn.addEventListener('click', fetchLiveExpectedCash);
+                    }
+
                     return false;
                 }
-
-                pickupNextBtn.disabled = false;
-                return true;
             }
 
             function formatPrice(amount) {
@@ -4135,24 +4185,162 @@
                 }).format(amount || 0);
             }
 
+            function resetSupervisorSelection() {
+                selectedSupervisor = null;
+                pickupSupervisorSearch.value = '';
+                pickupSupervisorResults.innerHTML = '';
+                pickupSupervisorResults.style.display = 'none';
+                pickupSupervisorSelected.classList.add('d-none');
+                pickupOtpCode.value = '';
+                updateConfirmButtonState();
+            }
+
+            function updateConfirmButtonState() {
+                const hasOtp = pickupOtpCode.value.length === 6 && /^\d{6}$/.test(pickupOtpCode.value);
+                pickupConfirmBtn.disabled = !selectedSupervisor || !hasOtp;
+            }
+
+            async function searchSupervisors(query) {
+                if (!query || query.trim().length === 0) {
+                    pickupSupervisorResults.innerHTML = '';
+                    pickupSupervisorResults.style.display = 'none';
+                    return;
+                }
+
+                latestSupervisorRequestId++;
+                const requestId = latestSupervisorRequestId;
+
+                try {
+                    const endpoint = `{{ route('pos.sell.supervisors.search') }}?q=${encodeURIComponent(query)}&limit=10`;
+                    const response = await fetch(endpoint, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to search supervisors');
+                    }
+
+                    // Ignore stale responses
+                    if (requestId !== latestSupervisorRequestId) {
+                        return;
+                    }
+
+                    const data = await response.json();
+                    const results = data.results || [];
+
+                    if (results.length === 0) {
+                        pickupSupervisorResults.innerHTML = '<div class="list-group-item text-muted small">Tidak ada supervisor dengan OTP aktif.</div>';
+                        pickupSupervisorResults.style.display = 'block';
+                        return;
+                    }
+
+                    pickupSupervisorResults.innerHTML = results.map(supervisor => 
+                        `<button type="button" class="list-group-item list-group-item-action supervisor-result" data-id="${supervisor.id}" data-name="${supervisor.name}" data-email="${supervisor.email}">
+                            <div class="font-weight-bold small">${supervisor.name}</div>
+                            <div class="text-muted small">${supervisor.email}</div>
+                        </button>`
+                    ).join('');
+
+                    pickupSupervisorResults.style.display = 'block';
+
+                    // Add click handlers to results
+                    document.querySelectorAll('.supervisor-result').forEach(btn => {
+                        btn.addEventListener('click', function (e) {
+                            e.preventDefault();
+                            selectSupervisor({
+                                id: Number(this.getAttribute('data-id')),
+                                name: this.getAttribute('data-name'),
+                                email: this.getAttribute('data-email')
+                            });
+                        });
+                    });
+                } catch (error) {
+                    console.error('Supervisor search error:', error);
+                    pickupSupervisorResults.innerHTML = '';
+                    pickupSupervisorResults.style.display = 'none';
+                }
+            }
+
+            function selectSupervisor(supervisor) {
+                selectedSupervisor = supervisor;
+                pickupSupervisorSearch.value = '';
+                pickupSupervisorResults.innerHTML = '';
+                pickupSupervisorResults.style.display = 'none';
+                pickupSupervisorSelected.classList.remove('d-none');
+                pickupSupervisorName.textContent = `${supervisor.name} (${supervisor.email})`;
+                pickupOtpCode.focus();
+                updateConfirmButtonState();
+            }
+
             if (pickupAmountInput && pickupNextBtn) {
-                pickupAmountInput.addEventListener('input', validatePickupAmount);
-                pickupAmountInput.addEventListener('change', validatePickupAmount);
+                pickupAmountInput.addEventListener('input', function () {
+                    const amount = Number(pickupAmountInput.value || 0);
+                    const expectedCash = currentSessionData && currentSessionData.expected_cash ? Number(currentSessionData.expected_cash) : 0;
+
+                    pickupAmountError.classList.add('d-none');
+
+                    if (amount <= 0) {
+                        pickupAmountError.textContent = 'Jumlah pengambilan harus lebih dari 0.';
+                        pickupAmountError.classList.remove('d-none');
+                        pickupNextBtn.disabled = true;
+                        return;
+                    }
+
+                    if (amount > expectedCash) {
+                        pickupAmountError.textContent = 'Jumlah pengambilan tidak boleh melebihi ekspektasi kas.';
+                        pickupAmountError.classList.remove('d-none');
+                        pickupNextBtn.disabled = true;
+                        return;
+                    }
+
+                    pickupNextBtn.disabled = false;
+                });
+            }
+
+            if (pickupSupervisorSearch) {
+                let searchTimeout;
+                pickupSupervisorSearch.addEventListener('input', function (e) {
+                    clearTimeout(searchTimeout);
+                    const query = e.target.value.trim();
+                    
+                    if (query.length > 0) {
+                        searchTimeout = setTimeout(() => searchSupervisors(query), 250);
+                    } else {
+                        pickupSupervisorResults.innerHTML = '';
+                        pickupSupervisorResults.style.display = 'none';
+                    }
+                });
+            }
+
+            if (pickupOtpCode) {
+                pickupOtpCode.addEventListener('input', function () {
+                    // Only allow digits
+                    this.value = this.value.replace(/[^0-9]/g, '').slice(0, 6);
+                    updateConfirmButtonState();
+                });
+            }
+
+            if (pickupSupervisorClear) {
+                pickupSupervisorClear.addEventListener('click', resetSupervisorSelection);
             }
 
             if (pickupNextBtn) {
                 pickupNextBtn.addEventListener('click', function () {
-                    if (!validatePickupAmount()) return;
-
                     const amount = Number(pickupAmountInput.value || 0);
+                    const expectedCash = currentSessionData && currentSessionData.expected_cash ? Number(currentSessionData.expected_cash) : 0;
+
+                    if (amount <= 0 || amount > expectedCash) {
+                        pickupAmountError.textContent = 'Jumlah pengambilan tidak valid.';
+                        pickupAmountError.classList.remove('d-none');
+                        return;
+                    }
+
                     pickupConfirmationAmount.innerHTML = `<span>Rp ${amount.toLocaleString('id-ID')}</span>`;
-
-                    // Reset step 2 inputs
-                    pickupSupervisorEmail.value = '';
-                    pickupSupervisorPassword.value = '';
-                    pickupStep2Error.classList.add('d-none');
-                    pickupConfirmBtn.disabled = false;
-
+                    resetSupervisorSelection();
                     showPickupStep2();
                 });
             }
@@ -4165,23 +4353,20 @@
 
             if (pickupConfirmBtn) {
                 pickupConfirmBtn.addEventListener('click', async function () {
-                    const email = (pickupSupervisorEmail.value || '').trim();
-                    const password = (pickupSupervisorPassword.value || '').trim();
+                    if (!selectedSupervisor) {
+                        pickupStep2Error.textContent = 'Pilih supervisor terlebih dahulu.';
+                        pickupStep2Error.classList.remove('d-none');
+                        return;
+                    }
+
+                    const otpCode = (pickupOtpCode.value || '').trim();
+                    if (!otpCode || !/^\d{6}$/.test(otpCode)) {
+                        pickupStep2Error.textContent = 'Kode OTP harus 6 digit.';
+                        pickupStep2Error.classList.remove('d-none');
+                        return;
+                    }
 
                     pickupStep2Error.classList.add('d-none');
-
-                    if (!email) {
-                        pickupStep2Error.textContent = 'Email supervisor wajib diisi.';
-                        pickupStep2Error.classList.remove('d-none');
-                        return;
-                    }
-
-                    if (!password) {
-                        pickupStep2Error.textContent = 'Password wajib diisi.';
-                        pickupStep2Error.classList.remove('d-none');
-                        return;
-                    }
-
                     pickupConfirmBtn.disabled = true;
                     if (pickupSpinner) pickupSpinner.classList.remove('d-none');
 
@@ -4196,8 +4381,8 @@
 
                         const response = await jsonRequest(endpoint, 'POST', {
                             amount: amount,
-                            supervisor_email: email,
-                            supervisor_password: password
+                            supervisor_id: selectedSupervisor.id,
+                            otp_code: otpCode
                         });
 
                         if (response) {
@@ -4220,7 +4405,7 @@
             }
 
             if (pickupBtn) {
-                pickupBtn.addEventListener('click', function (e) {
+                pickupBtn.addEventListener('click', async function (e) {
                     e.preventDefault();
                     // Get dropdown menu element with session data attributes
                     const dropdownMenu = document.querySelector('.dropdown-menu[data-session-id]');
@@ -4230,16 +4415,14 @@
                             terminal_code: dropdownMenu.getAttribute('data-terminal-code') || '-',
                             terminal_name: dropdownMenu.getAttribute('data-terminal-name') || '-',
                             cashier_name: dropdownMenu.getAttribute('data-cashier-name') || '-',
-                            expected_cash: Number(dropdownMenu.getAttribute('data-expected-cash') || 0)
+                            expected_cash: 0 // Will be fetched live
                         };
 
                         const terminal = `${currentSessionData.terminal_code} - ${currentSessionData.terminal_name}`;
                         if (pickupTerminalInfo) pickupTerminalInfo.textContent = terminal;
                         if (pickupCashierInfo) pickupCashierInfo.textContent = currentSessionData.cashier_name;
-                        if (pickupExpectedCash) pickupExpectedCash.textContent = formatPrice(currentSessionData.expected_cash);
 
                         pickupAmountInput.value = '';
-                        pickupAmountInput.max = currentSessionData.expected_cash;
                         pickupAmountError.classList.add('d-none');
                         pickupNextBtn.disabled = true;
 
@@ -4252,6 +4435,9 @@
                             }
                         }
                         if (pickupAmountInput) pickupAmountInput.focus();
+
+                        // Fetch live expected cash after modal opens
+                        await fetchLiveExpectedCash();
 
                         // Close dropdown if it's open
                         const dropdownToggle = document.getElementById('pos-nav-menu-dropdown');
@@ -4266,10 +4452,10 @@
                 pickupModalElement.addEventListener('hidden.bs.modal', function () {
                     currentSessionData = null;
                     pickupAmountInput.value = '';
-                    pickupSupervisorEmail.value = '';
-                    pickupSupervisorPassword.value = '';
                     pickupStep2Error.classList.add('d-none');
                     pickupAmountError.classList.add('d-none');
+                    resetSupervisorSelection();
+                    expectedCashLoadError = false;
                     showPickupStep1();
                 });
             }

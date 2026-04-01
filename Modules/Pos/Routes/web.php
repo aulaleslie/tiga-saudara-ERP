@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Modules\Pos\Http\Controllers\PosSessionController;
 use Modules\Pos\Http\Controllers\PosSellController;
+use Modules\Pos\Http\Controllers\PosSellSupervisorController;
 use Modules\Pos\Http\Controllers\PosTerminalController;
 use Modules\Pos\Http\Controllers\PosReportController;
 use Modules\Pos\Http\Controllers\PosReconciliationController;
@@ -64,6 +65,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::get('/pos/sell', [PosSellController::class, 'index'])->name('pos.sell');
     Route::get('/pos/sell/products/search', [PosSellController::class, 'search'])->name('pos.sell.products.search');
     Route::get('/pos/sell/customers/search', [PosSellController::class, 'customerSearch'])->name('pos.sell.customers.search');
+    Route::get('/pos/sell/supervisors/search', [PosSellSupervisorController::class, 'search'])->name('pos.sell.supervisors.search');
     Route::post('/pos/sell/customers', [PosSellController::class, 'customerStore'])->name('pos.sell.customers.store');
 
     Route::post('/pos/sell/approval-requests', [PosCartApprovalController::class, 'store'])->name('pos.sell.approval-requests.store');
