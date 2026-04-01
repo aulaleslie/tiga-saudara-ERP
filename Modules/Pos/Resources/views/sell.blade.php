@@ -1967,6 +1967,21 @@
                     .replace(/'/g, '&#039;');
             }
 
+            // Serial duplicate detection helper
+            function serialAlreadyInCart(serialNumber) {
+                if (!currentSnapshot || !Array.isArray(currentSnapshot.lines)) {
+                    return false;
+                }
+                const normalizedSerial = String(serialNumber ?? '').trim();
+                for (const line of currentSnapshot.lines) {
+                    const assignedSerials = Array.isArray(line.assigned_serials) ? line.assigned_serials : [];
+                    if (assignedSerials.includes(normalizedSerial)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
             // Task 4.1: Payment composer - add a payment row
             function addPaymentRow(method) {
                 const paymentId = 'payment-' + Date.now();
@@ -2885,6 +2900,17 @@
                 const product = result.product;
                 const serial = result.serial;
 
+                // Check if serial is already in cart (prevent duplicate scans)
+                if (serialAlreadyInCart(serial.serial_number)) {
+                    const message = 'Serial "' + escapeHtml(serial.serial_number) + '" sudah ditambahkan. Silakan pindai serial lainnya.';
+                    setSearchStatus(message, 'text-info');
+                    if (searchInput) {
+                        searchInput.value = '';
+                        searchInput.focus();
+                    }
+                    return;
+                }
+
                 if (!currentSnapshot || !Array.isArray(currentSnapshot.lines)) {
                     // If no cart, add product first then append serial
                     await addProductToCart(product, 'scan');
@@ -3018,6 +3044,17 @@
                         serialModalStatus.textContent = 'Serial tidak boleh kosong.';
                         serialModalStatus.className = 'small mb-3 text-danger';
                     }
+                    serialModalInput.focus();
+                    return false;
+                }
+
+                // Check if serial is already in cart (prevent duplicate modal input)
+                if (serialAlreadyInCart(serialNumber)) {
+                    if (serialModalStatus) {
+                        serialModalStatus.textContent = 'Serial "' + escapeHtml(serialNumber) + '" sudah ditambahkan. Silakan masukkan serial lainnya.';
+                        serialModalStatus.className = 'small mb-3 text-info';
+                    }
+                    serialModalInput.value = '';
                     serialModalInput.focus();
                     return false;
                 }
