@@ -90,6 +90,9 @@
                 </div>
             </div>
         </div>
+        <div class="row mt-4">
+            @include('user::profile._two-factor')
+        </div>
     </div>
 @endsection
 
