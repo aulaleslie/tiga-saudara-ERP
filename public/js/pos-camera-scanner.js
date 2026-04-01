@@ -14,6 +14,7 @@ window.PosCameraScanner = (function () {
         APPLYING_CONSTRAINTS: 'applying_constraints',
         READY: 'ready',
         SUBMITTING: 'submitting',
+        PAUSED: 'paused',
         COOLDOWN: 'cooldown',
         CAMERA_ERROR: 'camera_error',
         DECODER_ERROR: 'decoder_error'
@@ -205,20 +206,34 @@ window.PosCameraScanner = (function () {
                 startFallbackScanner(containerId, onDecode, onError);
             },
             stop: function () {
-                if (decodeAnimationFrameId !== null) {
-                    window.cancelAnimationFrame(decodeAnimationFrameId);
-                    decodeAnimationFrameId = null;
-                }
-                if (detectorInstance) {
-                    detectorInstance = null;
-                }
-                if (html5QrcodeInstance) {
-                    try {
-                        html5QrcodeInstance.stop();
-                    } catch (e) {}
-                    html5QrcodeInstance = null;
-                }
-                // Don't reset selectedBackend — it persists across retry cycles
+                return new Promise(function (resolve) {
+                    if (decodeAnimationFrameId !== null) {
+                        window.cancelAnimationFrame(decodeAnimationFrameId);
+                        decodeAnimationFrameId = null;
+                    }
+                    if (detectorInstance) {
+                        detectorInstance = null;
+                    }
+                    if (html5QrcodeInstance) {
+                        try {
+                            html5QrcodeInstance.stop()
+                                .then(function () {
+                                    html5QrcodeInstance = null;
+                                    resolve();
+                                })
+                                .catch(function (e) {
+                                    html5QrcodeInstance = null;
+                                    resolve();
+                                });
+                        } catch (e) {
+                            html5QrcodeInstance = null;
+                            resolve();
+                        }
+                    } else {
+                        resolve();
+                    }
+                    // Don't reset selectedBackend — it persists across retry cycles
+                });
             },
             getBackendName: function () {
                 if (selectedBackend === 'native') {
@@ -386,6 +401,19 @@ window.PosCameraScanner = (function () {
         closeButton.addEventListener('click', closeScanner);
         cancelButton.addEventListener('click', closeScanner);
 
+        // Wire dismiss button to resume scanning (Task 2.3)
+        const dismissButton = document.getElementById('pos-camera-scanner-dismiss');
+        if (dismissButton) {
+            dismissButton.addEventListener('click', function () {
+                console.log('[PosCameraScanner] Dismiss button clicked');
+                console.log('[PosCameraScanner] Current state:', state);
+                console.log('[PosCameraScanner] Session active:', sessionActive);
+                dismissButton.classList.add('d-none');
+                console.log('[PosCameraScanner] Calling scheduleRearm()');
+                scheduleRearm();
+            });
+        }
+
         $(modalElement).on('hidden.bs.modal', function () {
             stopSession({ preserveModalState: false });
         });
@@ -416,7 +444,44 @@ window.PosCameraScanner = (function () {
         setSessionMessage(Messages.OPENING);
         updateDebugState({});
 
+        // Gate camera startup on shown.bs.modal to ensure modal is fully visible
+        // Set up handler BEFORE showing modal to avoid race condition
+        $(modalElement).one('shown.bs.modal', function () {
+            if (!sessionActive) {
+                return;
+            }
+            startCameraAfterModal();
+        });
+
+        // Also register vanilla event listener as backup
+        const shownHandler = function () {
+            modalElement.removeEventListener('shown.bs.modal', shownHandler);
+            if (sessionActive) {
+                startCameraAfterModal();
+            }
+        };
+        modalElement.addEventListener('shown.bs.modal', shownHandler);
+
+        // Fallback timer: if event doesn't fire within 500ms, start anyway
+        openRequestTimer = window.setTimeout(function () {
+            if (sessionActive) {
+                startCameraAfterModal();
+            }
+        }, 500);
+
         $(modalElement).modal('show');
+    }
+
+    function startCameraAfterModal() {
+        // Clear the fallback timer if this was called by the event
+        if (openRequestTimer) {
+            window.clearTimeout(openRequestTimer);
+            openRequestTimer = null;
+        }
+
+        if (!sessionActive) {
+            return;
+        }
 
         decoderAdapter.selectBackend().then(function (backend) {
             if (!sessionActive) return;
@@ -432,6 +497,8 @@ window.PosCameraScanner = (function () {
                     }
                 }, CAMERA_BOOT_DELAY_MS);
             }
+        }).catch(function (error) {
+            console.error('[PosCameraScanner] Error selecting backend:', error);
         });
     }
 
@@ -705,19 +772,24 @@ window.PosCameraScanner = (function () {
     }
 
     function startDecoding() {
+        console.log('[PosCameraScanner] startDecoding called');
         if (!sessionActive || !videoElement || !videoElement.srcObject) {
+            console.log('[PosCameraScanner] startDecoding: sessionActive=' + sessionActive + ', videoElement=' + !!videoElement + ', srcObject=' + !!(videoElement && videoElement.srcObject));
             return;
         }
 
         if (!isVideoScanReady()) {
+            console.log('[PosCameraScanner] Video not scan ready, delaying startDecoding');
             openRequestTimer = window.setTimeout(function () {
                 startDecoding();
             }, 120);
             return;
         }
 
+        console.log('[PosCameraScanner] Video is scan ready, starting decoder');
         try {
             const currentNonce = ++decodeStartNonce;
+            console.log('[PosCameraScanner] Decode nonce:', currentNonce);
 
             decoderAdapter.startNative(
                 videoElement,
@@ -752,6 +824,7 @@ window.PosCameraScanner = (function () {
 
             updateDebugState({ decoderBackend: decoderAdapter.getBackendName() });
         } catch (error) {
+            console.error('[PosCameraScanner] Error in startDecoding:', error);
             logDiagnostics(FailureStages.DECODER_INIT, error);
             state = States.DECODER_ERROR;
             setSessionMessage(Messages.DECODER_ERROR, buildDebugDetail(Messages.DECODER_ERROR.detail));
@@ -770,7 +843,7 @@ window.PosCameraScanner = (function () {
             return;
         }
 
-        if (submissionInFlight || state === States.COOLDOWN) {
+        if (submissionInFlight || state === States.COOLDOWN || state === States.PAUSED) {
             return;
         }
 
@@ -818,6 +891,19 @@ window.PosCameraScanner = (function () {
                 } else {
                     setSessionMessage(Messages.RESOLVER_ERROR, 'Kode ' + lastAcceptedCode + ': ' + (result && result.message ? result.message : Messages.RESOLVER_ERROR.detail));
                 }
+
+                // Task 2.4: Transition to PAUSED state and show dismiss button
+                if (sessionActive) {
+                    state = States.PAUSED;
+                    // Don't call decoderAdapter.stop() here - just pause by suppressing new scans
+                    // The state check in handleDecodedValue will prevent processing
+                    // Keep the video stream alive so we can resume without reinitializing
+                    console.log('[PosCameraScanner] Transitioned to PAUSED, dismiss button shown');
+                    const dismissButton = document.getElementById('pos-camera-scanner-dismiss');
+                    if (dismissButton) {
+                        dismissButton.classList.remove('d-none');
+                    }
+                }
             })
             .catch(function (error) {
                 console.error('[PosCameraScanner] Resolver error:', error);
@@ -829,73 +915,92 @@ window.PosCameraScanner = (function () {
                 if (!sessionActive) {
                     return;
                 }
-                scheduleRearm();
+                // Task 2.5: Only call scheduleRearm() when state !== PAUSED
+                if (state !== States.PAUSED) {
+                    scheduleRearm();
+                }
             });
     }
 
     function scheduleRearm() {
+        console.log('[PosCameraScanner] scheduleRearm called, state:', state);
         clearCooldownTimer();
         state = States.COOLDOWN;
+        console.log('[PosCameraScanner] Transitioning to COOLDOWN, scheduling rearm in ' + REARM_COOLDOWN_MS + 'ms');
         updateDebugState({});
         cooldownTimer = window.setTimeout(function () {
+            console.log('[PosCameraScanner] Rearm timer fired, calling armScanner()');
             armScanner();
         }, REARM_COOLDOWN_MS);
     }
 
     function armScanner() {
+        console.log('[PosCameraScanner] armScanner called, sessionActive:', sessionActive);
         if (!sessionActive) {
+            console.log('[PosCameraScanner] armScanner: session not active, returning');
             return;
         }
 
         state = States.READY;
+        console.log('[PosCameraScanner] Transitioned to READY state');
         if (!hasScannedOnce) {
             setSessionMessage(Messages.READY);
         }
+        // Task 2.6: Hide dismiss button when transitioning to READY
+        const dismissButton = document.getElementById('pos-camera-scanner-dismiss');
+        if (dismissButton) {
+            dismissButton.classList.add('d-none');
+        }
         retryButton.classList.add('d-none');
         updateDebugState({});
+        
+        // Restart/resume decoding
+        console.log('[PosCameraScanner] Calling restartDecoding()');
+        restartDecoding();
     }
 
     function restartDecoding() {
+        console.log('[PosCameraScanner] restartDecoding called, sessionActive:', sessionActive);
         if (!sessionActive) {
+            console.log('[PosCameraScanner] restartDecoding: session not active, returning');
             return;
         }
 
-        if (decoderAdapter) {
-            try {
-                decoderAdapter.stop();
-            } catch (e) {}
-        }
-
+        // The decoder is already paused by state check in handleDecodedValue
+        // Just resume by calling startDecoding - the video stream is still alive
+        console.log('[PosCameraScanner] Resuming decoder with existing stream');
         startDecoding();
     }
 
     function retryScanning() {
-        stopSession({ preserveModalState: true });
-        hasScannedOnce = false;
-        sessionActive = true;
-        retryButton.classList.add('d-none');
-        setSessionMessage(Messages.OPENING);
-        updateDebugState({});
+        stopSession({ preserveModalState: true }).then(function () {
+            hasScannedOnce = false;
+            sessionActive = true;
+            retryButton.classList.add('d-none');
+            setSessionMessage(Messages.OPENING);
+            updateDebugState({});
 
-        var backend = decoderAdapter.getSelectedBackend();
-        if (backend === 'fallback') {
-            openRequestTimer = window.setTimeout(function () {
-                if (sessionActive) {
-                    startFallbackSession();
-                }
-            }, 220);
-        } else {
-            openRequestTimer = window.setTimeout(function () {
-                if (sessionActive) {
-                    startCamera();
-                }
-            }, 220);
-        }
+            var backend = decoderAdapter.getSelectedBackend();
+            if (backend === 'fallback') {
+                openRequestTimer = window.setTimeout(function () {
+                    if (sessionActive) {
+                        startFallbackSession();
+                    }
+                }, 220);
+            } else {
+                openRequestTimer = window.setTimeout(function () {
+                    if (sessionActive) {
+                        startCamera();
+                    }
+                }, 220);
+            }
+        });
     }
 
     function closeScanner() {
-        stopSession({ preserveModalState: true });
-        $(modalElement).modal('hide');
+        stopSession({ preserveModalState: true }).then(function () {
+            $(modalElement).modal('hide');
+        });
     }
 
     function stopSession(options) {
@@ -907,42 +1012,46 @@ window.PosCameraScanner = (function () {
         hasScannedOnce = false;
         decodeStartNonce += 1;
 
+        let stopPromise = Promise.resolve();
         if (decoderAdapter) {
             try {
-                decoderAdapter.stop();
+                stopPromise = decoderAdapter.stop() || Promise.resolve();
             } catch (error) {
                 console.warn('[PosCameraScanner] Error stopping decoder:', error);
+                stopPromise = Promise.resolve();
             }
         }
 
-        if (videoElement) {
-            videoElement.pause();
-            videoElement.srcObject = null;
-            videoElement.onloadedmetadata = null;
-            videoElement.onplaying = null;
-            videoElement.style.display = '';
-        }
+        return stopPromise.then(function () {
+            if (videoElement) {
+                videoElement.pause();
+                videoElement.srcObject = null;
+                videoElement.onloadedmetadata = null;
+                videoElement.onplaying = null;
+                videoElement.style.display = '';
+            }
 
-        if (fallbackContainerElement) {
-            fallbackContainerElement.style.display = 'none';
-            fallbackContainerElement.innerHTML = '';
-        }
+            if (fallbackContainerElement) {
+                fallbackContainerElement.style.display = 'none';
+                fallbackContainerElement.innerHTML = '';
+            }
 
-        if (mediaStream) {
-            stopTracks(mediaStream);
-            mediaStream = null;
-        }
+            if (mediaStream) {
+                stopTracks(mediaStream);
+                mediaStream = null;
+            }
 
-        state = States.IDLE;
-        lastAcceptedCode = null;
-        lastAcceptedAt = 0;
-        resetDebugState();
-        updateDebugState({});
+            state = States.IDLE;
+            lastAcceptedCode = null;
+            lastAcceptedAt = 0;
+            resetDebugState();
+            updateDebugState({});
 
-        if (!preserveModalState) {
-            retryButton.classList.add('d-none');
-            setSessionMessage(Messages.OPENING);
-        }
+            if (!preserveModalState) {
+                retryButton.classList.add('d-none');
+                setSessionMessage(Messages.OPENING);
+            }
+        });
     }
 
     function handleCameraError(error) {

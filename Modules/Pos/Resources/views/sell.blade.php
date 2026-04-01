@@ -1754,6 +1754,7 @@
                                 <span>Input scan tetap sinkron</span>
                                 <span>Tutup saat sesi selesai</span>
                             </div>
+                            <button id="pos-camera-scanner-dismiss" type="button" class="btn btn-primary d-none" style="margin-top: 0.5rem;">Lanjutkan Scan</button>
                         </div>
                         <div id="pos-camera-scanner-debug" class="pos-scanner-debug-panel" aria-hidden="true"></div>
                     </div>
@@ -3326,29 +3327,37 @@
                     if (response.type === 'product_exact') {
                         await addProductToCart(response.product, 'scan');
                         searchInput.value = '';
-                        setSearchStatus('Produk ditambahkan ke keranjang.', 'text-success');
+                        // Task 3.1: Enrich message with product name
+                        const productMessage = 'Produk "' + (response.product.product_name || 'Unknown') + '" telah ditambahkan';
+                        setSearchStatus(productMessage, 'text-success');
                         return {
                             ok: true,
                             outcome: 'product_exact',
-                            message: 'Produk ditambahkan ke keranjang.',
+                            message: productMessage,
+                            product: response.product,
                             response: response
                         };
                     } else if (response.type === 'serial_exact') {
                         await handleSerialScanResult(response);
                         searchInput.value = '';
-                        setSearchStatus('Serial berhasil ditambahkan.', 'text-success');
+                        // Task 3.2: Enrich message with serial number
+                        const serialMessage = 'Serial "' + (response.serial.serial_number || 'Unknown') + '" telah ditambahkan';
+                        setSearchStatus(serialMessage, 'text-success');
                         return {
                             ok: true,
                             outcome: 'serial_exact',
-                            message: 'Serial berhasil ditambahkan.',
+                            message: serialMessage,
+                            serial: response.serial,
                             response: response
                         };
                     } else {
-                        setSearchStatus('Kode tidak ditemukan.', 'text-warning');
+                        // Task 3.3: Enrich message with the scanned query code
+                        const notFoundMessage = 'Kode "' + query + '" tidak ditemukan';
+                        setSearchStatus(notFoundMessage, 'text-warning');
                         return {
                             ok: false,
                             outcome: 'not_found',
-                            message: 'Kode tidak ditemukan.',
+                            message: notFoundMessage,
                             response: response
                         };
                     }
