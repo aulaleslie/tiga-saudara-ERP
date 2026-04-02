@@ -152,7 +152,7 @@
                                     <select
                                         wire:model.defer="product_tax.{{ $cart_item->id }}"
                                         class="form-control form-control-sm"
-                                        wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
+                                        wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}', $event.target.value)"
                                     >
                                         <option value="" disabled {{ blank($cart_item->options->get('product_tax')) ? 'selected' : '' }}>
                                             Wajib Pilih Pajak

@@ -1163,10 +1163,15 @@ class ProductCart extends Component
         $this->render();
     }
 
-    public function updateTax($row_id, $id)
+    public function updateTax($row_id, $id, $selectedTaxId = null)
     {
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
-        $tax_id = !empty($this->product_tax[$id]) ? $this->product_tax[$id] : null;
+        if (! $cart_item) {
+            return;
+        }
+
+        $tax_id = blank($selectedTaxId) ? null : (is_numeric($selectedTaxId) ? (int) $selectedTaxId : null);
+        $this->product_tax[$id] = $tax_id;
         $tax_amount = 0;
 
         if ($tax_id) {
@@ -1353,7 +1358,7 @@ class ProductCart extends Component
             $cart_items = Cart::instance($this->cart_instance)->content();
             foreach ($cart_items as $cart_item) {
                 if ((string) $cart_item->id === (string) $product_id) {
-                    $this->updateTax($cart_item->rowId, $product_id);
+                    $this->updateTax($cart_item->rowId, $product_id, $id);
                     break;
                 }
             }

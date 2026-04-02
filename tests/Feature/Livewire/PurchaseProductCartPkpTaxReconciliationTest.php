@@ -161,6 +161,31 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
         );
     }
 
+    public function test_first_explicit_tax_selection_persists_immediately_for_taxless_pkp_purchase_row(): void
+    {
+        $explicitTax = Tax::create([
+            'name' => 'PPN 11',
+            'value' => 11,
+            'is_default' => false,
+        ]);
+
+        $this->seedCartRow(productTaxId: null);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->call('updateTax', $rowId, $this->product->id, (string) $explicitTax->id)
+            ->assertSet('product_tax.' . $this->product->id, $explicitTax->id);
+
+        $cartItem = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id);
+
+        $this->assertNotNull($cartItem);
+        $this->assertSame($explicitTax->id, (int) $cartItem->options->product_tax);
+        $this->assertEqualsWithDelta(99.0991, (float) $cartItem->options->product_tax_amount, 0.0001);
+        $this->assertSame(1000.0, (float) $cartItem->options->sub_total);
+        $this->assertEqualsWithDelta(900.9009, (float) $cartItem->options->sub_total_before_tax, 0.0001);
+    }
+
     private function seedCartRow(?int $productTaxId): void
     {
         Cart::instance('purchase')->add([

@@ -215,7 +215,7 @@ class ProductCart extends Component
             foreach ($cart_items as $cart_item) {
                 if ($cart_item->id == $product_id) {
                     // Trigger tax update for this cart item
-                    $this->updateTax($cart_item->rowId, $product_id);
+                    $this->updateTax($cart_item->rowId, $product_id, $id);
                     break;
                 }
             }
@@ -748,13 +748,17 @@ class ProductCart extends Component
         $this->dispatch('shippingUpdated', $this->shipping);
     }
 
-    public function updateTax($row_id, $product_id)
+    public function updateTax($row_id, $product_id, $selectedTaxId = null)
     {
         // Fetch the cart item
         $cart_item = Cart::instance($this->cart_instance)->get($row_id);
+        if (! $cart_item) {
+            return;
+        }
 
-        // Get the selected tax ID
-        $tax_id = !empty($this->product_tax[$product_id]) ? $this->product_tax[$product_id] : null;
+        // Normalize the explicit selected value so this handler does not depend on deferred state.
+        $tax_id = blank($selectedTaxId) ? null : (is_numeric($selectedTaxId) ? (int) $selectedTaxId : null);
+        $this->product_tax[$product_id] = $tax_id;
 
         // Initialize tax amount and validate the tax ID
         $tax_amount = 0;
@@ -776,6 +780,7 @@ class ProductCart extends Component
                         'product_tax' => $tax_id,
                         'sub_total' => $updated_cart_data['sub_total'],
                         'sub_total_before_tax' => $updated_cart_data['sub_total_before_tax'],
+                        'product_tax_amount' => $updated_cart_data['product_tax_amount'],
                     ]),
                 ]);
 
@@ -798,6 +803,7 @@ class ProductCart extends Component
                     'product_tax' => $tax_id,
                     'sub_total' => $updated_cart_data['sub_total'],
                     'sub_total_before_tax' => $updated_cart_data['sub_total_before_tax'],
+                    'product_tax_amount' => $updated_cart_data['product_tax_amount'],
                 ]),
             ]);
 
