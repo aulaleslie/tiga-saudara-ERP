@@ -150,7 +150,7 @@
                                         entity="pajak"
                                         permission="settings.access"
                                         modal-event="openTaxModal"
-                                        :modal-params="[$cart_item->id]"
+                                        :modal-params="[$cart_item->rowId]"
                                         size="sm"
                                         tooltip="Tambah pajak baru"
                                     />

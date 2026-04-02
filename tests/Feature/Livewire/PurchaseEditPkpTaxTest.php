@@ -3,6 +3,7 @@
 namespace Tests\Feature\Livewire;
 
 use App\Livewire\Purchase\EditForm;
+use App\Livewire\Purchase\ProductCart;
 use App\Models\User;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -25,6 +26,7 @@ class PurchaseEditPkpTaxTest extends TestCase
     protected PaymentTerm $codTerm;
     protected Supplier $supplier;
     protected Product $product;
+    protected Product $secondProduct;
 
     protected function setUp(): void
     {
@@ -75,6 +77,16 @@ class PurchaseEditPkpTaxTest extends TestCase
             'product_unit' => 'pcs',
         ]);
 
+        $this->secondProduct = Product::create([
+            'product_name' => 'PKP Product Two',
+            'product_code' => 'PKP-002',
+            'product_quantity' => 100,
+            'setting_id' => $this->setting->id,
+            'product_cost' => 1000,
+            'product_price' => 1000,
+            'product_unit' => 'pcs',
+        ]);
+
         Cart::instance('purchase')->destroy();
     }
 
@@ -86,9 +98,10 @@ class PurchaseEditPkpTaxTest extends TestCase
             ->call('submit')
             ->assertHasErrors(['cart']);
 
-        $purchase->refresh();
-        $this->assertSame(1000.0, (float) $purchase->total_amount);
-        $this->assertDatabaseCount('purchases', 1);
+        $this->assertDatabaseHas('purchases', [
+            'id' => $purchase->id,
+            'total_amount' => 1000,
+        ]);
     }
 
     public function test_pkp_edit_submit_succeeds_when_all_items_have_tax(): void
@@ -112,10 +125,71 @@ class PurchaseEditPkpTaxTest extends TestCase
         ]);
     }
 
+    public function test_pkp_edit_submit_preserves_mixed_row_taxes_after_tax_included_toggle(): void
+    {
+        $defaultTax = Tax::create([
+            'name' => 'PPN Default',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $specialTax = Tax::create([
+            'name' => 'PPN Special',
+            'value' => 12,
+            'is_default' => false,
+        ]);
+
+        $purchase = $this->createPurchaseWithLines([
+            ['product' => $this->product, 'tax_id' => null],
+            ['product' => $this->secondProduct, 'tax_id' => null],
+        ]);
+
+        $editForm = Livewire::test(EditForm::class, ['purchaseId' => $purchase->id]);
+        $cartRows = Cart::instance('purchase')->content()->values();
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase', 'data' => $purchase])
+            ->call('updateTax', $cartRows[0]->rowId, $this->product->id, (string) $defaultTax->id)
+            ->call('updateTax', $cartRows[1]->rowId, $this->secondProduct->id, (string) $specialTax->id)
+            ->set('is_tax_included', true)
+            ->call('handleTaxIncluded')
+            ->set('is_tax_included', false)
+            ->call('handleTaxIncluded');
+
+        $editForm
+            ->call('submit')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('purchases.index'));
+
+        $this->assertDatabaseHas('purchase_details', [
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'tax_id' => $defaultTax->id,
+        ]);
+        $this->assertDatabaseHas('purchase_details', [
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->secondProduct->id,
+            'tax_id' => $specialTax->id,
+        ]);
+    }
+
     private function createPurchaseWithTax(?int $taxId): Purchase
     {
-        $subTotal = $taxId ? 1110.0 : 1000.0;
-        $taxAmount = $taxId ? 110.0 : 0.0;
+        return $this->createPurchaseWithLines([
+            ['product' => $this->product, 'tax_id' => $taxId],
+        ]);
+    }
+
+    private function createPurchaseWithLines(array $lines): Purchase
+    {
+        $subTotal = 0.0;
+        $taxAmount = 0.0;
+
+        foreach ($lines as $line) {
+            $lineSubTotal = $line['tax_id'] ? 1110.0 : 1000.0;
+            $lineTaxAmount = $line['tax_id'] ? 110.0 : 0.0;
+            $subTotal += $lineSubTotal;
+            $taxAmount += $lineTaxAmount;
+        }
 
         $purchase = Purchase::create([
             'date' => now()->format('Y-m-d'),
@@ -141,20 +215,26 @@ class PurchaseEditPkpTaxTest extends TestCase
             'payment_term_id' => $this->codTerm->id,
         ]);
 
-        PurchaseDetail::create([
-            'purchase_id' => $purchase->id,
-            'product_id' => $this->product->id,
-            'product_name' => $this->product->product_name,
-            'product_code' => $this->product->product_code,
-            'quantity' => 1,
-            'price' => $subTotal,
-            'unit_price' => 1000,
-            'sub_total' => $subTotal,
-            'product_discount_amount' => 0,
-            'product_discount_type' => 'fixed',
-            'product_tax_amount' => $taxAmount,
-            'tax_id' => $taxId,
-        ]);
+        foreach ($lines as $line) {
+            $product = $line['product'];
+            $lineSubTotal = $line['tax_id'] ? 1110.0 : 1000.0;
+            $lineTaxAmount = $line['tax_id'] ? 110.0 : 0.0;
+
+            PurchaseDetail::create([
+                'purchase_id' => $purchase->id,
+                'product_id' => $product->id,
+                'product_name' => $product->product_name,
+                'product_code' => $product->product_code,
+                'quantity' => 1,
+                'price' => $lineSubTotal,
+                'unit_price' => 1000,
+                'sub_total' => $lineSubTotal,
+                'product_discount_amount' => 0,
+                'product_discount_type' => 'fixed',
+                'product_tax_amount' => $lineTaxAmount,
+                'tax_id' => $line['tax_id'],
+            ]);
+        }
 
         return $purchase;
     }

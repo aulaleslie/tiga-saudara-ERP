@@ -7,6 +7,7 @@ use Exception;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Modules\Sale\Services\SaleCartAggregator;
 use Modules\People\Entities\Customer;
@@ -30,6 +31,7 @@ class EditForm extends Component
     public $paymentTerms = [];
     public $note;
     public $tax_ref_no;
+    public bool $is_tax_included = false;
     public array $tags = [];
     public bool $isPkp = false;
     public bool $dueDateIsManual = false;
@@ -42,10 +44,13 @@ class EditForm extends Component
         'confirmUpdate'   => 'update',
         'tagsUpdated'     => 'handleTagsUpdated',
         'payment-term-changed' => 'handlePaymentTermChanged',
+        'taxIncludedUpdated' => 'handleTaxIncludedUpdated',
     ];
 
     public function mount(Sale $sale)
     {
+        $sale->loadMissing(['customer', 'tags', 'saleDetails.bundleItems', 'saleDetails.product']);
+
         // Rule: Partially or Fully Dispatched -> Hard Block
         if (in_array($sale->status, [Sale::STATUS_DISPATCHED, Sale::STATUS_DISPATCHED_PARTIALLY])) {
             abort(403, 'Tidak dapat mengubah penjualan yang sudah dikirim barangnya.');
@@ -69,6 +74,7 @@ class EditForm extends Component
         $this->dueDateIsManual = $this->isCustomPaymentTerm($this->paymentTermId ? (int) $this->paymentTermId : null);
         $this->note          = $sale->note;
         $this->tax_ref_no    = $sale->tax_ref_no;
+        $this->is_tax_included = (bool) $sale->is_tax_included;
         $this->tags          = $sale->tags->pluck('name')->map(fn($n) => is_array($n) ? ($n['en'] ?? reset($n)) : $n)->toArray();
         $this->paymentTerms  = PaymentTerm::all();
 
@@ -323,6 +329,27 @@ class EditForm extends Component
         $this->tags = $tags;
     }
 
+    public function handleTaxIncludedUpdated(bool $included): void
+    {
+        $this->is_tax_included = $included;
+    }
+
+    private function ensureCartTaxesForPkp($cartItems): void
+    {
+        if (! $this->isPkpEnabled()) {
+            return;
+        }
+
+        foreach ($cartItems as $item) {
+            $taxId = $item->options['product_tax'] ?? null;
+            if (empty($taxId)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'paymentTermId' => 'Semua produk wajib memilih pajak karena bisnis PKP.',
+                ]);
+            }
+        }
+    }
+
     public function update(?string $customerId = null, ?string $paymentTermId = null)
     {
         Log::info('Sale update called', [
@@ -397,6 +424,7 @@ class EditForm extends Component
                 ]);
 
                 $cartItems = Cart::instance('sale')->content();
+                $this->ensureCartTaxesForPkp($cartItems);
                 $aggregatedItems = SaleCartAggregator::aggregate($cartItems);
 
                 // Totals
@@ -421,6 +449,7 @@ class EditForm extends Component
                     'payment_term_id'    => $this->paymentTermId,
                     'note'               => $this->note,
                     'tax_ref_no'         => $this->tax_ref_no ?: null,
+                    'is_tax_included'    => (bool) $this->is_tax_included,
                 ]);
 
                 $this->sale->syncTags($this->tags);
@@ -469,6 +498,9 @@ class EditForm extends Component
                 session()->flash('success', 'Penjualan Diperbaharui!');
                 Log::info('Sale update completed', ['sale_id' => $this->sale->id]);
                 return redirect()->route('sales.index');
+            } catch (ValidationException $e) {
+                DB::rollBack();
+                throw $e;
             } catch (Exception $e) {
                 DB::rollBack();
                 Log::error('Livewire Sale Update Failed: ' . $e->getMessage());

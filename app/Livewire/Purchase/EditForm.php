@@ -510,6 +510,7 @@ class EditForm extends Component
 
         $failureStage = 'before_validation';
         $purchase = null;
+        $transactionStarted = false;
 
         try {
             $purchase = $this->purchase;
@@ -557,6 +558,7 @@ class EditForm extends Component
 
             $failureStage = 'db_transaction_begin';
             DB::beginTransaction();
+            $transactionStarted = true;
             $this->purchaseSubmitDebug('purchase.submit.transaction_begin');
 
             $purchase = $this->purchase; // already loaded in mount()
@@ -673,7 +675,7 @@ class EditForm extends Component
             return redirect()->route('purchases.index');
 
         } catch (ValidationException $e) {
-            if (DB::transactionLevel() > 0) {
+            if ($transactionStarted && DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
 
@@ -685,7 +687,7 @@ class EditForm extends Component
             ]);
             throw $e;
         } catch (\Exception $e) {
-            if (DB::transactionLevel() > 0) {
+            if ($transactionStarted && DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
 

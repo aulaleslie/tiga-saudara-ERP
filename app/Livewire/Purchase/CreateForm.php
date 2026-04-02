@@ -754,6 +754,7 @@ class CreateForm extends Component
 
         $purchase = null;
         $failureStage = 'before_validation';
+        $transactionStarted = false;
 
         try {
             $this->purchaseSubmitDebug('purchase.submit.before_validation', [
@@ -807,6 +808,7 @@ class CreateForm extends Component
 
             $failureStage = 'db_transaction_begin';
             DB::beginTransaction();
+            $transactionStarted = true;
             $this->purchaseSubmitDebug('purchase.submit.transaction_begin');
 
             $setting_id = session('setting_id');
@@ -920,7 +922,7 @@ class CreateForm extends Component
             return redirect()->route('purchases.index');
 
         } catch (ValidationException $e) {
-            if (DB::transactionLevel() > 0) {
+            if ($transactionStarted && DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
 
@@ -933,7 +935,7 @@ class CreateForm extends Component
             ]);
             throw $e;
         } catch (\Exception $e) {
-            if (DB::transactionLevel() > 0) {
+            if ($transactionStarted && DB::transactionLevel() > 0) {
                 DB::rollBack();
             }
 

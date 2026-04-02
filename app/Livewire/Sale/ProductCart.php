@@ -134,6 +134,37 @@ class ProductCart extends Component
             ->get();
     }
 
+    private function normalizeTaxId(mixed $taxId): ?int
+    {
+        if ($taxId === null || $taxId === '' || blank($taxId)) {
+            return null;
+        }
+
+        return is_numeric($taxId) ? (int) $taxId : null;
+    }
+
+    private function resolvePersistedProductTax($cartItem): ?int
+    {
+        $storedTaxId = $this->normalizeTaxId($cartItem->options->get('product_tax'));
+        if ($storedTaxId !== null) {
+            return $storedTaxId;
+        }
+
+        return $this->normalizeTaxId($this->product_tax[$cartItem->id] ?? null);
+    }
+
+    private function syncProductTaxState($cartItem, mixed $taxId = null): ?int
+    {
+        $resolvedTaxId = $this->normalizeTaxId($taxId);
+        if ($resolvedTaxId === null) {
+            $resolvedTaxId = $this->resolvePersistedProductTax($cartItem);
+        }
+
+        $this->product_tax[$cartItem->id] = $resolvedTaxId;
+
+        return $resolvedTaxId;
+    }
+
     private function reconcileMissingPkpTaxesInCart(): void
     {
         if ($this->cart_instance !== 'sale' || ! $this->isPkp) {
@@ -370,7 +401,7 @@ class ProductCart extends Component
                     $newPriceCalc['unit_price'],
                     $cart_item->qty,
                     $cart_item->options->product_discount ?? 0,
-                    $this->product_tax[$cart_item->id] ?? null
+                    $this->syncProductTaxState($cart_item)
                 );
 
                 [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
@@ -390,6 +421,7 @@ class ProductCart extends Component
                     'options' => array_merge($cart_item->options->toArray(), [
                         'sub_total' => $newSubTotal,
                         'sub_total_before_tax' => $newSubTotalBeforeTax,
+                        'product_tax_amount' => $calculated['tax_amount'],
                         'sale_price' => $resolvedPrices['sale_price'] ?? $cart_item->options->sale_price,
                         'tier_1_price' => $resolvedPrices['tier_1_price'] ?? $cart_item->options->tier_1_price,
                         'tier_2_price' => $resolvedPrices['tier_2_price'] ?? $cart_item->options->tier_2_price,
@@ -453,11 +485,11 @@ class ProductCart extends Component
                 'product_discount_type' => 'fixed',
                 'sub_total' => $taxCalculation['sub_total'],
                 'sub_total_before_tax' => $taxCalculation['subtotal_before_tax'],
+                'product_tax_amount' => $taxCalculation['tax_amount'],
                 'code' => $product['product_code'],
                 'stock' => $product['product_quantity'],
                 'unit' => $product['product_unit'],
                 'product_tax' => $defaultTaxId,
-                'tax_amount' => $taxCalculation['tax_amount'],
                 'unit_price' => $calculated['unit_price'],
                 'sale_price' => $resolvedPrices['sale_price'] ?? 0,
                 'tier_1_price' => $resolvedPrices['tier_1_price'] ?? 0,
@@ -625,11 +657,11 @@ class ProductCart extends Component
                     'product_discount_type' => 'fixed',
                     'sub_total' => $combinedSubTotal,
                     'sub_total_before_tax' => $combinedSubTotalBeforeTax,
+                    'product_tax_amount' => $parentTaxCalculation['tax_amount'],
                     'code' => $this->pendingProduct['product_code'],
                     'stock' => $this->pendingProduct['product_quantity'],
                     'unit' => $this->pendingProduct['product_unit'],
                     'product_tax' => $defaultTaxId,
-                    'tax_amount' => $parentTaxCalculation['tax_amount'],
                     'unit_price' => $parentUnitPrice,
                     'sale_price' => $parentResolved['sale_price'] ?? 0,
                     'tier_1_price' => $parentResolved['tier_1_price'] ?? 0,
@@ -760,7 +792,7 @@ class ProductCart extends Component
             $this->unit_price[$id] ?? $cart_item->price,
             $this->quantity[$id] ?? 0,
             $cart_item->options->product_discount ?? 0,
-            $this->product_tax[$id] ?? null
+            $this->syncProductTaxState($cart_item)
         );
 
         [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
@@ -778,7 +810,7 @@ class ProductCart extends Component
             'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total' => $newSubTotal,
                 'sub_total_before_tax' => $newSubTotalBeforeTax,
-                'tax_amount' => $calculated['tax_amount'],
+                'product_tax_amount' => $calculated['tax_amount'],
                 'bundle_items' => $updatedBundleItems,
                 'bundle_price' => $bundleTotal,
             ]),
@@ -971,7 +1003,7 @@ class ProductCart extends Component
             $unit_price,
             $quantity,
             $discount_amount,
-            $this->product_tax[$product_id] ?? null
+            $this->syncProductTaxState($cart_item)
         );
 
         [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
@@ -985,6 +1017,7 @@ class ProductCart extends Component
             'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total' => $calculated['sub_total'] + $bundleTotal,
                 'sub_total_before_tax' => $calculated['subtotal_before_tax'] + $bundleTotal,
+                'product_tax_amount' => $calculated['tax_amount'],
                 'product_discount' => $discount_amount,
                 'product_discount_type' => $this->discount_type[$product_id],
                 'bundle_items' => $updatedBundleItems,
@@ -1017,7 +1050,7 @@ class ProductCart extends Component
             $new_price,
             $cart_item->qty,
             $discount_amount,
-            $this->product_tax[$id] ?? null
+            $this->syncProductTaxState($cart_item)
         );
 
         [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
@@ -1035,7 +1068,7 @@ class ProductCart extends Component
             'options' => array_merge($cart_item->options->toArray(), [
                 'sub_total' => $newSubTotal,
                 'sub_total_before_tax' => $newSubTotalBeforeTax,
-                'tax_amount' => $calculated['tax_amount'],
+                'product_tax_amount' => $calculated['tax_amount'],
                 'product_discount' => $discount_amount,
                 'bundle_items' => $updatedBundleItems,
                 'bundle_price' => $bundleTotal,
@@ -1170,7 +1203,7 @@ class ProductCart extends Component
             return;
         }
 
-        $tax_id = blank($selectedTaxId) ? null : (is_numeric($selectedTaxId) ? (int) $selectedTaxId : null);
+        $tax_id = $this->normalizeTaxId($selectedTaxId);
         $this->product_tax[$id] = $tax_id;
         $tax_amount = 0;
 
@@ -1204,6 +1237,7 @@ class ProductCart extends Component
                         'product_tax' => $tax_id,
                         'sub_total' => $newSubTotal,
                         'sub_total_before_tax' => $newSubTotalBeforeTax,
+                        'product_tax_amount' => $updated_cart_data['tax_amount'],
                         'bundle_items' => $updatedBundleItems,
                         'bundle_price' => $bundleTotal,
                     ]),
@@ -1240,6 +1274,7 @@ class ProductCart extends Component
                     'product_tax' => $tax_id,
                     'sub_total' => $newSubTotal,
                     'sub_total_before_tax' => $newSubTotalBeforeTax,
+                    'product_tax_amount' => $updated_cart_data['tax_amount'],
                     'bundle_items' => $updatedBundleItems,
                     'bundle_price' => $bundleTotal,
                 ]),
@@ -1263,7 +1298,7 @@ class ProductCart extends Component
             $price = $cart_item->price;
             $quantity = $cart_item->qty;
             $discount = $cart_item->options->product_discount ?? 0;
-            $tax_id = $this->product_tax[$cart_item->id] ?? null;
+            $tax_id = $this->syncProductTaxState($cart_item);
 
             // Calculate subtotal and tax for the parent product
             $calculated = $this->calculateSubtotalAndTax($price, $quantity, $discount, $tax_id);
@@ -1283,6 +1318,7 @@ class ProductCart extends Component
                     'product_tax' => $tax_id,
                     'sub_total' => $newSubTotal,
                     'sub_total_before_tax' => $newSubTotalBeforeTax,
+                    'product_tax_amount' => $calculated['tax_amount'],
                     'bundle_items' => $updatedBundleItems,
                     'bundle_price' => $bundleTotal,
                 ]),
@@ -1353,14 +1389,9 @@ class ProductCart extends Component
         $this->taxes = $this->loadTaxes(); // Refresh the taxes list
 
         if ($product_id) {
-            $this->product_tax[$product_id] = $id;
-
-            $cart_items = Cart::instance($this->cart_instance)->content();
-            foreach ($cart_items as $cart_item) {
-                if ((string) $cart_item->id === (string) $product_id) {
-                    $this->updateTax($cart_item->rowId, $product_id, $id);
-                    break;
-                }
+            $cartItem = Cart::instance($this->cart_instance)->get($product_id);
+            if ($cartItem) {
+                $this->updateTax($cartItem->rowId, $cartItem->id, $id);
             }
         }
     }

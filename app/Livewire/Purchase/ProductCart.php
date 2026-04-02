@@ -205,19 +205,11 @@ class ProductCart extends Component
     public function handleTaxCreated($id, $name, $value, $product_id = null): void
     {
         $this->taxes = $this->loadTaxes(); // Refresh the taxes list
-        
-        // Auto-select the new tax for the product that requested it
+
         if ($product_id) {
-            $this->product_tax[$product_id] = $id;
-            
-            // Find the cart item with this product_id and update tax
-            $cart_items = Cart::instance($this->cart_instance)->content();
-            foreach ($cart_items as $cart_item) {
-                if ($cart_item->id == $product_id) {
-                    // Trigger tax update for this cart item
-                    $this->updateTax($cart_item->rowId, $product_id, $id);
-                    break;
-                }
+            $cartItem = Cart::instance($this->cart_instance)->get($product_id);
+            if ($cartItem) {
+                $this->updateTax($cartItem->rowId, $cartItem->id, $id);
             }
         }
     }
@@ -228,6 +220,37 @@ class ProductCart extends Component
             ->orderByDesc('is_default')
             ->orderBy('name')
             ->get();
+    }
+
+    private function normalizeTaxId(mixed $taxId): ?int
+    {
+        if ($taxId === null || $taxId === '' || blank($taxId)) {
+            return null;
+        }
+
+        return is_numeric($taxId) ? (int) $taxId : null;
+    }
+
+    private function resolvePersistedProductTax($cartItem): ?int
+    {
+        $storedTaxId = $this->normalizeTaxId($cartItem->options->get('product_tax'));
+        if ($storedTaxId !== null) {
+            return $storedTaxId;
+        }
+
+        return $this->normalizeTaxId($this->product_tax[$cartItem->id] ?? null);
+    }
+
+    private function syncProductTaxState($cartItem, mixed $taxId = null): ?int
+    {
+        $resolvedTaxId = $this->normalizeTaxId($taxId);
+        if ($resolvedTaxId === null) {
+            $resolvedTaxId = $this->resolvePersistedProductTax($cartItem);
+        }
+
+        $this->product_tax[$cartItem->id] = $resolvedTaxId;
+
+        return $resolvedTaxId;
     }
 
     private function reconcileMissingPkpTaxesInCart(): void
@@ -486,7 +509,7 @@ class ProductCart extends Component
             $this->unit_price[$product_id] ?? $cart_item->price,
             $this->quantity[$product_id],
             $cart_item->options->product_discount ?? 0,
-            $this->product_tax[$product_id] ?? null
+            $this->syncProductTaxState($cart_item)
         );
 
         $this->quantityBreakdowns[$product_id] = $this->calculateConversionBreakdown(
@@ -627,7 +650,7 @@ class ProductCart extends Component
             $adjusted_price,
             $quantity,
             $discount_amount,
-            $this->product_tax[$product_id] ?? null
+            $this->syncProductTaxState($cart_item)
         );
 
         Cart::instance($this->cart_instance)->update($row_id, [
@@ -666,7 +689,7 @@ class ProductCart extends Component
             $new_price,
             $cart_item->qty,
             $discount_amount ?? 0,
-            $this->product_tax[$product_id] ?? null
+            $this->syncProductTaxState($cart_item)
         );
 
         // Update cart item
@@ -757,7 +780,7 @@ class ProductCart extends Component
         }
 
         // Normalize the explicit selected value so this handler does not depend on deferred state.
-        $tax_id = blank($selectedTaxId) ? null : (is_numeric($selectedTaxId) ? (int) $selectedTaxId : null);
+        $tax_id = $this->normalizeTaxId($selectedTaxId);
         $this->product_tax[$product_id] = $tax_id;
 
         // Initialize tax amount and validate the tax ID
@@ -825,7 +848,7 @@ class ProductCart extends Component
             $price = $cart_item->price;
             $quantity = $cart_item->qty;
             $discount = $cart_item->options->product_discount ?? 0;
-            $tax_id = $this->product_tax[$product_id] ?? null;
+            $tax_id = $this->syncProductTaxState($cart_item);
 
             // Calculate subtotal and tax using the helper function
             $calculated = $this->calculateSubtotalAndTax($price, $quantity, $discount, $tax_id);
@@ -836,6 +859,7 @@ class ProductCart extends Component
                     'product_tax' => $tax_id,
                     'sub_total' => $calculated['sub_total'],
                     'sub_total_before_tax' => $calculated['sub_total_before_tax'],
+                    'product_tax_amount' => $calculated['product_tax_amount'],
                 ]),
             ]);
 

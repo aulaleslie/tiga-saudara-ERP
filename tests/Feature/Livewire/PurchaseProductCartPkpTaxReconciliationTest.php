@@ -18,6 +18,7 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
     use RefreshDatabase;
 
     protected Product $product;
+    protected Product $secondProduct;
     protected Setting $setting;
 
     protected function setUp(): void
@@ -53,6 +54,16 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
         $this->product = Product::create([
             'product_name' => 'Recon Product',
             'product_code' => 'RECON-001',
+            'product_quantity' => 20,
+            'setting_id' => $this->setting->id,
+            'product_cost' => 1000,
+            'product_price' => 1200,
+            'product_unit' => 'pcs',
+        ]);
+
+        $this->secondProduct = Product::create([
+            'product_name' => 'Recon Product Two',
+            'product_code' => 'RECON-002',
             'product_quantity' => 20,
             'setting_id' => $this->setting->id,
             'product_cost' => 1000,
@@ -186,11 +197,76 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
         $this->assertEqualsWithDelta(900.9009, (float) $cartItem->options->sub_total_before_tax, 0.0001);
     }
 
+    public function test_mixed_pkp_purchase_rows_persist_independent_default_and_non_default_tax_selections(): void
+    {
+        $defaultTax = Tax::create([
+            'name' => 'PPN Default',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $specialTax = Tax::create([
+            'name' => 'PPN Special',
+            'value' => 12,
+            'is_default' => false,
+        ]);
+
+        $firstRowId = $this->seedCartRowForProduct($this->product, null);
+        $secondRowId = $this->seedCartRowForProduct($this->secondProduct, null);
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->call('updateTax', $firstRowId, $this->product->id, (string) $defaultTax->id)
+            ->call('updateTax', $secondRowId, $this->secondProduct->id, (string) $specialTax->id)
+            ->assertSet('product_tax.' . $this->product->id, $defaultTax->id)
+            ->assertSet('product_tax.' . $this->secondProduct->id, $specialTax->id);
+
+        $cartItems = Cart::instance('purchase')->content()->keyBy('id');
+
+        $this->assertSame($defaultTax->id, (int) $cartItems[$this->product->id]->options->product_tax);
+        $this->assertSame($specialTax->id, (int) $cartItems[$this->secondProduct->id]->options->product_tax);
+    }
+
+    public function test_tax_included_toggle_preserves_mixed_pkp_purchase_row_tax_selections(): void
+    {
+        $defaultTax = Tax::create([
+            'name' => 'PPN Default',
+            'value' => 11,
+            'is_default' => true,
+        ]);
+
+        $specialTax = Tax::create([
+            'name' => 'PPN Special',
+            'value' => 12,
+            'is_default' => false,
+        ]);
+
+        $firstRowId = $this->seedCartRowForProduct($this->product, null);
+        $secondRowId = $this->seedCartRowForProduct($this->secondProduct, null);
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->call('updateTax', $firstRowId, $this->product->id, (string) $defaultTax->id)
+            ->call('updateTax', $secondRowId, $this->secondProduct->id, (string) $specialTax->id)
+            ->set('is_tax_included', false)
+            ->call('handleTaxIncluded')
+            ->set('is_tax_included', true)
+            ->call('handleTaxIncluded');
+
+        $cartItems = Cart::instance('purchase')->content()->keyBy('id');
+
+        $this->assertSame($defaultTax->id, (int) $cartItems[$this->product->id]->options->product_tax);
+        $this->assertSame($specialTax->id, (int) $cartItems[$this->secondProduct->id]->options->product_tax);
+    }
+
     private function seedCartRow(?int $productTaxId): void
     {
-        Cart::instance('purchase')->add([
-            'id' => $this->product->id,
-            'name' => $this->product->product_name,
+        $this->seedCartRowForProduct($this->product, $productTaxId);
+    }
+
+    private function seedCartRowForProduct(Product $product, ?int $productTaxId): string
+    {
+        return Cart::instance('purchase')->add([
+            'id' => $product->id,
+            'name' => $product->product_name,
             'qty' => 1,
             'price' => 1000,
             'weight' => 1,
@@ -198,9 +274,9 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
                 'sub_total' => 1000,
                 'sub_total_before_tax' => 1000,
                 'product_tax_amount' => 0,
-                'code' => $this->product->product_code,
-                'stock' => $this->product->product_quantity,
-                'unit' => $this->product->product_unit,
+                'code' => $product->product_code,
+                'stock' => $product->product_quantity,
+                'unit' => $product->product_unit,
                 'unit_price' => 1000,
                 'product_tax' => $productTaxId,
                 'product_discount' => 0,
@@ -209,6 +285,6 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
                 'last_purchase_price' => 1000,
                 'average_purchase_price' => 1000,
             ],
-        ]);
+        ])->rowId;
     }
 }

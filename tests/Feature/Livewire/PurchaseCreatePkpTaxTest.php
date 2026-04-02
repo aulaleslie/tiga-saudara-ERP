@@ -3,6 +3,7 @@
 namespace Tests\Feature\Livewire;
 
 use App\Livewire\Purchase\CreateForm;
+use App\Livewire\Purchase\ProductCart;
 use App\Models\User;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -11,6 +12,7 @@ use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
 use Tests\TestCase;
 
 class PurchaseCreatePkpTaxTest extends TestCase
@@ -20,6 +22,7 @@ class PurchaseCreatePkpTaxTest extends TestCase
     protected $setting;
     protected $pkpSetting;
     protected $product;
+    protected $secondProduct;
     protected $supplier;
     protected $codTerm;
 
@@ -46,6 +49,10 @@ class PurchaseCreatePkpTaxTest extends TestCase
 
         $this->product = Product::create([
             'product_name' => 'Test Product', 'product_code' => 'TP001', 'product_quantity' => 10, 'setting_id' => $this->pkpSetting->id, 'product_cost' => 1000, 'product_price' => 1200, 'product_unit' => 'pcs',
+        ]);
+
+        $this->secondProduct = Product::create([
+            'product_name' => 'Test Product Two', 'product_code' => 'TP002', 'product_quantity' => 10, 'setting_id' => $this->pkpSetting->id, 'product_cost' => 1000, 'product_price' => 1200, 'product_unit' => 'pcs',
         ]);
 
         $this->supplier = Supplier::factory()->create(['setting_id' => $this->pkpSetting->id, 'payment_term_id' => $this->codTerm->id]);
@@ -148,5 +155,71 @@ class PurchaseCreatePkpTaxTest extends TestCase
             ->assertRedirect(route('purchases.index'));
             
         $this->assertDatabaseCount('purchases', 1);
+    }
+
+    public function test_pkp_submit_accepts_mixed_row_tax_persistence_after_tax_included_toggle(): void
+    {
+        session(['setting_id' => $this->pkpSetting->id]);
+
+        $defaultTax = Tax::create(['name' => 'PPN Default', 'value' => 11, 'is_default' => true]);
+        $specialTax = Tax::create(['name' => 'PPN Special', 'value' => 12, 'is_default' => false]);
+
+        $createForm = Livewire::test(CreateForm::class, ['idempotencyToken' => 'token-mixed-pkp']);
+
+        $firstRowId = $this->seedPurchaseCartRow($this->product, null);
+        $secondRowId = $this->seedPurchaseCartRow($this->secondProduct, null);
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->call('updateTax', $firstRowId, $this->product->id, (string) $defaultTax->id)
+            ->call('updateTax', $secondRowId, $this->secondProduct->id, (string) $specialTax->id)
+            ->set('is_tax_included', false)
+            ->call('handleTaxIncluded')
+            ->set('is_tax_included', true)
+            ->call('handleTaxIncluded');
+
+        $createForm
+            ->set('supplier_id', $this->supplier->id)
+            ->set('payment_term', $this->codTerm->id)
+            ->call('submit')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('purchases.index'));
+
+        $purchase = \Modules\Purchase\Entities\Purchase::latest('id')->with('purchaseDetails')->first();
+
+        $this->assertNotNull($purchase);
+        $this->assertDatabaseHas('purchase_details', [
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->product->id,
+            'tax_id' => $defaultTax->id,
+        ]);
+        $this->assertDatabaseHas('purchase_details', [
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->secondProduct->id,
+            'tax_id' => $specialTax->id,
+        ]);
+    }
+
+    private function seedPurchaseCartRow(Product $product, ?int $productTaxId): string
+    {
+        return Cart::instance('purchase')->add([
+            'id' => $product->id,
+            'name' => $product->product_name,
+            'qty' => 1,
+            'price' => 1000,
+            'weight' => 1,
+            'options' => [
+                'sub_total' => 1000,
+                'sub_total_before_tax' => 1000,
+                'product_tax_amount' => 0,
+                'code' => $product->product_code,
+                'product_tax' => $productTaxId,
+                'unit_price' => 1000,
+                'product_discount_type' => 'fixed',
+                'product_discount' => 0,
+                'product_discount_input' => 0,
+                'stock' => $product->product_quantity,
+                'unit' => $product->product_unit,
+            ],
+        ])->rowId;
     }
 }
