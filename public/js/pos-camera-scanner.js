@@ -1092,6 +1092,7 @@ window.PosCameraScanner = (function () {
         }
 
         searchInput.value = value;
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
         searchInput.focus();
     }
 
